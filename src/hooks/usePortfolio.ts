@@ -7,7 +7,8 @@ export const usePortfolioSummary = () => {
     return useQuery<PortfolioData, Error>({
         queryKey: ['portfolioSummary'],
         queryFn: fetchPortfolioSummary,
-        staleTime: 5 * 60 * 1000, // 5 minutes
+        refetchInterval: 1000,
+        staleTime: 0,
     });
 };
 
@@ -16,7 +17,8 @@ export const useHoldings = () => {
     return useQuery<Holding[], Error>({
         queryKey: ['holdings'],
         queryFn: fetchHoldings,
-        staleTime: 5 * 60 * 1000, // 5 minutes
+        refetchInterval: 1000,
+        staleTime: 0,
     });
 };
 
@@ -25,6 +27,7 @@ export const useRecentTrades = () => {
     return useQuery<Trade[], Error>({
         queryKey: ['recentTrades'],
         queryFn: fetchRecentTrades,
-        staleTime: 5 * 60 * 1000, // 5 minutes
+        refetchInterval: 5000, // Trades update less frequently, kept at 5s to save some quota
+        staleTime: 0,
     });
 };

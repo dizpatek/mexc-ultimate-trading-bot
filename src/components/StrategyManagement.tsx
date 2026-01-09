@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { Play, Pause, Plus, Trash2, Edit2, Activity, Settings2 } from 'lucide-react';
+import { Play, Pause, Plus, Trash2, Activity, Settings2 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 
@@ -17,6 +17,8 @@ interface Strategy {
 export const StrategyManagement = () => {
     const queryClient = useQueryClient();
     const [isAddingMode, setIsAddingMode] = useState(false);
+    const [showWebhookInfo, setShowWebhookInfo] = useState(false);
+    const [newStrategy, setNewStrategy] = useState({ name: '', symbol: 'BTCUSDT', type: 'RSI' });
 
     const { data: strategies, isLoading, isError } = useQuery<Strategy[]>({
         queryKey: ['strategies'],
@@ -53,6 +55,19 @@ export const StrategyManagement = () => {
         }
     });
 
+    const createMutation = useMutation({
+        mutationFn: async (data: any) => {
+            const token = localStorage.getItem('token');
+            return axios.post('/api/strategies', data, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['strategies'] });
+            setIsAddingMode(false);
+        }
+    });
+
     if (isLoading) return <div className="stat-card animate-pulse h-64 flex items-center justify-center">Loading strategies...</div>;
 
     return (
@@ -62,13 +77,114 @@ export const StrategyManagement = () => {
                     <h2 className="text-2xl font-bold">Trading Phases (Strategies)</h2>
                     <p className="text-muted-foreground">Manage your automated trading loops and active bot phases.</p>
                 </div>
-                <button
-                    onClick={() => setIsAddingMode(true)}
-                    className="btn-primary flex items-center gap-2"
-                >
-                    <Plus className="w-4 h-4" /> New Strategy
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => setShowWebhookInfo(!showWebhookInfo)}
+                        className="btn-outline flex items-center gap-2"
+                    >
+                        <Settings2 className="w-4 h-4" /> Webhook Setup
+                    </button>
+                    <button
+                        onClick={() => setIsAddingMode(true)}
+                        className="btn-primary flex items-center gap-2"
+                    >
+                        <Plus className="w-4 h-4" /> New Strategy
+                    </button>
+                </div>
             </div>
+
+            {showWebhookInfo && (
+                <div className="bg-card border border-border rounded-xl p-6 shadow-sm animate-in fade-in zoom-in-95 duration-200">
+                    <div className="flex justify-between items-start mb-4">
+                        <div>
+                            <h3 className="text-lg font-semibold flex items-center gap-2">
+                                <Activity className="w-5 h-5 text-primary" />
+                                TradingView Webhook Integration
+                            </h3>
+                            <p className="text-sm text-muted-foreground mt-1">
+                                Use these details to trigger trades directly from your TradingView alerts.
+                            </p>
+                        </div>
+                        <button onClick={() => setShowWebhookInfo(false)} className="text-muted-foreground hover:text-foreground">
+                            <Trash2 className="w-4 h-4" />
+                        </button>
+                    </div>
+
+                    <div className="grid md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                            <label className="text-xs font-semibold uppercase text-muted-foreground">Webhook URL</label>
+                            <div className="bg-muted p-3 rounded-lg font-mono text-sm break-all">
+                                https://mexc-ultimate-trading-bot.vercel.app/api/webhook
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-xs font-semibold uppercase text-muted-foreground">Secret Key</label>
+                            <div className="bg-muted p-3 rounded-lg font-mono text-sm">
+                                {process.env.NEXT_PUBLIC_WEBHOOK_SECRET || 'Check .env file (WEBHOOK_SECRET)'}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="mt-4 space-y-2">
+                        <label className="text-xs font-semibold uppercase text-muted-foreground">Example Payload (JSON)</label>
+                        <pre className="bg-muted p-4 rounded-lg font-mono text-xs overflow-x-auto text-foreground">
+                            {`{
+  "secret": "YOUR_SECRET_KEY",
+  "symbol": "BTCUSDT",
+  "signal": "buy",  // or "sell"
+  "risk": 0.01      // 1% of balance
+}`}
+                        </pre>
+                    </div>
+                </div>
+            )}
+
+            {isAddingMode && (
+                <div className="bg-card border border-border rounded-xl p-6 shadow-sm mb-6">
+                    <h3 className="text-lg font-semibold mb-4">Create New Strategy</h3>
+                    <div className="grid md:grid-cols-3 gap-4 mb-4">
+                        <input
+                            type="text"
+                            placeholder="Strategy Name"
+                            className="input-field"
+                            value={newStrategy.name}
+                            onChange={e => setNewStrategy({ ...newStrategy, name: e.target.value })}
+                        />
+                        <select
+                            className="input-field"
+                            value={newStrategy.symbol}
+                            onChange={e => setNewStrategy({ ...newStrategy, symbol: e.target.value })}
+                        >
+                            <option value="BTCUSDT">BTC/USDT</option>
+                            <option value="ETHUSDT">ETH/USDT</option>
+                            <option value="SOLUSDT">SOL/USDT</option>
+                        </select>
+                        <select
+                            className="input-field"
+                            value={newStrategy.type}
+                            onChange={e => setNewStrategy({ ...newStrategy, type: e.target.value })}
+                        >
+                            <option value="RSI">RSI Reversal</option>
+                            <option value="MACD">MACD Crossover</option>
+                            <option value="MA_CROSS">Moving Average Cross</option>
+                        </select>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                        <button onClick={() => setIsAddingMode(false)} className="btn-outline">Cancel</button>
+                        <button
+                            onClick={() => createMutation.mutate({
+                                name: newStrategy.name,
+                                symbol: newStrategy.symbol,
+                                strategy_type: newStrategy.type,
+                                parameters: {}
+                            })}
+                            className="btn-primary"
+                        >
+                            Create Strategy
+                        </button>
+                    </div>
+                </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {strategies?.map((strategy) => (
@@ -89,9 +205,6 @@ export const StrategyManagement = () => {
                                 </div>
                             </div>
                             <div className="flex gap-1">
-                                <button className="p-2 hover:bg-muted rounded-md transition-colors text-muted-foreground hover:text-foreground">
-                                    <Settings2 className="w-4 h-4" />
-                                </button>
                                 <button
                                     onClick={() => deleteMutation.mutate(strategy.id)}
                                     className="p-2 hover:bg-destructive/10 rounded-md transition-colors text-muted-foreground hover:text-destructive"
@@ -103,12 +216,10 @@ export const StrategyManagement = () => {
 
                         <div className="space-y-3 mb-6">
                             <div className="flex justify-between items-center text-sm">
-                                <span className="text-muted-foreground">Indicators</span>
-                                <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded">RSI(14), MACD</span>
-                            </div>
-                            <div className="flex justify-between items-center text-sm">
-                                <span className="text-muted-foreground">Last Signal</span>
-                                <span className="text-green-500 font-medium">BUY (2h ago)</span>
+                                <span className="text-muted-foreground">Status</span>
+                                <span className={`font-medium ${strategy.active ? 'text-green-500' : 'text-yellow-500'}`}>
+                                    {strategy.active ? 'Running' : 'Paused'}
+                                </span>
                             </div>
                         </div>
 
@@ -116,18 +227,15 @@ export const StrategyManagement = () => {
                             <button
                                 onClick={() => toggleMutation.mutate(strategy)}
                                 className={`flex-1 py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition-all ${strategy.active
-                                        ? 'bg-yellow-500/10 text-yellow-600 hover:bg-yellow-500/20'
-                                        : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                                    ? 'bg-yellow-500/10 text-yellow-600 hover:bg-yellow-500/20'
+                                    : 'bg-primary text-primary-foreground hover:bg-primary/90'
                                     }`}
                             >
                                 {strategy.active ? (
-                                    <><Pause className="w-4 h-4" /> Pause Loop</>
+                                    <><Pause className="w-4 h-4" /> Stop</>
                                 ) : (
-                                    <><Play className="w-4 h-4" /> Start Loop</>
+                                    <><Play className="w-4 h-4" /> Start</>
                                 )}
-                            </button>
-                            <button className="px-3 py-2 border border-border rounded-lg hover:bg-muted transition-colors">
-                                <Edit2 className="w-4 h-4" />
                             </button>
                         </div>
                     </div>

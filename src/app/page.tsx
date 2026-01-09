@@ -14,6 +14,7 @@ import { RecentTrades } from '@/components/RecentTrades';
 
 import { StrategyManagement } from '@/components/StrategyManagement';
 import { F3Monitor } from '@/components/F3Monitor';
+import { TradingViewChart } from '@/components/TradingViewChart';
 
 export default function Dashboard() {
   const { user, loading } = useAuth();
@@ -52,6 +53,8 @@ export default function Dashboard() {
         <StrategyManagement />
 
         <F3Monitor />
+
+        <TradingViewChart />
 
         <MarketOverview />
 

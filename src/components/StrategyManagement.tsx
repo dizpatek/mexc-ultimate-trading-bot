@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Play, Pause, Plus, Trash2, Activity, Settings2 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
+import { useHoldings } from '../hooks/usePortfolio';
 
 interface Strategy {
     id: number;
@@ -19,6 +20,8 @@ export const StrategyManagement = () => {
     const [isAddingMode, setIsAddingMode] = useState(false);
     const [showWebhookInfo, setShowWebhookInfo] = useState(false);
     const [newStrategy, setNewStrategy] = useState({ name: '', symbol: 'BTCUSDT', type: 'RSI' });
+
+    const { data: holdings } = useHoldings();
 
     const { data: strategies, isLoading, isError } = useQuery<Strategy[]>({
         queryKey: ['strategies'],
@@ -155,9 +158,19 @@ export const StrategyManagement = () => {
                             value={newStrategy.symbol}
                             onChange={e => setNewStrategy({ ...newStrategy, symbol: e.target.value })}
                         >
-                            <option value="BTCUSDT">BTC/USDT</option>
-                            <option value="ETHUSDT">ETH/USDT</option>
-                            <option value="SOLUSDT">SOL/USDT</option>
+                            {holdings && holdings.length > 0 ? (
+                                holdings.map((h: any) => (
+                                    <option key={h.symbol} value={`${h.symbol}USDT`}>
+                                        {h.symbol}/USDT
+                                    </option>
+                                ))
+                            ) : (
+                                <>
+                                    <option value="BTCUSDT">BTC/USDT</option>
+                                    <option value="ETHUSDT">ETH/USDT</option>
+                                    <option value="SOLUSDT">SOL/USDT</option>
+                                </>
+                            )}
                         </select>
                         <select
                             className="input-field"

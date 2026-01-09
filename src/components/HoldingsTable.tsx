@@ -75,12 +75,14 @@ export const HoldingsTable = () => {
                                     <div className="flex items-center">
                                         <div className="w-10 h-10 mr-3 flex-shrink-0">
                                             <img
-                                                src={`https://assets.coincap.io/assets/icons/${holding.symbol.toLowerCase()}@2x.png`}
+                                                src={`https://api.iconify.design/cryptocurrency-color:${holding.symbol.toLowerCase()}.svg`}
                                                 alt={holding.symbol}
                                                 className="w-10 h-10 rounded-full"
                                                 onError={(e) => {
-                                                    e.currentTarget.style.display = 'none';
-                                                    e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                                    // Fallback to generic icon if specific one fails
+                                                    const target = e.currentTarget;
+                                                    target.style.display = 'none';
+                                                    target.nextElementSibling?.classList.remove('hidden');
                                                 }}
                                             />
                                             <div className="bg-primary w-10 h-10 rounded-full flex items-center justify-center hidden">

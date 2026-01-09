@@ -111,12 +111,13 @@ export const MarketOverview = () => {
                                     <td className="px-4 py-4 whitespace-nowrap">
                                         <div className="flex items-center">
                                             <img
-                                                src={`https://assets.coincap.io/assets/icons/${asset.symbol.split('/')[0].toLowerCase()}@2x.png`}
+                                                src={`https://api.iconify.design/cryptocurrency-color:${asset.symbol.split('/')[0].toLowerCase()}.svg`}
                                                 alt={asset.symbol}
                                                 className="w-8 h-8 rounded-full mr-3"
                                                 onError={(e) => {
-                                                    e.currentTarget.style.display = 'none';
-                                                    e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                                    const target = e.currentTarget;
+                                                    target.style.display = 'none';
+                                                    target.nextElementSibling?.classList.remove('hidden');
                                                 }}
                                             />
                                             <div className="bg-primary w-8 h-8 rounded-full flex items-center justify-center mr-3 hidden">

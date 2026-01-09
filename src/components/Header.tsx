@@ -3,6 +3,7 @@
 import { Moon, Sun, Wallet, Bell, Settings, LogOut } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { PanicButton } from './PanicButton';
 
 export const Header = () => {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -29,6 +30,8 @@ export const Header = () => {
                 </div>
 
                 <div className="flex items-center space-x-4">
+                    <PanicButton />
+
                     <button
                         onClick={toggleTheme}
                         className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"

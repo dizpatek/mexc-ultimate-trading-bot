@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
-import { getAccountInfo, getPrice } from '@/lib/mexc';
+import { getAccountInfo, getPrice, get24hrTicker } from '@/lib/mexc';
 import { getSessionUser } from '@/lib/auth-utils';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
     try {
@@ -11,56 +13,73 @@ export async function GET(request: Request) {
 
         const accountInfo = await getAccountInfo();
 
-        const btcPrice = await getPrice('BTCUSDT').catch(() => 0);
-        const ethPrice = await getPrice('ETHUSDT').catch(() => 0);
-        const bnbPrice = await getPrice('BNBUSDT').catch(() => 0);
-        const solPrice = await getPrice('SOLUSDT').catch(() => 0);
+        // Filter for non-zero balances
+        const activeBalances = accountInfo.balances.filter(
+            b => parseFloat(b.free) + parseFloat(b.locked) > 0
+        );
 
-        const prices: Record<string, { price: number; name: string }> = {
-            'BTC': { price: btcPrice, name: 'Bitcoin' },
-            'ETH': { price: ethPrice, name: 'Ethereum' },
-            'BNB': { price: bnbPrice, name: 'Binance Coin' },
-            'SOL': { price: solPrice, name: 'Solana' },
-            'USDT': { price: 1, name: 'Tether' },
-            'USDC': { price: 1, name: 'USD Coin' }
-        };
+        const holdingsPromises = activeBalances.map(async (balance, index) => {
+            const free = parseFloat(balance.free);
+            const locked = parseFloat(balance.locked);
+            const total = free + locked;
+            const symbol = balance.asset;
 
-        const holdings = accountInfo.balances
-            .filter(balance => (parseFloat(balance.free) + parseFloat(balance.locked)) > 0)
-            .map((balance, index) => {
-                const free = parseFloat(balance.free);
-                const locked = parseFloat(balance.locked);
-                const total = free + locked;
-                const symbol = balance.asset;
-                const priceInfo = prices[symbol];
-                const price = priceInfo ? priceInfo.price : 0;
-                const name = priceInfo ? priceInfo.name : symbol;
-                const value = total * price;
+            // Determine pair for price fetching (default to USDT)
+            // If the asset IS USDT, price is 1.
+            let price = 0;
+            let change24h = 0;
+            let pair = `${symbol}USDT`;
 
-                const change24h = (Math.random() * 10) - 5;
+            if (symbol === 'USDT' || symbol === 'USDC') {
+                price = 1;
+                change24h = 0;
+            } else {
+                try {
+                    // Fetch real current price
+                    price = await getPrice(pair);
 
-                return {
-                    id: String(index + 1),
-                    symbol,
-                    name,
-                    price,
-                    change24h,
-                    holding: total,
-                    value,
-                    allocation: 0
-                };
-            });
+                    // Fetch real 24h ticker info
+                    // Note: get24hrTicker might return an object or fail if pair doesn't exist
+                    const ticker = await get24hrTicker(pair);
 
-        const totalValue = holdings.reduce((sum, holding) => sum + holding.value, 0);
+                    if (ticker && ticker.priceChangePercent) {
+                        change24h = parseFloat(ticker.priceChangePercent);
+                    }
+                } catch (e) {
+                    console.warn(`Could not fetch market data for ${pair}`, e);
+                    // Fallback: price 0 if not found (maybe delisted or different pair suffix)
+                }
+            }
 
-        const holdingsWithAllocation = holdings.map(holding => ({
+            const value = total * price;
+
+            return {
+                id: String(index + 1),
+                symbol,
+                name: symbol, // Could fetch full names, but symbol is fine for now
+                price,
+                change24h,
+                holding: total,
+                value,
+                allocation: 0
+            };
+        });
+
+        const holdings = await Promise.all(holdingsPromises);
+
+        // Sort by value descending
+        const sortedHoldings = holdings.sort((a, b) => b.value - a.value);
+
+        const totalValue = sortedHoldings.reduce((sum, h) => sum + h.value, 0);
+
+        const holdingsWithAllocation = sortedHoldings.map(holding => ({
             ...holding,
             allocation: totalValue > 0 ? (holding.value / totalValue) * 100 : 0
         }));
 
         return NextResponse.json(holdingsWithAllocation);
     } catch (error: any) {
-        console.error('Error fetching holdings:', error);
+        console.error('Error fetching real holdings:', error);
         return NextResponse.json({ error: 'Failed to fetch holdings' }, { status: 500 });
     }
 }

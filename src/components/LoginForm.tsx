@@ -1,10 +1,12 @@
 "use client";
 
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '../hooks/useAuth';
 import { Wallet, Mail, Lock, User, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 
 const LoginForm: React.FC = () => {
+    const router = useRouter();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [isLogin, setIsLogin] = useState(true);
@@ -27,7 +29,9 @@ const LoginForm: React.FC = () => {
                 success = await register(username, email, password);
             }
 
-            if (!success) {
+            if (success) {
+                router.push('/');
+            } else {
                 setError(isLogin ? 'Geçersiz e-posta veya şifre' : 'Kayıt başarısız oldu');
             }
         } catch (err) {

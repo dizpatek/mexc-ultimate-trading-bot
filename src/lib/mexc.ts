@@ -107,17 +107,49 @@ export async function getPrice(symbol: string): Promise<number> {
     }
 }
 
-export async function get24hrTicker(symbol: string) {
+export interface TickerData {
+    symbol: string;
+    priceChange: string;
+    priceChangePercent: string;
+    prevClosePrice: string;
+    lastPrice: string;
+    bidPrice: string;
+    bidQty: string;
+    askPrice: string;
+    askQty: string;
+    openPrice: string;
+    highPrice: string;
+    lowPrice: string;
+    volume: string;
+    quoteVolume: string;
+    openTime: number;
+    closeTime: number;
+    count: number;
+}
+
+export async function get24hrTicker(symbol: string): Promise<TickerData> {
     try {
-        return await publicGet('/api/v3/ticker/24hr', { symbol });
+        return await publicGet<TickerData>('/api/v3/ticker/24hr', { symbol });
     } catch (e) {
         return {
-            priceChange: '120.5',
-            priceChangePercent: '2.5',
-            lastPrice: '95120.50',
-            volume: '1500',
-            quoteVolume: '145000000'
-        }
+            symbol,
+            priceChange: '0',
+            priceChangePercent: '0',
+            prevClosePrice: '0',
+            lastPrice: '0',
+            bidPrice: '0',
+            bidQty: '0',
+            askPrice: '0',
+            askQty: '0',
+            openPrice: '0',
+            highPrice: '0',
+            lowPrice: '0',
+            volume: '0',
+            quoteVolume: '0',
+            openTime: 0,
+            closeTime: 0,
+            count: 0
+        };
     }
 }
 

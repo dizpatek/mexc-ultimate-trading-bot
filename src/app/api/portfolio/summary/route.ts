@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
-import { getAccountInfo, getPrice } from '@/lib/mexc';
+import { getAccountInfo, getPrice, get24hrTicker } from '@/lib/mexc';
 import { getSessionUser } from '@/lib/auth-utils';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
     try {
@@ -9,58 +11,73 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        // Get real data from MEXC API
         const accountInfo = await getAccountInfo();
 
-        // Calculate total portfolio value and assets count
-        let totalValue = 0;
+        const activeBalances = accountInfo.balances.filter(
+            b => parseFloat(b.free) + parseFloat(b.locked) > 0
+        );
+
+        let totalValueCurrent = 0;
+        let totalValue24hAgo = 0;
         let assetsCount = 0;
 
-        // Get prices for major cryptocurrencies
-        const btcPrice = await getPrice('BTCUSDT').catch(() => 0);
-        const ethPrice = await getPrice('ETHUSDT').catch(() => 0);
-        const bnbPrice = await getPrice('BNBUSDT').catch(() => 0);
-        const solPrice = await getPrice('SOLUSDT').catch(() => 0);
-
-        // Map of symbols to prices for calculation
-        const prices: Record<string, number> = {
-            'BTC': btcPrice,
-            'ETH': ethPrice,
-            'BNB': bnbPrice,
-            'SOL': solPrice,
-            'USDT': 1,
-            'USDC': 1
-        };
-
-        // Calculate total value and count assets
-        for (const balance of accountInfo.balances) {
+        const assetPromises = activeBalances.map(async (balance) => {
             const free = parseFloat(balance.free);
             const locked = parseFloat(balance.locked);
-            const total = free + locked;
+            const totalQty = free + locked;
+            const symbol = balance.asset;
 
-            if (total > 0) {
-                assetsCount++;
+            let priceCurrent = 0;
+            let changePercent = 0;
+            let pair = `${symbol}USDT`;
 
-                const symbol = balance.asset;
-                const price = prices[symbol];
-                if (price) {
-                    totalValue += total * price;
+            if (symbol === 'USDT' || symbol === 'USDC') {
+                priceCurrent = 1;
+                changePercent = 0;
+            } else {
+                try {
+                    priceCurrent = await getPrice(pair);
+                    const ticker = await get24hrTicker(pair);
+
+                    if (ticker && ticker.priceChangePercent) {
+                        changePercent = parseFloat(ticker.priceChangePercent);
+                    }
+                } catch (e) {
+                    // console.warn(`Skipping price for ${pair}`);
                 }
+            }
+
+            const valueCurrent = totalQty * priceCurrent;
+            // Calculate price 24h ago: price / (1 + pct/100)
+            const price24hAgo = priceCurrent / (1 + (changePercent / 100));
+            const value24hAgo = totalQty * price24hAgo;
+
+            return { valueCurrent, value24hAgo };
+        });
+
+        const assetResults = await Promise.all(assetPromises);
+
+        for (const result of assetResults) {
+            if (result.valueCurrent > 0) {
+                totalValueCurrent += result.valueCurrent;
+                totalValue24hAgo += result.value24hAgo;
+                assetsCount++;
             }
         }
 
-        // Mock 24h change for now
-        const change24h = totalValue * 0.02;
-        const changePercentage = 2.0;
+        const change24hValue = totalValueCurrent - totalValue24hAgo;
+        const changePercentage = totalValue24hAgo > 0
+            ? ((change24hValue / totalValue24hAgo) * 100)
+            : 0;
 
         return NextResponse.json({
-            totalValue,
-            change24h,
-            changePercentage,
+            totalValue: totalValueCurrent,
+            change24h: change24hValue,
+            changePercentage: changePercentage,
             assets: assetsCount
         });
     } catch (error: any) {
-        console.error('Error fetching portfolio summary:', error);
+        console.error('Error fetching real portfolio summary:', error);
         return NextResponse.json({ error: 'Failed to fetch portfolio summary' }, { status: 500 });
     }
 }

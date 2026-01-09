@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getStrategyById, updateStrategy, deleteStrategy } from '@/lib/db';
 import { getSessionUser } from '@/lib/auth-utils';
 
-export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
     try {
         const { id } = await params;
         const user = await getSessionUser(request);

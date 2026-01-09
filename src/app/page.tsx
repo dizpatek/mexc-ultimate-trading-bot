@@ -12,6 +12,9 @@ import { TradeForm } from '@/components/TradeForm';
 import { HoldingsTable } from '@/components/HoldingsTable';
 import { RecentTrades } from '@/components/RecentTrades';
 
+import { AutopilotPanel } from '@/components/AutopilotPanel';
+import { StrategyManagement } from '@/components/StrategyManagement';
+
 export default function Dashboard() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -39,9 +42,15 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Header />
-      <main className="container mx-auto px-4 py-8 space-y-8">
+      <main className="container mx-auto px-4 py-8 space-y-12">
         <PortfolioSummary />
+
+        <AutopilotPanel />
+
+        <StrategyManagement />
+
         <MarketOverview />
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2">
             <PortfolioChart />
@@ -50,7 +59,9 @@ export default function Dashboard() {
             <NewsSection />
           </div>
         </div>
+
         <TradeForm />
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="lg:col-span-2">
             <HoldingsTable />

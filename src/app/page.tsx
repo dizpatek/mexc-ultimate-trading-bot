@@ -12,7 +12,6 @@ import { TradeForm } from '@/components/TradeForm';
 import { HoldingsTable } from '@/components/HoldingsTable';
 import { RecentTrades } from '@/components/RecentTrades';
 
-import { AutopilotPanel } from '@/components/AutopilotPanel';
 import { StrategyManagement } from '@/components/StrategyManagement';
 
 export default function Dashboard() {
@@ -44,8 +43,6 @@ export default function Dashboard() {
       <Header />
       <main className="container mx-auto px-4 py-8 space-y-12">
         <PortfolioSummary />
-
-        <AutopilotPanel />
 
         <StrategyManagement />
 

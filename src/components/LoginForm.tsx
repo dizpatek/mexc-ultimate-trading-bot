@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { Wallet, Mail, Lock, User, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 
 const LoginForm: React.FC = () => {
     const [email, setEmail] = useState('');
@@ -27,91 +28,131 @@ const LoginForm: React.FC = () => {
             }
 
             if (!success) {
-                setError(isLogin ? 'Invalid email or password' : 'Registration failed');
+                setError(isLogin ? 'Geçersiz e-posta veya şifre' : 'Kayıt başarısız oldu');
             }
-        } catch {
-            setError('An error occurred');
+        } catch (err) {
+            setError('Bir hata oluştu. Lütfen tekrar deneyin.');
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
-            <div className="max-w-md w-full space-y-8">
-                <div>
-                    <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-                        {isLogin ? 'Sign in to your account' : 'Create your account'}
-                    </h2>
-                </div>
-                <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-                    <div className="rounded-md shadow-sm -space-y-px">
-                        {!isLogin && (
-                            <div>
-                                <input
-                                    id="username"
-                                    name="username"
-                                    type="text"
-                                    required
-                                    className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                                    placeholder="Username"
-                                    value={username}
-                                    onChange={(e) => setUsername(e.target.value)}
-                                />
-                            </div>
-                        )}
-                        <div>
-                            <input
-                                id="email"
-                                name="email"
-                                type="email"
-                                required
-                                className={`appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 ${isLogin ? 'rounded-t-md' : ''} focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm`}
-                                placeholder="Email address"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                            />
+        <div className="min-h-screen flex items-center justify-center bg-background relative overflow-hidden">
+            {/* Background Decorations */}
+            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/10 rounded-full blur-[120px]" />
+            <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary/10 rounded-full blur-[120px]" />
+
+            <div className="max-w-md w-full mx-4 py-12">
+                <div className="stat-card backdrop-blur-md bg-card/80 border-primary/20 p-8 shadow-2xl relative">
+                    <div className="flex flex-col items-center mb-10">
+                        <div className="bg-primary text-primary-foreground p-4 rounded-2xl shadow-lg shadow-primary/20 mb-6">
+                            <Wallet className="w-10 h-10" />
                         </div>
-                        <div>
-                            <input
-                                id="password"
-                                name="password"
-                                type="password"
-                                required
-                                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                                placeholder="Password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                            />
-                        </div>
+                        <h1 className="text-3xl font-bold tracking-tight text-foreground">MEXC Ultimate</h1>
+                        <p className="text-muted-foreground mt-2 text-center">
+                            {isLogin
+                                ? 'Yatırımlarınızı yönetmek için giriş yapın'
+                                : 'Yeni bir hesap oluşturarak otomasyona başlayın'}
+                        </p>
                     </div>
 
-                    {error && (
-                        <div className="text-red-600 text-sm text-center">
-                            {error}
-                        </div>
-                    )}
+                    <form className="space-y-5" onSubmit={handleSubmit}>
+                        {!isLogin && (
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-muted-foreground ml-1">Kullanıcı Adı</label>
+                                <div className="relative group">
+                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-muted-foreground group-focus-within:text-primary transition-colors">
+                                        <User className="h-5 w-5" />
+                                    </div>
+                                    <input
+                                        type="text"
+                                        required
+                                        className="input-field w-full pl-10 focus:ring-primary/50"
+                                        placeholder="Kullanıcı adınız"
+                                        value={username}
+                                        onChange={(e) => setUsername(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                        )}
 
-                    <div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-muted-foreground ml-1">E-posta</label>
+                            <div className="relative group">
+                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-muted-foreground group-focus-within:text-primary transition-colors">
+                                    <Mail className="h-5 w-5" />
+                                </div>
+                                <input
+                                    type="email"
+                                    required
+                                    className="input-field w-full pl-10 focus:ring-primary/50"
+                                    placeholder="ornek@mail.com"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-muted-foreground ml-1">Şifre</label>
+                            <div className="relative group">
+                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-muted-foreground group-focus-within:text-primary transition-colors">
+                                    <Lock className="h-5 w-5" />
+                                </div>
+                                <input
+                                    type="password"
+                                    required
+                                    className="input-field w-full pl-10 focus:ring-primary/50"
+                                    placeholder="••••••••"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                />
+                            </div>
+                        </div>
+
+                        {error && (
+                            <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm font-medium animate-in fade-in slide-in-from-top-1">
+                                <AlertCircle className="h-4 w-4 shrink-0" />
+                                {error}
+                            </div>
+                        )}
+
                         <button
                             type="submit"
                             disabled={loading}
-                            className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+                            className={`btn-primary w-full py-3 flex items-center justify-center gap-2 text-base shadow-lg shadow-primary/20 ${loading ? 'opacity-80' : 'hover:scale-[1.02] active:scale-[0.98]'} transition-all duration-200`}
                         >
-                            {loading ? 'Please wait...' : (isLogin ? 'Sign in' : 'Sign up')}
+                            {loading ? (
+                                <>
+                                    <Loader2 className="h-5 w-5 animate-spin" />
+                                    Bağlanılıyor...
+                                </>
+                            ) : (
+                                <>
+                                    {isLogin ? 'Giriş Yap' : 'Kayıt Ol'}
+                                    <ArrowRight className="h-5 w-5" />
+                                </>
+                            )}
                         </button>
-                    </div>
 
-                    <div className="text-center">
-                        <button
-                            type="button"
-                            onClick={() => setIsLogin(!isLogin)}
-                            className="text-indigo-600 hover:text-indigo-500"
-                        >
-                            {isLogin ? 'Need an account? Sign up' : 'Already have an account? Sign in'}
-                        </button>
-                    </div>
-                </form>
+                        <div className="pt-4 text-center">
+                            <button
+                                type="button"
+                                onClick={() => setIsLogin(!isLogin)}
+                                className="text-sm text-muted-foreground hover:text-primary transition-colors font-medium border-b border-transparent hover:border-primary pb-0.5"
+                            >
+                                {isLogin
+                                    ? 'Hesabınız yok mu? Hemen kayıt olun'
+                                    : 'Zaten bir hesabınız var mı? Giriş yapın'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <p className="text-center text-xs text-muted-foreground mt-8">
+                    &copy; 2026 MexC Ultimate Trading Bot. Tüm hakları saklıdır.
+                </p>
             </div>
         </div>
     );

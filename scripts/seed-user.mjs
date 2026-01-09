@@ -1,5 +1,5 @@
 import { sql } from '@vercel/postgres';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import 'dotenv/config';
 
 async function seedUser() {

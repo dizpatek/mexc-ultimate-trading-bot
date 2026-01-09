@@ -13,6 +13,7 @@ import { HoldingsTable } from '@/components/HoldingsTable';
 import { RecentTrades } from '@/components/RecentTrades';
 
 import { StrategyManagement } from '@/components/StrategyManagement';
+import { F3Monitor } from '@/components/F3Monitor';
 
 export default function Dashboard() {
   const { user, loading } = useAuth();
@@ -49,6 +50,8 @@ export default function Dashboard() {
         </div>
 
         <StrategyManagement />
+
+        <F3Monitor />
 
         <MarketOverview />
 

@@ -73,8 +73,19 @@ export const HoldingsTable = () => {
                             <tr key={holding.id} className="table-row">
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <div className="flex items-center">
-                                        <div className="bg-primary w-10 h-10 rounded-full flex items-center justify-center mr-3">
-                                            <span className="text-sm font-bold text-primary-foreground">{holding.symbol.substring(0, 2)}</span>
+                                        <div className="w-10 h-10 mr-3 flex-shrink-0">
+                                            <img
+                                                src={`https://assets.coincap.io/assets/icons/${holding.symbol.toLowerCase()}@2x.png`}
+                                                alt={holding.symbol}
+                                                className="w-10 h-10 rounded-full"
+                                                onError={(e) => {
+                                                    e.currentTarget.style.display = 'none';
+                                                    e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                                }}
+                                            />
+                                            <div className="bg-primary w-10 h-10 rounded-full flex items-center justify-center hidden">
+                                                <span className="text-sm font-bold text-primary-foreground">{holding.symbol.substring(0, 2)}</span>
+                                            </div>
                                         </div>
                                         <div>
                                             <div className="text-sm font-medium">{holding.symbol}</div>

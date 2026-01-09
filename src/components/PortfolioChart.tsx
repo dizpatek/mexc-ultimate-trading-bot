@@ -1,42 +1,46 @@
 "use client";
 
 import React, { useState } from 'react';
-import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
+import {
+    XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+    Area, ComposedChart, Bar, Cell
+} from 'recharts';
 
-// Mock data for portfolio performance - in a real app, this would come from an API
+// Mock data with Value and Daily Change
 const performanceData = [
-    { date: 'Jan 1', value: 10000 },
-    { date: 'Jan 5', value: 12000 },
-    { date: 'Jan 10', value: 11500 },
-    { date: 'Jan 15', value: 13000 },
-    { date: 'Jan 20', value: 12500 },
-    { date: 'Jan 25', value: 14000 },
-    { date: 'Jan 30', value: 13500 },
-    { date: 'Feb 1', value: 15000 },
-    { date: 'Feb 5', value: 14500 },
-    { date: 'Feb 10', value: 16000 },
-    { date: 'Feb 15', value: 15500 },
-    { date: 'Feb 20', value: 17000 },
-    { date: 'Feb 25', value: 16500 },
-    { date: 'Mar 1', value: 18000 },
+    { date: '10:00', value: 10000, change: 0 },
+    { date: '12:00', value: 10200, change: 200 },
+    { date: '14:00', value: 10100, change: -100 },
+    { date: '16:00', value: 10350, change: 250 },
+    { date: '18:00', value: 10300, change: -50 },
+    { date: '20:00', value: 10450, change: 150 },
+    { date: '22:00', value: 10600, change: 150 },
+    { date: '00:00', value: 10550, change: -50 },
+    { date: '02:00', value: 10700, change: 150 },
+    { date: '04:00', value: 10650, change: -50 },
+    { date: '06:00', value: 10800, change: 150 },
+    { date: '08:00', value: 10900, change: 100 },
 ];
 
 export const PortfolioChart = () => {
-    const [timeframe, setTimeframe] = useState('1M');
+    const [timeframe, setTimeframe] = useState('24S');
 
-    const timeframes = ['1D', '1W', '1M', '3M', '1Y', 'All'];
+    const timeframes = ['24S', '7G', '30G', '90G'];
 
     return (
         <div className="portfolio-container p-6">
             <div className="flex justify-between items-center mb-6">
-                <h2 className="text-lg font-semibold">Portfolio Performance</h2>
-                <div className="flex space-x-2">
+                <div>
+                    <h2 className="text-lg font-semibold">Portföy Performansı</h2>
+                    <p className="text-xs text-muted-foreground">Değer ve Günlük Değişim</p>
+                </div>
+                <div className="flex space-x-1 bg-secondary/30 p-1 rounded-lg">
                     {timeframes.map((frame) => (
                         <button
                             key={frame}
-                            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${timeframe === frame
-                                    ? 'btn-primary'
-                                    : 'btn-outline'
+                            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${timeframe === frame
+                                ? 'bg-primary text-primary-foreground shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
                                 }`}
                             onClick={() => setTimeframe(frame)}
                         >
@@ -48,50 +52,79 @@ export const PortfolioChart = () => {
 
             <div className="h-80">
                 <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart
+                    <ComposedChart
                         data={performanceData}
                         margin={{
                             top: 10,
-                            right: 30,
+                            right: 0,
                             left: 0,
                             bottom: 0,
                         }}
                     >
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <defs>
+                            <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
+                                <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                            </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                         <XAxis
                             dataKey="date"
                             stroke="hsl(var(--muted-foreground))"
-                            fontSize={12}
+                            fontSize={11}
+                            tickLine={false}
+                            axisLine={false}
                         />
                         <YAxis
+                            yAxisId="left"
                             stroke="hsl(var(--muted-foreground))"
-                            fontSize={12}
+                            fontSize={11}
                             tickFormatter={(value) => `$${value.toLocaleString()}`}
+                            tickLine={false}
+                            axisLine={false}
+                            domain={['auto', 'auto']}
+                        />
+                        <YAxis
+                            yAxisId="right"
+                            orientation="right"
+                            stroke="hsl(var(--muted-foreground))"
+                            fontSize={11}
+                            tickFormatter={(value) => `${value > 0 ? '+' : ''}${value}`}
+                            tickLine={false}
+                            axisLine={false}
+                            hide
                         />
                         <Tooltip
                             contentStyle={{
                                 backgroundColor: 'hsl(var(--background))',
                                 borderColor: 'hsl(var(--border))',
                                 borderRadius: '0.5rem',
-                                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
                             }}
-                            formatter={(value) => [`$${Number(value).toLocaleString()}`, 'Value']}
                             labelStyle={{ color: 'hsl(var(--foreground))' }}
                         />
+
+                        {/* Area for Total Value */}
                         <Area
+                            yAxisId="left"
                             type="monotone"
                             dataKey="value"
+                            name="Toplam Değer"
                             stroke="hsl(var(--primary))"
-                            fill="url(#colorUv)"
+                            fill="url(#colorValue)"
                             strokeWidth={2}
                         />
-                        <defs>
-                            <linearGradient id="colorUv" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8} />
-                                <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.1} />
-                            </linearGradient>
-                        </defs>
-                    </AreaChart>
+
+                        {/* Bars for Rise/Fall (Change) */}
+                        <Bar yAxisId="right" dataKey="change" name="Değişim" barSize={10} radius={[2, 2, 0, 0]}>
+                            {performanceData.map((entry, index) => (
+                                <Cell
+                                    key={`cell-${index}`}
+                                    fill={entry.change >= 0 ? '#10B981' : '#EF4444'}
+                                    fillOpacity={0.8}
+                                />
+                            ))}
+                        </Bar>
+                    </ComposedChart>
                 </ResponsiveContainer>
             </div>
         </div>

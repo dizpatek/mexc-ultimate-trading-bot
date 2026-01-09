@@ -44,6 +44,10 @@ export default function Dashboard() {
       <main className="container mx-auto px-4 py-8 space-y-12">
         <PortfolioSummary />
 
+        <div className="grid grid-cols-1">
+          <HoldingsTable />
+        </div>
+
         <StrategyManagement />
 
         <MarketOverview />
@@ -59,13 +63,8 @@ export default function Dashboard() {
 
         <TradeForm />
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="lg:col-span-2">
-            <HoldingsTable />
-          </div>
-          <div className="lg:col-span-2">
-            <RecentTrades />
-          </div>
+        <div className="grid grid-cols-1">
+          <RecentTrades />
         </div>
       </main>
     </div>

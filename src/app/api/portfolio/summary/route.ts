@@ -13,6 +13,10 @@ export async function GET(request: Request) {
 
         const accountInfo = await getAccountInfo();
 
+        // Detect if we are in mock mode (accountInfo might return mock data logic)
+        // Ideally we check env vars but this runs in runtime
+        const isMock = !process.env.MEXC_KEY || !process.env.MEXC_SECRET;
+
         const activeBalances = accountInfo.balances.filter(
             b => parseFloat(b.free) + parseFloat(b.locked) > 0
         );
@@ -74,7 +78,8 @@ export async function GET(request: Request) {
             totalValue: totalValueCurrent,
             change24h: change24hValue,
             changePercentage: changePercentage,
-            assets: assetsCount
+            assets: assetsCount,
+            isMock
         });
     } catch (error: any) {
         console.error('Error fetching real portfolio summary:', error);

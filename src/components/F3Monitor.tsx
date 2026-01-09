@@ -20,10 +20,11 @@ export const F3Monitor = () => {
     const [error, setError] = useState(false);
     const [selectedSymbols, setSelectedSymbols] = useState<string[]>(DEFAULT_SYMBOLS);
 
-    const fetchF3Signals = async () => {
-        setLoading(true);
+    const fetchF3Signals = async (showLoading = true) => {
+        if (showLoading) setLoading(true);
         try {
-            const results: Record<string, F3Signal> = {};
+            // Keep existing signals to avoid flashing
+            const results: Record<string, F3Signal> = { ...signals };
 
             await Promise.all(
                 selectedSymbols.map(async (symbol) => {
@@ -32,6 +33,7 @@ export const F3Monitor = () => {
                         results[symbol] = response.data;
                     } catch (err) {
                         console.error(`Failed to fetch F3 for ${symbol}:`, err);
+                        // We keep the old signal if fetch fails
                     }
                 })
             );
@@ -40,17 +42,18 @@ export const F3Monitor = () => {
             setError(false);
         } catch (err) {
             console.error('Failed to fetch F3 signals:', err);
+            // Don't clear signals on error to prevent flashing
             setError(true);
         } finally {
-            setLoading(false);
+            if (showLoading) setLoading(false);
         }
     };
 
     useEffect(() => {
-        fetchF3Signals();
+        fetchF3Signals(true);
 
-        // Refresh every 60 seconds
-        const interval = setInterval(fetchF3Signals, 60000);
+        // Refresh every 60 seconds without full loading spinner
+        const interval = setInterval(() => fetchF3Signals(false), 60000);
         return () => clearInterval(interval);
     }, [selectedSymbols]);
 
@@ -67,7 +70,7 @@ export const F3Monitor = () => {
                     </div>
                 </div>
                 <button
-                    onClick={fetchF3Signals}
+                    onClick={() => fetchF3Signals(true)}
                     className="p-2 hover:bg-muted rounded-full transition-colors"
                     title="Refresh"
                 >
@@ -75,7 +78,7 @@ export const F3Monitor = () => {
                 </button>
             </div>
 
-            {error ? (
+            {error && Object.keys(signals).length === 0 ? (
                 <div className="flex items-center justify-center py-12 text-destructive">
                     <AlertCircle className="w-5 h-5 mr-2" />
                     <span>Failed to load F3 signals</span>

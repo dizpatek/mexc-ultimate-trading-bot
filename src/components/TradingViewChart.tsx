@@ -9,7 +9,17 @@ export const TradingViewChart = () => {
     const chartRef = useRef<IChartApi | null>(null);
     const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [timeframe, setTimeframe] = useState('1d'); // 1h, 4h, 1d
+    const [timeframe, setTimeframe] = useState('1d'); // Default
+
+    useEffect(() => {
+        const saved = localStorage.getItem('chart_timeframe');
+        if (saved) setTimeframe(saved);
+    }, []);
+
+    const handleTimeframeChange = (tf: string) => {
+        setTimeframe(tf);
+        localStorage.setItem('chart_timeframe', tf);
+    };
 
     // Mock data generator for TOTAL3 if API not available
     // In real app, we would fetch from CryptoCompare or CoinGecko charts
@@ -108,7 +118,7 @@ export const TradingViewChart = () => {
                     {['1h', '4h', '1d'].map((tf) => (
                         <button
                             key={tf}
-                            onClick={() => setTimeframe(tf)}
+                            onClick={() => handleTimeframeChange(tf)}
                             className={`px-3 py-1 text-xs rounded transition-colors ${timeframe === tf ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'
                                 }`}
                         >

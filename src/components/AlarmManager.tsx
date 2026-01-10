@@ -171,7 +171,7 @@ export const AlarmManager = () => {
                                     <h4 className="font-bold flex items-center gap-2">
                                         {alarm.symbol}
                                         <span className="text-xs font-normal text-muted-foreground px-2 py-0.5 bg-muted rounded">
-                                            {alarm.condition_type.replace('_', ' ')}
+                                            {alarm.condition_type?.replace('_', ' ')}
                                         </span>
                                     </h4>
                                     <p className="text-xs text-muted-foreground font-mono">

@@ -13,7 +13,7 @@ interface KlineData {
     volume: string;
 }
 
-async function fetchKlineData(symbol: string, interval: string = '1h', limit: number = 100): Promise<any[]> {
+async function fetchKlineData(symbol: string, interval: string = '60m', limit: number = 100): Promise<any[]> {
     try {
         const response = await axios.get(`https://api.mexc.com/api/v3/klines`, {
             params: {
@@ -42,7 +42,7 @@ export async function GET(request: Request) {
         const { searchParams } = new URL(request.url);
         const rawSymbol = searchParams.get('symbol') || 'BTCUSDT';
         const symbol = rawSymbol.toUpperCase(); // Force uppercase for MEXC API
-        const interval = searchParams.get('interval') || '1h';
+        const interval = searchParams.get('interval') || '60m';
         const fullData = searchParams.get('full') === 'true';
 
         console.log(`[F3-API] Fetching data for ${symbol} (${interval})`);

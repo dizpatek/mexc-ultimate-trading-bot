@@ -29,7 +29,7 @@ export const F3Monitor = () => {
             await Promise.all(
                 selectedSymbols.map(async (symbol) => {
                     try {
-                        const response = await api.get(`/indicators/f3?symbol=${symbol}&interval=1h`);
+                        const response = await api.get(`/indicators/f3?symbol=${symbol}&interval=60m`);
                         results[symbol] = response.data;
                     } catch (err) {
                         console.error(`Failed to fetch F3 for ${symbol}:`, err);
@@ -104,20 +104,20 @@ export const F3Monitor = () => {
                             <div
                                 key={symbol}
                                 className={`border rounded-lg p-4 transition-all ${isPositive ? 'border-green-500/50 bg-green-500/5' :
-                                        isNegative ? 'border-red-500/50 bg-red-500/5' :
-                                            'border-border'
+                                    isNegative ? 'border-red-500/50 bg-red-500/5' :
+                                        'border-border'
                                     }`}
                             >
                                 <div className="flex justify-between items-start mb-3">
                                     <div>
                                         <h3 className="font-semibold">{symbol.replace('USDT', '/USDT')}</h3>
                                         <p className="text-xs text-muted-foreground">
-                                            {new Date(signal.timestamp).toLocaleTimeString()}
+                                            {signal.timestamp ? new Date(signal.timestamp).toLocaleTimeString() : '--:--'}
                                         </p>
                                     </div>
                                     {signal.signal !== 'NEUTRAL' && (
                                         <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${isPositive ? 'bg-green-500/20 text-green-600' :
-                                                'bg-red-500/20 text-red-600'
+                                            'bg-red-500/20 text-red-600'
                                             }`}>
                                             {isPositive ? (
                                                 <><TrendingUp className="w-3 h-3" /> BUY</>
@@ -131,11 +131,11 @@ export const F3Monitor = () => {
                                 <div className="space-y-2">
                                     <div className="flex justify-between text-sm">
                                         <span className="text-muted-foreground">F3:</span>
-                                        <span className="font-mono">{signal.f3.toFixed(4)}</span>
+                                        <span className="font-mono">{typeof signal.f3 === 'number' ? signal.f3.toFixed(4) : 'N/A'}</span>
                                     </div>
                                     <div className="flex justify-between text-sm">
                                         <span className="text-muted-foreground">F3 Fibo:</span>
-                                        <span className="font-mono">{signal.f3Fibo.toFixed(4)}</span>
+                                        <span className="font-mono">{typeof signal.f3Fibo === 'number' ? signal.f3Fibo.toFixed(4) : 'N/A'}</span>
                                     </div>
                                 </div>
                             </div>

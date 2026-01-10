@@ -62,6 +62,8 @@ export async function DELETE(req: Request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
+        await ensureTablesExist();
+
         const { searchParams } = new URL(req.url);
         const id = searchParams.get('id');
 

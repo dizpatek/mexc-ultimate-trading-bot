@@ -1,6 +1,7 @@
 import { F3 } from './indicators/f3-indicator';
 import { getKlines } from './mexc';
 import { sql } from '@vercel/postgres';
+import { executePanicSell } from './panic-service';
 
 interface Alarm {
     id: number;
@@ -9,6 +10,19 @@ interface Alarm {
     condition_type: 'BUY_SIGNAL' | 'SELL_SIGNAL' | 'PRICE_ABOVE' | 'PRICE_BELOW';
     action_type: 'NOTIFY' | 'TRADE' | 'PANIC_SELL';
     parameters?: any;
+}
+
+// Helper to map raw MEXC klines to OHLCData
+function mapToOHLC(rawKlines: any[]): any[] {
+    // MEXC kline structure: [time, open, high, low, close, vol, ...]
+    return rawKlines.map(k => ({
+        timestamp: k[0],
+        open: parseFloat(k[1]),
+        high: parseFloat(k[2]),
+        low: parseFloat(k[3]),
+        close: parseFloat(k[4]),
+        volume: parseFloat(k[5])
+    }));
 }
 
 export async function checkAlarms() {
@@ -43,17 +57,19 @@ async function processSymbolAlarms(symbol: string, alarms: Alarm[]) {
     try {
         // 2. Fetch OHLC Data
         // Default to 1h interval for now as per F3 standard
-        const klines = await getKlines(symbol, '60m');
-        if (!klines || klines.length < 200) {
+        const rawKlines: any[] = await getKlines(symbol, '60m');
+        if (!rawKlines || rawKlines.length < 200) {
             console.warn(`[AlarmEngine] Insufficient data for ${symbol}`);
             return;
         }
 
+        const ohlcData = mapToOHLC(rawKlines);
+
         // 3. Calculate Indicator (F3)
-        const { f3, f3Fibo, buySignal, sellSignal } = F3(klines);
+        const { f3, f3Fibo, buySignal, sellSignal } = F3(ohlcData);
 
         // Log latest values
-        const latestPrice = parseFloat(klines[klines.length - 1].close);
+        const latestPrice = ohlcData[ohlcData.length - 1].close;
         console.log(`[AlarmEngine] ${symbol}: Price=${latestPrice}, Buy=${buySignal}, Sell=${sellSignal}`);
 
         // 4. Check Conditions
@@ -65,7 +81,6 @@ async function processSymbolAlarms(symbol: string, alarms: Alarm[]) {
             } else if (alarm.condition_type === 'SELL_SIGNAL' && sellSignal) {
                 triggered = true;
             }
-            // Future: Price alerts
 
             if (triggered) {
                 await executeAlarmAction(alarm, latestPrice);
@@ -81,21 +96,24 @@ async function executeAlarmAction(alarm: Alarm, price: number) {
     console.log(`[AlarmEngine] 🚨 ALARM TRIGGERED: ${alarm.symbol} ${alarm.condition_type}`);
 
     try {
-        // Log trigger
-        await sql`
-            INSERT INTO alarm_logs (alarm_id, triggered_at, signal_value, action_result, success)
-            VALUES (${alarm.id}, ${Date.now()}, ${price}, '{"status": "triggered"}', true)
-        `;
+        let actionResult: any = { status: 'triggered' };
 
         // Execute Action
         if (alarm.action_type === 'PANIC_SELL') {
-            // In a real implementation this would call the /api/panic/sell-all 
-            // logic or similar internal function. 
-            // For now we log it.
-            console.log(`[AlarmEngine] EXECUTING PANIC SELL FOR ${alarm.symbol}`);
+            console.log(`[AlarmEngine] EXECUTING PANIC SELL FOR USER ${alarm.user_id}`);
+            // Execute actual panic logic
+            const panicResult = await executePanicSell(alarm.user_id);
+            actionResult = { ...actionResult, ...panicResult };
         } else if (alarm.action_type === 'TRADE') {
             console.log(`[AlarmEngine] EXECUTING AUTO TRADE FOR ${alarm.symbol}`);
+            // Auto-trade logic pending (Phase 6)
         }
+
+        // Log trigger
+        await sql`
+            INSERT INTO alarm_logs (alarm_id, triggered_at, signal_value, action_result, success)
+            VALUES (${alarm.id}, ${Date.now()}, ${price}, ${JSON.stringify(actionResult)}, true)
+        `;
 
         // Update last triggered
         await sql`

@@ -242,7 +242,8 @@ export async function getExchangeInfo(symbol: string | null = null) {
 }
 
 export async function getKlines(symbol: string, interval: string = '1h', limit: number = 100) {
-    const params = { symbol, interval, limit };
+    const symbolUpper = symbol.toUpperCase();
+    const params = { symbol: symbolUpper, interval, limit };
     return publicGet<any[][]>('/api/v3/klines', params);
 }
 

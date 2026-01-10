@@ -40,9 +40,12 @@ async function fetchKlineData(symbol: string, interval: string = '1h', limit: nu
 export async function GET(request: Request) {
     try {
         const { searchParams } = new URL(request.url);
-        const symbol = searchParams.get('symbol') || 'BTCUSDT';
+        const rawSymbol = searchParams.get('symbol') || 'BTCUSDT';
+        const symbol = rawSymbol.toUpperCase(); // Force uppercase for MEXC API
         const interval = searchParams.get('interval') || '1h';
         const fullData = searchParams.get('full') === 'true';
+
+        console.log(`[F3-API] Fetching data for ${symbol} (${interval})`);
 
         // Fetch OHLC data from MEXC
         const klineData = await fetchKlineData(symbol, interval, fullData ? 200 : 100);
@@ -82,10 +85,12 @@ export async function GET(request: Request) {
         }
 
     } catch (error: any) {
-        console.error('F3 API error:', error);
+        const errorMsg = error.response?.data?.msg || error.message;
+        console.error(`[F3-API] Error for ${request.url}:`, errorMsg);
         return NextResponse.json({
             error: 'F3 calculation failed',
-            message: error.message
-        }, { status: 500 });
+            message: errorMsg,
+            details: error.response?.data
+        }, { status: error.response?.status || 500 });
     }
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@vercel/postgres';
 import { getSessionUser } from '@/lib/auth-utils';
+import { ensureTablesExist } from '@/lib/db-init';
 
 export async function GET(req: Request) {
     try {
@@ -8,6 +9,9 @@ export async function GET(req: Request) {
         if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
+
+        // Auto-initialize tables if they don't exist
+        await ensureTablesExist();
 
         const { rows } = await sql`
             SELECT * FROM alarms 
@@ -28,6 +32,8 @@ export async function POST(req: Request) {
         if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
+
+        await ensureTablesExist();
 
         const body = await req.json();
         const { symbol, condition_type, action_type } = body;

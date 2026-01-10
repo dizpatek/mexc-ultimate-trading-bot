@@ -13,6 +13,7 @@ import { HoldingsTable } from '@/components/HoldingsTable';
 import { RecentTrades } from '@/components/RecentTrades';
 
 import { StrategyManagement } from '@/components/StrategyManagement';
+import { AlarmManager } from '@/components/AlarmManager';
 import { F3Monitor } from '@/components/F3Monitor';
 import { TradingViewChart } from '@/components/TradingViewChart';
 
@@ -53,6 +54,8 @@ export default function Dashboard() {
         <StrategyManagement />
 
         <F3Monitor />
+
+        <AlarmManager />
 
         <TradingViewChart />
 

@@ -28,16 +28,19 @@ export const AlarmManager = () => {
     const { data: alarms, isLoading } = useQuery<Alarm[]>({
         queryKey: ['alarms'],
         queryFn: async () => {
+            if (typeof window === 'undefined') return [];
             const token = localStorage.getItem('token');
             const res = await axios.get('/api/alarms', {
                 headers: { Authorization: `Bearer ${token}` }
             });
             return res.data;
-        }
+        },
+        enabled: typeof window !== 'undefined'
     });
 
     const createMutation = useMutation({
         mutationFn: async (data: any) => {
+            if (typeof window === 'undefined') return;
             const token = localStorage.getItem('token');
             return axios.post('/api/alarms', data, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -51,6 +54,7 @@ export const AlarmManager = () => {
 
     const deleteMutation = useMutation({
         mutationFn: async (id: number) => {
+            if (typeof window === 'undefined') return;
             const token = localStorage.getItem('token');
             return axios.delete(`/api/alarms?id=${id}`, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -156,8 +160,8 @@ export const AlarmManager = () => {
                         <div key={alarm.id} className="bg-card border border-border rounded-lg p-4 flex items-center justify-between">
                             <div className="flex items-center gap-4">
                                 <div className={`p-2 rounded-full ${alarm.action_type === 'PANIC_SELL' ? 'bg-red-500/20 text-red-500' :
-                                        alarm.action_type === 'TRADE' ? 'bg-blue-500/20 text-blue-500' :
-                                            'bg-primary/20 text-primary'
+                                    alarm.action_type === 'TRADE' ? 'bg-blue-500/20 text-blue-500' :
+                                        'bg-primary/20 text-primary'
                                     }`}>
                                     {alarm.action_type === 'PANIC_SELL' ? <AlertTriangle className="w-5 h-5" /> :
                                         alarm.action_type === 'TRADE' ? <Zap className="w-5 h-5" /> :

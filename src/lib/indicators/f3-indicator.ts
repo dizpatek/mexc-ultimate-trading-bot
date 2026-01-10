@@ -218,3 +218,24 @@ export function getLatestF3Signal(ohlc: OHLCData[]): {
         timestamp: latest.timestamp
     };
 }
+/**
+ * Helper function for Alarm Engine to get latest indicators easily
+ */
+export function F3(ohlc: OHLCData[]) {
+    if (!ohlc || ohlc.length < 50) {
+        return { f3: 0, f3Fibo: 0, buySignal: false, sellSignal: false };
+    }
+
+    const latest = getLatestF3Signal(ohlc);
+
+    if (!latest) {
+        return { f3: 0, f3Fibo: 0, buySignal: false, sellSignal: false };
+    }
+
+    return {
+        f3: latest.f3,
+        f3Fibo: latest.f3Fibo,
+        buySignal: latest.signal === 'BUY',
+        sellSignal: latest.signal === 'SELL'
+    };
+}

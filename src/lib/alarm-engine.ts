@@ -106,7 +106,20 @@ async function executeAlarmAction(alarm: Alarm, price: number) {
             actionResult = { ...actionResult, ...panicResult };
         } else if (alarm.action_type === 'TRADE') {
             console.log(`[AlarmEngine] EXECUTING AUTO TRADE FOR ${alarm.symbol}`);
-            // Auto-trade logic pending (Phase 6)
+
+            // Simple Auto-Trade Logic (Mock/Simulation Phase)
+            // If BUY_SIGNAL -> Market Buy
+            // If SELL_SIGNAL -> Market Sell
+            const side = alarm.condition_type === 'BUY_SIGNAL' ? 'BUY' : 'SELL';
+
+            // In real scenario: await marketOrder(alarm.symbol, side, quantity...);
+            actionResult = {
+                status: 'simulated_trade',
+                side,
+                symbol: alarm.symbol,
+                price,
+                message: `Would execute ${side} on ${alarm.symbol} at ${price}`
+            };
         }
 
         // Log trigger

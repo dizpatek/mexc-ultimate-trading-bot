@@ -116,6 +116,6 @@ export const PortfolioSummary = () => {
                 </div>
             </div>
         </div>
-        </div >
+
     );
 };

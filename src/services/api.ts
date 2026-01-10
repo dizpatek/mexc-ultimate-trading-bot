@@ -26,6 +26,7 @@ export interface PortfolioData {
     change24h: number;
     changePercentage: number;
     assets: number;
+    isMock?: boolean; // Added warning flag for mock mode
 }
 
 export interface Holding {

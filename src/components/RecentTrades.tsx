@@ -78,8 +78,8 @@ export const RecentTrades = () => {
 
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <span className={`badge ${trade.type === 'buy'
-                                            ? 'badge-success'
-                                            : 'badge-error'
+                                        ? 'badge-success'
+                                        : 'badge-error'
                                         }`}>
                                         {trade.type === 'buy' ? (
                                             <TrendingUp className="h-3 w-3 mr-1" />
@@ -103,15 +103,17 @@ export const RecentTrades = () => {
                                 </td>
 
                                 <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                    {new Date(trade.time).toLocaleString()}
+                                    <span suppressHydrationWarning>
+                                        {new Date(trade.time).toLocaleString()}
+                                    </span>
                                 </td>
 
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <span className={`badge ${trade.status === 'completed'
-                                            ? 'badge-success'
-                                            : trade.status === 'pending'
-                                                ? 'badge-warning'
-                                                : 'badge-error'
+                                        ? 'badge-success'
+                                        : trade.status === 'pending'
+                                            ? 'badge-warning'
+                                            : 'badge-error'
                                         }`}>
                                         {trade.status.charAt(0).toUpperCase() + trade.status.slice(1)}
                                     </span>

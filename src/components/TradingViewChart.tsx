@@ -51,6 +51,9 @@ export const TradingViewChart = () => {
     useEffect(() => {
         if (!chartContainerRef.current) return;
 
+        // Safety check for dimensions to prevent "width(-1)" crashes
+        const width = chartContainerRef.current.clientWidth > 0 ? chartContainerRef.current.clientWidth : 800;
+
         const chart = createChart(chartContainerRef.current, {
             layout: {
                 background: { type: ColorType.Solid, color: 'transparent' },
@@ -60,7 +63,7 @@ export const TradingViewChart = () => {
                 vertLines: { color: 'rgba(42, 46, 57, 0.1)' },
                 horzLines: { color: 'rgba(42, 46, 57, 0.1)' },
             },
-            width: chartContainerRef.current.clientWidth,
+            width: width,
             height: 400,
             crosshair: {
                 mode: CrosshairMode.Normal,

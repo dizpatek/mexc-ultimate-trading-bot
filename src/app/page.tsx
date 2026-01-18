@@ -17,6 +17,8 @@ import { AlarmManager } from '@/components/AlarmManager';
 import { F3Monitor } from '@/components/F3Monitor';
 import { TradingViewChart } from '@/components/TradingViewChart';
 
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+
 export default function Dashboard() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -45,21 +47,33 @@ export default function Dashboard() {
     <div className="min-h-screen bg-background text-foreground">
       <Header />
       <main className="container mx-auto px-4 py-8 space-y-12">
-        <PortfolioSummary />
+        <ErrorBoundary componentName="Portfolio Summary">
+          <PortfolioSummary />
+        </ErrorBoundary>
 
         <div className="grid grid-cols-1">
           <HoldingsTable />
         </div>
 
-        <StrategyManagement />
+        <ErrorBoundary componentName="Strategy Management">
+          <StrategyManagement />
+        </ErrorBoundary>
 
-        <F3Monitor />
+        <ErrorBoundary componentName="F3 Monitor">
+          <F3Monitor />
+        </ErrorBoundary>
 
-        <AlarmManager />
+        <ErrorBoundary componentName="Alarm Manager">
+          <AlarmManager />
+        </ErrorBoundary>
 
-        <TradingViewChart />
+        <ErrorBoundary componentName="TradingView Chart">
+          <TradingViewChart />
+        </ErrorBoundary>
 
-        <MarketOverview />
+        <ErrorBoundary componentName="Market Overview">
+          <MarketOverview />
+        </ErrorBoundary>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2">

@@ -16,7 +16,7 @@ import { AlarmManager } from '@/components/AlarmManager';
 import { F3Monitor } from '@/components/F3Monitor';
 import { TradingViewChart } from '@/components/TradingViewChart';
 import TotalMarketChart from '@/components/TotalMarketChart';
-import { CryptoRankWidget } from '@/components/CryptoRankWidget';
+import CryptoRankWidget from '@/components/CryptoRankWidget';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 

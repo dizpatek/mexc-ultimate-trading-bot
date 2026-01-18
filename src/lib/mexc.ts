@@ -150,6 +150,28 @@ export async function get24hrTicker(symbol: string): Promise<TickerData> {
     }
 }
 
+export async function getTopAssets(limit: number = 20): Promise<TickerData[]> {
+    try {
+        const allTickers = await publicGet<TickerData[]>('/api/v3/ticker/24hr');
+        // Filter for USDT pairs and exclude leveraged tokens (usually contain 3L/3S or clean symbols)
+        const validPairs = allTickers.filter(t =>
+            t.symbol.endsWith('USDT') &&
+            !t.symbol.includes('3L') &&
+            !t.symbol.includes('3S') &&
+            !t.symbol.includes('5L') &&
+            !t.symbol.includes('5S')
+        );
+
+        // Sort by quote volume (value traded) descending
+        validPairs.sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume));
+
+        return validPairs.slice(0, limit);
+    } catch (e) {
+        console.error('Failed to get top assets from MEXC:', e);
+        return [];
+    }
+}
+
 interface Balance {
     asset: string;
     free: string;

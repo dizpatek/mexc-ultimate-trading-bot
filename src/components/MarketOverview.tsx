@@ -169,12 +169,12 @@ export const MarketOverview = () => {
 
             <div className="mt-6 text-center">
                 <a
-                    href="https://cryptorank.io"
+                    href="https://www.mexc.com/markets"
                     target="_blank"
                     rel="noreferrer"
                     className="text-xs text-muted-foreground hover:text-primary transition-colors"
                 >
-                    Powered by CryptoRank
+                    Powered by MEXC Data
                 </a>
             </div>
         </div>

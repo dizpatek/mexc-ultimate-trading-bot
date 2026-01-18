@@ -108,10 +108,7 @@ export const TradingViewChart = () => {
     return (
         <div className="portfolio-container p-6">
             <div className="flex justify-between items-center mb-4">
-                <div className="flex items-center gap-2">
-                    <h2 className="text-lg font-semibold">TOTAL3 (Crypto Market Cap Ex-BTC/ETH)</h2>
-                    <span className="text-xs px-2 py-1 bg-primary/20 text-primary rounded-full">Beta</span>
-                </div>
+                <h2 className="text-lg font-semibold">Market Chart</h2>
                 <div className="flex gap-2">
                     {['1h', '4h', '1d'].map((tf) => (
                         <button

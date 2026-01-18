@@ -15,7 +15,6 @@ import { StrategyManagement } from '@/components/StrategyManagement';
 import { AlarmManager } from '@/components/AlarmManager';
 import { F3Monitor } from '@/components/F3Monitor';
 import { TradingViewChart } from '@/components/TradingViewChart';
-import TotalMarketChart from '@/components/TotalMarketChart';
 import CryptoRankWidget from '@/components/CryptoRankWidget';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -50,10 +49,6 @@ export default function Dashboard() {
       <main className="container mx-auto px-4 py-8 space-y-12">
         <ErrorBoundary componentName="Portfolio Summary">
           <PortfolioSummary />
-        </ErrorBoundary>
-
-        <ErrorBoundary componentName="Market Chart">
-          <TotalMarketChart />
         </ErrorBoundary>
 
         <div className="grid grid-cols-1">

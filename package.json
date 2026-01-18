@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:init": "node scripts/init-db.mjs"
+    "db:init": "node scripts/init-db.mjs",
+    "telegram:start": "python telegram_signal_listener.py",
+    "telegram:dev": "python telegram_signal_listener.py"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.16",

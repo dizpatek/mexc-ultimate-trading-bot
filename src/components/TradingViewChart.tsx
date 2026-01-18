@@ -36,7 +36,7 @@ export const TradingViewChart = () => {
                 const topCoins = response.data.slice(0, 20);
                 const totalMarketCap = topCoins.reduce((sum: number, coin: any) => sum + (coin.marketCap || 0), 0);
                 const avgChange = topCoins.reduce((sum: number, coin: any) => sum + (coin.change24h || 0), 0) / topCoins.length;
-                
+
                 setMarketStats({
                     marketCap: totalMarketCap,
                     change24h: avgChange
@@ -144,44 +144,7 @@ export const TradingViewChart = () => {
 
     return (
         <div className="portfolio-container p-6">
-            <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-4">
-                <div className="flex flex-col gap-2">
-                    <h2 className="text-lg font-semibold">Market Chart</h2>
-                    <div className="flex items-center gap-4 text-sm">
-                        <span className="text-muted-foreground">Market Cap:</span>
-                        <span className="font-semibold">
-                            ${(marketStats.marketCap / 1e12).toFixed(2)}T
-                        </span>
-                        {marketStats.change24h !== 0 && (
-                            <div className={`flex items-center gap-1 ${marketStats.change24h >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                                {marketStats.change24h >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                                <span className="text-xs font-medium">
-                                    {marketStats.change24h >= 0 ? '+' : ''}{marketStats.change24h.toFixed(2)}%
-                                </span>
-                            </div>
-                        )}
-                    </div>
-                </div>
-                <div className="flex gap-2">
-                    {['1h', '4h', '1d'].map((tf) => (
-                        <button
-                            key={tf}
-                            onClick={() => handleTimeframeChange(tf)}
-                            className={`px-3 py-1 text-xs rounded transition-colors ${timeframe === tf ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'
-                                }`}
-                        >
-                            {tf.toUpperCase()}
-                        </button>
-                    ))}
-                    <button
-                        onClick={() => window.location.reload()}
-                        className="px-3 py-1 text-xs rounded transition-colors bg-muted hover:bg-muted/80"
-                        title="Reload chart"
-                    >
-                        <RefreshCw className="h-3 w-3" />
-                    </button>
-                </div>
-            </div>
+
 
             <div className="relative h-[400px] w-full border border-border/50 rounded-lg overflow-hidden">
                 {isLoading && (

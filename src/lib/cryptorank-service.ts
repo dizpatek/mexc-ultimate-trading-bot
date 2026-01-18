@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const CRYPTORANK_API_KEY = process.env.CRYPTORANK_API_KEY || 'a6ea95811d51a85fda8206308aa0b6c435e24c1327191b261776b8bf101a';
-const BASE_URL = 'https://api.cryptorank.io/v1';
+const BASE_URL = 'https://api.cryptorank.io/v2';
 
 // Rate limiting for free tier (100 requests per day)
 let requestCount = 0;
@@ -117,11 +117,15 @@ export interface CryptoRankGlobalStats {
 
 export async function getTopCurrencies(limit: number = 20): Promise<CryptoRankCurrency[]> {
     try {
-        const response = await makeRequest<{ data: CryptoRankCurrency[] }>('/currencies', {
-            limit,
-            convert: 'USD'
+        const response = await axios.get(`${BASE_URL}/coins`, {
+            params: {
+                limit,
+                convert: 'USD',
+                api_key: CRYPTORANK_API_KEY
+            },
+            timeout: 10000
         });
-        return response.data || [];
+        return response.data.data || [];
     } catch (error) {
         console.error('Failed to fetch top currencies:', error);
         return [];
@@ -130,8 +134,13 @@ export async function getTopCurrencies(limit: number = 20): Promise<CryptoRankCu
 
 export async function getGlobalStats(): Promise<CryptoRankGlobalStats | null> {
     try {
-        const response = await makeRequest<{ data: CryptoRankGlobalStats }>('/global');
-        return response.data;
+        const response = await axios.get(`${BASE_URL}/stats`, {
+            params: {
+                api_key: CRYPTORANK_API_KEY
+            },
+            timeout: 10000
+        });
+        return response.data.data;
     } catch (error) {
         console.error('Failed to fetch global stats:', error);
         return null;
@@ -140,11 +149,13 @@ export async function getGlobalStats(): Promise<CryptoRankGlobalStats | null> {
 
 export async function getCurrencyBySymbol(symbol: string): Promise<CryptoRankCurrency | null> {
     try {
-        const response = await makeRequest<{ data: CryptoRankCurrency[] }>('/currencies', {
-            symbols: symbol,
-            convert: 'USD'
+        const response = await axios.get(`${BASE_URL}/coins/${symbol}`, {
+            params: {
+                api_key: CRYPTORANK_API_KEY
+            },
+            timeout: 10000
         });
-        return response.data?.[0] || null;
+        return response.data.data || null;
     } catch (error) {
         console.error(`Failed to fetch currency ${symbol}:`, error);
         return null;

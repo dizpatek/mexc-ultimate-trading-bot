@@ -48,12 +48,13 @@ export const Header = () => {
                         <Bell className="h-5 w-5" />
                     </button>
 
-                    <button
+                    <a
+                        href="/settings"
                         className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors hidden md:block"
                         aria-label="Settings"
                     >
                         <Settings className="h-5 w-5" />
-                    </button>
+                    </a>
 
                     <div className="relative">
                         <button
@@ -79,10 +80,10 @@ export const Header = () => {
                                     <p className="text-sm text-muted-foreground">{user?.email || 'Free Plan'}</p>
                                 </div>
                                 <div className="py-1">
-                                    <button className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center">
+                                    <a href="/settings" className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center">
                                         <Settings className="h-4 w-4 mr-2" />
                                         Settings
-                                    </button>
+                                    </a>
                                     <button
                                         onClick={handleLogout}
                                         className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center"

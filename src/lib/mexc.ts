@@ -2,22 +2,22 @@ import axios from 'axios';
 import crypto from 'crypto';
 import qs from 'qs';
 import https from 'https';
+import { getMexcCredentials } from './settings';
 
-const API_KEY = process.env.MEXC_KEY || '';
-const API_SECRET = process.env.MEXC_SECRET || '';
 const BASE = 'https://api.mexc.com';
 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
-const IS_MOCK_MODE = !API_KEY || !API_SECRET;
-
-if (IS_MOCK_MODE) {
-    console.warn('MEXC_KEY or MEXC_SECRET not found. Running in MOCK MODE.');
+// Helper to get credentials and mock status
+async function getEnv() {
+    const { apiKey, apiSecret } = await getMexcCredentials();
+    const isMock = !apiKey || !apiSecret;
+    return { apiKey, apiSecret, isMock };
 }
 
-function sign(totalParams: string): string {
-    if (!API_SECRET) throw new Error('MEXC_SECRET is not defined');
-    return crypto.createHmac('sha256', API_SECRET).update(totalParams).digest('hex');
+function sign(totalParams: string, secret: string): string {
+    if (!secret) throw new Error('MEXC_SECRET is not defined');
+    return crypto.createHmac('sha256', secret).update(totalParams).digest('hex');
 }
 
 async function publicGet<T>(endpoint: string, params: Record<string, any> = {}): Promise<T> {
@@ -32,24 +32,23 @@ async function publicGet<T>(endpoint: string, params: Record<string, any> = {}):
 }
 
 async function signedGet<T>(endpoint: string, params: Record<string, any> = {}): Promise<T | null> {
-    if (IS_MOCK_MODE) {
+    const { apiKey, apiSecret, isMock } = await getEnv();
+
+    if (isMock) {
         console.log(`[MOCK] Calling ${endpoint} with params:`, params);
         return getMockDataForEndpoint(endpoint);
     }
-
-    // Safety check just in case
-    if (!API_KEY) throw new Error('MEXC_KEY is not defined');
 
     const timestamp = Date.now();
     const recvWindow = 60000;
     const queryParams = { ...params, timestamp, recvWindow };
     const queryString = qs.stringify(queryParams, { encode: false });
-    const signature = sign(queryString);
+    const signature = sign(queryString, apiSecret);
     const url = `${BASE}${endpoint}?${queryString}&signature=${signature}`;
 
     try {
         const res = await axios.get(url, {
-            headers: { 'X-MEXC-APIKEY': API_KEY },
+            headers: { 'X-MEXC-APIKEY': apiKey },
             timeout: 10000,
             httpsAgent
         });
@@ -99,8 +98,6 @@ export async function getPrice(symbol: string): Promise<number> {
         const data = await publicGet<{ price: string }>('/api/v3/ticker/price', { symbol });
         return parseFloat(data.price);
     } catch (e) {
-        // Fallback for mocked environment if public API fails (rate limit etc)
-        // or just return a static price for common pairs
         if (symbol === 'BTCUSDT') return 95000;
         if (symbol === 'ETHUSDT') return 3500;
         return 0;
@@ -171,10 +168,6 @@ interface AccountInfo {
 }
 
 export async function getAccountInfo() {
-    // If signedGet returns null in mock mode (though it shouldn't with correct setup),
-    // we cast it or ensure signedGet handles it.
-    // Our signedGet is typed to return Promise<T | null>, so we should handle potentially null
-    // but the implementation guarantees return for tested endpoints.
     const res = await signedGet<AccountInfo>('/api/v3/account');
     return res as AccountInfo;
 }
@@ -191,7 +184,8 @@ export async function getOpenOrders(symbol: string | null = null) {
 }
 
 export async function cancelOrder(symbol: string, orderId: string) {
-    if (IS_MOCK_MODE) {
+    const { apiKey, apiSecret, isMock } = await getEnv();
+    if (isMock) {
         console.log(`[MOCK] Cancel order ${orderId} for ${symbol}`);
         return { symbol, orderId, status: 'CANCELED' };
     }
@@ -200,12 +194,12 @@ export async function cancelOrder(symbol: string, orderId: string) {
     const recvWindow = 5000;
     const body = { symbol, orderId, timestamp, recvWindow };
     const bodyString = qs.stringify(body, { encode: false });
-    const signature = sign(bodyString);
+    const signature = sign(bodyString, apiSecret);
     const finalBody = `${bodyString}&signature=${signature}`;
 
     const url = `${BASE}/api/v3/order`;
     const res = await axios.delete(url, {
-        headers: { 'X-MEXC-APIKEY': API_KEY, 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: { 'X-MEXC-APIKEY': apiKey, 'Content-Type': 'application/x-www-form-urlencoded' },
         data: finalBody,
         timeout: 10000,
         httpsAgent
@@ -214,7 +208,8 @@ export async function cancelOrder(symbol: string, orderId: string) {
 }
 
 export async function cancelAllOrders(symbol: string) {
-    if (IS_MOCK_MODE) {
+    const { apiKey, apiSecret, isMock } = await getEnv();
+    if (isMock) {
         console.log(`[MOCK] Cancel ALL orders for ${symbol}`);
         return { symbol, status: 'CANCELED' };
     }
@@ -223,12 +218,12 @@ export async function cancelAllOrders(symbol: string) {
     const recvWindow = 5000;
     const body = { symbol, timestamp, recvWindow };
     const bodyString = qs.stringify(body, { encode: false });
-    const signature = sign(bodyString);
+    const signature = sign(bodyString, apiSecret);
     const finalBody = `${bodyString}&signature=${signature}`;
 
     const url = `${BASE}/api/v3/openOrders`;
     const res = await axios.delete(url, {
-        headers: { 'X-MEXC-APIKEY': API_KEY, 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: { 'X-MEXC-APIKEY': apiKey, 'Content-Type': 'application/x-www-form-urlencoded' },
         data: finalBody,
         timeout: 10000,
         httpsAgent
@@ -248,7 +243,8 @@ export async function getKlines(symbol: string, interval: string = '1h', limit: 
 }
 
 export async function postOrder(params: Record<string, any> = {}) {
-    if (IS_MOCK_MODE) {
+    const { apiKey, apiSecret, isMock } = await getEnv();
+    if (isMock) {
         console.log(`[MOCK] POST ORDER:`, params);
         return {
             symbol: params.symbol,
@@ -257,8 +253,8 @@ export async function postOrder(params: Record<string, any> = {}) {
             transactTime: Date.now(),
             price: params.price || 'Market',
             origQty: params.quantity || params.quoteOrderQty,
-            executedQty: params.quantity || params.quoteOrderQty, // Simulate fill
-            cummulativeQuoteQty: '100.0', // dummy
+            executedQty: params.quantity || params.quoteOrderQty,
+            cummulativeQuoteQty: '100.0',
             status: 'FILLED',
             timeInForce: 'GTC',
             type: params.type,
@@ -266,18 +262,17 @@ export async function postOrder(params: Record<string, any> = {}) {
         };
     }
 
-    // params is an object with symbol, side, type, quantity / quoteOrderQty, price, stopPrice, etc.
     const timestamp = Date.now();
     const recvWindow = 5000;
 
     const body = { ...params, timestamp, recvWindow };
     const bodyString = qs.stringify(body, { encode: false });
-    const signature = sign(bodyString);
+    const signature = sign(bodyString, apiSecret);
     const finalBody = `${bodyString}&signature=${signature}`;
 
     const url = `${BASE}/api/v3/order`;
     const headers = {
-        'X-MEXC-APIKEY': API_KEY,
+        'X-MEXC-APIKEY': apiKey,
         'Content-Type': 'application/x-www-form-urlencoded'
     };
 

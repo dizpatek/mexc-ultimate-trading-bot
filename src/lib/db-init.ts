@@ -45,6 +45,16 @@ export async function ensureTablesExist() {
         `;
         console.log('[DB-Init] panic_snapshots table verified');
 
+        // 4. System Settings Table (For API Keys)
+        await sql`
+            CREATE TABLE IF NOT EXISTS system_settings (
+                key VARCHAR(50) PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at BIGINT NOT NULL
+            );
+        `;
+        console.log('[DB-Init] system_settings table verified');
+
         return true;
     } catch (error) {
         console.error('[DB-Init] Error initializing database tables:', error);

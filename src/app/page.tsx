@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { Header } from '@/components/Header';
 import { PortfolioSummary } from '@/components/PortfolioSummary';
-import { MarketOverview } from '@/components/MarketOverview';
 import { PortfolioChart } from '@/components/PortfolioChart';
 import { NewsSection } from '@/components/NewsSection';
 import { TradeForm } from '@/components/TradeForm';
@@ -16,6 +15,8 @@ import { StrategyManagement } from '@/components/StrategyManagement';
 import { AlarmManager } from '@/components/AlarmManager';
 import { F3Monitor } from '@/components/F3Monitor';
 import { TradingViewChart } from '@/components/TradingViewChart';
+import TotalMarketChart from '@/components/TotalMarketChart';
+import { CryptoRankWidget } from '@/components/CryptoRankWidget';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
@@ -51,6 +52,10 @@ export default function Dashboard() {
           <PortfolioSummary />
         </ErrorBoundary>
 
+        <ErrorBoundary componentName="Market Chart">
+          <TotalMarketChart />
+        </ErrorBoundary>
+
         <div className="grid grid-cols-1">
           <HoldingsTable />
         </div>
@@ -71,8 +76,8 @@ export default function Dashboard() {
           <TradingViewChart />
         </ErrorBoundary>
 
-        <ErrorBoundary componentName="Market Overview">
-          <MarketOverview />
+        <ErrorBoundary componentName="Market Watchlist">
+          <CryptoRankWidget />
         </ErrorBoundary>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

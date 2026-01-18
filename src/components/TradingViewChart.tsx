@@ -2,7 +2,16 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createChart, ColorType, CrosshairMode, IChartApi, Time } from 'lightweight-charts';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
+import axios from 'axios';
+
+interface ChartData {
+    time: Time;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+}
 
 export const TradingViewChart = () => {
     const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -10,14 +19,36 @@ export const TradingViewChart = () => {
     const seriesInstanceRef = useRef<any>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [timeframe, setTimeframe] = useState('1d');
+    const [marketStats, setMarketStats] = useState({
+        marketCap: 0,
+        change24h: 0
+    });
 
     const handleTimeframeChange = (tf: string) => {
         setTimeframe(tf);
         localStorage.setItem('chart_timeframe', tf);
     };
 
+    const fetchMarketData = async () => {
+        try {
+            const response = await axios.get('/api/market/overview');
+            if (response.data && response.data.length > 0) {
+                const topCoins = response.data.slice(0, 20);
+                const totalMarketCap = topCoins.reduce((sum: number, coin: any) => sum + (coin.marketCap || 0), 0);
+                const avgChange = topCoins.reduce((sum: number, coin: any) => sum + (coin.change24h || 0), 0) / topCoins.length;
+                
+                setMarketStats({
+                    marketCap: totalMarketCap,
+                    change24h: avgChange
+                });
+            }
+        } catch (error) {
+            console.error('Failed to fetch market data:', error);
+        }
+    };
+
     const generateData = () => {
-        const data = [];
+        const data: ChartData[] = [];
         let time = Math.floor(new Date('2025-01-01').getTime() / 1000);
         let value = 400000000000;
 
@@ -40,6 +71,12 @@ export const TradingViewChart = () => {
         }
         return data;
     };
+
+    useEffect(() => {
+        fetchMarketData();
+        const interval = setInterval(fetchMarketData, 60000);
+        return () => clearInterval(interval);
+    }, []);
 
     useEffect(() => {
         const container = chartContainerRef.current;
@@ -107,8 +144,24 @@ export const TradingViewChart = () => {
 
     return (
         <div className="portfolio-container p-6">
-            <div className="flex justify-between items-center mb-4">
-                <h2 className="text-lg font-semibold">Market Chart</h2>
+            <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-4">
+                <div className="flex flex-col gap-2">
+                    <h2 className="text-lg font-semibold">Market Chart</h2>
+                    <div className="flex items-center gap-4 text-sm">
+                        <span className="text-muted-foreground">Market Cap:</span>
+                        <span className="font-semibold">
+                            ${(marketStats.marketCap / 1e12).toFixed(2)}T
+                        </span>
+                        {marketStats.change24h !== 0 && (
+                            <div className={`flex items-center gap-1 ${marketStats.change24h >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                {marketStats.change24h >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                                <span className="text-xs font-medium">
+                                    {marketStats.change24h >= 0 ? '+' : ''}{marketStats.change24h.toFixed(2)}%
+                                </span>
+                            </div>
+                        )}
+                    </div>
+                </div>
                 <div className="flex gap-2">
                     {['1h', '4h', '1d'].map((tf) => (
                         <button
@@ -139,7 +192,7 @@ export const TradingViewChart = () => {
                 <div ref={chartContainerRef} className="w-full h-full" />
             </div>
             <div className="mt-2 text-xs text-muted-foreground text-center">
-                Chart data is simulated for demonstration. Access to TradingView Advanced Charts requires license.
+                Chart data is simulated for demonstration. Market stats are from CryptoRank API.
             </div>
         </div>
     );

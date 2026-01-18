@@ -2,7 +2,7 @@
 
 import { useEffect, useState, memo } from 'react';
 import { ExternalLink, RefreshCw, TrendingUp, TrendingDown } from "lucide-react";
-import { api } from '@/services/api';
+import axios from 'axios';
 
 interface CryptoRankAsset {
     symbol: string;
@@ -22,11 +22,30 @@ const CryptoRankWidget = () => {
     const fetchData = async () => {
         try {
             setLoading(true);
-            const response = await api.get('/market/overview');
-            setData(response.data);
-            setError(false);
+            
+            const response = await axios.get('/api/market/overview');
+            
+            if (response.data && Array.isArray(response.data)) {
+                const mappedData = response.data.map((coin: any, index: number) => ({
+                    symbol: coin.symbol,
+                    name: coin.symbol.split('/')[0],
+                    price: coin.price,
+                    change24h: coin.change24h,
+                    volume: coin.volume,
+                    rank: coin.rank || index + 1,
+                    marketCap: coin.marketCap || 0
+                }));
+                setData(mappedData);
+                setError(false);
+            } else if (response.data.error) {
+                console.error('API returned error:', response.data.error);
+                setError(true);
+            } else {
+                setData([]);
+                setError(false);
+            }
         } catch (err) {
-            console.error('Failed to fetch CryptoRank data:', err);
+            console.error('Failed to fetch market data:', err);
             setError(true);
         } finally {
             setLoading(false);

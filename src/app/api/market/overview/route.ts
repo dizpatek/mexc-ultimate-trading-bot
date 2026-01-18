@@ -1,36 +1,25 @@
 import { NextResponse } from 'next/server';
-import axios from 'axios';
-
-const CRYPTORANK_API_KEY = 'a6ea95811d51a85fda8206308aa0b6c435e24c1327191b261776b8bf101a';
+import { getTopAssets } from '@/lib/mexc';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
 
 export async function GET() {
     try {
-        const response = await axios.get('https://api.cryptorank.io/v2/coins', {
-            params: {
-                limit: 15,
-                convert: 'USD'
-            },
-            headers: {
-                'Authorization': CRYPTORANK_API_KEY
-            },
-            timeout: 10000
-        });
+        const coins = await getTopAssets(20);
 
-        if (!response.data || !response.data.data || response.data.data.length === 0) {
+        if (!coins || coins.length === 0) {
             return NextResponse.json([]);
         }
 
-        const marketData = response.data.data.map((coin: any) => ({
-            symbol: coin.symbol,
-            name: coin.name,
-            price: coin.price?.USD || 0,
-            change24h: coin.delta?.day || 0,
-            volume: coin.volume24h || 0,
-            rank: coin.rank,
-            marketCap: coin.marketCap || 0
+        const marketData = coins.map((coin: any, index: number) => ({
+            symbol: coin.symbol.replace('USDT', '/USDT'),
+            name: coin.symbol.replace('USDT', ''),
+            price: parseFloat(coin.lastPrice) || 0,
+            change24h: parseFloat(coin.priceChangePercent) || 0,
+            volume: parseFloat(coin.quoteVolume) || 0,
+            rank: index + 1,
+            marketCap: 0
         }));
 
         return NextResponse.json(marketData);

@@ -1,35 +1,28 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
-import { createChart, ColorType, CrosshairMode, IChartApi, ISeriesApi } from 'lightweight-charts';
-import { api } from '@/services/api';
+import { createChart, ColorType, CrosshairMode, IChartApi, Time } from 'lightweight-charts';
+import { RefreshCw } from 'lucide-react';
 
 export const TradingViewChart = () => {
     const chartContainerRef = useRef<HTMLDivElement>(null);
-    const chartRef = useRef<IChartApi | null>(null);
-    const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+    const chartInstanceRef = useRef<IChartApi | null>(null);
+    const seriesInstanceRef = useRef<any>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [timeframe, setTimeframe] = useState('1d'); // Default
-
-    useEffect(() => {
-        const saved = localStorage.getItem('chart_timeframe');
-        if (saved) setTimeframe(saved);
-    }, []);
+    const [timeframe, setTimeframe] = useState('1d');
 
     const handleTimeframeChange = (tf: string) => {
         setTimeframe(tf);
         localStorage.setItem('chart_timeframe', tf);
     };
 
-    // Mock data generator for TOTAL3 if API not available
-    // In real app, we would fetch from CryptoCompare or CoinGecko charts
     const generateData = () => {
         const data = [];
-        let time = new Date('2025-01-01').getTime() / 1000;
-        let value = 400000000000; // 400B start
+        let time = Math.floor(new Date('2025-01-01').getTime() / 1000);
+        let value = 400000000000;
 
         for (let i = 0; i < 300; i++) {
-            const change = (Math.random() - 0.48) * 5000000000; // Slight upward trend
+            const change = (Math.random() - 0.48) * 5000000000;
             value += change;
             const open = value;
             const high = value + Math.random() * 2000000000;
@@ -37,77 +30,79 @@ export const TradingViewChart = () => {
             const close = open + (Math.random() - 0.5) * 3000000000;
 
             data.push({
-                time: time as any,
-                open: open,
-                high: high,
-                low: low,
-                close: close,
+                time: time as Time,
+                open,
+                high,
+                low,
+                close,
             });
-            time += 86400; // 1 day
+            time += 86400;
         }
         return data;
     };
 
     useEffect(() => {
-        if (!chartContainerRef.current) return;
+        const container = chartContainerRef.current;
+        if (!container) return;
 
-        // Safety check for dimensions to prevent "width(-1)" crashes
-        const width = chartContainerRef.current.clientWidth > 0 ? chartContainerRef.current.clientWidth : 800;
+        const timeoutId = setTimeout(() => {
+            try {
+                const chart = createChart(container, {
+                    layout: {
+                        background: { type: ColorType.Solid, color: 'transparent' },
+                        textColor: '#d1d5db',
+                    },
+                    grid: {
+                        vertLines: { color: 'rgba(42, 46, 57, 0.1)' },
+                        horzLines: { color: 'rgba(42, 46, 57, 0.1)' },
+                    },
+                    width: container.clientWidth || 800,
+                    height: 400,
+                    crosshair: {
+                        mode: CrosshairMode.Normal,
+                    },
+                    timeScale: {
+                        borderColor: '#485c7b',
+                    },
+                });
 
-        const chart = createChart(chartContainerRef.current, {
-            layout: {
-                background: { type: ColorType.Solid, color: 'transparent' },
-                textColor: '#d1d5db',
-            },
-            grid: {
-                vertLines: { color: 'rgba(42, 46, 57, 0.1)' },
-                horzLines: { color: 'rgba(42, 46, 57, 0.1)' },
-            },
-            width: width,
-            height: 400,
-            crosshair: {
-                mode: CrosshairMode.Normal,
-            },
-            timeScale: {
-                borderColor: '#485c7b',
-            },
-        });
+                const series = (chart as any).addCandlestickSeries({
+                    upColor: '#22c55e',
+                    downColor: '#ef4444',
+                    borderVisible: false,
+                    wickUpColor: '#22c55e',
+                    wickDownColor: '#ef4444',
+                });
 
-        const candlestickSeries = (chart as any).addCandlestickSeries({
-            upColor: '#22c55e',
-            downColor: '#ef4444',
-            borderVisible: false,
-            wickUpColor: '#22c55e',
-            wickDownColor: '#ef4444',
-        });
+                const data = generateData();
+                series.setData(data);
 
-        // Load drawings from local storage
-        const savedDrawings = localStorage.getItem('tv-drawings');
-        if (savedDrawings) {
-            // Restore drawings logic here (complex with lightweight-charts custom implementation)
-            // For now lightweight charts doesn't support drawings natively like TV library
-            // We would need to implement custom overlay or use the full TV widget
-        }
+                chartInstanceRef.current = chart;
+                seriesInstanceRef.current = series;
+                setIsLoading(false);
 
-        const data = generateData();
-        candlestickSeries.setData(data);
+                const handleResize = () => {
+                    if (container) {
+                        chart.applyOptions({ width: container.clientWidth });
+                    }
+                };
 
-        chartRef.current = chart;
-        seriesRef.current = candlestickSeries;
-        setIsLoading(false);
+                window.addEventListener('resize', handleResize);
 
-        const handleResize = () => {
-            if (chartContainerRef.current) {
-                chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+                return () => {
+                    window.removeEventListener('resize', handleResize);
+                    if (chartInstanceRef.current) {
+                        chartInstanceRef.current.remove();
+                        chartInstanceRef.current = null;
+                    }
+                };
+            } catch (error) {
+                console.error('Chart initialization error:', error);
+                setIsLoading(false);
             }
-        };
+        }, 100);
 
-        window.addEventListener('resize', handleResize);
-
-        return () => {
-            window.removeEventListener('resize', handleResize);
-            chart.remove();
-        };
+        return () => clearTimeout(timeoutId);
     }, []);
 
     return (
@@ -128,6 +123,13 @@ export const TradingViewChart = () => {
                             {tf.toUpperCase()}
                         </button>
                     ))}
+                    <button
+                        onClick={() => window.location.reload()}
+                        className="px-3 py-1 text-xs rounded transition-colors bg-muted hover:bg-muted/80"
+                        title="Reload chart"
+                    >
+                        <RefreshCw className="h-3 w-3" />
+                    </button>
                 </div>
             </div>
 

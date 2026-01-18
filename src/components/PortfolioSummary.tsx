@@ -1,6 +1,6 @@
 "use client";
 
-import { TrendingUp, TrendingDown, Wallet, RefreshCw, AlertTriangle } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, RefreshCw } from 'lucide-react';
 import { usePortfolioSummary } from '../hooks/usePortfolio';
 
 export const PortfolioSummary = () => {
@@ -35,87 +35,71 @@ export const PortfolioSummary = () => {
         return null;
     }
 
-    const { totalValue, change24h, changePercentage, assets, isMock } = data;
+    const { totalValue, change24h, changePercentage, assets } = data;
 
     return (
-        <div className="space-y-4 mb-8">
-            {isMock && (
-                <div className="bg-yellow-500/10 border border-yellow-500/50 rounded-lg p-4 flex items-center gap-3 text-yellow-500">
-                    <AlertTriangle className="h-5 w-5" />
-                    <div>
-                        <p className="font-semibold">Running in MOCK MODE</p>
-                        <p className="text-sm opacity-90">
-                            Valid MEXC API keys were not found or are invalid. Displaying simulated data.
-                            Your real portfolio balance (~$4k) will appear once keys are fixed.
-                        </p>
-                    </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            {/* Total Portfolio Value */}
+            <div className="stat-card">
+                <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-medium text-muted-foreground">Total Portfolio Value</h3>
+                    <Wallet className="h-5 w-5 text-muted-foreground" />
                 </div>
-            )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {/* Total Portfolio Value */}
-                <div className="stat-card">
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-medium text-muted-foreground">Total Portfolio Value</h3>
-                        <Wallet className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                    <div className="mt-4">
-                        <p className="text-3xl font-bold">${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                        <div className="flex items-center mt-2">
-                            {change24h >= 0 ? (
-                                <TrendingUp className="h-4 w-4 text-green-500 mr-1" />
-                            ) : (
-                                <TrendingDown className="h-4 w-4 text-red-500 mr-1" />
-                            )}
-                            <span className={`text-sm font-medium ${change24h >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                                {change24h >= 0 ? '+' : ''}{change24h.toFixed(2)} ({changePercentage.toFixed(2)}%)
-                            </span>
-                            <span className="text-xs text-muted-foreground ml-2">24h</span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Assets Count */}
-                <div className="stat-card">
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-medium text-muted-foreground">Total Assets</h3>
-                        <RefreshCw className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                    <div className="mt-4">
-                        <p className="text-3xl font-bold">{assets}</p>
-                        <p className="text-sm text-muted-foreground mt-2">Active holdings</p>
-                    </div>
-                </div>
-
-                {/* Best Performer */}
-                <div className="stat-card">
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-medium text-muted-foreground">Best Performer</h3>
-                    </div>
-                    <div className="mt-4">
-                        <p className="text-3xl font-bold">BTC</p>
-                        <div className="flex items-center mt-2">
+                <div className="mt-4">
+                    <p className="text-3xl font-bold">${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                    <div className="flex items-center mt-2">
+                        {change24h >= 0 ? (
                             <TrendingUp className="h-4 w-4 text-green-500 mr-1" />
-                            <span className="text-sm font-medium text-green-500">+5.24%</span>
-                        </div>
+                        ) : (
+                            <TrendingDown className="h-4 w-4 text-red-500 mr-1" />
+                        )}
+                        <span className={`text-sm font-medium ${change24h >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                            {change24h >= 0 ? '+' : ''}{change24h.toFixed(2)} ({changePercentage.toFixed(2)}%)
+                        </span>
+                        <span className="text-xs text-muted-foreground ml-2">24h</span>
                     </div>
                 </div>
+            </div>
 
-                {/* Top Gainer */}
-                <div className="stat-card">
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-medium text-muted-foreground">Top Gainer</h3>
+            {/* Assets Count */}
+            <div className="stat-card">
+                <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-medium text-muted-foreground">Total Assets</h3>
+                    <RefreshCw className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <div className="mt-4">
+                    <p className="text-3xl font-bold">{assets}</p>
+                    <p className="text-sm text-muted-foreground mt-2">Active holdings</p>
+                </div>
+            </div>
+
+            {/* Best Performer */}
+            <div className="stat-card">
+                <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-medium text-muted-foreground">Best Performer</h3>
+                </div>
+                <div className="mt-4">
+                    <p className="text-3xl font-bold">BTC</p>
+                    <div className="flex items-center mt-2">
+                        <TrendingUp className="h-4 w-4 text-green-500 mr-1" />
+                        <span className="text-sm font-medium text-green-500">+5.24%</span>
                     </div>
-                    <div className="mt-4">
-                        <p className="text-3xl font-bold">ETH</p>
-                        <div className="flex items-center mt-2">
-                            <TrendingUp className="h-4 w-4 text-green-500 mr-1" />
-                            <span className="text-sm font-medium text-green-500">+3.78%</span>
-                        </div>
+                </div>
+            </div>
+
+            {/* Top Gainer */}
+            <div className="stat-card">
+                <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-medium text-muted-foreground">Top Gainer</h3>
+                </div>
+                <div className="mt-4">
+                    <p className="text-3xl font-bold">ETH</p>
+                    <div className="flex items-center mt-2">
+                        <TrendingUp className="h-4 w-4 text-green-500 mr-1" />
+                        <span className="text-sm font-medium text-green-500">+3.78%</span>
                     </div>
                 </div>
             </div>
         </div>
-
     );
 };

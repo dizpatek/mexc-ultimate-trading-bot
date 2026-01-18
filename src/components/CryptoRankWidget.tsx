@@ -1,57 +1,163 @@
 "use client";
 
-import { useEffect, useRef, memo } from 'react';
-import { ExternalLink, AlertCircle } from "lucide-react";
+import { useEffect, useState, memo } from 'react';
+import { ExternalLink, RefreshCw, TrendingUp, TrendingDown } from "lucide-react";
+import { api } from '@/services/api';
+
+interface CryptoRankAsset {
+    symbol: string;
+    name: string;
+    price: number;
+    change24h: number;
+    volume: number;
+    rank: number;
+    marketCap: number;
+}
 
 const CryptoRankWidget = () => {
-    const container = useRef<HTMLDivElement>(null);
+    const [data, setData] = useState<CryptoRankAsset[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(false);
+
+    const fetchData = async () => {
+        try {
+            setLoading(true);
+            const response = await api.get('/market/overview');
+            setData(response.data);
+            setError(false);
+        } catch (err) {
+            console.error('Failed to fetch CryptoRank data:', err);
+            setError(true);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
-        if (!container.current) return;
-
-        // Prevent duplicate scripts
-        if (container.current.querySelector('script')) return;
-
-        const script = document.createElement("script");
-        script.src = "https://s3.tradingview.com/external-embedding/embed-widget-screener.js";
-        script.type = "text/javascript";
-        script.async = true;
-        script.innerHTML = JSON.stringify({
-            "width": "100%",
-            "height": "100%",
-            "defaultColumn": "overview",
-            "screener_type": "crypto_mkt",
-            "displayCurrency": "USD",
-            "colorTheme": "dark",
-            "locale": "en",
-            "isTransparent": true
-        });
-
-        container.current.appendChild(script);
+        fetchData();
+        const interval = setInterval(fetchData, 30000);
+        return () => clearInterval(interval);
     }, []);
 
     return (
-        <div className="portfolio-container flex flex-col h-[700px] w-full overflow-hidden relative bg-card">
+        <div className="portfolio-container flex flex-col min-h-[500px] w-full bg-card">
             <div className="p-4 border-b border-border flex justify-between items-center bg-muted/20">
                 <div className="flex items-center gap-2">
                     <h3 className="font-semibold">Market Scanner</h3>
-                    <span className="text-xs text-muted-foreground hidden sm:inline-flex items-center gap-1">
-                        <AlertCircle className="h-3 w-3" />
-                        CryptoRank blocks embedding, using TradingView Scanner instead.
-                    </span>
+                    <span className="text-xs text-muted-foreground">CryptoRank Live Data</span>
                 </div>
-                <a
-                    href="https://cryptorank.io/watchlist/4f7effbd40d4"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="btn-primary flex items-center gap-2 text-xs py-1.5 px-3"
-                >
-                    Open My CryptoRank Watchlist <ExternalLink className="h-3 w-3" />
-                </a>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={fetchData}
+                        className="p-2 hover:bg-muted rounded-full transition-colors"
+                        title="Refresh"
+                    >
+                        <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                    </button>
+                    <a
+                        href="https://cryptorank.io/watchlist/4f7effbd40d4"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn-primary flex items-center gap-2 text-xs py-1.5 px-3"
+                    >
+                        Open CryptoRank <ExternalLink className="h-3 w-3" />
+                    </a>
+                </div>
             </div>
 
-            <div className="flex-1 w-full h-full bg-background relative" ref={container}>
-                <div className="tradingview-widget-container__widget h-full w-full"></div>
+            <div className="flex-1 overflow-auto">
+                <table className="w-full">
+                    <thead className="bg-muted sticky top-0">
+                        <tr>
+                            <th className="table-header">Rank</th>
+                            <th className="table-header">Asset</th>
+                            <th className="table-header text-right">Price</th>
+                            <th className="table-header text-right">24h Change</th>
+                            <th className="table-header text-right">Volume (24h)</th>
+                            <th className="table-header text-right">Market Cap</th>
+                        </tr>
+                    </thead>
+
+                    <tbody className="divide-y divide-border">
+                        {loading && data.length === 0 ? (
+                            [...Array(10)].map((_, i) => (
+                                <tr key={i} className="table-row">
+                                    <td colSpan={6} className="px-4 py-4">
+                                        <div className="h-10 bg-muted rounded animate-pulse"></div>
+                                    </td>
+                                </tr>
+                            ))
+                        ) : error ? (
+                            <tr>
+                                <td colSpan={6} className="px-4 py-8 text-center text-destructive">
+                                    Failed to load market data. Click refresh to try again.
+                                </td>
+                            </tr>
+                        ) : (
+                            data.map((asset) => (
+                                <tr key={asset.symbol} className="table-row">
+                                    <td className="px-4 py-4 whitespace-nowrap text-center">
+                                        <span className="text-sm font-medium text-muted-foreground">
+                                            #{asset.rank}
+                                        </span>
+                                    </td>
+
+                                    <td className="px-4 py-4 whitespace-nowrap">
+                                        <div className="flex items-center">
+                                            <div className="bg-primary w-8 h-8 rounded-full flex items-center justify-center mr-3">
+                                                <span className="text-xs font-bold text-primary-foreground">
+                                                    {asset.symbol.substring(0, 2)}
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <div className="font-medium">{asset.symbol}</div>
+                                                <div className="text-xs text-muted-foreground">{asset.name}</div>
+                                            </div>
+                                        </div>
+                                    </td>
+
+                                    <td className="px-4 py-4 whitespace-nowrap text-right font-medium">
+                                        ${asset.price.toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: asset.price > 1 ? 2 : 6
+                                        })}
+                                    </td>
+
+                                    <td className="px-4 py-4 whitespace-nowrap text-right">
+                                        <div className={`flex items-center justify-end ${asset.change24h >= 0 ? 'trend-up' : 'trend-down'}`}>
+                                            {asset.change24h >= 0 ? (
+                                                <TrendingUp className="h-4 w-4 mr-1" />
+                                            ) : (
+                                                <TrendingDown className="h-4 w-4 mr-1" />
+                                            )}
+                                            <span className="font-medium">
+                                                {asset.change24h >= 0 ? '+' : ''}{asset.change24h.toFixed(2)}%
+                                            </span>
+                                        </div>
+                                    </td>
+
+                                    <td className="px-4 py-4 whitespace-nowrap text-right text-sm">
+                                        ${asset.volume.toLocaleString('en-US', {
+                                            minimumFractionDigits: 0,
+                                            maximumFractionDigits: 0,
+                                            notation: 'compact',
+                                            compactDisplay: 'short'
+                                        })}
+                                    </td>
+
+                                    <td className="px-4 py-4 whitespace-nowrap text-right text-sm">
+                                        ${asset.marketCap.toLocaleString('en-US', {
+                                            minimumFractionDigits: 0,
+                                            maximumFractionDigits: 0,
+                                            notation: 'compact',
+                                            compactDisplay: 'short'
+                                        })}
+                                    </td>
+                                </tr>
+                            ))
+                        )}
+                    </tbody>
+                </table>
             </div>
         </div>
     );

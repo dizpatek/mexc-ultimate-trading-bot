@@ -8,11 +8,12 @@ const BASE = 'https://api.mexc.com';
 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
-// Helper to get credentials and mock status
 async function getEnv() {
     const { apiKey, apiSecret } = await getMexcCredentials();
-    const isMock = !apiKey || !apiSecret;
-    return { apiKey, apiSecret, isMock };
+    if (!apiKey || !apiSecret) {
+        throw new Error('MEXC API credentials not configured. Please set MEXC_KEY and MEXC_SECRET environment variables.');
+    }
+    return { apiKey, apiSecret };
 }
 
 function sign(totalParams: string, secret: string): string {
@@ -32,12 +33,7 @@ async function publicGet<T>(endpoint: string, params: Record<string, any> = {}):
 }
 
 async function signedGet<T>(endpoint: string, params: Record<string, any> = {}): Promise<T | null> {
-    const { apiKey, apiSecret, isMock } = await getEnv();
-
-    if (isMock) {
-        console.log(`[MOCK] Calling ${endpoint} with params:`, params);
-        return getMockDataForEndpoint(endpoint);
-    }
+    const { apiKey, apiSecret } = await getEnv();
 
     const timestamp = Date.now();
     const recvWindow = 60000;
@@ -58,32 +54,6 @@ async function signedGet<T>(endpoint: string, params: Record<string, any> = {}):
         throw err;
     }
 }
-
-function getMockDataForEndpoint(endpoint: string): any {
-    if (endpoint === '/api/v3/account') {
-        const mockBalances = [
-            { asset: 'USDT', free: '1000.00', locked: '0.00' },
-            { asset: 'BTC', free: '0.05', locked: '0.00' },
-            { asset: 'ETH', free: '0.5', locked: '0.1' },
-            { asset: 'MX', free: '150.00', locked: '0.00' }
-        ];
-        return {
-            makerCommission: 0,
-            takerCommission: 0,
-            buyerCommission: 0,
-            sellerCommission: 0,
-            canTrade: true,
-            canWithdraw: true,
-            canDeposit: true,
-            balances: mockBalances
-        };
-    }
-    if (endpoint === '/api/v3/openOrders') {
-        return [];
-    }
-    return null;
-}
-
 
 export async function testConnection() {
     return publicGet('/api/v3/ping');
@@ -206,11 +176,7 @@ export async function getOpenOrders(symbol: string | null = null) {
 }
 
 export async function cancelOrder(symbol: string, orderId: string) {
-    const { apiKey, apiSecret, isMock } = await getEnv();
-    if (isMock) {
-        console.log(`[MOCK] Cancel order ${orderId} for ${symbol}`);
-        return { symbol, orderId, status: 'CANCELED' };
-    }
+    const { apiKey, apiSecret } = await getEnv();
 
     const timestamp = Date.now();
     const recvWindow = 5000;
@@ -230,11 +196,7 @@ export async function cancelOrder(symbol: string, orderId: string) {
 }
 
 export async function cancelAllOrders(symbol: string) {
-    const { apiKey, apiSecret, isMock } = await getEnv();
-    if (isMock) {
-        console.log(`[MOCK] Cancel ALL orders for ${symbol}`);
-        return { symbol, status: 'CANCELED' };
-    }
+    const { apiKey, apiSecret } = await getEnv();
 
     const timestamp = Date.now();
     const recvWindow = 5000;
@@ -265,24 +227,7 @@ export async function getKlines(symbol: string, interval: string = '1h', limit: 
 }
 
 export async function postOrder(params: Record<string, any> = {}) {
-    const { apiKey, apiSecret, isMock } = await getEnv();
-    if (isMock) {
-        console.log(`[MOCK] POST ORDER:`, params);
-        return {
-            symbol: params.symbol,
-            orderId: 'MOCK-' + Date.now(),
-            clientOrderId: 'mock_client_id',
-            transactTime: Date.now(),
-            price: params.price || 'Market',
-            origQty: params.quantity || params.quoteOrderQty,
-            executedQty: params.quantity || params.quoteOrderQty,
-            cummulativeQuoteQty: '100.0',
-            status: 'FILLED',
-            timeInForce: 'GTC',
-            type: params.type,
-            side: params.side
-        };
-    }
+    const { apiKey, apiSecret } = await getEnv();
 
     const timestamp = Date.now();
     const recvWindow = 5000;

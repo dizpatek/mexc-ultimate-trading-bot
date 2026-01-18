@@ -1,37 +1,37 @@
 import { NextResponse } from 'next/server';
-import { getTopAssets } from '@/lib/mexc';
+import axios from 'axios';
+
+const CRYPTORANK_API_KEY = 'a6ea95811d51a85fda8206308aa0b6c435e24c1327191b261776b8bf101a';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
 
 export async function GET() {
     try {
-        const coins = await getTopAssets(20);
+        const response = await axios.get('https://api.cryptorank.io/v2/coins', {
+            params: {
+                limit: 15,
+                convert: 'USD'
+            },
+            headers: {
+                'Authorization': CRYPTORANK_API_KEY
+            },
+            timeout: 10000
+        });
 
-        if (!coins || coins.length === 0) {
+        if (!response.data || !response.data.data || response.data.data.length === 0) {
             return NextResponse.json([]);
         }
 
-        const marketData = coins.map((coin, index) => ({
-            symbol: coin.symbol.replace('USDT', '/USDT'), // Format as BASE/QUOTE
-            name: coin.symbol.replace('USDT', ''), // Use symbol as name for now as MEXC ticker doesn't have full name
-            price: parseFloat(coin.lastPrice),
-            change24h: parseFloat(coin.priceChangePercent),
-            // Check get24hrTicker return type. priceChangePercent usually string.
-            // Let's assume it is percentage value directly or 0.05.
-            // Actually usually Binance/MEXC return '5.2' for 5.2%.
-            // Wait, let's look at `mexc.ts` types.
-            volume: parseFloat(coin.quoteVolume),
-            rank: index + 1,
-            marketCap: 0, // MEXC ticker doesn't provide MC. We can ignore or estimate.
-            // image: coin.image // We don't have images from MEXC ticker.
+        const marketData = response.data.data.map((coin: any) => ({
+            symbol: coin.symbol,
+            name: coin.name,
+            price: coin.price?.USD || 0,
+            change24h: coin.delta?.day || 0,
+            volume: coin.volume24h || 0,
+            rank: coin.rank,
+            marketCap: coin.marketCap || 0
         }));
-
-        // Fix percentage: If it comes as 0.05 for 5%, multiply by 100.
-        // If it comes as 5.0 for 5%, leave it.
-        // Usually APIs like Binance/MEXC return relative change?
-        // Binance V3 ticker/24hr returns 'priceChangePercent': '3.400' (meaning 3.4%)
-        // So just parseFloat is enough.
 
         return NextResponse.json(marketData);
     } catch (error: any) {

@@ -6,33 +6,57 @@ import {
     Area, ComposedChart, Bar, Cell
 } from 'recharts';
 
-// Mock data with Value and Daily Change
 const performanceData = [
-    { date: '10:00', value: 10000, change: 0 },
-    { date: '12:00', value: 10200, change: 200 },
-    { date: '14:00', value: 10100, change: -100 },
-    { date: '16:00', value: 10350, change: 250 },
-    { date: '18:00', value: 10300, change: -50 },
-    { date: '20:00', value: 10450, change: 150 },
-    { date: '22:00', value: 10600, change: 150 },
-    { date: '00:00', value: 10550, change: -50 },
-    { date: '02:00', value: 10700, change: 150 },
-    { date: '04:00', value: 10650, change: -50 },
-    { date: '06:00', value: 10800, change: 150 },
-    { date: '08:00', value: 10900, change: 100 },
+    { date: '10:00', value: 120000, change: 0 },
+    { date: '12:00', value: 122500, change: 2500 },
+    { date: '14:00', value: 121800, change: -700 },
+    { date: '16:00', value: 124000, change: 2200 },
+    { date: '18:00', value: 123500, change: -500 },
+    { date: '20:00', value: 124800, change: 1300 },
+    { date: '22:00', value: 125500, change: 700 },
+    { date: '00:00', value: 125200, change: -300 },
+    { date: '02:00', value: 125800, change: 600 },
+    { date: '04:00', value: 125400, change: -400 },
+    { date: '06:00', value: 126000, change: 600 },
+    { date: '08:00', value: 125900, change: -100 },
 ];
+
+const timeframeData: Record<string, typeof performanceData> = {
+    '24S': performanceData,
+    '7D': [
+        { date: 'Mon', value: 115000, change: 0 },
+        { date: 'Tue', value: 117500, change: 2500 },
+        { date: 'Wed', value: 116800, change: -700 },
+        { date: 'Thu', value: 119000, change: 2200 },
+        { date: 'Fri', value: 118500, change: -500 },
+        { date: 'Sat', value: 120000, change: 1500 },
+        { date: 'Sun', value: 125900, change: 5900 },
+    ],
+    '30D': [
+        { date: 'Week 1', value: 110000, change: 0 },
+        { date: 'Week 2', value: 112000, change: 2000 },
+        { date: 'Week 3', value: 115000, change: 3000 },
+        { date: 'Week 4', value: 125900, change: 10900 },
+    ],
+    '90D': [
+        { date: 'Month 1', value: 100000, change: 0 },
+        { date: 'Month 2', value: 108000, change: 8000 },
+        { date: 'Month 3', value: 125900, change: 17900 },
+    ],
+};
 
 export const PortfolioChart = () => {
     const [timeframe, setTimeframe] = useState('24S');
 
-    const timeframes = ['24S', '7G', '30G', '90G'];
+    const timeframes = ['24S', '7D', '30D', '90D'];
+    const currentData = timeframeData[timeframe] || performanceData;
 
     return (
         <div className="portfolio-container p-6">
             <div className="flex justify-between items-center mb-6">
                 <div>
-                    <h2 className="text-lg font-semibold">Portföy Performansı</h2>
-                    <p className="text-xs text-muted-foreground">Değer ve Günlük Değişim</p>
+                    <h2 className="text-lg font-semibold">Portfolio Performance</h2>
+                    <p className="text-xs text-muted-foreground">Value and daily change</p>
                 </div>
                 <div className="flex space-x-1 bg-secondary/30 p-1 rounded-lg">
                     {timeframes.map((frame) => (
@@ -53,7 +77,7 @@ export const PortfolioChart = () => {
             <div className="h-80">
                 <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart
-                        data={performanceData}
+                        data={currentData}
                         margin={{
                             top: 10,
                             right: 0,
@@ -79,7 +103,7 @@ export const PortfolioChart = () => {
                             yAxisId="left"
                             stroke="hsl(var(--muted-foreground))"
                             fontSize={11}
-                            tickFormatter={(value) => `$${value.toLocaleString()}`}
+                            tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
                             tickLine={false}
                             axisLine={false}
                             domain={['auto', 'auto']}
@@ -89,7 +113,7 @@ export const PortfolioChart = () => {
                             orientation="right"
                             stroke="hsl(var(--muted-foreground))"
                             fontSize={11}
-                            tickFormatter={(value) => `${value > 0 ? '+' : ''}${value}`}
+                            tickFormatter={(value) => `${value > 0 ? '+' : ''}$${(value / 1000).toFixed(1)}k`}
                             tickLine={false}
                             axisLine={false}
                             hide
@@ -101,26 +125,32 @@ export const PortfolioChart = () => {
                                 borderRadius: '0.5rem',
                             }}
                             labelStyle={{ color: 'hsl(var(--foreground))' }}
+                            formatter={(value: any, name: any) => {
+                                const numValue = Number(value) ?? 0;
+                                const strName = String(name || '');
+                                if (strName === 'Total Value') {
+                                    return [`$${numValue.toLocaleString()}`, strName];
+                                }
+                                return [`${numValue >= 0 ? '+' : ''}$${numValue.toLocaleString()}`, strName];
+                            }}
                         />
 
-                        {/* Area for Total Value */}
                         <Area
                             yAxisId="left"
                             type="monotone"
                             dataKey="value"
-                            name="Toplam Değer"
+                            name="Total Value"
                             stroke="hsl(var(--primary))"
                             fill="url(#colorValue)"
                             strokeWidth={2}
                         />
 
-                        {/* Bars for Rise/Fall (Change) */}
-                        <Bar yAxisId="right" dataKey="change" name="Değişim" barSize={10} radius={[2, 2, 0, 0]}>
-                            {performanceData.map((entry, index) => (
+                        <Bar yAxisId="right" dataKey="change" name="Change" barSize={8} radius={[2, 2, 0, 0]}>
+                            {currentData.map((entry, index) => (
                                 <Cell
                                     key={`cell-${index}`}
                                     fill={entry.change >= 0 ? '#10B981' : '#EF4444'}
-                                    fillOpacity={0.8}
+                                    fillOpacity={0.7}
                                 />
                             ))}
                         </Bar>

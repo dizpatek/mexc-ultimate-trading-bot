@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Send } from 'lucide-react';
+import { Send, Zap, TrendingUp, TrendingDown } from 'lucide-react';
 import { sendTradeSignal } from '../services/api';
 import type { TradeSignal } from '../services/api';
 
@@ -25,7 +25,7 @@ export const TradeForm = () => {
             const tradeSignal: TradeSignal = {
                 signal,
                 pair,
-                secret: 'replace_with_strong_secret' // This should match your WEBHOOK_SECRET
+                secret: 'replace_with_strong_secret'
             };
 
             if (amount) tradeSignal.amount = parseFloat(amount);
@@ -38,7 +38,6 @@ export const TradeForm = () => {
 
             if (response && (response.success || response.ok)) {
                 setMessage({ type: 'success', text: `Trade signal sent successfully` });
-                // Reset form
                 setAmount('');
                 setUsdt('');
                 setRisk('');
@@ -56,10 +55,22 @@ export const TradeForm = () => {
 
     return (
         <div className="portfolio-container p-6 mb-8">
-            <h2 className="text-xl font-semibold mb-6">Send Trade Signal</h2>
+            <div className="flex items-center gap-3 mb-6">
+                <div className={`p-2 ${signal === 'buy' ? 'bg-green-500/10' : 'bg-red-500/10'} rounded-lg transition-colors`}>
+                    {signal === 'buy' ? (
+                        <TrendingUp className={`h-5 w-5 text-green-500`} />
+                    ) : (
+                        <TrendingDown className={`h-5 w-5 text-red-500`} />
+                    )}
+                </div>
+                <div>
+                    <h2 className="text-xl font-semibold">Send Trade Signal</h2>
+                    <p className="text-xs text-muted-foreground">Execute trades with advanced parameters</p>
+                </div>
+            </div>
 
-            <form onSubmit={handleSubmit} className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <form onSubmit={handleSubmit} className="space-y-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <div>
                         <label className="block text-sm font-medium text-muted-foreground mb-2">
                             Signal Type
@@ -102,7 +113,7 @@ export const TradeForm = () => {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <div>
                         <label className="block text-sm font-medium text-muted-foreground mb-2">
                             Amount
@@ -132,7 +143,7 @@ export const TradeForm = () => {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                     <div>
                         <label className="block text-sm font-medium text-muted-foreground mb-2">
                             Risk (%)
@@ -149,7 +160,7 @@ export const TradeForm = () => {
 
                     <div>
                         <label className="block text-sm font-medium text-muted-foreground mb-2">
-                            Take Profit Levels
+                            Take Profit
                         </label>
                         <input
                             type="text"
@@ -162,7 +173,7 @@ export const TradeForm = () => {
 
                     <div>
                         <label className="block text-sm font-medium text-muted-foreground mb-2">
-                            Stop Loss Levels
+                            Stop Loss
                         </label>
                         <input
                             type="text"
@@ -178,11 +189,12 @@ export const TradeForm = () => {
                     <div>
                         {message && (
                             <div
-                                className={`text-sm p-3 rounded-md ${message.type === 'success'
+                                className={`text-sm p-3 rounded-md flex items-center gap-2 ${message.type === 'success'
                                         ? 'bg-green-500/10 text-green-500 border border-green-500/20'
                                         : 'bg-red-500/10 text-red-500 border border-red-500/20'
                                     }`}
                             >
+                                {message.type === 'success' && <Zap className="h-4 w-4" />}
                                 {message.text}
                             </div>
                         )}
@@ -191,7 +203,10 @@ export const TradeForm = () => {
                     <button
                         type="submit"
                         disabled={isLoading}
-                        className="btn-primary flex items-center px-6 py-3 shadow-lg shadow-primary/20"
+                        className={`flex items-center px-6 py-3 shadow-lg transition-all ${signal === 'buy'
+                            ? 'btn-primary bg-green-500 hover:bg-green-600'
+                            : 'btn-primary bg-red-500 hover:bg-red-600'
+                        }`}
                     >
                         {isLoading ? (
                             <span>Sending...</span>

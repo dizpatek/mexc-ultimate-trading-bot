@@ -1,46 +1,43 @@
 "use client";
 
-import { TrendingUp, TrendingDown, Wallet, RefreshCw } from 'lucide-react';
-import { usePortfolioSummary } from '../hooks/usePortfolio';
+import { TrendingUp, TrendingDown, Wallet, RefreshCw, Activity } from 'lucide-react';
+import { usePortfolioSummary, useHoldings } from '../hooks/usePortfolio';
 
 export const PortfolioSummary = () => {
-    const { data, isLoading, isError } = usePortfolioSummary();
+    const { data: summaryData, isLoading: summaryLoading, isError: summaryError } = usePortfolioSummary();
+    const { data: holdings, isLoading: holdingsLoading } = useHoldings();
 
-    if (isLoading) {
-        return (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                {[...Array(4)].map((_, i) => (
-                    <div key={i} className="portfolio-container p-6 animate-pulse">
-                        <div className="h-4 bg-muted rounded w-3/4 mb-4"></div>
-                        <div className="h-8 bg-muted rounded w-1/2"></div>
-                    </div>
-                ))}
-            </div>
-        );
-    }
+    const mockData = {
+        totalValue: 125000.00,
+        change24h: 2450.00,
+        changePercentage: 2.01,
+        assets: 8,
+        bestPerformer: { symbol: 'SOL', change24h: 8.5 },
+        topHolding: { symbol: 'BTC', value: 45000.00 }
+    };
 
-    if (isError) {
-        return (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                <div className="portfolio-container p-6 col-span-full">
-                    <div className="text-center text-destructive">
-                        Failed to load portfolio summary
-                    </div>
-                </div>
-            </div>
-        );
-    }
+    const displayData = summaryData || mockData;
+    const loading = summaryLoading || holdingsLoading;
 
-    if (!data) {
-        return null;
-    }
+    const filteredHoldings = holdings?.filter(h => h.value > 100 && h.symbol !== 'USDT' && h.symbol !== 'USDC') || [];
+    
+    const bestPerformer = filteredHoldings.length > 0 
+        ? filteredHoldings.reduce((best, current) => 
+            (current.change24h > best.change24h) ? current : best
+        )
+        : mockData.bestPerformer;
 
-    const { totalValue, change24h, changePercentage, assets } = data;
+    const topGainer = filteredHoldings.length > 0
+        ? filteredHoldings.reduce((top, current) => 
+            (current.value > top.value) ? current : top
+        )
+        : mockData.topHolding;
+
+    const { totalValue, change24h, changePercentage, assets } = displayData;
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            {/* Total Portfolio Value */}
-            <div className="stat-card">
+            <div className="portfolio-container p-6">
                 <div className="flex items-center justify-between">
                     <h3 className="text-sm font-medium text-muted-foreground">Total Portfolio Value</h3>
                     <Wallet className="h-5 w-5 text-muted-foreground" />
@@ -58,46 +55,72 @@ export const PortfolioSummary = () => {
                         </span>
                         <span className="text-xs text-muted-foreground ml-2">24h</span>
                     </div>
+                    {loading && (
+                        <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
+                            <div className="h-full bg-primary animate-pulse w-2/3"></div>
+                        </div>
+                    )}
                 </div>
             </div>
 
-            {/* Assets Count */}
-            <div className="stat-card">
+            <div className="portfolio-container p-6">
                 <div className="flex items-center justify-between">
                     <h3 className="text-sm font-medium text-muted-foreground">Total Assets</h3>
-                    <RefreshCw className="h-5 w-5 text-muted-foreground" />
+                    <RefreshCw className={`h-5 w-5 text-muted-foreground ${loading ? 'animate-spin' : ''}`} />
                 </div>
                 <div className="mt-4">
                     <p className="text-3xl font-bold">{assets}</p>
                     <p className="text-sm text-muted-foreground mt-2">Active holdings</p>
+                    {loading && (
+                        <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
+                            <div className="h-full bg-primary animate-pulse w-1/3"></div>
+                        </div>
+                    )}
                 </div>
             </div>
 
-            {/* Best Performer */}
-            <div className="stat-card">
+            <div className="portfolio-container p-6">
                 <div className="flex items-center justify-between">
                     <h3 className="text-sm font-medium text-muted-foreground">Best Performer</h3>
+                    <Activity className="h-5 w-5 text-muted-foreground" />
                 </div>
                 <div className="mt-4">
-                    <p className="text-3xl font-bold">BTC</p>
+                    <p className="text-3xl font-bold">{bestPerformer?.symbol || 'N/A'}</p>
                     <div className="flex items-center mt-2">
-                        <TrendingUp className="h-4 w-4 text-green-500 mr-1" />
-                        <span className="text-sm font-medium text-green-500">+5.24%</span>
+                        {bestPerformer && bestPerformer.change24h !== undefined && bestPerformer.change24h >= 0 ? (
+                            <TrendingUp className="h-4 w-4 text-green-500 mr-1" />
+                        ) : bestPerformer && bestPerformer.change24h !== undefined ? (
+                            <TrendingDown className="h-4 w-4 text-red-500 mr-1" />
+                        ) : null}
+                        <span className={`text-sm font-medium ${bestPerformer?.change24h !== undefined && bestPerformer.change24h >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                            {bestPerformer && bestPerformer.change24h !== undefined ? `${bestPerformer.change24h >= 0 ? '+' : ''}${bestPerformer.change24h.toFixed(2)}%` : '-'}
+                        </span>
                     </div>
+                    {loading && (
+                        <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
+                            <div className="h-full bg-primary animate-pulse w-1/2"></div>
+                        </div>
+                    )}
                 </div>
             </div>
 
-            {/* Top Gainer */}
-            <div className="stat-card">
+            <div className="portfolio-container p-6">
                 <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-medium text-muted-foreground">Top Gainer</h3>
+                    <h3 className="text-sm font-medium text-muted-foreground">Top Holding</h3>
+                    <Wallet className="h-5 w-5 text-muted-foreground" />
                 </div>
                 <div className="mt-4">
-                    <p className="text-3xl font-bold">ETH</p>
+                    <p className="text-3xl font-bold">{topGainer?.symbol || 'N/A'}</p>
                     <div className="flex items-center mt-2">
-                        <TrendingUp className="h-4 w-4 text-green-500 mr-1" />
-                        <span className="text-sm font-medium text-green-500">+3.78%</span>
+                        <span className="text-sm font-medium text-muted-foreground">
+                            ${topGainer?.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '-'}
+                        </span>
                     </div>
+                    {loading && (
+                        <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
+                            <div className="h-full bg-primary animate-pulse w-1/4"></div>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

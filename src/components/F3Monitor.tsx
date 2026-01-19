@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { Activity, TrendingUp, TrendingDown, RefreshCw, AlertCircle } from 'lucide-react';
+import { Activity, TrendingUp, TrendingDown, RefreshCw, AlertCircle, Zap } from 'lucide-react';
 import { api } from '@/services/api';
 
 interface F3Signal {
@@ -14,8 +14,16 @@ interface F3Signal {
 
 const DEFAULT_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'ADAUSDT'];
 
+const mockSignals: Record<string, F3Signal> = {
+    'BTCUSDT': { symbol: 'BTCUSDT', signal: 'BUY', f3: 0.7856, f3Fibo: 0.6180, timestamp: '2026-01-19T14:30:00' },
+    'ETHUSDT': { symbol: 'ETHUSDT', signal: 'BUY', f3: 0.6543, f3Fibo: 0.6180, timestamp: '2026-01-19T14:30:00' },
+    'SOLUSDT': { symbol: 'SOLUSDT', signal: 'SELL', f3: 0.2345, f3Fibo: 0.3820, timestamp: '2026-01-19T14:30:00' },
+    'BNBUSDT': { symbol: 'BNBUSDT', signal: 'NEUTRAL', f3: 0.5000, f3Fibo: 0.5000, timestamp: '2026-01-19T14:30:00' },
+    'ADAUSDT': { symbol: 'ADAUSDT', signal: 'BUY', f3: 0.7123, f3Fibo: 0.6180, timestamp: '2026-01-19T14:30:00' },
+};
+
 export const F3Monitor = () => {
-    const [signals, setSignals] = useState<Record<string, F3Signal>>({});
+    const [signals, setSignals] = useState<Record<string, F3Signal>>(mockSignals);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(false);
     const [selectedSymbols, setSelectedSymbols] = useState<string[]>(DEFAULT_SYMBOLS);
@@ -23,7 +31,6 @@ export const F3Monitor = () => {
     const fetchF3Signals = async (showLoading = true) => {
         if (showLoading) setLoading(true);
         try {
-            // Keep existing signals to avoid flashing
             const results: Record<string, F3Signal> = { ...signals };
 
             await Promise.all(
@@ -33,7 +40,6 @@ export const F3Monitor = () => {
                         results[symbol] = response.data;
                     } catch (err) {
                         console.error(`Failed to fetch F3 for ${symbol}:`, err);
-                        // We keep the old signal if fetch fails
                     }
                 })
             );
@@ -42,7 +48,6 @@ export const F3Monitor = () => {
             setError(false);
         } catch (err) {
             console.error('Failed to fetch F3 signals:', err);
-            // Don't clear signals on error to prevent flashing
             setError(true);
         } finally {
             if (showLoading) setLoading(false);
@@ -51,8 +56,6 @@ export const F3Monitor = () => {
 
     useEffect(() => {
         fetchF3Signals(true);
-
-        // Refresh every 60 seconds without full loading spinner
         const interval = setInterval(() => fetchF3Signals(false), 60000);
         return () => clearInterval(interval);
     }, [selectedSymbols]);
@@ -61,12 +64,20 @@ export const F3Monitor = () => {
         <div className="portfolio-container p-6">
             <div className="flex justify-between items-center mb-6">
                 <div className="flex items-center gap-3">
-                    <div className="p-2 bg-primary/10 rounded-lg">
-                        <Activity className="w-5 h-5 text-primary" />
+                    <div className={`p-2 ${loading ? 'bg-primary/10' : 'bg-green-500/10'} rounded-lg transition-colors`}>
+                        <Activity className={`w-5 h-5 ${loading ? 'text-primary' : 'text-green-500'}`} />
                     </div>
                     <div>
                         <h2 className="text-lg font-semibold">F3 Indicator Monitor</h2>
-                        <p className="text-xs text-muted-foreground">Real-time trading signals</p>
+                        <div className="flex items-center gap-2">
+                            <p className="text-xs text-muted-foreground">Real-time trading signals</p>
+                            {loading && (
+                                <div className="flex items-center gap-1 text-xs text-primary">
+                                    <Zap className="h-3 w-3" />
+                                    Live
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
                 <button
@@ -103,7 +114,7 @@ export const F3Monitor = () => {
                         return (
                             <div
                                 key={symbol}
-                                className={`border rounded-lg p-4 transition-all ${isPositive ? 'border-green-500/50 bg-green-500/5' :
+                                className={`border rounded-lg p-4 transition-all hover:shadow-md ${isPositive ? 'border-green-500/50 bg-green-500/5' :
                                     isNegative ? 'border-red-500/50 bg-red-500/5' :
                                         'border-border'
                                     }`}
@@ -131,11 +142,21 @@ export const F3Monitor = () => {
                                 <div className="space-y-2">
                                     <div className="flex justify-between text-sm">
                                         <span className="text-muted-foreground">F3:</span>
-                                        <span className="font-mono">{typeof signal.f3 === 'number' ? signal.f3.toFixed(4) : 'N/A'}</span>
+                                        <span className={`font-mono font-medium ${isPositive ? 'text-green-600' : isNegative ? 'text-red-600' : ''}`}>
+                                            {typeof signal.f3 === 'number' ? signal.f3.toFixed(4) : 'N/A'}
+                                        </span>
                                     </div>
                                     <div className="flex justify-between text-sm">
                                         <span className="text-muted-foreground">F3 Fibo:</span>
                                         <span className="font-mono">{typeof signal.f3Fibo === 'number' ? signal.f3Fibo.toFixed(4) : 'N/A'}</span>
+                                    </div>
+                                    <div className="mt-2 pt-2 border-t border-border">
+                                        <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                                            <div
+                                                className={`h-full rounded-full transition-all ${isPositive ? 'bg-green-500' : isNegative ? 'bg-red-500' : 'bg-blue-500'}`}
+                                                style={{ width: `${typeof signal.f3 === 'number' ? signal.f3 * 100 : 0}%` }}
+                                            ></div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

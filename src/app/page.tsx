@@ -69,9 +69,9 @@ export default function Dashboard() {
         </ErrorBoundary>
 
         <ErrorBoundary componentName="TradingView Chart">
-          {/* Use TradingViewEmbedChart for real TradingView with custom indicators */}
-          {/* <TradingViewEmbedChart showTotal3={true} theme="dark" height={500} /> */}
-          <TradingViewChart />
+          {/* Real TradingView widget showing TOTAL3 (Top 3 Altcoins Index) */}
+          <TradingViewEmbedChart showTotal3={true} theme="dark" height={500} />
+          {/* Simulated chart: <TradingViewChart /> */}
         </ErrorBoundary>
 
         <ErrorBoundary componentName="Market Watchlist">

@@ -22,11 +22,17 @@ export const TradingViewEmbedChart = ({
     showTotal3 = false
 }: TradingViewEmbedChartProps) => {
     useEffect(() => {
-        const script = document.createElement('script');
-        script.src = 'https://s3.tradingview.com/tv.js';
-        script.async = true;
-        script.onload = () => {
+        // Check if script already exists
+        const existingScript = document.querySelector('script[src="https://s3.tradingview.com/tv.js"]');
+
+        const initWidget = () => {
             if (window.TradingView) {
+                // Clear previous widget if exists
+                const container = document.getElementById('tradingview-widget');
+                if (container) {
+                    container.innerHTML = '';
+                }
+
                 new window.TradingView.widget({
                     width: '100%',
                     height: height,
@@ -51,20 +57,35 @@ export const TradingViewEmbedChart = ({
                 });
             }
         };
-        document.body.appendChild(script);
 
+        if (existingScript) {
+            // Script already loaded, just init widget
+            initWidget();
+        } else {
+            // Load script first
+            const script = document.createElement('script');
+            script.src = 'https://s3.tradingview.com/tv.js';
+            script.async = true;
+            script.onload = initWidget;
+            document.head.appendChild(script);
+        }
+
+        // Cleanup function
         return () => {
-            script.remove();
+            const container = document.getElementById('tradingview-widget');
+            if (container) {
+                container.innerHTML = '';
+            }
         };
-    }, [symbol, theme, height]);
+    }, [symbol, theme, height, showTotal3]);
 
-        return (
-            <div className="w-full">
-                <div id="tradingview-widget" style={{ height: `${height}px` }} />
-                <div className="mt-2 text-xs text-muted-foreground text-center">
-                    {showTotal3 ? 'TOTAL3 Chart (Top 3 Altcoins Index)' : `${symbol} Chart`}
-                    {' • '}Custom Pine Script indicators must be added manually in TradingView
-                </div>
+    return (
+        <div className="w-full">
+            <div id="tradingview-widget" style={{ height: `${height}px` }} />
+            <div className="mt-2 text-xs text-muted-foreground text-center">
+                {showTotal3 ? 'TOTAL3 Chart (Top 3 Altcoins Index)' : `${symbol} Chart`}
+                {' • '}Custom Pine Script indicators must be added manually in TradingView
             </div>
-        );
+        </div>
+    );
 };

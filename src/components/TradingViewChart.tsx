@@ -49,16 +49,16 @@ export const TradingViewChart = () => {
 
     const generateData = () => {
         const data: ChartData[] = [];
-        let time = Math.floor(new Date('2025-01-01').getTime() / 1000);
-        let value = 400000000000;
+        let time = Math.floor(new Date('2024-01-01').getTime() / 1000);
+        let value = 500000000000;
 
-        for (let i = 0; i < 300; i++) {
-            const change = (Math.random() - 0.48) * 5000000000;
+        for (let i = 0; i < 400; i++) {
+            const change = (Math.random() - 0.48) * 3000000000;
             value += change;
             const open = value;
-            const high = value + Math.random() * 2000000000;
-            const low = value - Math.random() * 2000000000;
-            const close = open + (Math.random() - 0.5) * 3000000000;
+            const high = value + Math.random() * 5000000000;
+            const low = value - Math.random() * 5000000000;
+            const close = open + (Math.random() - 0.5) * 6000000000;
 
             data.push({
                 time: time as Time,
@@ -155,7 +155,7 @@ export const TradingViewChart = () => {
                 <div ref={chartContainerRef} className="w-full h-full" />
             </div>
             <div className="mt-2 text-xs text-muted-foreground text-center">
-                Chart data is simulated for demonstration. Market stats are from CryptoRank API.
+                TOTAL3 Chart (Top 3 Altcoins Index) - Data is simulated for demonstration
             </div>
         </div>
     );

@@ -9,9 +9,15 @@ interface CryptoRankAsset {
     name: string;
     price: number;
     change24h: number;
+    change7d: number;
+    change30d: number;
+    change90d: number;
     volume: number;
     rank: number;
     marketCap: number;
+    circulatingSupply: number;
+    totalSupply: number;
+    circulatingSupplyPercent: number;
 }
 
 const CryptoRankWidget = () => {
@@ -28,12 +34,18 @@ const CryptoRankWidget = () => {
             if (response.data && Array.isArray(response.data)) {
                 const mappedData = response.data.map((coin: any, index: number) => ({
                     symbol: coin.symbol,
-                    name: coin.symbol.split('/')[0],
+                    name: coin.name || coin.symbol,
                     price: coin.price,
-                    change24h: coin.change24h,
+                    change24h: coin.change24h || 0,
+                    change7d: coin.change7d || 0,
+                    change30d: coin.change30d || 0,
+                    change90d: coin.change90d || 0,
                     volume: coin.volume,
                     rank: coin.rank || index + 1,
-                    marketCap: coin.marketCap || 0
+                    marketCap: coin.marketCap || 0,
+                    circulatingSupply: coin.circulatingSupply || 0,
+                    totalSupply: coin.totalSupply || 0,
+                    circulatingSupplyPercent: coin.circulatingSupplyPercent || 0
                 }));
                 setData(mappedData);
                 setError(false);
@@ -91,9 +103,13 @@ const CryptoRankWidget = () => {
                             <th className="table-header">Rank</th>
                             <th className="table-header">Asset</th>
                             <th className="table-header text-right">Price</th>
-                            <th className="table-header text-right">24h Change</th>
-                            <th className="table-header text-right">Volume (24h)</th>
                             <th className="table-header text-right">Market Cap</th>
+                            <th className="table-header text-right">Circ. Supply (%)</th>
+                            <th className="table-header text-right">Total Supply</th>
+                            <th className="table-header text-right">Chg (3M)</th>
+                            <th className="table-header text-right">Chg (30D)</th>
+                            <th className="table-header text-right">Chg (7D)</th>
+                            <th className="table-header text-right">Chg (24H)</th>
                         </tr>
                     </thead>
 
@@ -101,14 +117,14 @@ const CryptoRankWidget = () => {
                         {loading && data.length === 0 ? (
                             [...Array(10)].map((_, i) => (
                                 <tr key={i} className="table-row">
-                                    <td colSpan={6} className="px-4 py-4">
+                                    <td colSpan={10} className="px-4 py-4">
                                         <div className="h-10 bg-muted rounded animate-pulse"></div>
                                     </td>
                                 </tr>
                             ))
                         ) : error ? (
                             <tr>
-                                <td colSpan={6} className="px-4 py-8 text-center text-destructive">
+                                <td colSpan={10} className="px-4 py-8 text-center text-destructive">
                                     Failed to load market data. Click refresh to try again.
                                 </td>
                             </tr>
@@ -142,6 +158,46 @@ const CryptoRankWidget = () => {
                                         })}
                                     </td>
 
+                                    <td className="px-4 py-4 whitespace-nowrap text-right text-sm">
+                                        {asset.marketCap > 0 ? `$${asset.marketCap.toLocaleString('en-US', {
+                                            minimumFractionDigits: 0,
+                                            maximumFractionDigits: 0,
+                                            notation: 'compact',
+                                            compactDisplay: 'short'
+                                        })}` : 'N/A'}
+                                    </td>
+
+                                    <td className="px-4 py-4 whitespace-nowrap text-right text-sm">
+                                        {asset.circulatingSupplyPercent > 0 ? `${asset.circulatingSupplyPercent.toFixed(2)}%` : 'N/A'}
+                                    </td>
+
+                                    <td className="px-4 py-4 whitespace-nowrap text-right text-sm">
+                                        {asset.totalSupply > 0 ? asset.totalSupply.toLocaleString('en-US', {
+                                            minimumFractionDigits: 0,
+                                            maximumFractionDigits: 0,
+                                            notation: 'compact',
+                                            compactDisplay: 'short'
+                                        }) : 'N/A'}
+                                    </td>
+
+                                    <td className="px-4 py-4 whitespace-nowrap text-right text-sm">
+                                        <span className={asset.change90d >= 0 ? 'trend-up' : 'trend-down'}>
+                                            {asset.change90d >= 0 ? '+' : ''}{asset.change90d.toFixed(2)}%
+                                        </span>
+                                    </td>
+
+                                    <td className="px-4 py-4 whitespace-nowrap text-right text-sm">
+                                        <span className={asset.change30d >= 0 ? 'trend-up' : 'trend-down'}>
+                                            {asset.change30d >= 0 ? '+' : ''}{asset.change30d.toFixed(2)}%
+                                        </span>
+                                    </td>
+
+                                    <td className="px-4 py-4 whitespace-nowrap text-right text-sm">
+                                        <span className={asset.change7d >= 0 ? 'trend-up' : 'trend-down'}>
+                                            {asset.change7d >= 0 ? '+' : ''}{asset.change7d.toFixed(2)}%
+                                        </span>
+                                    </td>
+
                                     <td className="px-4 py-4 whitespace-nowrap text-right">
                                         <div className={`flex items-center justify-end ${asset.change24h >= 0 ? 'trend-up' : 'trend-down'}`}>
                                             {asset.change24h >= 0 ? (
@@ -153,24 +209,6 @@ const CryptoRankWidget = () => {
                                                 {asset.change24h >= 0 ? '+' : ''}{asset.change24h.toFixed(2)}%
                                             </span>
                                         </div>
-                                    </td>
-
-                                    <td className="px-4 py-4 whitespace-nowrap text-right text-sm">
-                                        ${asset.volume.toLocaleString('en-US', {
-                                            minimumFractionDigits: 0,
-                                            maximumFractionDigits: 0,
-                                            notation: 'compact',
-                                            compactDisplay: 'short'
-                                        })}
-                                    </td>
-
-                                    <td className="px-4 py-4 whitespace-nowrap text-right text-sm">
-                                        ${asset.marketCap.toLocaleString('en-US', {
-                                            minimumFractionDigits: 0,
-                                            maximumFractionDigits: 0,
-                                            notation: 'compact',
-                                            compactDisplay: 'short'
-                                        })}
                                     </td>
                                 </tr>
                             ))

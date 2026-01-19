@@ -70,7 +70,7 @@ export default function Dashboard() {
 
         <ErrorBoundary componentName="TradingView Chart">
           {/* Use TradingViewEmbedChart for real TradingView with custom indicators */}
-          {/* <TradingViewEmbedChart symbol="BTCUSDT" theme="dark" height={500} /> */}
+          {/* <TradingViewEmbedChart showTotal3={true} theme="dark" height={500} /> */}
           <TradingViewChart />
         </ErrorBoundary>
 

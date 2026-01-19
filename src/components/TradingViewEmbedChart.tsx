@@ -6,6 +6,7 @@ interface TradingViewEmbedChartProps {
     symbol?: string;
     theme?: 'light' | 'dark';
     height?: number;
+    showTotal3?: boolean;
 }
 
 declare global {
@@ -17,7 +18,8 @@ declare global {
 export const TradingViewEmbedChart = ({
     symbol = 'BTCUSDT',
     theme = 'dark',
-    height = 500
+    height = 500,
+    showTotal3 = false
 }: TradingViewEmbedChartProps) => {
     useEffect(() => {
         const script = document.createElement('script');
@@ -28,7 +30,7 @@ export const TradingViewEmbedChart = ({
                 new window.TradingView.widget({
                     width: '100%',
                     height: height,
-                    symbol: `BINANCE:${symbol}`,
+                    symbol: showTotal3 ? 'CRYPTOCAP:TOTAL3' : `BINANCE:${symbol}`,
                     interval: 'D',
                     timezone: 'Etc/UTC',
                     theme: theme,
@@ -56,12 +58,13 @@ export const TradingViewEmbedChart = ({
         };
     }, [symbol, theme, height]);
 
-    return (
-        <div className="w-full">
-            <div id="tradingview-widget" style={{ height: `${height}px` }} />
-            <div className="mt-2 text-xs text-muted-foreground text-center">
-                Note: Custom Pine Script indicators must be added manually in TradingView
+        return (
+            <div className="w-full">
+                <div id="tradingview-widget" style={{ height: `${height}px` }} />
+                <div className="mt-2 text-xs text-muted-foreground text-center">
+                    {showTotal3 ? 'TOTAL3 Chart (Top 3 Altcoins Index)' : `${symbol} Chart`}
+                    {' • '}Custom Pine Script indicators must be added manually in TradingView
+                </div>
             </div>
-        </div>
-    );
+        );
 };

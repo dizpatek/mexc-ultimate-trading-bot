@@ -32,7 +32,7 @@ export const TradingViewChart = () => {
     const fetchMarketData = async () => {
         try {
             const response = await axios.get('/api/market/overview');
-            if (response.data && response.data.length > 0) {
+            if (response.data && response.data.length > 0 && !response.data.error) {
                 const topCoins = response.data.slice(0, 20);
                 const totalMarketCap = topCoins.reduce((sum: number, coin: any) => sum + (coin.marketCap || 0), 0);
                 const avgChange = topCoins.reduce((sum: number, coin: any) => sum + (coin.change24h || 0), 0) / topCoins.length;

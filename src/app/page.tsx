@@ -15,6 +15,7 @@ import { StrategyManagement } from '@/components/StrategyManagement';
 import { AlarmManager } from '@/components/AlarmManager';
 import { F3Monitor } from '@/components/F3Monitor';
 import { TradingViewChart } from '@/components/TradingViewChart';
+import { TradingViewEmbedChart } from '@/components/TradingViewEmbedChart';
 import CryptoRankWidget from '@/components/CryptoRankWidget';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -68,6 +69,8 @@ export default function Dashboard() {
         </ErrorBoundary>
 
         <ErrorBoundary componentName="TradingView Chart">
+          {/* Use TradingViewEmbedChart for real TradingView with custom indicators */}
+          {/* <TradingViewEmbedChart symbol="BTCUSDT" theme="dark" height={500} /> */}
           <TradingViewChart />
         </ErrorBoundary>
 

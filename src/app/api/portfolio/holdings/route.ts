@@ -28,7 +28,7 @@ export async function GET(request: Request) {
             // If the asset IS USDT, price is 1.
             let price = 0;
             let change24h = 0;
-            let pair = `${symbol}USDT`;
+            const pair = `${symbol}USDT`;
 
             if (symbol === 'USDT' || symbol === 'USDC') {
                 price = 1;

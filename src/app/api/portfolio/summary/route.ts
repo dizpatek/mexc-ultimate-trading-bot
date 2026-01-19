@@ -28,7 +28,7 @@ export async function GET(request: Request) {
 
             let priceCurrent = 0;
             let changePercent = 0;
-            let pair = `${symbol}USDT`;
+            const pair = `${symbol}USDT`;
 
             if (symbol === 'USDT' || symbol === 'USDC') {
                 priceCurrent = 1;

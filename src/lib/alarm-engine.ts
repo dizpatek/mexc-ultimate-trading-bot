@@ -1,5 +1,5 @@
-import { F3 } from './indicators/f3-indicator';
-import { getKlines } from './mexc';
+import { calculateF4 } from './indicators/f4';
+import { getKlines } from './mexc-wrapper'; // Use wrapper!
 import { sql } from '@vercel/postgres';
 import { executePanicSell } from './panic-service';
 
@@ -7,22 +7,20 @@ interface Alarm {
     id: number;
     user_id: string;
     symbol: string;
-    condition_type: 'BUY_SIGNAL' | 'SELL_SIGNAL' | 'PRICE_ABOVE' | 'PRICE_BELOW';
+    condition_type: 'BUY_SIGNAL' | 'SELL_SIGNAL' | 'F4_BUY_SIGNAL' | 'F4_SELL_SIGNAL' | 'PRICE_ABOVE' | 'PRICE_BELOW'; // added F4
     action_type: 'NOTIFY' | 'TRADE' | 'PANIC_SELL';
     parameters?: any;
 }
 
-// Helper to map raw MEXC klines to OHLCData
-function mapToOHLC(rawKlines: any[]): any[] {
+// Helper to map raw MEXC klines to arrays required by F4
+function mapToArrays(rawKlines: any[]): any {
     // MEXC kline structure: [time, open, high, low, close, vol, ...]
-    return rawKlines.map(k => ({
-        timestamp: k[0],
-        open: parseFloat(k[1]),
-        high: parseFloat(k[2]),
-        low: parseFloat(k[3]),
-        close: parseFloat(k[4]),
-        volume: parseFloat(k[5])
-    }));
+    const high = rawKlines.map(k => parseFloat(k[2]));
+    const low = rawKlines.map(k => parseFloat(k[3]));
+    const close = rawKlines.map(k => parseFloat(k[4]));
+    const volume = rawKlines.map(k => parseFloat(k[5]));
+
+    return { high, low, close, volume };
 }
 
 export async function checkAlarms() {
@@ -56,34 +54,45 @@ export async function checkAlarms() {
 async function processSymbolAlarms(symbol: string, alarms: Alarm[]) {
     try {
         // 2. Fetch OHLC Data
-        // Default to 1h interval for now as per F3 standard
+        // Default to 1h interval for now as per F4 standard
         const rawKlines: any[] = await getKlines(symbol, '60m');
-        if (!rawKlines || rawKlines.length < 200) {
+        if (!rawKlines || rawKlines.length < 100) {
             console.warn(`[AlarmEngine] Insufficient data for ${symbol}`);
             return;
         }
 
-        const ohlcData = mapToOHLC(rawKlines);
+        const { high, low, close, volume } = mapToArrays(rawKlines);
 
-        // 3. Calculate Indicator (F3)
-        const { f3, f3Fibo, buySignal, sellSignal } = F3(ohlcData);
+        // 3. Calculate Indicator (F4)
+        const f4Result = calculateF4({
+            high, low, close, volume,
+            length1: 7,
+            a1: 3.7,
+            length12: 5,
+            a12: 0.618,
+            wtLength: 10,
+            wtAvgLength: 21,
+        });
+
+        const { f4Signal, actionRecommendation } = f4Result;
 
         // Log latest values
-        const latestPrice = ohlcData[ohlcData.length - 1].close;
-        console.log(`[AlarmEngine] ${symbol}: Price=${latestPrice}, Buy=${buySignal}, Sell=${sellSignal}`);
+        const latestPrice = close[close.length - 1];
+        console.log(`[AlarmEngine] ${symbol}: Price=${latestPrice}, Signal=${f4Signal}`);
 
         // 4. Check Conditions
         for (const alarm of alarms) {
             let triggered = false;
 
-            if (alarm.condition_type === 'BUY_SIGNAL' && buySignal) {
+            // Updated condition checks for F4
+            if ((alarm.condition_type === 'BUY_SIGNAL' || alarm.condition_type === 'F4_BUY_SIGNAL') && f4Signal === 'BUY') {
                 triggered = true;
-            } else if (alarm.condition_type === 'SELL_SIGNAL' && sellSignal) {
+            } else if ((alarm.condition_type === 'SELL_SIGNAL' || alarm.condition_type === 'F4_SELL_SIGNAL') && f4Signal === 'SELL') {
                 triggered = true;
             }
 
             if (triggered) {
-                await executeAlarmAction(alarm, latestPrice);
+                await executeAlarmAction(alarm, latestPrice, f4Result);
             }
         }
 
@@ -92,29 +101,31 @@ async function processSymbolAlarms(symbol: string, alarms: Alarm[]) {
     }
 }
 
-async function executeAlarmAction(alarm: Alarm, price: number) {
+async function executeAlarmAction(alarm: Alarm, price: number, f4Result: any) {
     console.log(`[AlarmEngine] 🚨 ALARM TRIGGERED: ${alarm.symbol} ${alarm.condition_type}`);
 
     try {
-        let actionResult: any = { status: 'triggered' };
+        let actionResult: any = { status: 'triggered', f4Data: f4Result };
 
         // Execute Action
         if (alarm.action_type === 'PANIC_SELL') {
             console.log(`[AlarmEngine] EXECUTING PANIC SELL FOR USER ${alarm.user_id}`);
-            // Execute actual panic logic
+            // Execute actual panic logic (now test-mode aware)
             const panicResult = await executePanicSell(alarm.user_id);
             actionResult = { ...actionResult, ...panicResult };
         } else if (alarm.action_type === 'TRADE') {
             console.log(`[AlarmEngine] EXECUTING AUTO TRADE FOR ${alarm.symbol}`);
 
-            const side = alarm.condition_type === 'BUY_SIGNAL' ? 'BUY' : 'SELL';
+            const side = (alarm.condition_type.includes('BUY')) ? 'BUY' : 'SELL';
             actionResult = {
-                status: 'auto_trade',
+                status: 'auto_trade_signal_sent',
                 side,
                 symbol: alarm.symbol,
                 price,
-                message: `Executing ${side} on ${alarm.symbol} at ${price}`
+                message: `Auto-trade signal for ${side} on ${alarm.symbol} at ${price}`
             };
+            // Ideally trigger trade logic here (requires user context/API keys)
+            // For now just logging the signal
         }
 
         // Log trigger

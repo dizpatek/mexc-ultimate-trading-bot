@@ -10,10 +10,12 @@ import { NewsSection } from '@/components/NewsSection';
 import { TradeForm } from '@/components/TradeForm';
 import { HoldingsTable } from '@/components/HoldingsTable';
 import { RecentTrades } from '@/components/RecentTrades';
+import { MarketSentiment } from '@/components/MarketSentiment';
+import { PricePredictionWidget } from '@/components/PricePredictionWidget';
 
 import { StrategyManagement } from '@/components/StrategyManagement';
 import { AlarmManager } from '@/components/AlarmManager';
-import { F3Monitor } from '@/components/F3Monitor';
+import { F4Monitor } from '@/components/F4Monitor';
 import { TradingViewChart } from '@/components/TradingViewChart';
 import { TradingViewEmbedChart } from '@/components/TradingViewEmbedChart';
 import CryptoRankWidget from '@/components/CryptoRankWidget';
@@ -60,8 +62,8 @@ export default function Dashboard() {
           <StrategyManagement />
         </ErrorBoundary>
 
-        <ErrorBoundary componentName="F3 Monitor">
-          <F3Monitor />
+        <ErrorBoundary componentName="F4 Monitor">
+          <F4Monitor />
         </ErrorBoundary>
 
         <ErrorBoundary componentName="Alarm Manager">
@@ -82,7 +84,9 @@ export default function Dashboard() {
           <div className="lg:col-span-2">
             <PortfolioChart />
           </div>
-          <div>
+          <div className="space-y-6">
+            <PricePredictionWidget />
+            <MarketSentiment />
             <NewsSection />
           </div>
         </div>

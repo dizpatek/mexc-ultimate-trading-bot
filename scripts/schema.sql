@@ -89,3 +89,11 @@ CREATE TABLE IF NOT EXISTS strategy_signals (
   executed BOOLEAN DEFAULT FALSE,
   execution_result TEXT
 );
+
+-- System settings table (for API keys and configuration)
+CREATE TABLE IF NOT EXISTS system_settings (
+  id SERIAL PRIMARY KEY,
+  key TEXT UNIQUE NOT NULL,
+  value TEXT NOT NULL,
+  updated_at BIGINT NOT NULL
+);

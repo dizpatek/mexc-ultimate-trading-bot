@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Header } from '@/components/Header';
-import { Save, AlertTriangle, CheckCircle, XCircle, RefreshCw, Key } from 'lucide-react';
+import { Save, AlertTriangle, CheckCircle, XCircle, RefreshCw, Key, Lock } from 'lucide-react';
+import { TradingModeToggle } from '@/components/TradingModeToggle';
 
 export default function SettingsPage() {
     const router = useRouter();
@@ -59,12 +60,10 @@ export default function SettingsPage() {
             if (res.ok) {
                 setHealth(data.health);
                 if (data.warning) {
-                    setError(data.warning); // It's a warning, but we show it in error box for visibility
+                    setError(data.warning);
                 } else {
-                    // Clear inputs on success for security
                     setApiKey('');
                     setApiSecret('');
-                    // Refresh view
                     fetchSettings();
                 }
             } else {
@@ -74,6 +73,40 @@ export default function SettingsPage() {
             setError(e.message);
         } finally {
             setSaving(false);
+        }
+    };
+
+    // Password change state
+    const [currentPassword, setCurrentPassword] = useState('');
+    const [newPassword, setNewPassword] = useState('');
+    const [savingPassword, setSavingPassword] = useState(false);
+    const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+
+    const handlePasswordChange = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setSavingPassword(true);
+        setPasswordMessage(null);
+
+        try {
+            const res = await fetch('/api/settings/password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ currentPassword, newPassword }),
+            });
+
+            const data = await res.json();
+
+            if (res.ok) {
+                setPasswordMessage({ type: 'success', text: 'Password updated successfully' });
+                setCurrentPassword('');
+                setNewPassword('');
+            } else {
+                setPasswordMessage({ type: 'error', text: data.error || 'Failed to update password' });
+            }
+        } catch (e: any) {
+            setPasswordMessage({ type: 'error', text: e.message });
+        } finally {
+            setSavingPassword(false);
         }
     };
 
@@ -120,6 +153,9 @@ export default function SettingsPage() {
                         </div>
                     )}
                 </div>
+
+                {/* Trading Mode Toggle */}
+                <TradingModeToggle />
 
                 {/* API Key Form */}
                 <div className="portfolio-container p-6">
@@ -175,6 +211,66 @@ export default function SettingsPage() {
                                 Keys are encrypted and stored safely.
                                 Providing new keys will overwrite existing ones.
                             </p>
+                        </div>
+                    </form>
+                </div>
+
+                {/* Password Change Form */}
+                <div className="portfolio-container p-6 mt-8">
+                    <h2 className="text-lg font-semibold mb-6 flex items-center gap-2">
+                        <Lock className="h-5 w-5" />
+                        Change Password
+                    </h2>
+
+                    <form onSubmit={handlePasswordChange} className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Current Password</label>
+                            <input
+                                type="password"
+                                value={currentPassword}
+                                onChange={(e) => setCurrentPassword(e.target.value)}
+                                className="input-field w-full"
+                                required
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium mb-1">New Password</label>
+                            <input
+                                type="password"
+                                value={newPassword}
+                                onChange={(e) => setNewPassword(e.target.value)}
+                                className="input-field w-full"
+                                placeholder="Min 6 characters"
+                                minLength={6}
+                                required
+                            />
+                        </div>
+
+                        {passwordMessage && (
+                            <div className={`p-3 rounded-md text-sm ${passwordMessage.type === 'success' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                                {passwordMessage.text}
+                            </div>
+                        )}
+
+                        <div className="pt-4">
+                            <button
+                                type="submit"
+                                disabled={savingPassword}
+                                className="btn-outline w-full flex items-center justify-center gap-2"
+                            >
+                                {savingPassword ? (
+                                    <>
+                                        <RefreshCw className="h-4 w-4 animate-spin" />
+                                        Updating...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Lock className="h-4 w-4" />
+                                        Update Password
+                                    </>
+                                )}
+                            </button>
                         </div>
                     </form>
                 </div>

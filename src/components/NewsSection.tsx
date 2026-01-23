@@ -1,74 +1,58 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { Newspaper, ExternalLink, RefreshCw, TrendingUp } from 'lucide-react';
-import { api } from '@/services/api';
+import { useState, useEffect } from 'react';
+import { ExternalLink, Newspaper } from 'lucide-react';
 
 interface NewsArticle {
     id: string;
     title: string;
-    excerpt: string;
-    source: string;
-    time: string;
+    description: string;
     url: string;
+    source: string;
+    publishedAt: string;
     imageUrl?: string;
-    sentiment?: 'positive' | 'negative' | 'neutral';
 }
 
-const mockNews: NewsArticle[] = [
-    {
-        id: '1',
-        title: 'Bitcoin Surges Past $90,000 as Institutional Adoption Grows',
-        excerpt: 'Major financial institutions announce new Bitcoin investment products, driving the cryptocurrency to record highs. Analysts predict continued momentum...',
-        source: 'CryptoNews',
-        time: '2 hours ago',
-        url: 'https://example.com/news/1',
-        sentiment: 'positive'
-    },
-    {
-        id: '2',
-        title: 'Ethereum 2.0 Upgrade Successfully Completed',
-        excerpt: 'The long-awaited upgrade brings significant improvements to network scalability and energy efficiency. Gas fees expected to drop...',
-        source: 'BlockChainDaily',
-        time: '4 hours ago',
-        url: 'https://example.com/news/2',
-        sentiment: 'positive'
-    },
-    {
-        id: '3',
-        title: 'Regulatory Concerns Rise Over Stablecoin Issuance',
-        excerpt: 'Global regulators discuss new frameworks for stablecoin oversight, potentially impacting major stablecoin providers in the market...',
-        source: 'FinanceWatch',
-        time: '6 hours ago',
-        url: 'https://example.com/news/3',
-        sentiment: 'negative'
-    },
-    {
-        id: '4',
-        title: 'Solana Network Activity Hits New All-Time High',
-        excerpt: 'DeFi protocols on Solana see unprecedented growth as users seek lower transaction costs and faster settlement times...',
-        source: 'CryptoSlate',
-        time: '8 hours ago',
-        url: 'https://example.com/news/4',
-        sentiment: 'positive'
-    },
-];
-
 export const NewsSection = () => {
-    const [news, setNews] = useState<NewsArticle[]>(mockNews);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState(false);
+    const [news, setNews] = useState<NewsArticle[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
     const fetchNews = async () => {
         setLoading(true);
+        setError(null);
+
         try {
-            const response = await api.get('/news');
-            setNews(response.data || mockNews);
-            setError(false);
-        } catch (err) {
-            console.error('Failed to fetch news', err);
-            setNews(mockNews);
-            setError(true);
+            // Using CryptoCompare News API (free tier)
+            const response = await fetch(
+                'https://min-api.cryptocompare.com/data/v2/news/?lang=EN&categories=BTC,ETH,Trading'
+            );
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch crypto news');
+            }
+
+            const data = await response.json();
+
+            if (data.Data && Array.isArray(data.Data)) {
+                const articles: NewsArticle[] = data.Data.slice(0, 5).map((item: any) => ({
+                    id: item.id || item.guid,
+                    title: item.title,
+                    description: item.body || item.description || '',
+                    url: item.url || item.guid,
+                    source: item.source || item.source_info?.name || 'CryptoCompare',
+                    publishedAt: new Date(item.published_on * 1000).toISOString(),
+                    imageUrl: item.imageurl || undefined,
+                }));
+
+                setNews(articles);
+            } else {
+                throw new Error('Invalid news data format');
+            }
+        } catch (err: any) {
+            console.error('Error fetching crypto news:', err);
+            setError(err.message || 'Failed to load news');
+            setNews([]);
         } finally {
             setLoading(false);
         }
@@ -76,62 +60,103 @@ export const NewsSection = () => {
 
     useEffect(() => {
         fetchNews();
+
+        // Refresh news every 15 minutes
+        const interval = setInterval(fetchNews, 15 * 60 * 1000);
+        return () => clearInterval(interval);
     }, []);
 
-    return (
-        <div className="portfolio-container p-6 h-full flex flex-col">
-            <div className="flex justify-between items-center mb-6">
-                <div className="flex items-center gap-2">
-                    <div className={`p-2 ${loading ? 'bg-primary/10' : 'bg-blue-500/10'} rounded-lg transition-colors`}>
-                        <Newspaper className={`h-5 w-5 ${loading ? 'text-primary' : 'text-blue-500'}`} />
-                    </div>
-                    <div>
-                        <h2 className="text-lg font-semibold">Crypto News</h2>
-                        <div className="flex items-center gap-2">
-                            <p className="text-xs text-muted-foreground">Latest market updates</p>
-                            {loading && (
-                                <div className="h-1.5 w-1.5 bg-primary rounded-full animate-pulse"></div>
-                            )}
+    if (loading && news.length === 0) {
+        return (
+            <div className="portfolio-container p-6">
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <Newspaper className="h-5 w-5" />
+                    Crypto News
+                </h2>
+                <div className="space-y-4">
+                    {[1, 2, 3].map((i) => (
+                        <div key={i} className="animate-pulse">
+                            <div className="h-4 bg-secondary rounded w-3/4 mb-2"></div>
+                            <div className="h-3 bg-secondary rounded w-full"></div>
                         </div>
-                    </div>
+                    ))}
                 </div>
-                <button
-                    onClick={fetchNews}
-                    className="p-2 hover:bg-muted rounded-full transition-colors"
-                    title="Refresh"
-                >
-                    <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-                </button>
             </div>
+        );
+    }
 
-            <div className="space-y-3 flex-1 overflow-y-auto pr-1" style={{ maxHeight: '600px' }}>
+    if (error && news.length === 0) {
+        return (
+            <div className="portfolio-container p-6">
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <Newspaper className="h-5 w-5" />
+                    Crypto News
+                </h2>
+                <div className="text-center py-8 text-muted-foreground">
+                    <p className="text-sm">{error}</p>
+                    <button
+                        onClick={fetchNews}
+                        className="mt-4 text-xs text-primary hover:underline"
+                    >
+                        Retry
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="portfolio-container p-6">
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <Newspaper className="h-5 w-5" />
+                Crypto News
+            </h2>
+
+            <div className="space-y-4">
                 {news.map((article) => (
-                    <div key={article.id} className="border border-border rounded-lg p-4 hover:bg-muted/50 transition-all duration-300 hover:shadow-md group">
-                        <div className="flex items-start justify-between gap-3 mb-2">
-                            <h3 className="font-medium text-sm leading-snug hover:text-primary cursor-pointer line-clamp-2 flex-1">
-                                <a href={article.url} target="_blank" rel="noopener noreferrer" className="flex items-start">
-                                    {article.title}
-                                    <ExternalLink className="h-3.5 w-3.5 ml-2 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-                                </a>
-                            </h3>
-                            {article.sentiment === 'positive' && (
-                                <TrendingUp className="h-4 w-4 text-green-500 flex-shrink-0" />
+                    <a
+                        key={article.id}
+                        href={article.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block p-4 rounded-lg border border-border hover:border-primary/50 transition-all hover:bg-secondary/30 group"
+                    >
+                        <div className="flex items-start gap-3">
+                            {article.imageUrl && (
+                                <img
+                                    src={article.imageUrl}
+                                    alt={article.title}
+                                    className="w-16 h-16 rounded object-cover flex-shrink-0"
+                                    onError={(e) => {
+                                        e.currentTarget.style.display = 'none';
+                                    }}
+                                />
                             )}
+                            <div className="flex-1 min-w-0">
+                                <h3 className="text-sm font-medium mb-1 line-clamp-2 group-hover:text-primary transition-colors">
+                                    {article.title}
+                                </h3>
+                                <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
+                                    {article.description}
+                                </p>
+                                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                    <span>{article.source}</span>
+                                    <span suppressHydrationWarning>
+                                        {new Date(article.publishedAt).toLocaleDateString()}
+                                    </span>
+                                </div>
+                            </div>
+                            <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors flex-shrink-0" />
                         </div>
-                        <p className="text-sm text-muted-foreground mb-3 line-clamp-2">{article.excerpt}</p>
-                        <div className="flex justify-between items-center">
-                            <span className="text-xs bg-muted/60 px-2 py-1 rounded font-medium">{article.source}</span>
-                            <span className="text-xs text-muted-foreground">{article.time}</span>
-                        </div>
-                    </div>
+                    </a>
                 ))}
             </div>
 
-            <div className="mt-4 pt-3 border-t border-border text-center">
-                <a href="https://cryptorank.io/news" target="_blank" rel="noreferrer" className="text-xs text-muted-foreground hover:text-primary transition-colors">
-                    View all news on CryptoRank
-                </a>
-            </div>
+            {loading && news.length > 0 && (
+                <div className="mt-4 text-center text-xs text-muted-foreground">
+                    Refreshing news...
+                </div>
+            )}
         </div>
     );
 };

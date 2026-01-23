@@ -5,6 +5,7 @@ import { Play, Pause, Plus, Trash2, Activity, Settings2 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { useHoldings } from '../hooks/usePortfolio';
+import { DcaManager } from './DcaManager';
 
 interface Strategy {
     id: number;
@@ -270,6 +271,11 @@ export const StrategyManagement = () => {
                     </div>
                 )}
             </div>
+
+            <hr className="my-12 border-border" />
+
+            {/* DCA Bots Section */}
+            <DcaManager />
         </section>
     );
 };

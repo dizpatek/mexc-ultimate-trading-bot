@@ -86,6 +86,14 @@ export const PanicButton = () => {
                                 {result.totalUsdtValue && (
                                     <p className="text-sm mt-2">Total USDT: ${result.totalUsdtValue.toFixed(2)}</p>
                                 )}
+                                {result.mode && (
+                                    <div className="mt-2 pt-2 border-t border-current/20">
+                                        <p className="text-xs">
+                                            Mode: <span className="font-semibold uppercase">{result.mode}</span>
+                                            {result.mode === 'test' && ' (Simulated)'}
+                                        </p>
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <>
@@ -149,6 +157,14 @@ export const PanicButton = () => {
                                 <p className="font-medium">{result.message || result.error}</p>
                                 {result.totalSpent && (
                                     <p className="text-sm mt-2">Total Spent: ${result.totalSpent.toFixed(2)}</p>
+                                )}
+                                {result.mode && (
+                                    <div className="mt-2 pt-2 border-t border-current/20">
+                                        <p className="text-xs">
+                                            Mode: <span className="font-semibold uppercase">{result.mode}</span>
+                                            {result.mode === 'test' && ' (Simulated)'}
+                                        </p>
+                                    </div>
                                 )}
                             </div>
                         ) : (

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getAccountInfo, getPrice, get24hrTicker } from '@/lib/mexc';
+import { getAccountInfo, getPrice, get24hrTicker } from '@/lib/mexc-wrapper';
+import { getPortfolioSnapshots } from '@/lib/db';
 import { getSessionUser } from '@/lib/auth-utils';
 
 export const dynamic = 'force-dynamic';
@@ -64,15 +65,50 @@ export async function GET(request: Request) {
             }
         }
 
-        const change24hValue = totalValueCurrent - totalValue24hAgo;
-        const changePercentage = totalValue24hAgo > 0
-            ? ((change24hValue / totalValue24hAgo) * 100)
-            : 0;
+        // Strategy 1: Estimated change based on current holdings assets 24h performance
+        const change24hEstimated = totalValueCurrent - totalValue24hAgo;
+
+        // Strategy 2: Real portfolio change based on snapshots
+        let realChangeValue = change24hEstimated;
+        let realChangePercent = 0;
+
+        try {
+            // Get snapshots for last 2 days
+            const snapshots = await getPortfolioSnapshots(2);
+
+            // Find a snapshot close to 24h ago (between 23h and 25h ago)
+            const now = Date.now();
+            const targetTime = now - (24 * 60 * 60 * 1000);
+            const tolerance = 2 * 60 * 60 * 1000; // 2 hours tolerance
+
+            const snapshot24h = snapshots.find((s: any) =>
+                Math.abs(Number(s.snapshot_date) - targetTime) < tolerance
+            );
+
+            if (snapshot24h) {
+                const prevValue = Number(snapshot24h.total_value);
+                if (prevValue > 0) {
+                    realChangeValue = totalValueCurrent - prevValue;
+                    realChangePercent = (realChangeValue / prevValue) * 100;
+                }
+            } else {
+                // Fallback to estimated calculation if no snapshot
+                realChangePercent = totalValue24hAgo > 0
+                    ? ((change24hEstimated / totalValue24hAgo) * 100)
+                    : 0;
+            }
+        } catch (e) {
+            console.warn('Failed to calculate real portfolio change from DB', e);
+            // Fallback
+            realChangePercent = totalValue24hAgo > 0
+                ? ((change24hEstimated / totalValue24hAgo) * 100)
+                : 0;
+        }
 
         return NextResponse.json({
             totalValue: totalValueCurrent,
-            change24h: change24hValue,
-            changePercentage: changePercentage,
+            change24h: realChangeValue,
+            changePercentage: realChangePercent,
             assets: assetsCount
         });
     } catch (error: any) {

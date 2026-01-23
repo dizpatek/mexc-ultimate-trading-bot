@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { marketBuyByQuote } from '@/lib/mexc';
+import { marketBuyByQuote, getTradingMode } from '@/lib/mexc-wrapper';
 import { getSessionUser } from '@/lib/auth-utils';
 import { sql } from '@vercel/postgres';
 
@@ -11,6 +11,9 @@ export async function POST(request: Request) {
         if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
+
+        const tradingMode = getTradingMode();
+        console.log(`[BuyBack] Initiating buy-back for user ${user.id} in ${tradingMode.toUpperCase()} mode`);
 
         // Get the most recent panic snapshot
         const result = await sql`
@@ -68,7 +71,8 @@ export async function POST(request: Request) {
             message: `Bought back ${buyResults.filter(r => r.success).length} assets`,
             totalSpent,
             results: buyResults,
-            snapshotTimestamp: snapshot.created_at
+            snapshotTimestamp: snapshot.created_at,
+            mode: tradingMode
         });
 
     } catch (error: any) {

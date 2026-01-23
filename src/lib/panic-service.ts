@@ -1,12 +1,13 @@
-// Last Updated: 2026-01-10T03:54:30+03:00
+// Last Updated: 2026-01-24T02:23:00+03:00
 import { sql } from '@vercel/postgres';
-import { getAccountInfo, marketSellByQty } from './mexc';
+import { getAccountInfo, marketSellByQty, getTradingMode } from '@/lib/mexc-wrapper';
 
 export async function executePanicSell(userId: string) {
     try {
-        console.log(`[PanicService] Initiating Panic Sell for user ${userId}`);
+        const tradingMode = getTradingMode();
+        console.log(`[PanicService] Initiating Panic Sell for user ${userId} in ${tradingMode.toUpperCase()} mode`);
 
-        // Get all current balances
+        // Get all current balances (works in both test and production mode)
         const accountInfo = await getAccountInfo();
 
         // Filter assets: >0 balance and not USDT/USDC
@@ -19,7 +20,7 @@ export async function executePanicSell(userId: string) {
 
         if (activeBalances.length === 0) {
             console.log('[PanicService] No active assets to sell');
-            return { success: false, message: 'No assets to sell', totalUsdtValue: 0 };
+            return { success: false, message: 'No assets to sell', totalUsdtValue: 0, mode: tradingMode };
         }
 
         const snapshotData: any[] = [];
@@ -87,7 +88,8 @@ export async function executePanicSell(userId: string) {
             success: true,
             totalUsdtValue,
             results: sellResults,
-            soldCount: sellResults.filter(r => r.success).length
+            soldCount: sellResults.filter(r => r.success).length,
+            mode: tradingMode
         };
 
     } catch (error: any) {

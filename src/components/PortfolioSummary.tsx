@@ -7,33 +7,27 @@ export const PortfolioSummary = () => {
     const { data: summaryData, isLoading: summaryLoading, isError: summaryError } = usePortfolioSummary();
     const { data: holdings, isLoading: holdingsLoading } = useHoldings();
 
-    const mockData = {
-        totalValue: 125000.00,
-        change24h: 2450.00,
-        changePercentage: 2.01,
-        assets: 8,
-        bestPerformer: { symbol: 'SOL', change24h: 8.5 },
-        topHolding: { symbol: 'BTC', value: 45000.00 }
-    };
-
-    const displayData = summaryData || mockData;
     const loading = summaryLoading || holdingsLoading;
 
     const filteredHoldings = holdings?.filter(h => h.value > 100 && h.symbol !== 'USDT' && h.symbol !== 'USDC') || [];
-    
-    const bestPerformer = filteredHoldings.length > 0 
-        ? filteredHoldings.reduce((best, current) => 
+
+    const bestPerformer = filteredHoldings.length > 0
+        ? filteredHoldings.reduce((best, current) =>
             (current.change24h > best.change24h) ? current : best
         )
-        : mockData.bestPerformer;
+        : null;
 
     const topGainer = filteredHoldings.length > 0
-        ? filteredHoldings.reduce((top, current) => 
+        ? filteredHoldings.reduce((top, current) =>
             (current.value > top.value) ? current : top
         )
-        : mockData.topHolding;
+        : null;
 
-    const { totalValue, change24h, changePercentage, assets } = displayData;
+    // Use real data or show loading/error state
+    const totalValue = summaryData?.totalValue || 0;
+    const change24h = summaryData?.change24h || 0;
+    const changePercentage = summaryData?.changePercentage || 0;
+    const assets = summaryData?.assets || 0;
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">

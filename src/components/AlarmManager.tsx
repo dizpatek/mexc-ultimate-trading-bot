@@ -72,7 +72,7 @@ export const AlarmManager = () => {
                     <h2 className="text-2xl font-bold flex items-center gap-2">
                         <Bell className="w-6 h-6" /> Automated Alarms
                     </h2>
-                    <p className="text-muted-foreground">Configure triggers for automatic actions based on F3 signals.</p>
+                    <p className="text-muted-foreground">Configure triggers for automatic actions based on F4 signals.</p>
                 </div>
                 <button
                     onClick={() => setIsAddingMode(true)}
@@ -115,8 +115,8 @@ export const AlarmManager = () => {
                                 value={newAlarm.condition_type}
                                 onChange={e => setNewAlarm({ ...newAlarm, condition_type: e.target.value })}
                             >
-                                <option value="SELL_SIGNAL">F3 SELL Signal</option>
-                                <option value="BUY_SIGNAL">F3 BUY Signal</option>
+                                <option value="SELL_SIGNAL">F4 SELL Signal</option>
+                                <option value="BUY_SIGNAL">F4 BUY Signal</option>
                             </select>
                         </div>
 

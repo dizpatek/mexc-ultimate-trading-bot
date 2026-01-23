@@ -6,15 +6,7 @@ import { useRecentTrades } from '../hooks/usePortfolio';
 export const RecentTrades = () => {
     const { data: trades, isLoading, isError } = useRecentTrades();
 
-    const mockTrades = [
-        { id: 1, symbol: 'BTC/USDT', type: 'buy', price: 92500.00, amount: 0.5, total: 46250.00, time: '2026-01-19T14:30:00', status: 'completed' },
-        { id: 2, symbol: 'ETH/USDT', type: 'sell', price: 3280.00, amount: 2.5, total: 8200.00, time: '2026-01-19T13:15:00', status: 'completed' },
-        { id: 3, symbol: 'SOL/USDT', type: 'buy', price: 182.00, amount: 50, total: 9100.00, time: '2026-01-19T12:45:00', status: 'completed' },
-        { id: 4, symbol: 'BNB/USDT', type: 'buy', price: 675.00, amount: 5, total: 3375.00, time: '2026-01-19T11:20:00', status: 'pending' },
-        { id: 5, symbol: 'ADA/USDT', type: 'sell', price: 0.88, amount: 1000, total: 880.00, time: '2026-01-19T10:05:00', status: 'completed' },
-    ];
-
-    const displayTrades = trades || mockTrades;
+    const displayTrades = trades || [];
     const loading = isLoading;
 
     return (

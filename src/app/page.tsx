@@ -10,16 +10,11 @@ import { NewsSection } from '@/components/NewsSection';
 import { TradeForm } from '@/components/TradeForm';
 import { HoldingsTable } from '@/components/HoldingsTable';
 import { RecentTrades } from '@/components/RecentTrades';
-import { MarketSentiment } from '@/components/MarketSentiment';
-import { PricePredictionWidget } from '@/components/PricePredictionWidget';
-
 import { StrategyManagement } from '@/components/StrategyManagement';
 import { AlarmManager } from '@/components/AlarmManager';
 import { F4Monitor } from '@/components/F4Monitor';
-import { TradingViewChart } from '@/components/TradingViewChart';
-import { TradingViewEmbedChart } from '@/components/TradingViewEmbedChart';
-import CryptoRankWidget from '@/components/CryptoRankWidget';
-
+import { MarketSentiment } from '@/components/MarketSentiment';
+import { PricePredictionWidget } from '@/components/PricePredictionWidget';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 export default function Dashboard() {
@@ -27,7 +22,6 @@ export default function Dashboard() {
   const router = useRouter();
 
   useEffect(() => {
-    // If not loading and no user, redirect to login
     if (!loading && !user) {
       router.push('/login');
     }
@@ -36,67 +30,87 @@ export default function Dashboard() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background text-foreground">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+        <RefreshCw className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
   }
 
-  // If user is not logged in, we return null while redirecting
-  if (!user) {
-    return null;
-  }
+  if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground overflow-x-hidden">
       <Header />
-      <main className="container mx-auto px-4 py-8 space-y-12">
-        <ErrorBoundary componentName="Portfolio Summary">
-          <PortfolioSummary />
-        </ErrorBoundary>
 
-        <div className="grid grid-cols-1">
-          <HoldingsTable />
-        </div>
+      <main className="container mx-auto px-4 py-8 space-y-8 max-w-[1600px]">
 
-        <ErrorBoundary componentName="Strategy Management">
-          <StrategyManagement />
-        </ErrorBoundary>
+        {/* SUMMARY STATS (Top Section) */}
+        <section className="w-full">
+          <ErrorBoundary componentName="Portfolio Summary">
+            <PortfolioSummary />
+          </ErrorBoundary>
+        </section>
 
-        <ErrorBoundary componentName="F4 Monitor">
-          <F4Monitor />
-        </ErrorBoundary>
+        {/* MAIN DASHBOARD GRID (Bento Repair) */}
+        <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
 
-        <ErrorBoundary componentName="Alarm Manager">
-          <AlarmManager />
-        </ErrorBoundary>
+          {/* Main Content Area (3 Cols) */}
+          <div className="xl:col-span-3 space-y-8">
 
-        <ErrorBoundary componentName="TradingView Chart">
-          {/* Real TradingView widget showing TOTAL3 (Top 3 Altcoins Index) */}
-          <TradingViewEmbedChart showTotal3={true} theme="dark" height={500} />
-          {/* Simulated chart: <TradingViewChart /> */}
-        </ErrorBoundary>
+            {/* Charts Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="stat-card h-[450px] !p-0 overflow-hidden">
+                <PortfolioChart />
+              </div>
+              <div className="stat-card h-[450px] overflow-hidden">
+                <F4Monitor />
+              </div>
+            </div>
 
-        <ErrorBoundary componentName="Market Watchlist">
-          <CryptoRankWidget />
-        </ErrorBoundary>
+            {/* Holdings Section (Single Row Table) */}
+            <div className="stat-card !p-0 overflow-hidden border border-white/10 shadow-2xl">
+              <HoldingsTable />
+            </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2">
-            <PortfolioChart />
           </div>
-          <div className="space-y-6">
+
+          {/* Intelligence Sidebar (1 Col) */}
+          <div className="xl:col-span-1 space-y-8">
             <PricePredictionWidget />
             <MarketSentiment />
-            <NewsSection />
+            <div className="stat-card max-h-[600px] overflow-y-auto no-scrollbar">
+              <NewsSection />
+            </div>
           </div>
+
         </div>
 
-        <TradeForm />
+        {/* STRATEGY & ACTIONS (Lower Section) */}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
 
-        <div className="grid grid-cols-1">
-          <RecentTrades />
+          <div className="xl:col-span-2 stat-card overflow-hidden">
+            <StrategyManagement />
+          </div>
+
+          <div className="xl:col-span-1 space-y-8">
+            <div className="stat-card">
+              <AlarmManager />
+            </div>
+            <div className="stat-card !p-0 overflow-hidden">
+              <RecentTrades />
+            </div>
+          </div>
+
         </div>
+
+        {/* QUICK CONTROL (Fixed Position) */}
+        <div className="fixed bottom-8 right-8 z-50">
+          <TradeForm />
+        </div>
+
       </main>
     </div>
   );
 }
+
+// Fixed import for loading state
+import { RefreshCw } from 'lucide-react';

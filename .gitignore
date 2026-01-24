@@ -47,3 +47,6 @@ next-env.d.ts
 signals_session.session
 signals_log.json
 *.session-journal
+
+.vercel
+.env*.local

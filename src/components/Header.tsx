@@ -1,101 +1,99 @@
 "use client";
 
-import { Moon, Sun, Wallet, Bell, Settings, LogOut } from 'lucide-react';
-import { useState } from 'react';
-import { useAuth } from '../hooks/useAuth';
-import { PanicButton } from './PanicButton';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import {
+    LayoutDashboard,
+    Settings,
+    Bell,
+    User,
+    LogOut,
+    Zap,
+    ChevronDown,
+    Activity
+} from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
 
 export const Header = () => {
-    const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const pathname = usePathname();
     const { user, logout } = useAuth();
 
-    const toggleTheme = () => {
-        // Theme toggle functionality would go here
-        document.documentElement.classList.toggle('dark');
-    };
-
-    const handleLogout = () => {
-        logout();
-        setIsMenuOpen(false);
-    };
+    const isDashboard = pathname === '/';
+    const isSettings = pathname === '/settings';
 
     return (
-        <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            <div className="container mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                    <div className="bg-primary text-primary-foreground p-2 rounded-lg">
-                        <Wallet className="w-6 h-6" />
+        <header className="sticky top-0 z-50 w-full bg-background/60 backdrop-blur-xl border-b border-white/5">
+            <div className="container mx-auto px-4 h-20 flex items-center justify-between">
+
+                {/* LOGO SECTION */}
+                <Link href="/" className="flex items-center gap-3 group">
+                    <div className="bg-primary p-2 rounded-xl shadow-lg shadow-primary/20 group-hover:scale-110 transition-transform">
+                        <Zap className="w-6 h-6 text-white fill-white" />
                     </div>
-                    <h1 className="text-xl font-bold tracking-tight">MEXC Portfolio</h1>
-                </div>
+                    <div>
+                        <h1 className="text-xl font-extrabold tracking-tighter leading-none">MEXC <span className="text-primary">ULTIMATE</span></h1>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-0.5">AI Quant Station</p>
+                    </div>
+                </Link>
 
-                <div className="flex items-center space-x-4">
-                    <PanicButton />
-
-                    <button
-                        onClick={toggleTheme}
-                        className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                        aria-label="Toggle theme"
+                {/* NAV SECTION */}
+                <nav className="hidden md:flex items-center bg-white/5 p-1.5 rounded-2xl border border-white/5">
+                    <Link
+                        href="/"
+                        className={`flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-bold transition-all ${isDashboard ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-muted-foreground hover:text-foreground'
+                            }`}
                     >
-                        <Sun className="h-5 w-5 hidden dark:block" />
-                        <Moon className="h-5 w-5 block dark:hidden" />
-                    </button>
-
-                    <button
-                        className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors hidden md:block"
-                        aria-label="Notifications"
-                    >
-                        <Bell className="h-5 w-5" />
-                    </button>
-
-                    <a
+                        <LayoutDashboard className="w-4 h-4" />
+                        Dashboard
+                    </Link>
+                    <Link
                         href="/settings"
-                        className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors hidden md:block"
-                        aria-label="Settings"
+                        className={`flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-bold transition-all ${isSettings ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-muted-foreground hover:text-foreground'
+                            }`}
                     >
-                        <Settings className="h-5 w-5" />
-                    </a>
+                        <Settings className="w-4 h-4" />
+                        Settings
+                    </Link>
+                </nav>
 
-                    <div className="relative">
-                        <button
-                            onClick={() => setIsMenuOpen(!isMenuOpen)}
-                            className="flex items-center space-x-2 focus:outline-none"
-                            aria-label="User menu"
-                        >
-                            <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center">
-                                <span className="text-sm font-bold text-primary-foreground">
-                                    {user?.username?.charAt(0).toUpperCase() || 'U'}
-                                </span>
-                            </div>
-                            <div className="hidden sm:flex flex-col text-left text-xs">
-                                <span className="font-semibold text-foreground">{user?.username || 'User'}</span>
-                                <span className="text-muted-foreground">{user?.email || 'Free Plan'}</span>
-                            </div>
-                        </button>
+                {/* USER SECTION */}
+                <div className="flex items-center gap-4">
+                    <button className="hidden sm:flex relative p-2.5 bg-white/5 hover:bg-white/10 rounded-xl border border-white/5 transition-colors group">
+                        <Bell className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+                        <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-background animate-pulse" />
+                    </button>
 
-                        {isMenuOpen && (
-                            <div className="absolute right-0 mt-2 w-48 bg-popover border border-border rounded-lg shadow-lg z-50">
-                                <div className="p-3 border-b border-border">
-                                    <p className="font-medium text-foreground">{user?.username || 'User'}</p>
-                                    <p className="text-sm text-muted-foreground">{user?.email || 'Free Plan'}</p>
-                                </div>
-                                <div className="py-1">
-                                    <a href="/settings" className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center">
-                                        <Settings className="h-4 w-4 mr-2" />
-                                        Settings
-                                    </a>
-                                    <button
-                                        onClick={handleLogout}
-                                        className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center"
-                                    >
-                                        <LogOut className="h-4 w-4 mr-2" />
-                                        Logout
-                                    </button>
-                                </div>
+                    <div className="h-8 w-[1px] bg-white/10 hidden sm:block mx-1" />
+
+                    <div className="flex items-center gap-3 pl-2 group">
+                        <div className="text-right hidden sm:block">
+                            <p className="text-sm font-bold leading-none">{user?.email?.split('@')[0] || 'Trader'}</p>
+                            <div className="flex items-center justify-end gap-1 mt-1">
+                                <Activity className="w-3 h-3 text-green-500" />
+                                <p className="text-[10px] font-bold text-green-500 uppercase">Live</p>
                             </div>
-                        )}
+                        </div>
+                        <div className="relative group/user">
+                            <button className="h-11 w-11 rounded-xl bg-gradient-to-tr from-primary to-blue-500 p-0.5 shadow-lg shadow-primary/10">
+                                <div className="h-full w-full bg-background rounded-[10px] flex items-center justify-center">
+                                    <User className="w-5 h-5 text-primary" />
+                                </div>
+                            </button>
+
+                            {/* Dropdown Placeholder (Functional Logout Only) */}
+                            <div className="absolute top-full right-0 mt-2 w-48 bg-card border border-white/10 rounded-2xl p-2 opacity-0 invisible group-hover/user:opacity-100 group-hover/user:visible transition-all shadow-2xl z-50">
+                                <button
+                                    onClick={logout}
+                                    className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-red-500 hover:bg-red-500/10 rounded-xl transition-colors"
+                                >
+                                    <LogOut className="w-4 h-4" />
+                                    Sign Out
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
+
             </div>
         </header>
     );

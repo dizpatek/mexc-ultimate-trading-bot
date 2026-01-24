@@ -1,85 +1,75 @@
 import { NextResponse } from 'next/server';
-import { getAccountInfo, getPrice, get24hrTicker } from '@/lib/mexc';
+import { getAccountInfo, getPrice, get24hrTicker, type TradingMode } from '@/lib/mexc-wrapper';
 import { getSessionUser } from '@/lib/auth-utils';
+import { cookies } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
     try {
         const user = await getSessionUser(request);
-        if (!user) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+        if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const accountInfo = await getAccountInfo();
+        // Get mode from cookies
+        const cookieStore = cookies();
+        const mode = (await cookieStore).get('TRADING_MODE')?.value as TradingMode || 'test';
 
-        // Filter for non-zero balances
+        const accountInfo = await getAccountInfo(mode);
         const activeBalances = accountInfo.balances.filter(
             b => parseFloat(b.free) + parseFloat(b.locked) > 0
         );
 
-        const holdingsPromises = activeBalances.map(async (balance, index) => {
+        let totalValue = 0;
+        const holdingsData = await Promise.all(activeBalances.map(async (balance) => {
             const free = parseFloat(balance.free);
             const locked = parseFloat(balance.locked);
-            const total = free + locked;
+            const totalQty = free + locked;
             const symbol = balance.asset;
-
-            // Determine pair for price fetching (default to USDT)
-            // If the asset IS USDT, price is 1.
-            let price = 0;
-            let change24h = 0;
             const pair = `${symbol}USDT`;
 
+            let currentPrice = 0;
+            let change24h = 0;
+
             if (symbol === 'USDT' || symbol === 'USDC') {
-                price = 1;
+                currentPrice = 1;
                 change24h = 0;
             } else {
                 try {
-                    // Fetch real current price
-                    price = await getPrice(pair);
-
-                    // Fetch real 24h ticker info
-                    // Note: get24hrTicker might return an object or fail if pair doesn't exist
+                    currentPrice = await getPrice(pair);
                     const ticker = await get24hrTicker(pair);
-
-                    if (ticker && ticker.priceChangePercent) {
-                        change24h = parseFloat(ticker.priceChangePercent);
-                    }
+                    if (ticker) change24h = parseFloat(ticker.priceChangePercent || '0');
                 } catch (e) {
-                    console.warn(`Could not fetch market data for ${pair}`, e);
-                    // Fallback: price 0 if not found (maybe delisted or different pair suffix)
+                    // Ignore
                 }
             }
 
-            const value = total * price;
+            const value = totalQty * currentPrice;
+            totalValue += value;
 
             return {
-                id: String(index + 1),
+                id: symbol,
                 symbol,
-                name: symbol, // Could fetch full names, but symbol is fine for now
-                price,
-                change24h,
-                holding: total,
+                name: symbol, // Could fetch from a mapping if needed
+                holding: totalQty,
+                price: currentPrice,
                 value,
-                allocation: 0
+                change24h,
+                allocation: 0 // Will calculate after loop
             };
-        });
-
-        const holdings = await Promise.all(holdingsPromises);
-
-        // Sort by value descending
-        const sortedHoldings = holdings.sort((a, b) => b.value - a.value);
-
-        const totalValue = sortedHoldings.reduce((sum, h) => sum + h.value, 0);
-
-        const holdingsWithAllocation = sortedHoldings.map(holding => ({
-            ...holding,
-            allocation: totalValue > 0 ? (holding.value / totalValue) * 100 : 0
         }));
 
-        return NextResponse.json(holdingsWithAllocation);
+        // Calculate allocation
+        const finalHoldings = holdingsData.map(h => ({
+            ...h,
+            allocation: totalValue > 0 ? (h.value / totalValue) * 100 : 0
+        }));
+
+        // Sort by value DESC
+        finalHoldings.sort((a, b) => b.value - a.value);
+
+        return NextResponse.json(finalHoldings);
     } catch (error: any) {
-        console.error('Error fetching real holdings:', error);
-        return NextResponse.json({ error: 'Failed to fetch holdings' }, { status: 500 });
+        console.error('Error fetching holdings:', error);
+        return NextResponse.json({ error: 'Failed to fetch holdings', details: error.message }, { status: 500 });
     }
 }

@@ -11,37 +11,26 @@ export async function GET(request: Request) {
 
         const { searchParams } = new URL(request.url);
         const symbol = searchParams.get('symbol') || 'BTCUSDT';
-        const interval = '60m'; // MEXC API uses '60m' for hourly, not '1h' in some endpoints, or '1h' works too. Let's use '60m' to be safe.
 
-        // Fetch Klines from MEXC
-        // API format: /api/v3/klines?symbol=BTCUSDT&interval=60m&limit=50
-        const mxUrl = `https://api.mexc.com/api/v3/klines?symbol=${symbol}&interval=60m&limit=100`;
+        // Use Binance for better public kline data reliability
+        const binanceUrl = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1h&limit=100`;
 
-        const response = await fetch(mxUrl, {
+        const response = await fetch(binanceUrl, {
             next: { revalidate: 300 } // Cache for 5 mins
         });
 
         if (!response.ok) {
-            console.error(`MEXC API Error: ${response.statusText}`);
-            // Return fallback/mock data if API fails to prevent UI crash
-            return NextResponse.json({
-                symbol,
-                currentPrice: 0,
-                predictedPrice: 0,
-                trend: 'FLAT',
-                confidence: 0,
-                forecastTime: Date.now(),
-                error: 'Market data unavailable'
-            });
+            // Fallback to MEXC if Binance is down
+            const mexcUrl = `https://api.mexc.com/api/v3/klines?symbol=${symbol}&interval=60m&limit=100`;
+            const mxRes = await fetch(mexcUrl);
+            if (!mxRes.ok) throw new Error('Global market data sources unavailable');
+
+            const mxData = await mxRes.json();
+            const prices = mxData.map((k: any) => parseFloat(k[4]));
+            return NextResponse.json(predictPrice(symbol, prices));
         }
 
         const data = await response.json();
-
-        // Parse Close Prices (index 4)
-        if (!Array.isArray(data) || data.length === 0) {
-            throw new Error('Invalid data format from MEXC');
-        }
-
         const prices = data.map((k: any) => parseFloat(k[4]));
         const prediction = predictPrice(symbol, prices);
 

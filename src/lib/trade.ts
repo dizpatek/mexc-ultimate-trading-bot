@@ -4,7 +4,7 @@ import {
     placeStopMarket,
     getBalance,
     getPrice
-} from './mexc';
+} from './mexc-wrapper';
 import {
     insertOrder,
     insertTradeHistory,

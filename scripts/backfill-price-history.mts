@@ -1,5 +1,5 @@
 import { sql } from '@vercel/postgres';
-import fetch from 'node-fetch';
+// import fetch from 'node-fetch'; // fetch is global in Node 18+
 import dotenv from 'dotenv';
 
 // Load environment variables

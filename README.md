@@ -1,84 +1,130 @@
-# MexC Ultimate Portfolio
+# 🤖 MexC Ultimate Trading Bot & Portfolio Matrix V3
 
-An advanced crypto portfolio tracking and automated trading dashboard built with Next.js 15+, TypeScript, and Tailwind CSS v4.
+![Next.js](https://img.shields.io/badge/Next.js-15+-black?style=for-the-badge&logo=next.js)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue?style=for-the-badge&logo=typescript)
+![TailwindCSS](https://img.shields.io/badge/Tailwind-CSS%204.0-38B2AC?style=for-the-badge&logo=tailwind-css)
+![Vercel](https://img.shields.io/badge/Vercel-Postgres-000000?style=for-the-badge&logo=vercel)
+![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge&logo=freebsd)
 
-## Features
+An elite, high-performance automated trading dashboard and portfolio management system. Leveraging the **Matrix V3 Engine**, this system provides institutional-grade market analysis, whale tracking, and AI-driven decision making for MEXC traders.
 
-- **Real-time Portfolio Tracking**: Connects to MEXC API to fetch balances, prices, and open orders.
-- **Automated Trading Strategies**: Support for RSI, MACD, and Moving Average Crossover strategies.
-- **Webhook Integration**: Receive trade signals from external sources (like TradingView).
-- **Portfolio Analytics**: Track daily performance, profit/loss, and historical snapshots.
-- **Modern UI**: Sleek, responsive dashboard with dark mode support.
-- **Database**: Backend powered by Vercel Postgres for reliable data storage.
+---
 
-## Tech Stack
+## ⚡ Matrix V3 Core Architecture
 
-- **Frontend**: Next.js (App Router), React 19, Tailwind CSS v4, Lucide React, Recharts.
-- **Backend**: Next.js API Routes (Route Handlers), TypeScript.
-- **Data Fetching**: Tanstack Query (React Query), Axios.
-- **Authentication**: JWT-based auth with Bcrypt for password hashing.
-- **Database**: `@vercel/postgres`.
+The heartbeat of the system is the **MTF (Multi-Timeframe) Linear Trend Engine**, derived from advanced Pine Script v6 logic and ported to TypeScript for real-time execution.
 
-## Getting Started
+```text
+┌─────────────────────────────────────────┐
+│         META EXECUTION GATE             │  ← Final Decision Logic
+├─────────────────────────────────────────┤
+│  Whale Engine │ AI Score │ F4 Momentum  │  ← Analysis Layers
+├─────────────────────────────────────────┤
+│  MTF Consens │ Regime Pred │ Volatility │  ← Engineering Modules
+├─────────────────────────────────────────┤
+│         MEXC WEBSOCKET / API            │  ← Core Data Stream
+└─────────────────────────────────────────┘
+```
 
-### Prerequisites
+### 🧠 Key Engineering Modules
+
+- **🐋 Whale Master Engine**: Real-time detection of institutional volume spikes (2.5x - 5.0x average) to filter fake breakouts.
+- **🧠 AI Confidence Score (0-100)**: 10-component weighted algorithm analyzing trend, momentum, regime, and volume.
+- **🌍 Market Regime Classifier**: Identifies macro environments (Risk-ON / Risk-OFF / Neutral) to adjust risk parameters.
+- **📶 MTF Momentum Accelerator**: analyzes slope and acceleration (2nd derivative) across multiple timeframes for early trend detection.
+- **🛡️ Kill Switch & Fatigue Protection**: Automated safety measures to prevent overtrading and stop execution during massive consecutive losses.
+
+---
+
+## 🎮 Tactical Command Deck (Komuta Merkezi)
+
+A "Single Pane of Glass" tactical interface for bot management.
+
+- **Custom Neon Controls**: Precisely tune F4 Length, Whale Multipliers, and AI Thresholds with a high-end sci-fi UI.
+- **Mode Presets**:
+  - ⚡ **SCALP**: Ultra-fast signals for high-frequency volatility.
+  - 🎯 **SNIPER**: Balanced entry filtering for mid-term breakouts.
+  - 🌊 **SWING**: Macro trend following for sustained moves.
+- **Unit Status**: Real-time monitoring of active bot "Units" (Scanning, Position Active, Standby) with live PNL tracking.
+- **Global Intelligence Feed**: Real-time crypto news integrated with automated sentiment analysis (Positive/Negative/Neutral).
+
+---
+
+## 🚀 Technology Stack
+
+| Layer         | Technology                                       |
+| :------------ | :----------------------------------------------- |
+| **Framework** | Next.js 15+ (App Router), React 19               |
+| **Styling**   | Tailwind CSS v4.0 (Modern Tactical Theme)        |
+| **Real-time** | MEXC WebSocket Integration                       |
+| **Database**  | Vercel Postgres / Neon                           |
+| **Security**  | JWT, MEXC API V3 Signing, HMAC-SHA256            |
+| **Icons**     | Lucide React, Iconify (Cryptocurrency Optimized) |
+
+---
+
+## 🛠️ Configuration & Setup
+
+### 📋 Prerequisites
 
 - Node.js 20+
-- MEXC API Key & Secret
-- Vercel Postgres Database
+- MEXC API Key (Standard/Spot)
+- Vercel Postgres Account
 
-### Environment Variables
+### 🔑 Environment Variables
 
-Create a `.env.local` file in the root directory and add the following:
+Create `.env.local`:
 
 ```env
-# MEXC API
-MEXC_KEY=your_mexc_key
-MEXC_SECRET=your_mexc_secret
+# MEXC API CREDENTIALS
+MEXC_KEY=your_api_key
+MEXC_SECRET=your_api_secret
 
-# Database (Vercel Postgres)
-POSTGRES_URL=your_postgres_url
+# DATABASE
+POSTGRES_URL=your_postgres_connection_string
 
-# Security
-JWT_SECRET=your_super_secret_jwt_key
-WEBHOOK_SECRET=your_webhook_auth_secret
+# SECURITY
+JWT_SECRET=your_secure_secret
+WEBHOOK_SECRET=your_webhook_auth
 
-# Telegram (Optional)
+# TELEGRAM (Optional Alerts)
 TELEGRAM_TOKEN=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
-
-# Trading Settings (Optional)
-MIN_USDT_BALANCE=10
-DEFAULT_TRADE_USDT=10
 ```
 
-### Installation
+### 📦 Installation
 
 ```bash
+# Clone the repository
+git clone https://github.com/dizpatek/mexc-ultimate-trading-bot.git
+
+# Install dependencies
 npm install
-```
 
-### Development
+# Database Initialization
+# Run the schema scripts in /scripts/ to prepare the DB
 
-```bash
+# Launch Development Server
 npm run dev
 ```
 
-### Build
+---
 
-```bash
-npm run build
-```
+## 🇹🇷 Türkçe Özet – Matrix V3 Hakkında
 
-## Project Structure
+**MexC Ultimate Trading Bot**, gelişmiş bir portföy yönetim ve otomatik trade sistemidir. Matrix V3 motoru sayesinde sadece teknik analiz değil, aynı zamanda balina hareketleri, AI güven skorları ve piyasa rejimi tahminlerini tek bir panelden sunar.
 
-- `src/app`: Next.js pages and API routes.
-- `src/components`: Reusable UI components.
-- `src/lib`: Core logic (MEXC API, Database, Trading, Indicators, Strategies).
-- `src/hooks`: Custom React hooks for data fetching and auth.
-- `src/services`: API client service.
-- `scripts`: SQL schema and other utility scripts.
+- **Balina Takibi (Whale Engine):** Kurumsal hacim girişlerini anlık tespit eder.
+- **AI Karar Mekanizması:** 10 farklı kriteri puanlayarak (AI Score) sadece yüksek olasılıklı işlemlere izin verir.
+- **Taktiksel Arayüz:** Modern, karanlık tema ve neon kontrollere sahip "Komuta Merkezi".
+- **Gelişmiş Koruma:** Kill switch ve aşırı işlem koruması ile kasanızı korur.
 
-## License
+---
 
-MIT
+## 📄 License
+
+Licensed under the [MIT License](LICENSE).
+
+---
+
+> **⚠️ DISCLOSURE:** This software is for educational and research purposes only. Trading cryptocurrencies carries high risk. Past performance does not guarantee future results.

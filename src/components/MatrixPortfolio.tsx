@@ -366,15 +366,29 @@ export function MatrixPortfolio() {
                                             <div className="flex flex-col gap-1">
                                                 {/* Whale Status */}
                                                 <div className="flex items-center gap-1.5">
-                                                    <Fish className={`w-3 h-3 ${signalData?.whaleDetected ? 'text-amber-400 animate-pulse' : 'text-slate-600'}`} />
-                                                    <span className={`text-[9px] font-bold ${signalData?.whaleDetected ? 'text-amber-400' : 'text-slate-500'}`}>
+                                                    <Fish className={`w-3 h-3 ${
+                                                        signalData?.whaleDetected && (signalData.whaleStatus === 'BUY_ACTIVE' || signalData.whaleStatus === 'RALLY_PREP') ? 'text-emerald-400 animate-pulse' : 
+                                                        signalData?.whaleDetected && (signalData.whaleStatus === 'SELL_ACTIVE' || signalData.whaleStatus === 'DISTRIBUTION' || signalData.whaleStatus === 'TRAP') ? 'text-rose-400 animate-pulse' : 
+                                                        signalData?.whaleDetected ? 'text-amber-400 animate-pulse' : 'text-slate-600'
+                                                    }`} />
+                                                    <span className={`text-[9px] font-bold ${
+                                                        signalData?.whaleStatus === 'BUY_ACTIVE' || signalData?.whaleStatus === 'RALLY_PREP' ? 'text-emerald-400' : 
+                                                        signalData?.whaleStatus === 'SELL_ACTIVE' || signalData?.whaleStatus === 'DISTRIBUTION' || signalData?.whaleStatus === 'TRAP' ? 'text-rose-400' : 
+                                                        signalData?.whaleDetected ? 'text-amber-400' : 'text-slate-500'
+                                                    }`}>
                                                         {signalData?.whaleDetected ? (signalData.whaleStatus || 'WHALE') : 'NO WHALE'}
                                                     </span>
                                                 </div>
                                                 {/* Volatility */}
                                                 <div className="flex items-center gap-1.5">
-                                                    <Activity className={`w-3 h-3 ${signalData?.volatilityRegime === 'EXPLOSION' ? 'text-purple-400' : signalData?.volatilityRegime === 'SQUEEZE' ? 'text-orange-400' : 'text-slate-600'}`} />
-                                                    <span className="text-[9px] text-slate-400">
+                                                    <Activity className={`w-3 h-3 ${
+                                                        signalData?.volatilityRegime === 'EXPLOSION' ? 'text-purple-400 animate-bounce' : 
+                                                        signalData?.volatilityRegime === 'SQUEEZE' ? 'text-orange-400' : 'text-slate-600'
+                                                    }`} />
+                                                    <span className={`text-[9px] font-bold ${
+                                                        signalData?.volatilityRegime === 'EXPLOSION' ? 'text-purple-400' : 
+                                                        signalData?.volatilityRegime === 'SQUEEZE' ? 'text-orange-400' : 'text-slate-400'
+                                                    }`}>
                                                         {signalData?.volatilityRegime || 'NORMAL'}
                                                     </span>
                                                 </div>

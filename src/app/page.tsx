@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
+import { useHoldings } from '@/hooks/usePortfolio';
 import { Header } from '@/components/Header';
 import { PortfolioSummary } from '@/components/PortfolioSummary';
 import { PortfolioChart } from '@/components/PortfolioChart';
@@ -20,19 +21,57 @@ import { USER_GUIDE_CONTENT } from '@/components/UserGuideContent';
 import { RefreshCw, Activity } from 'lucide-react';
 
 // TRADINGVIEW TICKER TAPE
-const MarketTickerTape = () => (
-  <div className="w-full h-[32px] border-b border-white/5 bg-[#050505]">
-    <iframe
-      src="https://s.tradingview.com/embed-widget/ticker-tape/?locale=en#%7B%22symbols%22%3A%5B%7B%22proName%22%3A%22BINANCE%3ABTCUSDT%22%2C%22title%22%3A%22BTC%2FUSDT%22%7D%2C%7B%22proName%22%3A%22BINANCE%3AETHUSDT%22%2C%22title%22%3A%22ETH%2FUSDT%22%7D%2C%7B%22proName%22%3A%22BINANCE%3ASOLUSDT%22%2C%22title%22%3A%22SOL%2FUSDT%22%7D%2C%7B%22proName%22%3A%22BINANCE%3ABNBUSDT%22%2C%22title%22%3A%22BNB%2FUSDT%22%7D%5D%2C%22showSymbolLogo%22%3Afalse%2C%22colorTheme%22%3A%22dark%22%2C%22isTransparent%22%3Atrue%2C%22displayMode%22%3A%22adaptive%22%7D"
-      style={{ width: '100%', height: '100%', border: 'none', pointerEvents: 'none' }}
-    />
-  </div>
-);
+const MarketTickerTape = ({ symbols }: { symbols: { proName: string; title: string }[] }) => {
+  const config = useMemo(() => {
+    return {
+      symbols: symbols.length > 0 ? symbols : [
+        { proName: "BINANCE:BTCUSDT", title: "BTC/USDT" },
+        { proName: "BINANCE:ETHUSDT", title: "ETH/USDT" },
+        { proName: "BINANCE:SOLUSDT", title: "SOL/USDT" },
+        { proName: "BINANCE:BNBUSDT", title: "BNB/USDT" }
+      ],
+      showSymbolLogo: false,
+      colorTheme: "dark",
+      isTransparent: true,
+      displayMode: "adaptive"
+    };
+  }, [symbols]);
+
+  const encodedConfig = encodeURIComponent(JSON.stringify(config));
+
+  return (
+    <div className="w-full h-[32px] border-b border-white/5 bg-[#050505]">
+      <iframe
+        key={encodedConfig}
+        src={`https://s.tradingview.com/embed-widget/ticker-tape/?locale=en#${encodedConfig}`}
+        style={{ width: '100%', height: '100%', border: 'none', pointerEvents: 'none' }}
+      />
+    </div>
+  );
+};
 
 export default function Dashboard() {
   const { user, loading } = useAuth();
+  const { data: holdings } = useHoldings();
   const router = useRouter();
   const [isGuideOpen, setIsGuideOpen] = useState(false);
+
+  const tickerSymbols = useMemo(() => {
+    if (!holdings) return [];
+    
+    // Always include BTC and ETH as leaders
+    const baseSymbols = ['BTCUSDT', 'ETHUSDT'];
+    const holdingSymbols = holdings
+      .map(h => h.symbol.endsWith('USDT') ? h.symbol : `${h.symbol}USDT`)
+      .filter(s => s !== 'USDT'); // Filter out lone USDT
+      
+    const uniqueSymbols = Array.from(new Set([...baseSymbols, ...holdingSymbols]));
+    
+    return uniqueSymbols.map(s => ({
+      proName: `BINANCE:${s}`,
+      title: s.replace('USDT', '/USDT')
+    }));
+  }, [holdings]);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -53,7 +92,7 @@ export default function Dashboard() {
   return (
     <HorizonLayout>
       <Header onOpenGuide={() => setIsGuideOpen(true)} />
-      <MarketTickerTape />
+      <MarketTickerTape symbols={tickerSymbols} />
 
       <main className="flex-1 p-3 space-y-3 overflow-y-auto max-w-[1920px] mx-auto w-full pb-24">
         

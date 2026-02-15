@@ -301,9 +301,18 @@ export function MatrixPortfolio() {
 
                                         {/* 3. PRICE */}
                                         <td className="px-3 py-2.5 border-r border-slate-800/30 text-right">
-                                            <span className="font-mono text-xs text-slate-300">
-                                                ${currentPrice > 0 ? currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '---'}
-                                            </span>
+                                            <div className="flex flex-col">
+                                                <span className="font-mono text-xs text-slate-300">
+                                                    ${currentPrice > 0 ? currentPrice.toLocaleString(undefined, { 
+                                                        minimumFractionDigits: currentPrice < 1 ? 4 : 2,
+                                                        maximumFractionDigits: currentPrice < 1 ? 6 : 2
+                                                    }) : '---'}
+                                                </span>
+                                                <div className={`flex items-center justify-end gap-1 text-[10px] font-bold ${holding.change24h >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                    {holding.change24h >= 0 ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+                                                    <span>{holding.change24h >= 0 ? '+' : ''}{holding.change24h.toFixed(2)}%</span>
+                                                </div>
+                                            </div>
                                         </td>
 
                                         {/* 4. AI SCORE */}

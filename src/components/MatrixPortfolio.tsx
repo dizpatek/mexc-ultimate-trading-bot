@@ -248,7 +248,7 @@ export function MatrixPortfolio() {
                         <tr>
                             <th className="px-3 py-3 text-left border-r border-slate-800/40">VARLIK</th>
                             <th className="px-3 py-3 text-right border-r border-slate-800/40">PORTFÖY</th>
-                            <th className="px-3 py-3 text-right border-r border-slate-800/40">FİYAT</th>
+                            <th className="px-3 py-3 text-right border-r border-slate-800/40">GÜNLÜK %</th>
                             <th className="px-3 py-3 text-left border-r border-slate-800/40 w-[140px]">AI SKOR & GÜÇ</th>
                             <th className="px-3 py-3 text-left border-r border-slate-800/40">PİYASA REJİMİ</th>
                             <th className="px-3 py-3 text-left border-r border-slate-800/40">BALİNA & VOLATİLİTE</th>
@@ -286,7 +286,12 @@ export function MatrixPortfolio() {
                                                 <AssetIcon symbol={assetName} />
                                                 <div className="flex flex-col">
                                                     <span className="font-bold text-slate-200 text-xs">{assetName}</span>
-                                                    <span className="text-[9px] text-slate-500 font-mono">USDT</span>
+                                                    <span className="text-[9px] text-slate-500 font-mono">
+                                                        ${currentPrice > 0 ? currentPrice.toLocaleString(undefined, { 
+                                                            minimumFractionDigits: currentPrice < 1 ? 4 : 2,
+                                                            maximumFractionDigits: currentPrice < 1 ? 4 : 2
+                                                        }) : '---'}
+                                                    </span>
                                                 </div>
                                             </div>
                                         </td>
@@ -294,29 +299,21 @@ export function MatrixPortfolio() {
                                         {/* 2. HOLDINGS */}
                                         <td className="px-3 py-2.5 border-r border-slate-800/30 text-right">
                                             <div className="flex flex-col">
-                                                <div className="flex items-center justify-end gap-1.5">
-                                                    <span className="text-slate-300 font-mono text-xs">{holding.holding.toFixed(4)}</span>
-                                                    <span className="text-[10px] text-slate-500 font-bold">{assetName}</span>
-                                                </div>
-                                                <div className="flex flex-col items-end">
-                                                    <span className="text-xs font-black text-white">${holdingValue.toLocaleString(undefined, {maximumFractionDigits:2})}</span>
-                                                    <div className={`flex items-center gap-1.5 text-[9px] font-bold ${holding.change24h >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                                        <span className="opacity-80">{holding.change24h >= 0 ? '+' : ''}{holding.change24h.toFixed(2)}%</span>
-                                                        <span className="w-[1px] h-2 bg-slate-700 mx-0.5" />
-                                                        <span>{holding.change24h >= 0 ? '+' : ''}{((holdingValue) - (holdingValue / (1 + holding.change24h/100))).toFixed(2)}$</span>
-                                                    </div>
-                                                </div>
+                                                <span className="text-slate-300 font-mono text-xs">{holding.holding.toFixed(4)}</span>
+                                                <span className="text-[9px] text-slate-500 font-mono">${holdingValue.toLocaleString(undefined, {maximumFractionDigits:0})}</span>
                                             </div>
                                         </td>
 
-                                        {/* 3. PRICE */}
+                                        {/* 3. DAILY PERFORMANCE */}
                                         <td className="px-3 py-2.5 border-r border-slate-800/30 text-right">
-                                            <span className="font-mono text-xs text-slate-300">
-                                                ${currentPrice > 0 ? currentPrice.toLocaleString(undefined, { 
-                                                    minimumFractionDigits: currentPrice < 1 ? 4 : 2,
-                                                    maximumFractionDigits: currentPrice < 1 ? 6 : 2
-                                                }) : '---'}
-                                            </span>
+                                            <div className="flex justify-end">
+                                                <div className={`flex items-center gap-1.5 px-2 py-1 rounded bg-slate-900/50 border ${holding.change24h >= 0 ? 'text-emerald-400 border-emerald-500/20' : 'text-rose-400 border-rose-500/20'}`}>
+                                                    {holding.change24h >= 0 ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+                                                    <span className="font-mono text-xs font-black">
+                                                        {holding.change24h >= 0 ? '+' : ''}{holding.change24h.toFixed(2)}%
+                                                    </span>
+                                                </div>
+                                            </div>
                                         </td>
 
                                         {/* 4. AI SCORE */}

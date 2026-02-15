@@ -37,6 +37,8 @@ export function setTradingMode(mode: TradingMode) {
     if (typeof window !== 'undefined') {
         localStorage.setItem('TRADING_MODE', mode);
         document.cookie = `TRADING_MODE=${mode}; path=/; max-age=31536000; SameSite=Lax`;
+        // Notify other components
+        window.dispatchEvent(new Event('tradingModeChanged'));
     }
 }
 

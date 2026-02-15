@@ -17,7 +17,7 @@ const BEARISH_KEYWORDS = [
 
 export interface SentimentResult {
     score: number; // -100 to 100
-    label: 'Extreme Fear' | 'Fear' | 'Neutral' | 'Greed' | 'Extreme Greed';
+    label: 'Aşırı Korku' | 'Korku' | 'Nötr' | 'Açgözlülük' | 'Aşırı Açgözlülük';
     bullishCount: number;
     bearishCount: number;
     analyzedCount: number;
@@ -56,11 +56,11 @@ export function analyzeSentiment(headlines: string[]): SentimentResult {
     normalizedScore = Math.max(-100, Math.min(100, normalizedScore));
 
     // Determine Label
-    let label: SentimentResult['label'] = 'Neutral';
-    if (normalizedScore <= -60) label = 'Extreme Fear';
-    else if (normalizedScore <= -20) label = 'Fear';
-    else if (normalizedScore >= 60) label = 'Extreme Greed';
-    else if (normalizedScore >= 20) label = 'Greed';
+    let label: SentimentResult['label'] = 'Nötr';
+    if (normalizedScore <= -60) label = 'Aşırı Korku';
+    else if (normalizedScore <= -20) label = 'Korku';
+    else if (normalizedScore >= 60) label = 'Aşırı Açgözlülük';
+    else if (normalizedScore >= 20) label = 'Açgözlülük';
 
     return {
         score: Math.round(normalizedScore),

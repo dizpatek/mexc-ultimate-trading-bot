@@ -3,8 +3,8 @@ import { calculateRSI, calculateMACD, calculateSMA } from './indicators';
 
 // Simple logger replacement to avoid dependency on winston for now
 const logger = {
-    error: (msg: string, meta?: any) => console.error(msg, meta),
-    info: (msg: string, meta?: any) => console.log(msg, meta),
+    error: (msg: string, meta?: Record<string, unknown>) => console.error(msg, meta),
+    info: (msg: string, meta?: Record<string, unknown>) => console.log(msg, meta),
 };
 
 export interface StrategySignal {
@@ -12,7 +12,7 @@ export interface StrategySignal {
     strategy: string;
     signal: 'BUY' | 'SELL' | null;
     reason: string;
-    indicators: any;
+    indicators: Record<string, unknown>;
     timestamp: number;
 }
 
@@ -23,7 +23,10 @@ export interface StrategyParameters {
     fastPeriod?: number;
     slowPeriod?: number;
     signalPeriod?: number;
-    [key: string]: any;
+    f4Length?: number;
+    whaleVolumeMultiplier?: number;
+    minAiScore?: number;
+    [key: string]: string | number | boolean | undefined;
 }
 
 // Base Strategy Class
@@ -39,10 +42,11 @@ abstract class BaseStrategy {
     async getHistoricalData(limit: number = 100): Promise<number[]> {
         try {
             const klines = await getKlines(this.symbol, '1h', limit);
-            // Klines format: [openTime, open, high, low, close, volume, closeTime, ...]
-            return klines.map(k => parseFloat(k[4])); // Close prices
-        } catch (error: any) {
-            logger.error(`Failed to get historical data for ${this.symbol}`, { error: error.message });
+            // Klines: [time, open, high, low, close, volume, ...]
+            return klines.map(k => parseFloat(String(k[4]))); // Close prices
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            logger.error(`Failed to get historical data for ${this.symbol}`, { error: message });
             throw error;
         }
     }
@@ -205,6 +209,83 @@ class MACrossoverStrategy extends BaseStrategy {
     }
 }
 
+import { MatrixV3Engine } from './matrix-v3-engine';
+
+// ... existing imports ...
+
+// Matrix V3 Strategy
+class MatrixV3Strategy extends BaseStrategy {
+    private engine: MatrixV3Engine;
+
+    constructor(symbol: string, parameters: StrategyParameters = {}) {
+        super(symbol, {
+            f4Length: 10,
+            whaleVolumeMultiplier: 1.8,
+            minAiScore: 65,
+            ...parameters
+        });
+        
+        this.engine = new MatrixV3Engine({
+            f4Length: this.parameters.f4Length,
+            whaleVolumeMultiplier: this.parameters.whaleVolumeMultiplier,
+            minAiScore: this.parameters.minAiScore,
+            useWhaleEngine: true
+        });
+    }
+
+    async analyze(): Promise<StrategySignal | null> {
+        // We need 500 bars for EMA200 and V3 calculations
+        const limit = 500;
+        
+        try {
+            const klines = await getKlines(this.symbol, '1h', limit);
+            // Klines: [time, open, high, low, close, volume, ...]
+            
+            const closes = klines.map(k => parseFloat(String(k[4])));
+            const highs = klines.map(k => parseFloat(String(k[2])));
+            const lows = klines.map(k => parseFloat(String(k[3])));
+            const volumes = klines.map(k => parseFloat(String(k[5])));
+            
+            const result = this.engine.analyze(closes, highs, lows, volumes);
+            
+            const signal: 'BUY' | 'SELL' | null = result.signal;
+            let reason = '';
+            
+            if (signal === 'BUY') {
+                reason = `Matrix V3 Bullish (Slope: ${result.slope.toFixed(4)}) + AI Score: ${result.aiScore}`;
+                if (result.whaleDetected) reason += ' + WHALE';
+            } else if (signal === 'SELL') {
+                reason = `Matrix V3 Bearish (Slope: ${result.slope.toFixed(4)}) + AI Score: ${result.aiScore}`;
+                if (result.whaleDetected) reason += ' + WHALE';
+            }
+            
+            // If no signal but whale detected, maybe log it or consider it a warning?
+            // For now, adhere to engine signal.
+
+            if (!signal) return null;
+
+            return {
+                symbol: this.symbol,
+                strategy: 'matrix_v3',
+                signal,
+                reason,
+                indicators: {
+                    f4Slope: result.slope,
+                    f4Accel: result.acceleration,
+                    whale: result.whaleDetected,
+                    trend: result.trend
+                },
+                timestamp: Date.now()
+            };
+            
+        } catch (error: unknown) {
+             const message = error instanceof Error ? error.message : String(error);
+             logger.error(`Matrix V3 analysis failed for ${this.symbol}`, { error: message });
+             return null;
+        }
+    }
+}
+
 // Strategy Factory
 export function createStrategy(type: string, symbol: string, parameters: StrategyParameters = {}): BaseStrategy {
     switch (type) {
@@ -214,13 +295,15 @@ export function createStrategy(type: string, symbol: string, parameters: Strateg
             return new MACDStrategy(symbol, parameters);
         case 'ma_crossover':
             return new MACrossoverStrategy(symbol, parameters);
+        case 'matrix_v3':
+            return new MatrixV3Strategy(symbol, parameters);
         default:
             throw new Error(`Unknown strategy type: ${type}`);
     }
 }
 
 // Available strategies
-export const AVAILABLE_STRATEGIES: Record<string, any> = {
+export const AVAILABLE_STRATEGIES: Record<string, { name: string; description: string; parameters: Record<string, unknown> }> = {
     rsi: {
         name: 'RSI Strategy',
         description: 'Generates signals based on RSI overbought/oversold levels',
@@ -245,6 +328,15 @@ export const AVAILABLE_STRATEGIES: Record<string, any> = {
         parameters: {
             fastPeriod: { type: 'number', default: 20, min: 5, max: 100 },
             slowPeriod: { type: 'number', default: 50, min: 10, max: 200 }
+        }
+    },
+    matrix_v3: {
+        name: 'Matrix F4 Ultimate V3',
+        description: 'Advanced trend following with Whale Volume & Linear Regression Momentum',
+        parameters: {
+            f4Length: { type: 'number', default: 10, min: 5, max: 50 },
+            whaleVolumeMultiplier: { type: 'number', default: 1.8, min: 1.1, max: 5.0 },
+            minAiScore: { type: 'number', default: 65, min: 0, max: 100 }
         }
     }
 };

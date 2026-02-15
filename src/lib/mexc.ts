@@ -21,18 +21,19 @@ function sign(totalParams: string, secret: string): string {
     return crypto.createHmac('sha256', secret).update(totalParams).digest('hex');
 }
 
-async function publicGet<T>(endpoint: string, params: Record<string, any> = {}): Promise<T> {
+async function publicGet<T>(endpoint: string, params: Record<string, string | number | boolean> = {}): Promise<T> {
     const url = `${BASE}${endpoint}`;
     try {
         const res = await axios.get(url, { params, timeout: 10000, httpsAgent });
         return res.data;
-    } catch (err: any) {
-        console.error(`Public GET ${endpoint} error:`, err.message);
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Public GET ${endpoint} error:`, message);
         throw err;
     }
 }
 
-async function signedGet<T>(endpoint: string, params: Record<string, any> = {}): Promise<T | null> {
+async function signedGet<T>(endpoint: string, params: Record<string, string | number | boolean> = {}): Promise<T | null> {
     const { apiKey, apiSecret } = await getEnv();
 
     const timestamp = Date.now();
@@ -49,8 +50,12 @@ async function signedGet<T>(endpoint: string, params: Record<string, any> = {}):
             httpsAgent
         });
         return res.data;
-    } catch (err: any) {
-        console.error(`Signed GET ${endpoint} error:`, err.response?.data || err.message);
+    } catch (err: unknown) {
+        if (axios.isAxiosError(err)) {
+            console.error(`Signed GET ${endpoint} error:`, err.response?.data || err.message);
+        } else {
+            console.error(`Signed GET ${endpoint} error:`, err);
+        }
         throw err;
     }
 }
@@ -67,7 +72,7 @@ export async function getPrice(symbol: string): Promise<number> {
     try {
         const data = await publicGet<{ price: string }>('/api/v3/ticker/price', { symbol });
         return parseFloat(data.price);
-    } catch (e) {
+    } catch {
         if (symbol === 'BTCUSDT') return 95000;
         if (symbol === 'ETHUSDT') return 3500;
         return 0;
@@ -97,7 +102,7 @@ export interface TickerData {
 export async function get24hrTicker(symbol: string): Promise<TickerData> {
     try {
         return await publicGet<TickerData>('/api/v3/ticker/24hr', { symbol });
-    } catch (e) {
+    } catch {
         return {
             symbol,
             priceChange: '0',
@@ -171,8 +176,8 @@ export async function getBalance(asset: string) {
 }
 
 export async function getOpenOrders(symbol: string | null = null) {
-    const params = symbol ? { symbol } : {};
-    return signedGet<any[]>('/api/v3/openOrders', params);
+    const params: Record<string, string | number | boolean> = symbol ? { symbol } : {};
+    return signedGet<unknown[]>('/api/v3/openOrders', params);
 }
 
 export async function cancelOrder(symbol: string, orderId: string) {
@@ -180,7 +185,7 @@ export async function cancelOrder(symbol: string, orderId: string) {
 
     const timestamp = Date.now();
     const recvWindow = 5000;
-    const body = { symbol, orderId, timestamp, recvWindow };
+    const body: Record<string, string | number> = { symbol, orderId, timestamp, recvWindow };
     const bodyString = qs.stringify(body, { encode: false });
     const signature = sign(bodyString, apiSecret);
     const finalBody = `${bodyString}&signature=${signature}`;
@@ -200,7 +205,7 @@ export async function cancelAllOrders(symbol: string) {
 
     const timestamp = Date.now();
     const recvWindow = 5000;
-    const body = { symbol, timestamp, recvWindow };
+    const body: Record<string, string | number> = { symbol, timestamp, recvWindow };
     const bodyString = qs.stringify(body, { encode: false });
     const signature = sign(bodyString, apiSecret);
     const finalBody = `${bodyString}&signature=${signature}`;
@@ -216,17 +221,17 @@ export async function cancelAllOrders(symbol: string) {
 }
 
 export async function getExchangeInfo(symbol: string | null = null) {
-    const params = symbol ? { symbol } : {};
+    const params: Record<string, string | number | boolean> = symbol ? { symbol } : {};
     return publicGet('/api/v3/exchangeInfo', params);
 }
 
-export async function getKlines(symbol: string, interval: string = '1h', limit: number = 100) {
+export async function getKlines(symbol: string, interval: string = '1h', limit: number = 500) {
     const symbolUpper = symbol.toUpperCase();
-    const params = { symbol: symbolUpper, interval, limit };
-    return publicGet<any[][]>('/api/v3/klines', params);
+    const params: Record<string, string | number | boolean> = { symbol: symbolUpper, interval, limit };
+    return publicGet<(string | number)[][]>('/api/v3/klines', params);
 }
 
-export async function postOrder(params: Record<string, any> = {}) {
+export async function postOrder(params: Record<string, string | number | boolean> = {}) {
     const { apiKey, apiSecret } = await getEnv();
 
     const timestamp = Date.now();
@@ -251,8 +256,12 @@ export async function postOrder(params: Record<string, any> = {}) {
             httpsAgent: new https.Agent({ rejectUnauthorized: false }),
         });
         return res.data;
-    } catch (error: any) {
-        console.error('MEXC API Error:', error.response?.data || error.message);
+    } catch (error: unknown) {
+        if (axios.isAxiosError(error)) {
+             console.error('MEXC API Error:', error.response?.data || error.message);
+        } else {
+             console.error('MEXC API Error:', error);
+        }
         throw error;
     }
 }

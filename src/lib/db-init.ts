@@ -2,9 +2,9 @@ import { sql } from '@vercel/postgres';
 
 export async function ensureTablesExist() {
     try {
-        console.log('[DB-Init] Checking and creating tables if necessary...');
+        console.log('[DB-Init] Checking and creating all necessary tables...');
 
-        // Users table
+        // 1. Users Table
         await sql`
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
@@ -15,12 +15,12 @@ export async function ensureTablesExist() {
                 updated_at BIGINT NOT NULL
             );
         `;
-        console.log('[DB-Init] users table verified');
 
-        // Orders table
+        // 2. Orders Table (Now with user_id)
         await sql`
             CREATE TABLE IF NOT EXISTS orders (
                 id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id),
                 mexc_order_id TEXT,
                 symbol TEXT,
                 side TEXT,
@@ -34,12 +34,12 @@ export async function ensureTablesExist() {
                 meta TEXT
             );
         `;
-        console.log('[DB-Init] orders table verified');
 
-        // Trade history table
+        // 3. Trade History Table (Standardized name, now with user_id)
         await sql`
             CREATE TABLE IF NOT EXISTS trade_history (
                 id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id),
                 order_id INTEGER REFERENCES orders(id),
                 symbol TEXT NOT NULL,
                 side TEXT NOT NULL,
@@ -54,25 +54,39 @@ export async function ensureTablesExist() {
                 created_at BIGINT
             );
         `;
-        console.log('[DB-Init] trade_history table verified');
 
-        // Portfolio snapshots table
+        // 4. Portfolio Table (For direct balance tracking)
+        await sql`
+            CREATE TABLE IF NOT EXISTS portfolio (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                symbol TEXT NOT NULL,
+                balance NUMERIC NOT NULL DEFAULT 0,
+                type TEXT DEFAULT 'SIMULATOR',
+                created_at BIGINT NOT NULL,
+                updated_at BIGINT NOT NULL,
+                UNIQUE(user_id, symbol, type)
+            );
+        `;
+
+        // 5. Portfolio Snapshots (Now with user_id)
         await sql`
             CREATE TABLE IF NOT EXISTS portfolio_snapshots (
                 id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id),
                 total_value NUMERIC,
                 total_assets INTEGER,
                 snapshot_date BIGINT,
                 balances TEXT
             );
         `;
-        console.log('[DB-Init] portfolio_snapshots table verified');
 
-        // Performance metrics table
+        // 6. Performance Metrics (Per user per date)
         await sql`
             CREATE TABLE IF NOT EXISTS performance_metrics (
                 id SERIAL PRIMARY KEY,
-                date TEXT UNIQUE,
+                user_id INTEGER REFERENCES users(id),
+                date TEXT NOT NULL,
                 total_trades INTEGER DEFAULT 0,
                 winning_trades INTEGER DEFAULT 0,
                 losing_trades INTEGER DEFAULT 0,
@@ -81,12 +95,31 @@ export async function ensureTablesExist() {
                 avg_profit NUMERIC DEFAULT 0,
                 avg_loss NUMERIC DEFAULT 0,
                 best_trade NUMERIC DEFAULT 0,
-                worst_trade NUMERIC DEFAULT 0
+                worst_trade NUMERIC DEFAULT 0,
+                UNIQUE(user_id, date)
             );
         `;
-        console.log('[DB-Init] performance_metrics table verified');
 
-        // Strategies table
+        // 7. DCA Bots
+        await sql`
+            CREATE TABLE IF NOT EXISTS dca_bots (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                symbol TEXT NOT NULL,
+                amount NUMERIC NOT NULL,
+                interval_hours INTEGER NOT NULL,
+                take_profit_percent NUMERIC,
+                total_invested NUMERIC DEFAULT 0,
+                total_bought_qty NUMERIC DEFAULT 0,
+                average_price NUMERIC DEFAULT 0,
+                status TEXT DEFAULT 'ACTIVE',
+                last_run_at BIGINT DEFAULT 0,
+                created_at BIGINT NOT NULL,
+                updated_at BIGINT NOT NULL
+            );
+        `;
+
+        // 8. Strategies
         await sql`
             CREATE TABLE IF NOT EXISTS strategies (
                 id SERIAL PRIMARY KEY,
@@ -100,9 +133,8 @@ export async function ensureTablesExist() {
                 updated_at BIGINT NOT NULL
             );
         `;
-        console.log('[DB-Init] strategies table verified');
 
-        // Strategy signals table
+        // 9. Strategy Signals
         await sql`
             CREATE TABLE IF NOT EXISTS strategy_signals (
                 id SERIAL PRIMARY KEY,
@@ -115,13 +147,12 @@ export async function ensureTablesExist() {
                 execution_result TEXT
             );
         `;
-        console.log('[DB-Init] strategy_signals table verified');
 
-        // Alarms Table
+        // 10. Alarms
         await sql`
             CREATE TABLE IF NOT EXISTS alarms (
                 id SERIAL PRIMARY KEY,
-                user_id VARCHAR(255) NOT NULL, 
+                user_id INTEGER NOT NULL REFERENCES users(id), 
                 symbol VARCHAR(20) NOT NULL,
                 indicator_type VARCHAR(50) DEFAULT 'F3',
                 condition_type VARCHAR(20) NOT NULL,
@@ -131,9 +162,8 @@ export async function ensureTablesExist() {
                 last_triggered_at BIGINT
             );
         `;
-        console.log('[DB-Init] alarms table verified');
 
-        // Alarm Logs Table
+        // 11. Alarm Logs
         await sql`
             CREATE TABLE IF NOT EXISTS alarm_logs (
                 id SERIAL PRIMARY KEY,
@@ -144,30 +174,30 @@ export async function ensureTablesExist() {
                 success BOOLEAN
             );
         `;
-        console.log('[DB-Init] alarm_logs table verified');
 
-        // Panic Snapshots Table
+        // 12. Panic Snapshots
         await sql`
             CREATE TABLE IF NOT EXISTS panic_snapshots (
                 id SERIAL PRIMARY KEY,
-                user_id VARCHAR(255) NOT NULL,
+                user_id INTEGER NOT NULL REFERENCES users(id),
                 snapshot_data JSONB NOT NULL,
                 total_usdt_value DECIMAL(20, 8) NOT NULL,
                 created_at BIGINT NOT NULL
             );
         `;
-        console.log('[DB-Init] panic_snapshots table verified');
 
-        // System Settings Table (For API Keys)
+        // 13. System Settings (Per User)
         await sql`
             CREATE TABLE IF NOT EXISTS system_settings (
-                key VARCHAR(50) PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id),
+                key VARCHAR(50) NOT NULL,
                 value TEXT NOT NULL,
-                updated_at BIGINT NOT NULL
+                updated_at BIGINT NOT NULL,
+                PRIMARY KEY (user_id, key)
             );
         `;
-        console.log('[DB-Init] system_settings table verified');
 
+        console.log('[DB-Init] All tables verified successfully.');
         return true;
     } catch (error) {
         console.error('[DB-Init] Error initializing database tables:', error);

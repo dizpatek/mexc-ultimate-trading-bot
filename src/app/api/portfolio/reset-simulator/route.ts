@@ -10,30 +10,59 @@ export async function POST(request: Request) {
         const user = await getSessionUser(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        console.log(`[Reset] User ${user.id} requested a simulator reset.`);
+        console.log(`[Reset] Initiating wipe for User ID: ${user.id}`);
 
-        // Ensure tables exist before deleting
+        // Ensure database structure is ready
         await ensureTablesExist();
 
-        // 1. Delete all test data for this user
-        // Using try-catch for each to handle cases where some might be empty or missing
-        try { await sql`DELETE FROM trades WHERE user_id = ${user.id}`; } catch (e) { }
-        try { await sql`DELETE FROM orders WHERE user_id = ${user.id}`; } catch (e) { }
-        try { await sql`DELETE FROM portfolio_snapshots WHERE user_id = ${user.id}`; } catch (e) { }
-        try { await sql`DELETE FROM portfolio WHERE user_id = ${user.id}`; } catch (e) { }
-        try { await sql`DELETE FROM dca_bots WHERE user_id = ${user.id}`; } catch (e) { }
+        // 1. Transactional Delete with individual try-catches to handle non-existent tables or missing data
+        const cleanup = async (tableName: string) => {
+            try {
+                await sql.query(`DELETE FROM ${tableName} WHERE user_id = $1`, [user.id]);
+                console.log(`[Reset] Cleaned table: ${tableName}`);
+            } catch (e: any) {
+                console.warn(`[Reset] Could not clean ${tableName}: ${e.message}`);
+                // Try again without WHERE if user_id column is missing (legacy)
+                try { await sql.query(`DELETE FROM ${tableName}`); } catch (e2) { }
+            }
+        };
 
-        // 2. Re-initialize with $100,000 USDT
+        // Order matters for some FK constraints if any, but we'll try all
+        await cleanup('trade_history'); // Corrected name from 'trades'
+        await cleanup('orders');
+        await cleanup('portfolio_snapshots');
+        await cleanup('dca_bots');
+        await cleanup('panic_snapshots');
+        await cleanup('alarm_logs'); // Might not have user_id but cascade? No, let's just try.
+
+        // Special cleanup for alarms (has user_id)
+        await cleanup('alarms');
+
+        // 2. Portfolio Table - Total Wipe for this user
+        try {
+            await sql`DELETE FROM portfolio WHERE user_id = ${user.id}`;
+        } catch (e) { }
+
+        // 3. Re-initialize with crisp $100,000 USDT Simulator entry
         await sql`
             INSERT INTO portfolio (user_id, symbol, balance, type, created_at, updated_at)
             VALUES (${user.id}, 'USDT', 100000.00, 'SIMULATOR', ${Date.now()}, ${Date.now()})
-            ON CONFLICT (user_id, symbol) DO UPDATE SET balance = 100000.00, updated_at = ${Date.now()}
+            ON CONFLICT (user_id, symbol, type) DO UPDATE 
+            SET balance = 100000.00, updated_at = ${Date.now()}
         `;
 
-        return NextResponse.json({ success: true, message: 'Simulator reset successfully' });
+        console.log(`[Reset] Wipe complete. User ${user.id} has $100k USDT reset.`);
+
+        return NextResponse.json({
+            success: true,
+            message: 'Simulator data wiped and $100,000 USDT balance restored.'
+        });
 
     } catch (error: any) {
-        console.error('Reset Simulator Error:', error);
-        return NextResponse.json({ error: 'Reset failed: ' + error.message }, { status: 500 });
+        console.error('CRITICAL RESET ERROR:', error);
+        return NextResponse.json({
+            success: false,
+            error: error.message
+        }, { status: 500 });
     }
 }

@@ -181,6 +181,7 @@ export const StrategyManagement = () => {
                             <option value="RSI">RSI Reversal</option>
                             <option value="MACD">MACD Crossover</option>
                             <option value="MA_CROSS">Moving Average Cross</option>
+                            <option value="matrix_v3">Matrix F4 Ultimate V3</option>
                         </select>
                     </div>
                     <div className="flex justify-end gap-2">

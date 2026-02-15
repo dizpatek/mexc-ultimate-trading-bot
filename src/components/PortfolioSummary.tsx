@@ -30,92 +30,71 @@ export const PortfolioSummary = () => {
     const assets = summaryData?.assets || 0;
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <div className="portfolio-container p-6">
-                <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-medium text-muted-foreground">Total Portfolio Value</h3>
-                    <Wallet className="h-5 w-5 text-muted-foreground" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 w-full h-full items-center">
+            {/* 1. Total Value */}
+            <div className="flex flex-col gap-1 p-2 border-r border-white/5 last:border-0">
+                <div className="flex items-center gap-2 text-slate-400">
+                    <Wallet className="h-3.5 w-3.5" />
+                    <span className="text-[10px] uppercase font-bold tracking-wider">PORTFÖY DEĞERİ</span>
                 </div>
-                <div className="mt-4">
-                    <p className="text-3xl font-bold">${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                    <div className="flex items-center mt-2">
+                <div className="flex flex-col">
+                    <span className="text-xl lg:text-2xl font-black font-mono text-white tracking-tight">
+                        ${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    <div className="flex items-center gap-1.5">
                         {change24h >= 0 ? (
-                            <TrendingUp className="h-4 w-4 text-green-500 mr-1" />
+                            <TrendingUp className="h-3 w-3 text-emerald-400" />
                         ) : (
-                            <TrendingDown className="h-4 w-4 text-red-500 mr-1" />
+                            <TrendingDown className="h-3 w-3 text-rose-400" />
                         )}
-                        <span className={`text-sm font-medium ${change24h >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                        <span className={`text-xs font-bold font-mono ${change24h >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                             {change24h >= 0 ? '+' : ''}{change24h.toFixed(2)} ({changePercentage.toFixed(2)}%)
                         </span>
-                        <span className="text-xs text-muted-foreground ml-2">24h</span>
+                        <span className="text-[10px] text-slate-500 font-mono">24S</span>
                     </div>
-                    {loading && (
-                        <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
-                            <div className="h-full bg-primary animate-pulse w-2/3"></div>
-                        </div>
-                    )}
                 </div>
             </div>
 
-            <div className="portfolio-container p-6">
-                <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-medium text-muted-foreground">Total Assets</h3>
-                    <RefreshCw className={`h-5 w-5 text-muted-foreground ${loading ? 'animate-spin' : ''}`} />
+            {/* 2. Assets */}
+            <div className="flex flex-col gap-1 p-2 border-r border-white/5 last:border-0 hidden md:flex">
+                <div className="flex items-center gap-2 text-slate-400">
+                    <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+                    <span className="text-[10px] uppercase font-bold tracking-wider">AKTİF VARLIKLAR</span>
                 </div>
-                <div className="mt-4">
-                    <p className="text-3xl font-bold">{assets}</p>
-                    <p className="text-sm text-muted-foreground mt-2">Active holdings</p>
-                    {loading && (
-                        <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
-                            <div className="h-full bg-primary animate-pulse w-1/3"></div>
-                        </div>
-                    )}
+                <div className="flex items-center gap-2">
+                     <span className="text-2xl font-black font-mono text-cyan-400">{assets}</span>
+                     <span className="text-[10px] text-slate-500 uppercase">POZİSYON</span>
                 </div>
             </div>
 
-            <div className="portfolio-container p-6">
-                <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-medium text-muted-foreground">Best Performer</h3>
-                    <Activity className="h-5 w-5 text-muted-foreground" />
+            {/* 3. Best Performer */}
+            <div className="flex flex-col gap-1 p-2 border-r border-white/5 last:border-0 hidden lg:flex">
+                <div className="flex items-center gap-2 text-slate-400">
+                    <Activity className="h-3.5 w-3.5" />
+                    <span className="text-[10px] uppercase font-bold tracking-wider">EN ÇOK KAZANDIRAN</span>
                 </div>
-                <div className="mt-4">
-                    <p className="text-3xl font-bold">{bestPerformer?.symbol || 'N/A'}</p>
-                    <div className="flex items-center mt-2">
-                        {bestPerformer && bestPerformer.change24h !== undefined && bestPerformer.change24h >= 0 ? (
-                            <TrendingUp className="h-4 w-4 text-green-500 mr-1" />
-                        ) : bestPerformer && bestPerformer.change24h !== undefined ? (
-                            <TrendingDown className="h-4 w-4 text-red-500 mr-1" />
-                        ) : null}
-                        <span className={`text-sm font-medium ${bestPerformer?.change24h !== undefined && bestPerformer.change24h >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                <div className="flex flex-col">
+                    <div className="flex items-center justify-between">
+                        <span className="text-lg font-bold text-white">{bestPerformer?.symbol || 'N/A'}</span>
+                        <span className={`text-sm font-bold font-mono ${bestPerformer?.change24h !== undefined && bestPerformer.change24h >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                             {bestPerformer && bestPerformer.change24h !== undefined ? `${bestPerformer.change24h >= 0 ? '+' : ''}${bestPerformer.change24h.toFixed(2)}%` : '-'}
                         </span>
                     </div>
-                    {loading && (
-                        <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
-                            <div className="h-full bg-primary animate-pulse w-1/2"></div>
-                        </div>
-                    )}
                 </div>
             </div>
 
-            <div className="portfolio-container p-6">
-                <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-medium text-muted-foreground">Top Holding</h3>
-                    <Wallet className="h-5 w-5 text-muted-foreground" />
+            {/* 4. Top Holding */}
+            <div className="flex flex-col gap-1 p-2 hidden lg:flex">
+                <div className="flex items-center gap-2 text-slate-400">
+                    <Wallet className="h-3.5 w-3.5" />
+                    <span className="text-[10px] uppercase font-bold tracking-wider">EN BÜYÜK VARLIK</span>
                 </div>
-                <div className="mt-4">
-                    <p className="text-3xl font-bold">{topGainer?.symbol || 'N/A'}</p>
-                    <div className="flex items-center mt-2">
-                        <span className="text-sm font-medium text-muted-foreground">
-                            ${topGainer?.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '-'}
-                        </span>
-                    </div>
-                    {loading && (
-                        <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
-                            <div className="h-full bg-primary animate-pulse w-1/4"></div>
-                        </div>
-                    )}
-                </div>
+                 <div className="flex flex-col">
+                    <span className="text-lg font-bold text-white">{topGainer?.symbol || 'N/A'}</span>
+                    <span className="text-xs font-mono text-slate-300">
+                         ${topGainer?.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '-'}
+                    </span>
+                 </div>
             </div>
         </div>
     );

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/services/api';
-import { TrendingUp, TrendingDown, Minus, Bot, Target, RefreshCw } from 'lucide-react';
+import { TrendingUp, TrendingDown, Bot, Target, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useHoldings } from '../hooks/usePortfolio';
 
 interface Prediction {
@@ -14,8 +14,18 @@ interface Prediction {
     forecastTime: number;
 }
 
+const TIMEFRAMES = [
+    { label: '1S', value: '1h' },
+    { label: '4S', value: '4h' },
+    { label: '12S', value: '12h' },
+    { label: '1G', value: '1d' },
+    { label: '3G', value: '3d' },
+    { label: '1H', value: '1w' },
+];
+
 export const PricePredictionWidget = () => {
     const [symbol, setSymbol] = useState('BTCUSDT');
+    const [timeframe, setTimeframe] = useState('1h');
     const [prediction, setPrediction] = useState<Prediction | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -25,111 +35,187 @@ export const PricePredictionWidget = () => {
         setLoading(true);
         setError(null);
         try {
-            const res = await api.get(`/indicators/prediction?symbol=${symbol}`);
-            if (res.data && res.data.predictedPrice) {
-                setPrediction(res.data);
+            // Use Matrix V3 Engine for prediction
+            const res = await api.get(`/indicators/f4?symbol=${symbol}&interval=${timeframe}`);
+            
+            if (res.data && !res.data.error) {
+                const d = res.data;
+                
+                // Calculate Price Target based on F4 Trend Slope
+                // Slope is percentage change per bar
+                const rawSlope = (d.f4Slope * d.currentPrice) / 100;
+                
+                // Forecast distance (bars) based on timeframe
+                // 1h -> 1 bar, 4h -> 1 bar (since we request that timeframe)
+                // We project 1-3 bars into the future for the specific timeframe
+                const projectionBars = 1; 
+                const predictedPrice = d.currentPrice + (rawSlope * projectionBars);
+                
+                // Trend
+                const trend = d.f4Slope > 0 ? 'UP' : d.f4Slope < 0 ? 'DOWN' : 'FLAT';
+                
+                const predictionData: Prediction = {
+                    symbol: d.symbol,
+                    currentPrice: d.currentPrice,
+                    predictedPrice: predictedPrice,
+                    trend: trend,
+                    confidence: d.aiScore, // Use AI Score directly
+                    forecastTime: Date.now() + (projectionBars * 60 * 60 * 1000) // Approx
+                };
+
+                setPrediction(predictionData);
             } else {
-                setError('No forecast available');
+                setError('Matrix V3 Verisi Alınamadı');
             }
-        } catch (error: any) {
-            console.error('Prediction error:', error);
-            setError('Model sync failed');
+        } catch (error: unknown) {
+            console.error('Prediction error:', error instanceof Error ? error.message : String(error));
+            setError('Bağlantı Hatası');
         } finally {
             setLoading(false);
         }
-    }, [symbol]);
+    }, [symbol, timeframe]);
 
     useEffect(() => {
         fetchPrediction();
     }, [fetchPrediction]);
 
+    // Derived active assets list
+    const activeAssets = holdings?.filter(h => h.symbol !== 'USDT' && h.symbol !== 'USDC').map(h => h.symbol) || ['BTC', 'ETH', 'SOL'];
+
     return (
-        <div className="stat-card flex flex-col min-h-[250px] relative overflow-hidden group">
+        <div className="stat-card flex flex-col h-full min-h-[350px] relative overflow-hidden group p-5 gap-5">
             {/* Background Icon */}
-            <div className="absolute -bottom-4 -right-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                <Bot className="w-32 h-32" />
+            <div className="absolute -bottom-8 -right-8 opacity-[0.03] group-hover:opacity-10 transition-opacity pointer-events-none">
+                <Bot className="w-56 h-56" />
             </div>
 
-            <div className="flex items-center justify-between mb-6 relative z-10">
-                <h3 className="font-bold text-sm uppercase tracking-widest flex items-center gap-2 text-muted-foreground">
+            {/* Header */}
+            <div className="flex items-center justify-between relative z-10 shrink-0">
+                <h3 className="font-bold text-xs uppercase tracking-widest flex items-center gap-2 text-slate-400">
                     <Bot className="w-4 h-4 text-primary" />
-                    AI Price Forecast
+                    YZ FİYAT TAHMİNİ
                 </h3>
-                <div className="flex items-center gap-2">
-                    {loading && <RefreshCw className="w-3 h-3 animate-spin text-primary" />}
-                    <select
-                        className="bg-white/5 text-[10px] font-bold p-1 rounded border border-white/10 outline-none focus:border-primary/50 transition-colors"
-                        value={symbol}
-                        onChange={(e) => setSymbol(e.target.value)}
-                        disabled={loading}
-                    >
-                        <option value="BTCUSDT">BTC</option>
-                        <option value="ETHUSDT">ETH</option>
-                        <option value="SOLUSDT">SOL</option>
-                        <option value="BNBUSDT">BNB</option>
-                        {holdings?.filter(h => h.symbol !== 'USDT').map(h => (
-                            <option key={h.symbol} value={`${h.symbol}USDT`}>{h.symbol}</option>
-                        ))}
-                    </select>
-                </div>
+                {loading && <RefreshCw className="w-3.5 h-3.5 animate-spin text-primary" />}
             </div>
 
-            {error ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-red-500/50 text-xs italic space-y-2">
-                    <AlertTriangle className="w-4 h-4" />
-                    <span>{error}</span>
-                    <button onClick={fetchPrediction} className="text-primary underline">Retry</button>
-                </div>
-            ) : loading && !prediction ? (
-                <div className="flex-1 flex flex-col items-center justify-center space-y-3">
-                    <div className="h-2 w-24 bg-white/5 rounded animate-pulse" />
-                    <div className="h-8 w-48 bg-white/5 rounded animate-pulse" />
-                    <div className="h-2 w-32 bg-white/5 rounded animate-pulse" />
-                </div>
-            ) : prediction ? (
-                <div className="flex-1 flex flex-col justify-between relative z-10">
-                    <div>
-                        <div className="text-[10px] font-bold text-muted-foreground uppercase mb-1 flex items-center gap-1">
-                            Current Price vs 1h Target
-                        </div>
-                        <div className="flex items-start justify-between">
-                            <div>
-                                <span className="text-3xl font-bold font-mono tracking-tighter">
-                                    ${prediction.predictedPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {/* 1. Coin Selection (Scrollable Row) */}
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide relative z-10 shrink-0">
+                {activeAssets.map((asset) => (
+                    <button
+                        key={asset}
+                        onClick={() => setSymbol(`${asset}USDT`)}
+                        className={`
+                            px-4 py-2 rounded text-xs font-bold transition-all border whitespace-nowrap
+                            ${symbol === `${asset}USDT` 
+                                ? 'bg-primary/20 border-primary text-primary shadow-[0_0_15px_rgba(var(--primary-rgb),0.3)]' 
+                                : 'bg-slate-900/50 border-white/5 text-slate-400 hover:bg-white/5 hover:border-white/10'
+                            }
+                        `}
+                    >
+                        {asset}
+                    </button>
+                ))}
+            </div>
+
+            {/* Main Content Area */}
+            <div className="flex-1 flex flex-col relative z-10 justify-between">
+                {error ? (
+                    <div className="flex-1 flex flex-col items-center justify-center text-rose-500/50 text-[10px] italic space-y-2">
+                        <AlertTriangle className="w-6 h-6 opacity-50" />
+                        <span>{error}</span>
+                        <button onClick={fetchPrediction} className="text-primary hover:text-primary/80 underline decoration-dotted">Tekrar Dene</button>
+                    </div>
+                ) : loading && !prediction ? (
+                    <div className="flex-1 flex flex-col items-center justify-center space-y-4">
+                        <div className="h-2 w-24 bg-white/5 rounded animate-pulse" />
+                        <div className="h-10 w-32 bg-white/5 rounded animate-pulse" />
+                        <div className="h-2 w-40 bg-white/5 rounded animate-pulse" />
+                    </div>
+                ) : prediction ? (
+                    <div className="flex flex-col gap-6 h-full">
+                        {/* Selected Asset Header */}
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-3xl font-black text-white tracking-tight">{symbol.replace('USDT','')}</h2>
+                             {/* Trend Badge */}
+                            <div className={`
+                                flex items-center gap-2 px-3 py-1.5 rounded-lg border backdrop-blur-md shadow-sm
+                                ${prediction.trend === 'UP'
+                                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                    : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                                }
+                            `}>
+                                {prediction.trend === 'UP' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                                <span className="text-[10px] font-black uppercase tracking-wider">
+                                    {prediction.trend === 'UP' ? 'YÜKSELİŞ' : 'DÜŞÜŞ'}
                                 </span>
-                                <div className="text-[10px] text-muted-foreground mt-1 font-mono">
-                                    SPOT: ${prediction.currentPrice.toLocaleString()}
+                            </div>
+                        </div>
+
+                        {/* Split Price View */}
+                        <div className="grid grid-cols-2 gap-4">
+                            {/* Left: Current Price */}
+                            <div className="flex flex-col p-4 rounded-2xl bg-slate-900/40 border border-white/5">
+                                <span className="text-[10px] font-bold uppercase text-slate-500 mb-1">ANLIK FİYAT</span>
+                                <span className="text-3xl lg:text-4xl font-black font-mono tracking-tighter text-white">
+                                    ${prediction.currentPrice.toLocaleString()}
+                                </span>
+                            </div>
+
+                            {/* Right: Predicted Price */}
+                            <div className={`flex flex-col p-4 rounded-2xl border ${prediction.trend === 'UP' ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-rose-500/5 border-rose-500/20'}`}>
+                                <span className={`text-[10px] font-bold uppercase mb-1 ${prediction.trend === 'UP' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                    {TIMEFRAMES.find(t => t.value === timeframe)?.label} HEDEF
+                                </span>
+                                <span className={`text-3xl lg:text-4xl font-black font-mono tracking-tighter ${prediction.trend === 'UP' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                    ${prediction.predictedPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Confidence & Time Selector */}
+                        <div className="flex items-end justify-between mt-auto pt-4 border-t border-white/5">
+                            {/* Confidence */}
+                            <div className="flex flex-col gap-2 w-1/3">
+                                <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase text-slate-500">
+                                    <Target className="w-3 h-3" />
+                                    <span>Model Güveni</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden border border-white/5">
+                                        <div
+                                            className={`h-full rounded-full transition-all duration-1000 ${
+                                                prediction.confidence > 75 ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' :
+                                                prediction.confidence > 45 ? 'bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]' : 'bg-rose-500'
+                                            }`}
+                                            style={{ width: `${prediction.confidence}%` }}
+                                        />
+                                    </div>
+                                    <span className="text-xs font-mono font-bold text-white">{prediction.confidence.toFixed(1)}%</span>
                                 </div>
                             </div>
-                            <div className={`flex flex-col items-center p-2 rounded-xl border ${prediction.trend === 'UP'
-                                    ? 'bg-green-500/10 border-green-500/20 text-green-500'
-                                    : 'bg-red-500/10 border-red-500/20 text-red-500'
-                                }`}>
-                                {prediction.trend === 'UP' ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
-                                <span className="text-[10px] font-bold mt-1 uppercase">{prediction.trend}</span>
+
+                            {/* Time Selector */}
+                             <div className="grid grid-cols-6 gap-1 bg-slate-900/80 p-1.5 rounded-xl border border-white/10">
+                                {TIMEFRAMES.map((tf) => (
+                                    <button
+                                        key={tf.value}
+                                        onClick={() => setTimeframe(tf.value)}
+                                        className={`
+                                            w-8 h-7 flex items-center justify-center text-[9px] font-bold rounded-lg transition-all
+                                            ${timeframe === tf.value
+                                                ? 'bg-white text-black shadow-lg scale-105'
+                                                : 'text-slate-500 hover:text-slate-200 hover:bg-white/5'
+                                            }
+                                        `}
+                                    >
+                                        {tf.label}
+                                    </button>
+                                ))}
                             </div>
                         </div>
                     </div>
-
-                    <div className="mt-6">
-                        <div className="flex justify-between text-[10px] font-bold mb-1 uppercase text-muted-foreground">
-                            <span className="flex items-center gap-1"><Target className="w-3 h-3" /> Model Confidence</span>
-                            <span>{prediction.confidence.toFixed(1)}%</span>
-                        </div>
-                        <div className="w-full bg-white/5 rounded-full h-1 relative overflow-hidden">
-                            <div
-                                className={`absolute top-0 left-0 h-full rounded-full transition-all duration-1000 ${prediction.confidence > 70 ? 'bg-green-500' :
-                                        prediction.confidence > 40 ? 'bg-yellow-500' : 'bg-red-500'
-                                    }`}
-                                style={{ width: `${prediction.confidence}%` }}
-                            />
-                        </div>
-                    </div>
-                </div>
-            ) : null}
+                ) : null}
+            </div>
         </div>
     );
 };
-
-// Supporting Icons
-import { AlertTriangle } from 'lucide-react';

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const MEXC_WS_URL = 'wss://wbs.mexc.com/ws';
 
@@ -19,87 +19,111 @@ export function useMexcWebSocket(symbols: string[]) {
     const wsRef = useRef<WebSocket | null>(null);
     const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-    const subscribe = useCallback(() => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && symbols.length > 0) {
-            const msg = {
-                method: 'SUBSCRIPTION',
-                params: symbols.map(s => `spot@public.deals.v3.api@${s}`)
-            };
-            wsRef.current.send(JSON.stringify(msg));
-        }
-    }, [symbols]);
+
+
+    // Dedup symbols to prevent unnecessary re-subscriptions
+    const symbolsString = symbols.sort().join(',');
 
     useEffect(() => {
-        // Initialize WebSocket
-        const ws = new WebSocket(MEXC_WS_URL);
-        wsRef.current = ws;
+        if (symbols.length === 0) {
+            return;
+        }
 
-        ws.onopen = () => {
-            console.log('✅ MEXC WebSocket Connected');
-            setIsConnected(true);
-            subscribe();
+        let isMounted = true;
+        let reconnectTimeout: NodeJS.Timeout;
 
-            // Setup Ping (Keep-alive) every 30s
-            pingIntervalRef.current = setInterval(() => {
-                if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ method: 'PING' }));
-                }
-            }, 30000);
-        };
+        const connect = () => {
+            if (!isMounted) return;
 
-        ws.onmessage = (event) => {
-            try {
-                const msg = JSON.parse(event.data);
+            const ws = new WebSocket(MEXC_WS_URL);
+            wsRef.current = ws;
 
-                // Handle Deal (Trade) Update - Using deals for frequent updates
-                // MEXC format: { c: channel, d: { deals: [{ p: price, ... }] }, ... }
-                if (msg.d && msg.d.deals) {
-                    const deals = msg.d.deals;
-                    const channel = msg.c; // e.g. spot@public.deals.v3.api@BTCUSDT
-                    const symbol = channel.split('@').pop(); // Extract BTCUSDT
+            ws.onopen = () => {
+                if (!isMounted) return;
+                console.log('✅ MEXC WebSocket Connected');
+                setIsConnected(true);
+                
+                // Subscribe
+                 const msg = {
+                    method: 'SUBSCRIPTION',
+                    params: symbols.map(s => `spot@public.deals.v3.api@${s}`)
+                };
+                ws.send(JSON.stringify(msg));
 
-                    if (symbol && deals.length > 0) {
-                        const lastDeal = deals[deals.length - 1]; // Latest trade
-
-                        setTickerData(prev => ({
-                            ...prev,
-                            [symbol]: {
-                                s: symbol,
-                                p: lastDeal.p,
-                                r: '0', // Deals don't have 24h change, unfortunately
-                                t: lastDeal.t
-                            }
-                        }));
+                // Setup Ping (Keep-alive) every 30s
+                if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+                pingIntervalRef.current = setInterval(() => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ method: 'PING' }));
                     }
+                }, 30000);
+            };
+
+            ws.onmessage = (event) => {
+                if (!isMounted) return;
+                try {
+                    const msg = JSON.parse(event.data);
+
+                    // Handle Deal (Trade) Update - Using deals for frequent updates
+                    // MEXC format: { c: channel, d: { deals: [{ p: price, ... }] }, ... }
+                    if (msg.d && msg.d.deals) {
+                        const deals = msg.d.deals;
+                        const channel = msg.c; // e.g. spot@public.deals.v3.api@BTCUSDT
+                        const symbol = channel.split('@').pop(); // Extract BTCUSDT
+
+                        if (symbol && deals.length > 0) {
+                            const lastDeal = deals[deals.length - 1]; // Latest trade
+
+                            setTickerData(prev => ({
+                                ...prev,
+                                [symbol]: {
+                                    s: symbol,
+                                    p: lastDeal.p,
+                                    r: '0', // Deals don't have 24h change, unfortunately
+                                    t: lastDeal.t
+                                }
+                            }));
+                        }
+                    }
+                } catch (err) {
+                    // console.error('WS Parse Error', err);
                 }
+            };
 
-                // Handle standard Ticker Update (slower but has 24h change)
-                // Use 'spot@public.limit.depth.v3.api@BTCUSDT' or similar if needed
+            ws.onclose = () => {
+                if (!isMounted) return;
+                console.log('❌ MEXC WebSocket Disconnected');
+                setIsConnected(false);
+                if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+                
+                // Auto-reconnect after 3s
+                reconnectTimeout = setTimeout(() => {
+                    console.log('🔄 Attempting Reconnect...');
+                    connect();
+                }, 3000);
+            };
 
-            } catch (err) {
-                // console.error('WS Parse Error', err);
-            }
+            ws.onerror = (err) => {
+                console.error('MEXC WebSocket Error:', err);
+                ws.close();
+            };
         };
 
-        ws.onclose = () => {
-            console.log('❌ MEXC WebSocket Disconnected');
-            setIsConnected(false);
-            if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
-        };
-
-        ws.onerror = (err) => {
-            console.error('MEXC WebSocket Error:', err);
-        };
+        connect();
 
         return () => {
+            isMounted = false;
             if (wsRef.current) {
                 wsRef.current.close();
             }
             if (pingIntervalRef.current) {
                 clearInterval(pingIntervalRef.current);
             }
+            if (reconnectTimeout) {
+                clearTimeout(reconnectTimeout);
+            }
         };
-    }, [subscribe]); // Re-connect if symbols change usually isn't desired, but here we keep it simple
+    }, [symbolsString]); // eslint-disable-line react-hooks/exhaustive-deps
 
     return { tickerData, isConnected };
 }

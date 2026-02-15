@@ -1,75 +1,114 @@
 import { NextResponse } from 'next/server';
-import { getSessionUser } from '@/lib/auth-utils';
-import { getPrice } from '@/lib/mexc-wrapper';
-import { calculateF4 } from '@/lib/indicators/f4';
+import { MatrixV3Engine } from '@/lib/matrix-v3-engine';
 
 export const dynamic = 'force-dynamic';
 
+async function fetchWithTimeout(url: string, options = {}, timeout = 8000) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
+    try {
+        const response = await fetch(url, { ...options, signal: controller.signal });
+        clearTimeout(id);
+        return response;
+    } catch (e) {
+        clearTimeout(id);
+        throw e;
+    }
+}
+
 export async function GET(request: Request) {
     try {
-        const user = await getSessionUser(request);
-        if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
         const { searchParams } = new URL(request.url);
-        const symbol = searchParams.get('symbol') || 'BTCUSDT';
-        let interval = searchParams.get('interval') || '1h';
+        const symbol = (searchParams.get('symbol') || 'BTCUSDT').toUpperCase();
+        const interval = searchParams.get('interval') || '1h';
 
-        // Sanitize for Binance API
-        if (interval === '60m') interval = '1h';
+        const bncInterval = interval === '60m' ? '1h' : interval;
+        const mxcInterval = interval === '1h' ? '60m' : interval;
 
-        // Source 1: Binance (Public & Reliable)
-        const binanceUrl = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=200`;
+        // Increased limit to 500 for EMA200 and V3 Engine
+        const limit = 500;
 
-        let data;
-        try {
-            const res = await fetch(binanceUrl, { next: { revalidate: 60 } });
-            if (!res.ok) throw new Error(`Binance returned ${res.status}`);
-            data = await res.json();
-        } catch (e: any) {
-            console.warn(`[F4 API] Binance failed for ${symbol}: ${e.message}. Trying MEXC fallback.`);
+        const endpoints = [
+            `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${bncInterval}&limit=${limit}`,
+            `https://api1.binance.com/api/v3/klines?symbol=${symbol}&interval=${bncInterval}&limit=${limit}`,
+            `https://api.mexc.com/api/v3/klines?symbol=${symbol}&interval=${mxcInterval}&limit=${limit}`
+        ];
 
-            // Source 2: MEXC Fallback
-            let mexcInterval = interval;
-            if (mexcInterval === '1h') mexcInterval = '60m';
+        let data = null;
+        let lastError = '';
 
-            const mexcUrl = `https://api.mexc.com/api/v3/klines?symbol=${symbol}&interval=${mexcInterval}&limit=200`;
-            const mxRes = await fetch(mexcUrl);
-            if (!mxRes.ok) throw new Error('Global market data sources currently unavailable');
-            data = await mxRes.json();
+        for (const url of endpoints) {
+            try {
+                const res = await fetchWithTimeout(url, { next: { revalidate: 30 } }, 5000);
+                if (res.ok) {
+                    data = await res.json();
+                    if (Array.isArray(data) && data.length > 200) break; // Ensure we have enough data
+                }
+            } catch (e) {
+                lastError = e instanceof Error ? e.message : String(e);
+                continue;
+            }
         }
 
-        if (!Array.isArray(data) || data.length < 50) {
-            throw new Error('Insufficient kline history for indicator calculation');
+        if (!data || !Array.isArray(data)) {
+            return NextResponse.json({
+                symbol,
+                error: 'MARKET_DATA_UNAVAILABLE',
+                message: lastError || 'All API providers failed',
+                timestamp: Date.now()
+            });
         }
 
-        // Parse: [time, open, high, low, close, volume, ...]
-        const high = data.map((k: any) => parseFloat(k[2]));
-        const low = data.map((k: any) => parseFloat(k[3]));
-        const close = data.map((k: any) => parseFloat(k[4]));
-        const volume = data.map((k: any) => parseFloat(k[5]));
+        // Parse Data
+        const highs = data.map((k: string[]) => parseFloat(k[2]));
+        const lows = data.map((k: string[]) => parseFloat(k[3]));
+        const closes = data.map((k: string[]) => parseFloat(k[4]));
+        const volumes = data.map((k: string[]) => parseFloat(k[5]));
 
-        const f4Result = calculateF4({
-            high, low, close, volume,
-            length1: 7, a1: 3.7, length12: 5, a12: 0.618,
-            wtLength: 10, wtAvgLength: 21,
+        // Initialize Engine
+        const engine = new MatrixV3Engine({
+            f4Length: 10,
+            whaleVolumeMultiplier: 1.8,
+            minAiScore: 65,
+            useWhaleEngine: true
         });
 
-        // Price can still come from MEXC wrapper to keep wallet-relative context
-        const currentPrice = await getPrice(symbol);
+        // Run Analysis
+        const result = engine.analyze(closes, highs, lows, volumes);
 
+        // Map to Response
         return NextResponse.json({
             symbol,
-            interval,
+            interval: interval,
             timestamp: Date.now(),
-            currentPrice,
-            ...f4Result,
+            currentPrice: closes[closes.length - 1],
+            
+            // Matrix V3 Data
+            f4Slope: result.slope,
+            f4Acceleration: result.acceleration,
+            whaleDetected: result.whaleDetected,
+            whaleStatus: result.whaleStatus, // Added V3 field
+            trend: result.trend,
+            signal: result.signal,
+            
+            // New V3 Advanced Data
+            aiScore: result.aiScore,
+            aiComponents: result.aiComponents,
+            marketRegime: result.marketRegime,
+            volatilityRegime: result.volatilityRegime, // Added V3 field
+            regimePrediction: result.regimePrediction,
+            systemDecision: result.systemDecision,
+            zScoreValue: result.zScoreValue,
+            mtfConsensus: result.mtfConsensus, // Added V3 field
+            
+            // Legacy / Helper fields
+            f4Signal: result.signal || 'NEUTRAL',
+            actionRecommendation: result.systemDecision
         });
 
-    } catch (error: any) {
-        console.error('F4 CALCULATION ERROR:', error.message);
-        return NextResponse.json({
-            error: 'INDICATOR_ERROR',
-            message: error.message
-        }, { status: 500 });
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unknown Server Error';
+        console.error('F4 Exception:', error);
+        return NextResponse.json({ error: 'SERVER_EXCEPTION', message }, { status: 500 });
     }
 }

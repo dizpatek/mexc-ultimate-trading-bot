@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { RefreshCw, TrendingUp, TrendingDown, Wallet, Fish, AlertCircle, Activity } from 'lucide-react';
+import { RefreshCw, TrendingUp, TrendingDown, Wallet, Fish, AlertCircle, Activity, Zap, CircleDollarSign } from 'lucide-react';
 import Image from 'next/image';
 import { useHoldings } from '../hooks/usePortfolio';
 import { useMexcWebSocket } from '../hooks/useMexcWebSocket';
@@ -98,6 +98,9 @@ export function MatrixPortfolio() {
     const [signalDataMap, setSignalDataMap] = useState<Record<string, F4Data>>({});
     const [isLoadingSignals, setIsLoadingSignals] = useState(true);
     const [errorSignals, setErrorSignals] = useState<string | null>(null);
+    const [tradeAmounts, setTradeAmounts] = useState<Record<string, string>>({});
+    const [isTrading, setIsTrading] = useState<Record<string, boolean>>({});
+    const [tradeStatus, setTradeStatus] = useState<Record<string, { type: 'success' | 'error', msg: string } | null>>({});
 
     // Fetch AI signals
     useEffect(() => {
@@ -178,6 +181,34 @@ export function MatrixPortfolio() {
 
         return () => { isMounted = false; };
     }, [activeSymbolsString, activeSymbols, interval]);
+
+    const handleQuickTrade = async (symbol: string, side: 'BUY' | 'SELL') => {
+        const amount = tradeAmounts[symbol] || '50';
+        setIsTrading(prev => ({ ...prev, [symbol]: true }));
+        setTradeStatus(prev => ({ ...prev, [symbol]: null }));
+
+        try {
+            const res = await fetch('/api/trade/execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol, side, usdtAmount: amount })
+            });
+            const data = await res.json();
+            
+            if (res.ok) {
+                setTradeStatus(prev => ({ ...prev, [symbol]: { type: 'success', msg: 'Tamam!' } }));
+                setTimeout(() => setTradeStatus(prev => ({ ...prev, [symbol]: null })), 3000);
+            } else {
+                setTradeStatus(prev => ({ ...prev, [symbol]: { type: 'error', msg: data.error || 'Hata' } }));
+                setTimeout(() => setTradeStatus(prev => ({ ...prev, [symbol]: null })), 5000);
+            }
+        } catch (error) {
+            console.error('Trade execution error', error);
+            setTradeStatus(prev => ({ ...prev, [symbol]: { type: 'error', msg: 'Bağlantı kesildi' } }));
+        } finally {
+            setIsTrading(prev => ({ ...prev, [symbol]: false }));
+        }
+    };
 
     const getScoreColor = useCallback((score: number) => {
         if (score >= 70) return 'text-emerald-400';
@@ -288,13 +319,14 @@ export function MatrixPortfolio() {
                             <th className="px-3 py-3 text-left border-r border-slate-800/40">PİYASA REJİMİ</th>
                             <th className="px-3 py-3 text-left border-r border-slate-800/40">BALİNA & VOLATİLİTE</th>
                             <th className="px-3 py-3 text-left border-r border-slate-800/40">TAHMİN</th>
-                            <th className="px-3 py-3 text-center">KARAR</th>
+                            <th className="px-3 py-3 text-center border-r border-slate-800/40 text-[10px]">KARAR</th>
+                            <th className="px-3 py-3 text-center border-slate-800/40">HIZLI İŞLEM (USDT)</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/30">
                         {activeSymbols.length === 0 ? (
                             <tr>
-                                <td colSpan={7} className="px-4 py-12 text-center text-slate-500">
+                                <td colSpan={10} className="px-4 py-12 text-center text-slate-500">
                                     <div className="flex flex-col items-center gap-3">
                                         <Wallet className="w-10 h-10 opacity-10" />
                                         <span className="text-xs">Takip edilecek varlık bulunamadı.</span>
@@ -438,11 +470,50 @@ export function MatrixPortfolio() {
                                         </td>
 
                                         {/* 8. DECISION */}
-                                        <td className="px-3 py-2.5 text-center">
+                                        <td className="px-3 py-2.5 text-center border-r border-slate-800/30">
                                             <div className={`inline-flex flex-col items-center justify-center px-3 py-1.5 rounded-md border ${getDecisionStyle(signalData?.systemDecision || 'WAIT')}`}>
                                                 <span className="text-[10px] font-black tracking-wider">
                                                     {signalData?.systemDecision === 'GO_LONG' ? 'LONG AÇ' : signalData?.systemDecision === 'GO_SHORT' ? 'SHORT AÇ' : 'BEKLE'}
                                                 </span>
+                                            </div>
+                                        </td>
+
+                                        {/* 9. QUICK TRADE */}
+                                        <td className="px-3 py-2.5">
+                                            <div className="flex items-center gap-2 justify-center">
+                                                <div className="relative group">
+                                                    <CircleDollarSign className="absolute left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-600 group-focus-within:text-cyan-400" />
+                                                    <input 
+                                                        type="number"
+                                                        value={tradeAmounts[fullSymbol] || '50'}
+                                                        onChange={(e) => setTradeAmounts(prev => ({ ...prev, [fullSymbol]: e.target.value }))}
+                                                        className="w-14 bg-slate-950/80 border border-slate-800 rounded px-1.5 py-1 text-[10px] pl-5 font-bold focus:outline-none focus:border-cyan-500/50 transition-colors"
+                                                        placeholder="50"
+                                                    />
+                                                </div>
+                                                <div className="flex gap-1">
+                                                    <button 
+                                                        onClick={() => handleQuickTrade(fullSymbol, 'BUY')}
+                                                        disabled={isTrading[fullSymbol]}
+                                                        className="flex items-center gap-1 px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded text-[9px] font-black transition-all active:scale-95 disabled:opacity-50"
+                                                    >
+                                                        {isTrading[fullSymbol] ? <RefreshCw className="w-2.5 h-2.5 animate-spin" /> : <Zap className="w-2.5 h-2.5 fill-emerald-500/20" />}
+                                                        AL
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleQuickTrade(fullSymbol, 'SELL')}
+                                                        disabled={isTrading[fullSymbol]}
+                                                        className="flex items-center gap-1 px-2 py-1 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 rounded text-[9px] font-black transition-all active:scale-95 disabled:opacity-50"
+                                                    >
+                                                        {isTrading[fullSymbol] ? <RefreshCw className="w-2.5 h-2.5 animate-spin" /> : <TrendingDown className="w-2.5 h-2.5" />}
+                                                        SAT
+                                                    </button>
+                                                </div>
+                                                {tradeStatus[fullSymbol] && (
+                                                    <div className={`text-[8px] font-bold animate-in fade-in slide-in-from-right-2 duration-300 ${tradeStatus[fullSymbol]?.type === 'success' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                        {tradeStatus[fullSymbol]?.msg}
+                                                    </div>
+                                                )}
                                             </div>
                                         </td>
                                     </tr>

@@ -352,14 +352,18 @@ export function MatrixPortfolio() {
                                         {/* 1. ASSET */}
                                         <td className="px-3 py-2.5 border-r border-slate-800/30">
                                             <div className="flex items-center gap-2.5">
-                                                <div className="relative group/chart cursor-pointer" onClick={() => setSelectedChartSymbol(assetName)}>
-                                                    <AssetIcon symbol={assetName} />
-                                                    <div className="absolute -bottom-1 -right-1 bg-slate-900 rounded-full p-0.5 border border-slate-700 group-hover/chart:border-cyan-500/50 transition-colors">
-                                                        <LineChart className="w-2.5 h-2.5 text-slate-500 group-hover/chart:text-cyan-400" />
-                                                    </div>
-                                                </div>
+                                                <AssetIcon symbol={assetName} />
                                                 <div className="flex flex-col">
-                                                    <span className="font-bold text-slate-200 text-xs">{assetName}</span>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span className="font-bold text-slate-200 text-xs">{assetName}</span>
+                                                        <button 
+                                                            onClick={() => setSelectedChartSymbol(assetName)}
+                                                            className="p-1 rounded bg-slate-800/50 hover:bg-cyan-500/20 text-slate-400 hover:text-cyan-400 transition-all border border-slate-700 hover:border-cyan-500/30"
+                                                            title="Grafik Aç"
+                                                        >
+                                                            <LineChart className="w-3 h-3" />
+                                                        </button>
+                                                    </div>
                                                     <span className="text-[9px] text-slate-500 font-mono">USDT</span>
                                                 </div>
                                             </div>

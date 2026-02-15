@@ -184,6 +184,15 @@ export function MatrixPortfolio() {
         }
     }, []);
 
+    const getPredictionColor = useCallback((pred: string) => {
+        const positive = ['RALLY_PREP', 'BUY_ACTIVE', 'PRE_EXPLOSION', 'ACCELERATING_TREND', 'BOTTOM_FINDING'];
+        const negative = ['DISTRIBUTION', 'TRAP', 'SELL_ACTIVE', 'ACCELERATING_DROP', 'DECELERATING_TREND'];
+        
+        if (positive.includes(pred)) return 'text-emerald-400';
+        if (negative.includes(pred)) return 'text-rose-400';
+        return 'text-cyan-300';
+    }, []);
+
     const getPredictionLabel = useCallback((pred: string) => {
         const map: Record<string, string> = {
             'RALLY_PREP': 'RALLİ HAZIRLIĞI 🚀',
@@ -375,7 +384,7 @@ export function MatrixPortfolio() {
                                         {/* 7. PREDICTION */}
                                         <td className="px-3 py-2.5 border-r border-slate-800/30">
                                             <div className="flex flex-col">
-                                                <span className="text-[10px] text-cyan-300 font-medium truncate max-w-[100px]">
+                                                <span className={`text-[10px] font-bold truncate max-w-[100px] ${getPredictionColor(signalData?.regimePrediction || '')}`}>
                                                     {getPredictionLabel(signalData?.regimePrediction || '')}
                                                 </span>
                                                 {(signalData?.aiComponents?.trapPenalty || 0) < 0 && (

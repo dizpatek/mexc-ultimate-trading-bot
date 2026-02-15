@@ -238,7 +238,7 @@ export const MatrixHorizon = () => {
                             { label: "ÇOKLU ZAMAN ONAYI", value: data.engineering.mtfConsensus, trend: data.engineering.mtfConsensus.includes("BOĞA") ? "UP" : "DOWN", color: data.engineering.mtfConsensus.includes("BOĞA") ? "text-emerald-400" : "text-rose-400" },
                             { label: "İVME", value: data.engineering.momentumAccel, trend: data.engineering.momentumAccel.includes("YAVAŞLIYOR") ? "DOWN" : "UP", color: data.engineering.momentumAccel === "YÜKSEK HIZ" ? "text-emerald-400" : data.engineering.momentumAccel === "YAVAŞLIYOR" ? "text-rose-400" : "text-amber-400" },
                             { label: "VOLATİLİTE", value: data.engineering.volatility, color: data.engineering.volatility === "YÜKSEK" ? "text-rose-400" : "text-cyan-400" },
-                            { label: "KAZANMA ORANI", value: `${data.engineering.winRate}/10`, color: data.engineering.winRate > 6 ? "text-emerald-400" : "text-amber-400" },
+                            { label: "KAZANMA ORANI", value: `${data.engineering.winRate}%`, color: data.engineering.winRate > 65 ? "text-emerald-400" : data.engineering.winRate > 45 ? "text-amber-400" : "text-rose-400" },
                         ]} 
                     />
                 </div>

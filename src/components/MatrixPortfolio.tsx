@@ -5,7 +5,7 @@ import { RefreshCw, TrendingUp, TrendingDown, Wallet, Fish, AlertCircle, Activit
 import Image from 'next/image';
 import { useHoldings } from '../hooks/usePortfolio';
 import { useMexcWebSocket } from '../hooks/useMexcWebSocket';
-// import { cn } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 
 const AssetIcon = ({ symbol }: { symbol: string }) => {
     const [error, setError] = React.useState(false);
@@ -83,8 +83,18 @@ export function MatrixPortfolio() {
     const activeSymbolsString = useMemo(() => [...activeSymbols].sort().join(','), [activeSymbols]);
 
     const { tickerData, isConnected } = useMexcWebSocket(activeSymbols);
+    
+    // 3. Interval Selection
+    const [interval, setIntervalState] = useState('4h');
+    const intervals = [
+        { id: '1h', label: '1S' },
+        { id: '4h', label: '4S' },
+        { id: '1d', label: 'GÜN' },
+        { id: '1w', label: 'HAF' },
+        { id: '1M', label: 'AY' }
+    ];
 
-    // 3. AI Signal Data
+    // 4. AI Signal Data
     const [signalDataMap, setSignalDataMap] = useState<Record<string, F4Data>>({});
     const [isLoadingSignals, setIsLoadingSignals] = useState(true);
     const [errorSignals, setErrorSignals] = useState<string | null>(null);
@@ -111,7 +121,7 @@ export function MatrixPortfolio() {
                 // Fetch each symbol in parallel
                 const results = await Promise.all(activeSymbols.map(async (symbol) => {
                     try {
-                        const response = await fetch(`/api/indicators/f4?symbol=${symbol}&interval=4h`);
+                        const response = await fetch(`/api/indicators/f4?symbol=${symbol}&interval=${interval}`);
                         if (!response.ok) return null;
                         const data = await response.json();
                         if (data.error) return null;
@@ -130,7 +140,7 @@ export function MatrixPortfolio() {
                         const d = res.data;
                          newSignals[res.symbol] = {
                             symbol: res.symbol.replace('USDT', ''),
-                            interval: '4h',
+                            interval: interval,
                             currentPrice: d.currentPrice,
                             f4Slope: d.f4Slope,
                             f4Acceleration: d.f4Acceleration,
@@ -167,7 +177,7 @@ export function MatrixPortfolio() {
         loadSignals();
 
         return () => { isMounted = false; };
-    }, [activeSymbolsString, activeSymbols]);
+    }, [activeSymbolsString, activeSymbols, interval]);
 
     const getScoreColor = useCallback((score: number) => {
         if (score >= 70) return 'text-emerald-400';
@@ -231,11 +241,27 @@ export function MatrixPortfolio() {
                         <span className="font-bold tracking-wide">{isConnected ? 'SOCKET: ONLINE' : 'SOCKET: OFFLINE'}</span>
                     </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
+                    <div className="flex bg-slate-950/80 p-0.5 rounded-lg border border-slate-800/50 shadow-inner">
+                        {intervals.map((item) => (
+                            <button
+                                key={item.id}
+                                onClick={() => setIntervalState(item.id)}
+                                className={cn(
+                                    "px-2.5 py-0.5 text-[9px] font-bold rounded transition-all duration-200",
+                                    interval === item.id 
+                                        ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shadow-[0_0_8px_rgba(34,211,238,0.1)]" 
+                                        : "text-slate-500 hover:text-slate-300 hover:bg-white/5 border border-transparent"
+                                )}
+                            >
+                                {item.label}
+                            </button>
+                        ))}
+                    </div>
                     {isLoadingSignals && (
-                        <div className="flex items-center gap-1.5 text-[10px] text-cyan-400">
-                            <RefreshCw className="w-3 h-3 animate-spin" />
-                            <span>SYNCING...</span>
+                        <div className="flex items-center gap-1.5 text-[10px] text-cyan-400 bg-cyan-400/5 px-2 py-0.5 rounded border border-cyan-400/10">
+                            <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                            <span className="animate-pulse">SENKRONİZE EDİLİYOR...</span>
                         </div>
                     )}
                     <div className="text-[10px] font-bold text-slate-500 tracking-widest px-2 py-1 bg-slate-950 rounded border border-slate-800">

@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { RefreshCw, TrendingUp, TrendingDown, Wallet, Fish, AlertCircle, Activity, Zap, CircleDollarSign, LineChart, X } from 'lucide-react';
+import { RefreshCw, TrendingUp, TrendingDown, Wallet, Fish, AlertCircle, Activity, Zap, LineChart, CircleDollarSign, X } from 'lucide-react';
 import { TradingViewEmbedChart } from './TradingViewEmbedChart';
+import { AssetDetailModal } from './AssetDetailModal';
 import Image from 'next/image';
 import { useHoldings } from '../hooks/usePortfolio';
 import { useMexcWebSocket } from '../hooks/useMexcWebSocket';
@@ -103,6 +104,7 @@ export function MatrixPortfolio() {
     const [isTrading, setIsTrading] = useState<Record<string, boolean>>({});
     const [tradeStatus, setTradeStatus] = useState<Record<string, { type: 'success' | 'error', msg: string } | null>>({});
     const [selectedChartSymbol, setSelectedChartSymbol] = useState<string | null>(null);
+    const [viewDetailAsset, setViewDetailAsset] = useState<{ symbol: string; price: number; score: number; decision: string; prediction: string; trap: boolean } | null>(null);
 
     // Fetch AI signals
     useEffect(() => {
@@ -347,7 +349,15 @@ export function MatrixPortfolio() {
                                 return (
                                     <tr 
                                         key={fullSymbol}
-                                        className="hover:bg-cyan-950/20 transition-all duration-200 group relative"
+                                        className="hover:bg-cyan-950/20 transition-all duration-200 group relative cursor-pointer"
+                                        onClick={() => setViewDetailAsset({
+                                            symbol: assetName,
+                                            price: currentPrice,
+                                            score: signalData?.aiScore || 0,
+                                            decision: signalData?.systemDecision || 'WAIT',
+                                            prediction: signalData?.regimePrediction || 'NEUTRAL',
+                                            trap: signalData?.whaleStatus === 'TRAP'
+                                        })}
                                     >
                                         {/* 1. ASSET */}
                                         <td className="px-3 py-2.5 border-r border-slate-800/30">
@@ -500,14 +510,21 @@ export function MatrixPortfolio() {
                                                     <input 
                                                         type="number"
                                                         value={tradeAmounts[fullSymbol] || '50'}
-                                                        onChange={(e) => setTradeAmounts(prev => ({ ...prev, [fullSymbol]: e.target.value }))}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        onChange={(e) => {
+                                                            e.stopPropagation();
+                                                            setTradeAmounts(prev => ({ ...prev, [fullSymbol]: e.target.value }));
+                                                        }}
                                                         className="w-14 bg-slate-950/80 border border-slate-800 rounded px-1.5 py-1 text-[10px] pl-5 font-bold focus:outline-none focus:border-cyan-500/50 transition-colors"
                                                         placeholder="50"
                                                     />
                                                 </div>
                                                 <div className="flex gap-1">
                                                     <button 
-                                                        onClick={() => handleQuickTrade(fullSymbol, 'BUY')}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleQuickTrade(fullSymbol, 'BUY');
+                                                        }}
                                                         disabled={isTrading[fullSymbol]}
                                                         className="flex items-center gap-1 px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded text-[9px] font-black transition-all active:scale-95 disabled:opacity-50"
                                                     >
@@ -515,7 +532,10 @@ export function MatrixPortfolio() {
                                                         AL
                                                     </button>
                                                     <button 
-                                                        onClick={() => handleQuickTrade(fullSymbol, 'SELL')}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleQuickTrade(fullSymbol, 'SELL');
+                                                        }}
                                                         disabled={isTrading[fullSymbol]}
                                                         className="flex items-center gap-1 px-2 py-1 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 rounded text-[9px] font-black transition-all active:scale-95 disabled:opacity-50"
                                                     >
@@ -567,6 +587,20 @@ export function MatrixPortfolio() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* ASSET DETAIL MODAL */}
+            {viewDetailAsset && (
+                <AssetDetailModal 
+                    isOpen={!!viewDetailAsset}
+                    onClose={() => setViewDetailAsset(null)}
+                    symbol={viewDetailAsset.symbol}
+                    currentPrice={viewDetailAsset.price}
+                    f4Score={viewDetailAsset.score}
+                    f4Decision={viewDetailAsset.decision}
+                    f4Prediction={viewDetailAsset.prediction}
+                    trapWarning={viewDetailAsset.trap}
+                />
             )}
         </div>
     );

@@ -138,8 +138,19 @@ function TradingViewWidget() {
             </div>
             
             {isWebMode && (
-                <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/60 text-[8px] text-white/50 rounded pointer-events-none">
-                    Deneysel Web Modu
+                <div className="absolute bottom-2 left-2 right-2 px-3 py-2 bg-slate-900/90 border border-red-500/30 text-slate-300 rounded shadow-2xl backdrop-blur-md z-40">
+                    <div className="flex items-start gap-2">
+                        <div className="min-w-[16px] mt-0.5 text-red-500">
+                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                        </div>
+                        <div className="flex-1">
+                            <p className="text-[10px] font-bold text-red-400 mb-0.5">Beyaz Ekran mı Görüyorsunuz?</p>
+                            <p className="text-[9px] leading-relaxed opacity-80">
+                                TradingView güvenlik gereği (X-Frame-Options) bu modu engelleyebilir. 
+                                Çalışması için tarayıcınıza <b>&apos;Ignore X-Frame-Options&apos;</b> veya <b>&apos;Requestly&apos;</b> eklentisini kurup aktifleştirmeniz gerekir.
+                            </p>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

@@ -362,10 +362,10 @@ export function MatrixPortfolio() {
                                                 <button 
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        setSelectedChartSymbol(assetName);
+                                                        window.open(`https://www.mexc.com/exchange/${assetName}_USDT`, '_blank');
                                                     }}
                                                     className="p-1.5 rounded-md bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 transition-all opacity-100 shadow-sm hover:shadow-cyan-500/10"
-                                                    title="Grafik Aç"
+                                                    title="MEXC'de Aç"
                                                 >
                                                     <LineChart className="w-3.5 h-3.5" />
                                                 </button>

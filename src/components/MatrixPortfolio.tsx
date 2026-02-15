@@ -248,6 +248,7 @@ export function MatrixPortfolio() {
                         <tr>
                             <th className="px-3 py-3 text-left border-r border-slate-800/40">VARLIK</th>
                             <th className="px-3 py-3 text-right border-r border-slate-800/40">PORTFÖY</th>
+                            <th className="px-3 py-3 text-right border-r border-slate-800/40">FİYAT</th>
                             <th className="px-3 py-3 text-right border-r border-slate-800/40">GÜNLÜK %</th>
                             <th className="px-3 py-3 text-left border-r border-slate-800/40 w-[140px]">AI SKOR & GÜÇ</th>
                             <th className="px-3 py-3 text-left border-r border-slate-800/40">PİYASA REJİMİ</th>
@@ -286,12 +287,7 @@ export function MatrixPortfolio() {
                                                 <AssetIcon symbol={assetName} />
                                                 <div className="flex flex-col">
                                                     <span className="font-bold text-slate-200 text-xs">{assetName}</span>
-                                                    <span className="text-[9px] text-slate-500 font-mono">
-                                                        ${currentPrice > 0 ? currentPrice.toLocaleString(undefined, { 
-                                                            minimumFractionDigits: currentPrice < 1 ? 4 : 2,
-                                                            maximumFractionDigits: currentPrice < 1 ? 4 : 2
-                                                        }) : '---'}
-                                                    </span>
+                                                    <span className="text-[9px] text-slate-500 font-mono">USDT</span>
                                                 </div>
                                             </div>
                                         </td>
@@ -304,7 +300,17 @@ export function MatrixPortfolio() {
                                             </div>
                                         </td>
 
-                                        {/* 3. DAILY PERFORMANCE */}
+                                        {/* 3. PRICE */}
+                                        <td className="px-3 py-2.5 border-r border-slate-800/30 text-right">
+                                            <span className="font-mono text-xs text-slate-300">
+                                                ${currentPrice > 0 ? currentPrice.toLocaleString(undefined, { 
+                                                    minimumFractionDigits: currentPrice < 1 ? 4 : 2,
+                                                    maximumFractionDigits: currentPrice < 1 ? 4 : 2
+                                                }) : '---'}
+                                            </span>
+                                        </td>
+
+                                        {/* 4. DAILY PERFORMANCE */}
                                         <td className="px-3 py-2.5 border-r border-slate-800/30 text-right">
                                             <div className="flex justify-end">
                                                 <div className={`flex items-center gap-1.5 px-2 py-1 rounded bg-slate-900/50 border ${holding.change24h >= 0 ? 'text-emerald-400 border-emerald-500/20' : 'text-rose-400 border-rose-500/20'}`}>

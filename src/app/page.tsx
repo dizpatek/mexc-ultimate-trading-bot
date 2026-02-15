@@ -68,12 +68,9 @@ export default function Dashboard() {
     const uniqueSymbols = Array.from(new Set([...baseSymbols, ...holdingSymbols]));
     
     return uniqueSymbols.map((s: string) => {
-      // Binance data is usually higher quality with full percentage history for major assets
-      const majorAssets = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT', 'DOTUSDT'];
-      const prefix = majorAssets.includes(s) ? 'BINANCE' : 'MEXC';
-      
+      // Use MEXC for everything to match the bot's data exactly
       return {
-        proName: `${prefix}:${s}`,
+        proName: `MEXC:${s}`,
         title: s.replace('USDT', '/USDT')
       };
     });

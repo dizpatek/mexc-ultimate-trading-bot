@@ -351,21 +351,24 @@ export function MatrixPortfolio() {
                                     >
                                         {/* 1. ASSET */}
                                         <td className="px-3 py-2.5 border-r border-slate-800/30">
-                                            <div className="flex items-center gap-2.5">
-                                                <AssetIcon symbol={assetName} />
-                                                <div className="flex flex-col">
-                                                    <div className="flex items-center gap-1.5">
+                                            <div className="flex items-center justify-between group/cell">
+                                                <div className="flex items-center gap-2.5">
+                                                    <AssetIcon symbol={assetName} />
+                                                    <div className="flex flex-col">
                                                         <span className="font-bold text-slate-200 text-xs">{assetName}</span>
-                                                        <button 
-                                                            onClick={() => setSelectedChartSymbol(assetName)}
-                                                            className="p-1 rounded bg-slate-800/50 hover:bg-cyan-500/20 text-slate-400 hover:text-cyan-400 transition-all border border-slate-700 hover:border-cyan-500/30"
-                                                            title="Grafik Aç"
-                                                        >
-                                                            <LineChart className="w-3 h-3" />
-                                                        </button>
+                                                        <span className="text-[9px] text-slate-500 font-mono">USDT</span>
                                                     </div>
-                                                    <span className="text-[9px] text-slate-500 font-mono">USDT</span>
                                                 </div>
+                                                <button 
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSelectedChartSymbol(assetName);
+                                                    }}
+                                                    className="p-1.5 rounded-md bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 transition-all opacity-100 shadow-sm hover:shadow-cyan-500/10"
+                                                    title="Grafik Aç"
+                                                >
+                                                    <LineChart className="w-3.5 h-3.5" />
+                                                </button>
                                             </div>
                                         </td>
 

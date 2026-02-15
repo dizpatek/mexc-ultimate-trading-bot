@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { RefreshCw, TrendingUp, TrendingDown, Wallet, Fish, AlertCircle, Activity, Zap, CircleDollarSign } from 'lucide-react';
+import { RefreshCw, TrendingUp, TrendingDown, Wallet, Fish, AlertCircle, Activity, Zap, CircleDollarSign, LineChart, X } from 'lucide-react';
+import { TradingViewEmbedChart } from './TradingViewEmbedChart';
 import Image from 'next/image';
 import { useHoldings } from '../hooks/usePortfolio';
 import { useMexcWebSocket } from '../hooks/useMexcWebSocket';
@@ -101,6 +102,7 @@ export function MatrixPortfolio() {
     const [tradeAmounts, setTradeAmounts] = useState<Record<string, string>>({});
     const [isTrading, setIsTrading] = useState<Record<string, boolean>>({});
     const [tradeStatus, setTradeStatus] = useState<Record<string, { type: 'success' | 'error', msg: string } | null>>({});
+    const [selectedChartSymbol, setSelectedChartSymbol] = useState<string | null>(null);
 
     // Fetch AI signals
     useEffect(() => {
@@ -350,7 +352,12 @@ export function MatrixPortfolio() {
                                         {/* 1. ASSET */}
                                         <td className="px-3 py-2.5 border-r border-slate-800/30">
                                             <div className="flex items-center gap-2.5">
-                                                <AssetIcon symbol={assetName} />
+                                                <div className="relative group/chart cursor-pointer" onClick={() => setSelectedChartSymbol(assetName)}>
+                                                    <AssetIcon symbol={assetName} />
+                                                    <div className="absolute -bottom-1 -right-1 bg-slate-900 rounded-full p-0.5 border border-slate-700 group-hover/chart:border-cyan-500/50 transition-colors">
+                                                        <LineChart className="w-2.5 h-2.5 text-slate-500 group-hover/chart:text-cyan-400" />
+                                                    </div>
+                                                </div>
                                                 <div className="flex flex-col">
                                                     <span className="font-bold text-slate-200 text-xs">{assetName}</span>
                                                     <span className="text-[9px] text-slate-500 font-mono">USDT</span>
@@ -527,6 +534,33 @@ export function MatrixPortfolio() {
                 <span>MATRIX ENGINE V3.1.0 // ONLINE</span>
                 <span>SYNC: {new Date().toLocaleTimeString()}</span>
             </div>
+
+            {/* CHART MODAL */}
+            {selectedChartSymbol && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                    <div className="bg-[#131722] w-full max-w-6xl h-[80vh] rounded-xl border border-slate-800 shadow-2xl flex flex-col overflow-hidden">
+                        <div className="flex items-center justify-between p-3 border-b border-slate-800 bg-[#1e222d]">
+                            <div className="flex items-center gap-3">
+                                <span className="font-bold text-lg text-slate-200">{selectedChartSymbol} / USDT</span>
+                                <span className="text-xs px-2 py-0.5 bg-cyan-500/10 text-cyan-400 rounded border border-cyan-500/20 font-mono">MATRIX CHART</span>
+                            </div>
+                            <button 
+                                onClick={() => setSelectedChartSymbol(null)}
+                                className="p-1.5 hover:bg-slate-700/50 rounded-lg text-slate-400 hover:text-white transition-colors"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        <div className="flex-1 relative">
+                            <TradingViewEmbedChart 
+                                symbol={selectedChartSymbol} 
+                                theme="dark" 
+                                height={window.innerHeight * 0.75} 
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

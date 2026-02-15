@@ -12,6 +12,7 @@
 
 export interface MatrixV3Config {
     f4Length: number;           // Default: 10
+    f4SlopeThreshold: number;   // Default: 0.02
     whaleVolumeMultiplier: number; // Default: 2.5
     minAiScore: number;         // Default: 65
     useWhaleEngine: boolean;    // Default: true
@@ -64,6 +65,7 @@ export class MatrixV3Engine {
     constructor(config: Partial<MatrixV3Config> = {}) {
         this.config = {
             f4Length: config.f4Length || 10,
+            f4SlopeThreshold: config.f4SlopeThreshold || 0.02,
             whaleVolumeMultiplier: config.whaleVolumeMultiplier || 2.5,
             minAiScore: config.minAiScore || 65,
             useWhaleEngine: config.useWhaleEngine ?? true
@@ -183,8 +185,8 @@ export class MatrixV3Engine {
         const acceleration = ((rawSlope - prevRawSlope) / currentPrice) * 100;
 
         let trend: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
-        if (slope > 0.02) trend = 'BULLISH';
-        else if (slope < -0.02) trend = 'BEARISH';
+        if (slope > this.config.f4SlopeThreshold) trend = 'BULLISH';
+        else if (slope < -this.config.f4SlopeThreshold) trend = 'BEARISH';
 
         // ===============================
         // 2. Whale Engine (V3)

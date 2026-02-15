@@ -164,6 +164,27 @@ interface AccountInfo {
     balances: Balance[];
 }
 
+export interface MexcOrder {
+    symbol: string;
+    orderId: string;
+    orderListId: number;
+    clientOrderId: string;
+    price: string;
+    origQty: string;
+    executedQty: string;
+    cummulativeQuoteQty: string;
+    status: string;
+    timeInForce: string;
+    type: string;
+    side: string;
+    stopPrice: string;
+    icebergQty: string;
+    time: number;
+    updateTime: number;
+    isWorking: boolean;
+    origQuoteOrderQty: string;
+}
+
 export async function getAccountInfo() {
     const res = await signedGet<AccountInfo>('/api/v3/account');
     return res as AccountInfo;
@@ -177,7 +198,7 @@ export async function getBalance(asset: string) {
 
 export async function getOpenOrders(symbol: string | null = null) {
     const params: Record<string, string | number | boolean> = symbol ? { symbol } : {};
-    return signedGet<unknown[]>('/api/v3/openOrders', params);
+    return signedGet<MexcOrder[]>('/api/v3/openOrders', params);
 }
 
 export async function cancelOrder(symbol: string, orderId: string) {

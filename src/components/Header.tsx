@@ -19,7 +19,7 @@ import { getTradingMode } from '@/lib/mexc-wrapper';
 
 
 interface HeaderProps {
-    onOpenGuide: () => void;
+    onOpenGuide?: () => void;
 }
 
 export const Header = ({ onOpenGuide }: HeaderProps) => {

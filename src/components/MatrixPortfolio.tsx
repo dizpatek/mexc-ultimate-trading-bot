@@ -248,8 +248,7 @@ export function MatrixPortfolio() {
                         <tr>
                             <th className="px-3 py-3 text-left border-r border-slate-800/40">VARLIK</th>
                             <th className="px-3 py-3 text-right border-r border-slate-800/40">PORTFÖY</th>
-                            <th className="px-3 py-3 text-right border-r border-slate-800/40">FİYAT</th>
-                            <th className="px-3 py-3 text-right border-r border-slate-800/40">GÜNLÜK %</th>
+                            <th className="px-3 py-3 text-right border-r border-slate-800/40">FİYAT / DEĞİŞİM</th>
                             <th className="px-3 py-3 text-left border-r border-slate-800/40 w-[140px]">AI SKOR & GÜÇ</th>
                             <th className="px-3 py-3 text-left border-r border-slate-800/40">PİYASA REJİMİ</th>
                             <th className="px-3 py-3 text-left border-r border-slate-800/40">BALİNA & VOLATİLİTE</th>
@@ -260,7 +259,7 @@ export function MatrixPortfolio() {
                     <tbody className="divide-y divide-slate-800/30">
                         {activeSymbols.length === 0 ? (
                             <tr>
-                                <td colSpan={8} className="px-4 py-12 text-center text-slate-500">
+                                <td colSpan={7} className="px-4 py-12 text-center text-slate-500">
                                     <div className="flex flex-col items-center gap-3">
                                         <Wallet className="w-10 h-10 opacity-10" />
                                         <span className="text-xs">Takip edilecek varlık bulunamadı.</span>
@@ -300,22 +299,18 @@ export function MatrixPortfolio() {
                                             </div>
                                         </td>
 
-                                        {/* 3. PRICE */}
+                                        {/* 3. PRICE & DAILY PERFORMANCE (COMBINED) */}
                                         <td className="px-3 py-2.5 border-r border-slate-800/30 text-right">
-                                            <span className="font-mono text-xs text-slate-300">
-                                                ${currentPrice > 0 ? currentPrice.toLocaleString(undefined, { 
-                                                    minimumFractionDigits: currentPrice < 1 ? 4 : 2,
-                                                    maximumFractionDigits: currentPrice < 1 ? 4 : 2
-                                                }) : '---'}
-                                            </span>
-                                        </td>
-
-                                        {/* 4. DAILY PERFORMANCE */}
-                                        <td className="px-3 py-2.5 border-r border-slate-800/30 text-right">
-                                            <div className="flex justify-end">
-                                                <div className={`flex items-center gap-1.5 px-2 py-1 rounded bg-slate-900/50 border ${holding.change24h >= 0 ? 'text-emerald-400 border-emerald-500/20' : 'text-rose-400 border-rose-500/20'}`}>
-                                                    {holding.change24h >= 0 ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
-                                                    <span className="font-mono text-xs font-black">
+                                            <div className="flex flex-col gap-1.5 items-end">
+                                                <span className="font-mono text-xs text-slate-300">
+                                                    ${currentPrice > 0 ? currentPrice.toLocaleString(undefined, { 
+                                                        minimumFractionDigits: currentPrice < 1 ? 4 : 2,
+                                                        maximumFractionDigits: currentPrice < 1 ? 6 : 2
+                                                    }) : '---'}
+                                                </span>
+                                                <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-950/50 border ${holding.change24h >= 0 ? 'text-emerald-400 border-emerald-500/20' : 'text-rose-400 border-rose-500/20'}`}>
+                                                    {holding.change24h >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                                                    <span className="font-mono text-[10px] font-black">
                                                         {holding.change24h >= 0 ? '+' : ''}{holding.change24h.toFixed(2)}%
                                                     </span>
                                                 </div>

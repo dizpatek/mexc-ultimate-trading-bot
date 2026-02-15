@@ -267,9 +267,9 @@ export const MatrixHorizon = () => {
                         title="PİYASA HAKİMİYETİ" 
                         side="right"
                         data={[
-                            { label: "BTC.D", value: `${data.market.btcd.value}%`, trend: "UP", color: "text-amber-400" },
-                            { label: "USDT.D", value: `${data.market.usdtd.value}%`, trend: "DOWN", color: "text-cyan-400" },
-                            { label: "OTHERS.D", value: `${data.market.othersd.value}%`, trend: "UP", color: "text-rose-400" },
+                            { label: "BTC.D", value: `${data.market.btcd.value}%`, trend: data.market.btcd.trend as "UP" | "DOWN" | "NEUTRAL", color: data.market.btcd.trend === "UP" ? "text-emerald-400" : "text-rose-400" },
+                            { label: "USDT.D", value: `${data.market.usdtd.value}%`, trend: data.market.usdtd.trend as "UP" | "DOWN" | "NEUTRAL", color: data.market.usdtd.trend === "DOWN" ? "text-emerald-400" : "text-rose-400" },
+                            { label: "OTHERS.D", value: `${data.market.othersd.value}%`, trend: data.market.othersd.trend as "UP" | "DOWN" | "NEUTRAL", color: data.market.othersd.trend === "UP" ? "text-emerald-400" : "text-rose-400" },
                         ]} 
                     />
                      <DataStream 

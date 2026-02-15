@@ -68,7 +68,8 @@ export default function Dashboard() {
     const uniqueSymbols = Array.from(new Set([...baseSymbols, ...holdingSymbols]));
     
     return uniqueSymbols.map(s => ({
-      proName: `BINANCE:${s}`,
+      // MEXC varlıklarını MEXC borsasından çekmek daha doğru sonuç verir
+      proName: `MEXC:${s}`,
       title: s.replace('USDT', '/USDT')
     }));
   }, [holdings]);

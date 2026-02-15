@@ -20,30 +20,54 @@ export async function GET(request: Request) {
         );
 
         let totalValueCurrent = 0;
+        let totalChangeUsdt = 0;
         let assetsCount = 0;
 
         const assetResults = await Promise.all(activeBalances.map(async (balance) => {
             const sym = balance.asset;
             const totalQty = parseFloat(balance.free) + parseFloat(balance.locked);
             let price = 0;
-            if (sym === 'USDT' || sym === 'USDC') price = 1;
-            else {
-                try { price = await getPrice(`${sym}USDT`); } catch (e) { }
+            let pctChange = 0;
+
+            if (sym === 'USDT' || sym === 'USDC') {
+                price = 1;
+                pctChange = 0;
+            } else {
+                try { 
+                    price = await getPrice(`${sym}USDT`); 
+                    const ticker = await get24hrTicker(`${sym}USDT`);
+                    if (ticker) {
+                        pctChange = parseFloat(ticker.priceChangePercent || '0');
+                    }
+                } catch { }
             }
-            return totalQty * price;
+            
+            const value = totalQty * price;
+            // Calculate $ change for this asset: Value * (Change% / 100) / (1 + Change%/100) -- NO, simpler:
+            // If current price is P, and it changed by X%, then P_old = P / (1 + X/100).
+            // Change_USDT = Value - (Value / (1 + pctChange/100))
+            const changeUsdt = value - (value / (1 + pctChange / 100));
+            
+            return { value, changeUsdt };
         }));
 
-        totalValueCurrent = assetResults.reduce((a, b) => a + b, 0);
+        totalValueCurrent = assetResults.reduce((a, b) => a + b.value, 0);
+        totalChangeUsdt = assetResults.reduce((a, b) => a + b.changeUsdt, 0);
         assetsCount = activeBalances.length;
+
+        const changePercentage = totalValueCurrent > 0 
+            ? (totalChangeUsdt / (totalValueCurrent - totalChangeUsdt)) * 100 
+            : 0;
 
         return NextResponse.json({
             totalValue: totalValueCurrent,
-            change24h: 0, // Simplified for stability
-            changePercentage: 0,
+            change24h: totalChangeUsdt,
+            changePercentage: changePercentage,
             assets: assetsCount,
             mode: mode
         });
-    } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+    } catch (error) {
+        const err = error as Error;
+        return NextResponse.json({ error: err.message }, { status: 500 });
     }
 }

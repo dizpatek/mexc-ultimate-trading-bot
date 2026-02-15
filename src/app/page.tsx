@@ -63,15 +63,20 @@ export default function Dashboard() {
     const baseSymbols = ['BTCUSDT', 'ETHUSDT'];
     const holdingSymbols = holdings
       .map(h => h.symbol.endsWith('USDT') ? h.symbol : `${h.symbol}USDT`)
-      .filter(s => s !== 'USDT'); // Filter out lone USDT
+      .filter(s => s !== 'USDT'); 
       
     const uniqueSymbols = Array.from(new Set([...baseSymbols, ...holdingSymbols]));
     
-    return uniqueSymbols.map(s => ({
-      // MEXC varlıklarını MEXC borsasından çekmek daha doğru sonuç verir
-      proName: `MEXC:${s}`,
-      title: s.replace('USDT', '/USDT')
-    }));
+    return uniqueSymbols.map((s: string) => {
+      // Binance data is usually higher quality with full percentage history for major assets
+      const majorAssets = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT', 'DOTUSDT'];
+      const prefix = majorAssets.includes(s) ? 'BINANCE' : 'MEXC';
+      
+      return {
+        proName: `${prefix}:${s}`,
+        title: s.replace('USDT', '/USDT')
+      };
+    });
   }, [holdings]);
 
   useEffect(() => {

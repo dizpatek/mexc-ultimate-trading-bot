@@ -1,5 +1,9 @@
 # 🤖 MexC Ultimate Trading Bot & Portfolio Matrix V3
 
+<p align="center">
+  <img src="public/readme-assets/banner.svg" alt="Matrix V3 Banner" width="800">
+</p>
+
 ![Next.js](https://img.shields.io/badge/Next.js-15+-black?style=for-the-badge&logo=next.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue?style=for-the-badge&logo=typescript)
 ![TailwindCSS](https://img.shields.io/badge/Tailwind-CSS%204.0-38B2AC?style=for-the-badge&logo=tailwind-css)
@@ -28,11 +32,22 @@ The heartbeat of the system is the **MTF (Multi-Timeframe) Linear Trend Engine**
 
 ### 🧠 Key Engineering Modules
 
-- **🐋 Whale Master Engine**: Real-time detection of institutional volume spikes (2.5x - 5.0x average) to filter fake breakouts.
-- **🧠 AI Confidence Score (0-100)**: 10-component weighted algorithm analyzing trend, momentum, regime, and volume.
-- **🌍 Market Regime Classifier**: Identifies macro environments (Risk-ON / Risk-OFF / Neutral) to adjust risk parameters.
-- **📶 MTF Momentum Accelerator**: analyzes slope and acceleration (2nd derivative) across multiple timeframes for early trend detection.
-- **🛡️ Kill Switch & Fatigue Protection**: Automated safety measures to prevent overtrading and stop execution during massive consecutive losses.
+<table width="100%">
+  <tr>
+    <td width="70%">
+      <ul>
+        <li><strong>🐋 Whale Master Engine</strong>: Real-time detection of institutional volume spikes (2.5x - 5.0x average) to filter fake breakouts.</li>
+        <li><strong>🧠 AI Confidence Score (0-100)</strong>: 10-component weighted algorithm analyzing trend, momentum, regime, and volume.</li>
+        <li><strong>🌍 Market Regime Classifier</strong>: Identifies macro environments (Risk-ON / Risk-OFF / Neutral) to adjust risk parameters.</li>
+        <li><strong>📶 MTF Momentum Accelerator</strong>: analyzes slope and acceleration (2nd derivative) across multiple timeframes for early trend detection.</li>
+        <li><strong>🛡️ Kill Switch & Fatigue Protection</strong>: Automated safety measures to prevent overtrading and stop execution during massive consecutive losses.</li>
+      </ul>
+    </td>
+    <td width="30%" align="center">
+      <img src="public/readme-assets/whale-engine.svg" alt="Whale Engine Icon" width="180">
+    </td>
+  </tr>
+</table>
 
 ---
 

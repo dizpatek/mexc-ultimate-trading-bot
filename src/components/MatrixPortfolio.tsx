@@ -294,8 +294,16 @@ export function MatrixPortfolio() {
                                         {/* 2. HOLDINGS */}
                                         <td className="px-3 py-2.5 border-r border-slate-800/30 text-right">
                                             <div className="flex flex-col">
-                                                <span className="text-slate-300 font-mono text-xs">{holding.holding.toFixed(4)}</span>
-                                                <span className="text-[9px] text-slate-500 font-mono">${holdingValue.toLocaleString(undefined, {maximumFractionDigits:0})}</span>
+                                                <div className="flex items-center justify-end gap-1.5">
+                                                    <span className="text-slate-300 font-mono text-xs">{holding.holding.toFixed(4)}</span>
+                                                    <span className="text-[10px] text-slate-500 font-bold">{assetName}</span>
+                                                </div>
+                                                <div className="flex items-center justify-end gap-1.5">
+                                                    <span className="text-xs font-black text-white">${holdingValue.toLocaleString(undefined, {maximumFractionDigits:2})}</span>
+                                                    <div className={`flex items-center text-[9px] font-bold ${holding.change24h >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                        {holding.change24h >= 0 ? '+' : ''}{((holdingValue) - (holdingValue / (1 + holding.change24h/100))).toFixed(2)}$
+                                                    </div>
+                                                </div>
                                             </div>
                                         </td>
 

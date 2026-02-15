@@ -25,7 +25,7 @@ function TradingViewWidget() {
             "theme": "dark",
             "style": "1",
             "locale": "tr",
-            "enable_publishing": false,
+            "enable_publishing": true,
             "allow_symbol_change": true,
             "calendar": true,
             "support_host": "https://www.tradingview.com",

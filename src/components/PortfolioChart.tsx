@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, memo } from 'react';
+import { useEffect, useState, memo } from 'react';
+import { Activity, Globe } from 'lucide-react';
 
 declare global {
     interface Window {
@@ -10,8 +11,11 @@ declare global {
 
 function TradingViewWidget() {
     const containerId = 'tv-widget-portfolio-chart';
+    const [isWebMode, setIsWebMode] = useState(false); // Widget vs Direct Web Embed
 
     useEffect(() => {
+        if (isWebMode) return; // Don't init widget script in Web Mode
+
         let script: HTMLScriptElement | null = null;
         
         const initWidget = () => {
@@ -42,7 +46,6 @@ function TradingViewWidget() {
                         "MACD@tv-basicstudies",
                         "StochasticRSI@tv-basicstudies"
                     ],
-                    // These overrides help make it look more 'native' and often trigger the standard header
                     overrides: {
                         "paneProperties.background": "#020617",
                         "paneProperties.vertGridProperties.color": "#1e293b",
@@ -67,22 +70,19 @@ function TradingViewWidget() {
             script.onload = initWidget;
             document.head.appendChild(script);
         } else {
-            // Script already exists or loading, wait a bit or direct init
             if (window.TradingView) {
                 initWidget();
             } else {
-                // Poll for it
                 const checkInterval = setInterval(() => {
                     if (window.TradingView) {
                         clearInterval(checkInterval);
                         initWidget();
                     }
                 }, 100);
-                // Cleanup interval if component unmounts quickly
                 return () => clearInterval(checkInterval);
             }
         }
-    }, []);
+    }, [isWebMode]);
 
     const openProChart = () => {
         window.open('https://www.tradingview.com/chart/?symbol=MEXC:BTCUSDT', '_blank');
@@ -90,21 +90,58 @@ function TradingViewWidget() {
 
     return (
         <div className="h-full w-full relative z-0 group">
-            <div id={containerId} className="h-full w-full" />
+            {isWebMode ? (
+                <iframe 
+                    src="https://www.tradingview.com/chart/?symbol=MEXC:BTCUSDT&theme=dark"
+                    className="w-full h-full border-0"
+                    allowFullScreen
+                    title="TradingView Pro Web"
+                />
+            ) : (
+                <div id={containerId} className="h-full w-full" />
+            )}
             
-            {/* Custom Overlay Button for Account Access - Always Visible */}
-            <button 
-                onClick={openProChart}
-                className="absolute top-14 right-4 z-50 bg-[#2962FF] hover:bg-[#1E53E5] text-white text-[11px] font-semibold px-3 py-1.5 rounded shadow-lg flex items-center gap-1.5 transition-colors border border-white/10"
-                title="TradingView Hesabını Aç"
-            >
-                <span>Pro Hesaba Git</span>
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                    <polyline points="15 3 21 3 21 9"></polyline>
-                    <line x1="10" y1="14" x2="21" y2="3"></line>
-                </svg>
-            </button>
+            {/* Control Panel */}
+            <div className="absolute top-14 right-4 z-50 flex flex-col gap-2">
+                <button 
+                    onClick={() => setIsWebMode(!isWebMode)}
+                    className={`text-[10px] font-bold px-3 py-1.5 rounded shadow-lg flex items-center justify-center gap-1.5 transition-all border ${isWebMode ? 'bg-purple-600 text-white border-purple-400' : 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600'}`}
+                    title={isWebMode ? "Widget Moduna Dön" : "Tam Web Arayüzünü Dene (Deneysel)"}
+                >
+                    {isWebMode ? (
+                        <>
+                            <Activity className="w-3 h-3" />
+                            <span>Widget Modu</span>
+                        </>
+                    ) : (
+                        <>
+                            <Globe className="w-3 h-3" />
+                            <span>Web Modu</span>
+                        </>
+                    )}
+                </button>
+
+                {!isWebMode && (
+                    <button 
+                        onClick={openProChart}
+                        className="bg-[#2962FF] hover:bg-[#1E53E5] text-white text-[10px] font-bold px-3 py-1.5 rounded shadow-lg flex items-center justify-center gap-1.5 transition-colors border border-white/10"
+                        title="TradingView Hesabını Yeni Sekmede Aç"
+                    >
+                        <span>Pro Hesaba Git</span>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                            <polyline points="15 3 21 3 21 9"></polyline>
+                            <line x1="10" y1="14" x2="21" y2="3"></line>
+                        </svg>
+                    </button>
+                )}
+            </div>
+            
+            {isWebMode && (
+                <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/60 text-[8px] text-white/50 rounded pointer-events-none">
+                    Deneysel Web Modu
+                </div>
+            )}
         </div>
     );
 }

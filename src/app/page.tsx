@@ -11,6 +11,7 @@ import { CombatLog } from '@/components/CombatLog';
 import { CommandDeck } from '@/components/CommandDeck';
 import { IntelligenceHub } from '@/components/IntelligenceHub';
 import { TradeForm } from '@/components/TradeForm';
+import { SmartOperationCenter } from '@/components/SmartOperationCenter';
 import { MatrixHorizon } from '@/components/matrix-horizon/MatrixHorizon';
 import { HorizonLayout } from '@/components/matrix-horizon/HorizonLayout';
 import { HorizonCard } from '@/components/matrix-horizon/HorizonCard';
@@ -30,21 +31,22 @@ const MarketTickerTape = ({ symbols }: { symbols: { proName: string; title: stri
         { proName: "BINANCE:SOLUSDT", title: "SOL/USDT" },
         { proName: "BINANCE:BNBUSDT", title: "BNB/USDT" }
       ],
-      showSymbolLogo: false,
+      showSymbolLogo: true,
       colorTheme: "dark",
       isTransparent: true,
-      displayMode: "adaptive"
+      displayMode: "regular",
+      locale: "en"
     };
   }, [symbols]);
 
   const encodedConfig = encodeURIComponent(JSON.stringify(config));
 
   return (
-    <div className="w-full h-[32px] border-b border-white/5 bg-[#050505]">
+    <div className="w-full h-[46px] border-b border-white/5 bg-[#050505] overflow-hidden">
       <iframe
-        key={encodedConfig}
         src={`https://s.tradingview.com/embed-widget/ticker-tape/?locale=en#${encodedConfig}`}
-        style={{ width: '100%', height: '100%', border: 'none', pointerEvents: 'none' }}
+        style={{ width: '100%', height: '100%', border: 'none' }}
+        title="TradingView Ticker Tape"
       />
     </div>
   );
@@ -52,8 +54,8 @@ const MarketTickerTape = ({ symbols }: { symbols: { proName: string; title: stri
 
 export default function Dashboard() {
   const { user, loading } = useAuth();
-  const { data: holdings } = useHoldings();
-  const router = useRouter();
+  const { data: holdings, isLoading: isHoldingsLoading } = useHoldings();
+    const router = useRouter();
   const [isGuideOpen, setIsGuideOpen] = useState(false);
 
   const tickerSymbols = useMemo(() => {
@@ -68,9 +70,12 @@ export default function Dashboard() {
     const uniqueSymbols = Array.from(new Set([...baseSymbols, ...holdingSymbols]));
     
     return uniqueSymbols.map((s: string) => {
-      // Use MEXC for everything to match the bot's data exactly
+      // Major assets are more stable on Binance in TradingView widgets
+      const majorAssets = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT'];
+      const prefix = majorAssets.includes(s) ? 'BINANCE' : 'MEXC';
+      
       return {
-        proName: `MEXC:${s}`,
+        proName: `${prefix}:${s}`,
         title: s.replace('USDT', '/USDT')
       };
     });
@@ -95,10 +100,15 @@ export default function Dashboard() {
   return (
     <HorizonLayout>
       <Header onOpenGuide={() => setIsGuideOpen(true)} />
-      <MarketTickerTape symbols={tickerSymbols} />
+      {isHoldingsLoading ? (
+        <div className="w-full h-[46px] border-b border-white/5 bg-[#050505] flex items-center px-4">
+          <div className="h-2 w-full bg-white/5 rounded-full animate-pulse" />
+        </div>
+      ) : (
+        <MarketTickerTape symbols={tickerSymbols} />
+      )}
 
       <main className="flex-1 p-3 space-y-3 overflow-y-auto max-w-[1920px] mx-auto w-full pb-24">
-        
         {/* TOP ROW: SUMMARY & ALPHA (Compact) */}
         <div className="grid grid-cols-12 gap-3 min-h-[120px]">
            <div className="col-span-9 relative">
@@ -162,6 +172,11 @@ export default function Dashboard() {
             <CommandDeck />
             <CombatLog />
             <IntelligenceHub />
+        </div>
+
+        {/* SMART TRADE OPERATION CENTER (NEW) */}
+        <div className="w-full mt-12 mb-12">
+            <SmartOperationCenter />
         </div>
 
       </main>

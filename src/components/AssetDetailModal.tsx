@@ -3,6 +3,7 @@
 import { X, Zap, BarChart3, Info, ExternalLink } from 'lucide-react';
 import { TradingViewEmbedChart } from './TradingViewEmbedChart';
 import { cn } from '@/lib/utils';
+import { AssetIcon } from './AssetIcon';
 
 interface AssetDetailModalProps {
     symbol: string;
@@ -47,6 +48,9 @@ export const AssetDetailModal = ({
         }
     };
 
+    // Ensure we have the full USDT pair for TradingView
+    const chartSymbol = assetName.endsWith('USDT') ? assetName : `${assetName}USDT`;
+
     return (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200">
             <div className="bg-[#0f172a] border border-slate-800 rounded-2xl w-full max-w-6xl h-[90vh] shadow-2xl flex flex-col overflow-hidden">
@@ -55,12 +59,10 @@ export const AssetDetailModal = ({
                 <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/50">
                     <div className="flex items-center gap-4">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700">
-                                <span className="font-bold text-slate-200">{assetName}</span>
-                            </div>
+                            <AssetIcon symbol={assetName} />
                             <div className="flex flex-col">
                                 <div className="flex items-center gap-2">
-                                    <h2 className="text-xl font-bold text-slate-100">{assetName} / USDT</h2>
+                                    <h2 className="text-xl font-bold text-slate-100 uppercase">{assetName} / USDT</h2>
                                     <span className="text-[10px] px-1.5 py-0.5 bg-cyan-500/10 text-cyan-400 rounded border border-cyan-500/20 font-mono uppercase tracking-wider">Matrix F4 Pro</span>
                                 </div>
                                 <div className="flex items-center gap-2 text-sm">
@@ -92,7 +94,7 @@ export const AssetDetailModal = ({
                     {/* Left: TradingView Chart */}
                     <div className="flex-1 relative border-r border-slate-800 h-full overflow-hidden">
                         <TradingViewEmbedChart 
-                            symbol={assetName} 
+                            symbol={chartSymbol} 
                             theme="dark" 
                             height={window.innerHeight * 0.75} 
                         />

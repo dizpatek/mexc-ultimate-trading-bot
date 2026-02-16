@@ -37,8 +37,13 @@ export async function GET(request: Request) {
                 try {
                     currentPrice = await getPrice(pair);
                     const ticker = await get24hrTicker(pair);
-                    if (ticker) change24h = parseFloat(ticker.priceChangePercent || '0');
-                } catch (e) {
+                    if (ticker && ticker.openPrice && parseFloat(ticker.openPrice) > 0) {
+                        const open = parseFloat(ticker.openPrice);
+                        const last = parseFloat(ticker.lastPrice);
+                        // Manual calculation to ensure consistency (Percent = (Last/Open - 1) * 100)
+                        change24h = ((last / open) - 1) * 100;
+                    }
+                } catch {
                     // Ignore
                 }
             }
@@ -68,8 +73,9 @@ export async function GET(request: Request) {
         finalHoldings.sort((a, b) => b.value - a.value);
 
         return NextResponse.json(finalHoldings);
-    } catch (error: any) {
-        console.error('Error fetching holdings:', error);
-        return NextResponse.json({ error: 'Failed to fetch holdings', details: error.message }, { status: 500 });
+    } catch (error) {
+        const err = error as Error;
+        console.error('Error fetching holdings:', err);
+        return NextResponse.json({ error: 'Failed to fetch holdings', details: err.message }, { status: 500 });
     }
 }

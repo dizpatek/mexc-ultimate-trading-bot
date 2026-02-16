@@ -87,3 +87,32 @@ export const sendTradeSignal = async (signal: TradeSignal) => {
     const response = await api.post('/webhook', signal);
     return response.data;
 };
+
+// Create SmartTrade
+export const createSmartTrade = async (payload: Record<string, unknown>) => {
+    const response = await api.post('/trade/smart', payload);
+    return response.data;
+};
+
+// Diagnostic Logger
+export const debugLog = async (level: 'info' | 'error' | 'warn', message: string, context?: unknown) => {
+    try {
+        let msg = `[${level.toUpperCase()}] ${message}`;
+        if (context && typeof context === 'object') {
+            const ctx = context as any;
+            if (ctx.error) msg += ` | Error: ${ctx.error}`;
+        }
+        const debugMsg = encodeURIComponent(msg);
+        fetch(`/api/portfolio/summary?debug=${debugMsg}`).catch(() => {});
+    } catch {
+        // Silently fail
+    }
+};
+
+// Fetch Klines
+export const fetchKlines = async (symbol: string, interval: string = '1h') => {
+    const response = await api.get('/market/klines', {
+        params: { symbol, interval }
+    });
+    return response.data;
+};

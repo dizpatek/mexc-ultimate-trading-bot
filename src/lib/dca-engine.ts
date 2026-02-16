@@ -113,7 +113,7 @@ async function processBot(bot: DcaBot) {
                 price: currentPrice,
                 status: 'FILLED',
                 meta: { mode: tradingMode, bot_id: bot.id, type: 'DCA_BUY' }
-            }, Number(bot.user_id));
+            });
 
             await insertTradeHistory({
                 order_id: dbId,
@@ -123,11 +123,11 @@ async function processBot(bot: DcaBot) {
                 qty: filledQty,
                 price: currentPrice,
                 quote_qty: filledQuote
-            }, Number(bot.user_id));
+            });
         }
 
-    } catch (error: any) {
-        console.error(`[DCA Engine] Error processing bot ${bot.id}:`, error.message);
+    } catch (error: unknown) {
+        console.error(`[DCA Engine] Error processing bot ${bot.id}:`, error instanceof Error ? error.message : String(error));
     }
 }
 
@@ -153,7 +153,7 @@ async function closeBot(bot: DcaBot, price: number, profitPct: number) {
             price: price,
             status: 'FILLED',
             meta: { mode: tradingMode, bot_id: bot.id, type: 'DCA_TAKE_PROFIT' }
-        }, Number(bot.user_id));
+        });
 
         await insertTradeHistory({
             order_id: dbId,
@@ -165,7 +165,7 @@ async function closeBot(bot: DcaBot, price: number, profitPct: number) {
             quote_qty: bot.total_bought_qty * price,
             profit_loss: (bot.total_bought_qty * price) - bot.total_invested,
             profit_loss_percentage: profitPct
-        }, Number(bot.user_id));
+        });
 
         console.log(`[DCA Engine] Bot ${bot.id} closed with ${profitPct.toFixed(2)}% profit.`);
 

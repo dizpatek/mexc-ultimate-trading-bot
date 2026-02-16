@@ -1,36 +1,19 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { RefreshCw, TrendingUp, TrendingDown, Wallet, Fish, AlertCircle, Activity, Zap, LineChart, CircleDollarSign, X } from 'lucide-react';
+import { 
+    RefreshCw, TrendingUp, TrendingDown, Wallet, Fish, 
+    AlertCircle, Activity, Zap, LineChart, CircleDollarSign, 
+    X, ExternalLink 
+} from 'lucide-react';
+import { api } from '@/services/api';
 import { TradingViewEmbedChart } from './TradingViewEmbedChart';
 import { AssetDetailModal } from './AssetDetailModal';
-import Image from 'next/image';
 import { useHoldings } from '../hooks/usePortfolio';
 import { useMexcWebSocket } from '../hooks/useMexcWebSocket';
 import { cn } from '@/lib/utils';
+import { AssetIcon } from './AssetIcon';
 
-const AssetIcon = ({ symbol }: { symbol: string }) => {
-    const [error, setError] = React.useState(false);
-    
-    if (error) {
-        return (
-            <div className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-500">
-                {symbol[0]}
-            </div>
-        );
-    }
-
-    return (
-        <Image 
-            src={`https://api.iconify.design/cryptocurrency-color:${symbol.toLowerCase()}.svg`}
-            width={24}
-            height={24}
-            alt={symbol}
-            className="rounded-full bg-slate-800 p-0.5"
-            onError={() => setError(true)}
-        />
-    );
-};
 
 interface AiScoreComponents {
     whaleConfirmed: number;
@@ -186,29 +169,50 @@ export function MatrixPortfolio() {
         return () => { isMounted = false; };
     }, [activeSymbolsString, activeSymbols, interval]);
 
+    const setTradeAmountToMax = useCallback((symbol: string, side: 'BUY' | 'SELL') => {
+        if (!holdings) return;
+        
+        if (side === 'BUY') {
+            const usdt = holdings.find(h => h.symbol === 'USDT' || h.symbol === 'USDC');
+            if (usdt) {
+                // Formatting to 2 decimals for USDT
+                setTradeAmounts(prev => ({ ...prev, [symbol]: usdt.holding.toFixed(2) }));
+            }
+        } else {
+            const assetBase = symbol.replace('USDT', '');
+            const asset = holdings.find(h => h.symbol === assetBase);
+            if (asset) {
+                // Using 6 decimals for asset quantity
+                setTradeAmounts(prev => ({ ...prev, [symbol]: asset.holding.toString() }));
+            }
+        }
+    }, [holdings]);
+
     const handleQuickTrade = async (symbol: string, side: 'BUY' | 'SELL') => {
-        const amount = tradeAmounts[symbol] || '50';
+        const amount = tradeAmounts[symbol] || '10'; // Default to 10 if empty
         setIsTrading(prev => ({ ...prev, [symbol]: true }));
         setTradeStatus(prev => ({ ...prev, [symbol]: null }));
 
         try {
-            const res = await fetch('/api/trade/execute', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbol, side, usdtAmount: amount })
+            const response = await api.post('/trade/execute', { 
+                symbol, 
+                side, 
+                usdtAmount: amount 
             });
-            const data = await res.json();
             
-            if (res.ok) {
+            if (response.status === 200 && response.data.success) {
                 setTradeStatus(prev => ({ ...prev, [symbol]: { type: 'success', msg: 'Tamam!' } }));
                 setTimeout(() => setTradeStatus(prev => ({ ...prev, [symbol]: null })), 3000);
             } else {
-                setTradeStatus(prev => ({ ...prev, [symbol]: { type: 'error', msg: data.error || 'Hata' } }));
+                const errorMsg = response.data.error || 'İşlem Başarısız';
+                setTradeStatus(prev => ({ ...prev, [symbol]: { type: 'error', msg: errorMsg } }));
                 setTimeout(() => setTradeStatus(prev => ({ ...prev, [symbol]: null })), 5000);
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error('Trade execution error', error);
-            setTradeStatus(prev => ({ ...prev, [symbol]: { type: 'error', msg: 'Bağlantı kesildi' } }));
+            const errorMsg = error.response?.data?.message || error.response?.data?.error || 'Hata Oluştu';
+            setTradeStatus(prev => ({ ...prev, [symbol]: { type: 'error', msg: errorMsg } }));
+            setTimeout(() => setTradeStatus(prev => ({ ...prev, [symbol]: null })), 5000);
         } finally {
             setIsTrading(prev => ({ ...prev, [symbol]: false }));
         }
@@ -274,6 +278,12 @@ export function MatrixPortfolio() {
                     <div className={`flex items-center gap-1.5 px-2 py-1 rounded bg-slate-800/50 border border-slate-700 ${isConnected ? 'text-emerald-400 border-emerald-500/20' : 'text-rose-400 border-rose-500/20'}`}>
                         <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
                         <span className="font-bold tracking-wide">{isConnected ? 'SOCKET: ONLINE' : 'SOCKET: OFFLINE'}</span>
+                        {isLoadingSignals && (
+                            <div className="ml-2 flex items-center gap-1 border-l border-slate-700 pl-2 text-cyan-400">
+                                <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                                <span className="animate-pulse text-[9px]">SYNC</span>
+                            </div>
+                        )}
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -293,12 +303,6 @@ export function MatrixPortfolio() {
                             </button>
                         ))}
                     </div>
-                    {isLoadingSignals && (
-                        <div className="flex items-center gap-1.5 text-[10px] text-cyan-400 bg-cyan-400/5 px-2 py-0.5 rounded border border-cyan-400/10">
-                            <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-                            <span className="animate-pulse">SENKRONİZE EDİLİYOR...</span>
-                        </div>
-                    )}
                     <div className="text-[10px] font-bold text-slate-500 tracking-widest px-2 py-1 bg-slate-950 rounded border border-slate-800">
                         MATRIX F4 ULTIMATE V3.0
                     </div>
@@ -509,24 +513,24 @@ export function MatrixPortfolio() {
                                                     <CircleDollarSign className="absolute left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-600 group-focus-within:text-cyan-400" />
                                                     <input 
                                                         type="number"
-                                                        value={tradeAmounts[fullSymbol] || '50'}
+                                                        value={tradeAmounts[fullSymbol] ?? ''}
                                                         onClick={(e) => e.stopPropagation()}
                                                         onChange={(e) => {
                                                             e.stopPropagation();
                                                             setTradeAmounts(prev => ({ ...prev, [fullSymbol]: e.target.value }));
                                                         }}
-                                                        className="w-14 bg-slate-950/80 border border-slate-800 rounded px-1.5 py-1 text-[10px] pl-5 font-bold focus:outline-none focus:border-cyan-500/50 transition-colors"
+                                                        className="w-20 bg-slate-950/80 border border-slate-800 rounded px-1.5 py-1 text-[10px] pl-5 font-bold focus:outline-none focus:border-cyan-500/50 transition-colors"
                                                         placeholder="50"
                                                     />
                                                 </div>
-                                                <div className="flex gap-1">
+                                                <div className="flex flex-col gap-1">
                                                     <button 
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             handleQuickTrade(fullSymbol, 'BUY');
                                                         }}
                                                         disabled={isTrading[fullSymbol]}
-                                                        className="flex items-center gap-1 px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded text-[9px] font-black transition-all active:scale-95 disabled:opacity-50"
+                                                        className="flex items-center gap-1 px-2 py-0.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded text-[9px] font-black transition-all active:scale-95 disabled:opacity-50"
                                                     >
                                                         {isTrading[fullSymbol] ? <RefreshCw className="w-2.5 h-2.5 animate-spin" /> : <Zap className="w-2.5 h-2.5 fill-emerald-500/20" />}
                                                         AL
@@ -534,13 +538,33 @@ export function MatrixPortfolio() {
                                                     <button 
                                                         onClick={(e) => {
                                                             e.stopPropagation();
+                                                            setTradeAmountToMax(fullSymbol, 'BUY');
+                                                        }}
+                                                        className="px-1 text-[7px] text-emerald-500/60 hover:text-emerald-400 font-bold uppercase transition-colors"
+                                                    >
+                                                        MAX USDT
+                                                    </button>
+                                                </div>
+                                                <div className="flex flex-col gap-1">
+                                                    <button 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
                                                             handleQuickTrade(fullSymbol, 'SELL');
                                                         }}
                                                         disabled={isTrading[fullSymbol]}
-                                                        className="flex items-center gap-1 px-2 py-1 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 rounded text-[9px] font-black transition-all active:scale-95 disabled:opacity-50"
+                                                        className="flex items-center gap-1 px-2 py-0.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 rounded text-[9px] font-black transition-all active:scale-95 disabled:opacity-50"
                                                     >
                                                         {isTrading[fullSymbol] ? <RefreshCw className="w-2.5 h-2.5 animate-spin" /> : <TrendingDown className="w-2.5 h-2.5" />}
                                                         SAT
+                                                    </button>
+                                                    <button 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setTradeAmountToMax(fullSymbol, 'SELL');
+                                                        }}
+                                                        className="px-1 text-[7px] text-rose-500/60 hover:text-rose-400 font-bold uppercase transition-colors"
+                                                    >
+                                                        MAX ASSET
                                                     </button>
                                                 </div>
                                                 {tradeStatus[fullSymbol] && (

@@ -8,6 +8,8 @@ import { cn } from '@/lib/utils';
 interface NewsItem {
     id: string;
     title: string;
+    originalTitle?: string;
+    translatedTitle?: string;
     excerpt: string;
     source: string;
     time: string;
@@ -58,14 +60,16 @@ export const IntelligenceHub = () => {
             const data = await res.json();
             
             if (Array.isArray(data)) {
-                const mappedNews = data.map((item: { id: string; title: string; url: string; source: string; time: string; excerpt: string }) => {
+                const mappedNews = data.map((item: any) => {
                     const analysis = analyzeSentiment(item.title);
                     return {
                         ...item,
+                        title: item.translatedTitle || item.title,
+                        originalTitle: item.title,
                         sentiment: analysis.sentiment,
                         impact: analysis.impact,
                         relatedAsset: analysis.asset
-                    };
+                    } as NewsItem;
                 });
                 setIntel(mappedNews);
                 setError(null);
@@ -164,7 +168,7 @@ export const IntelligenceHub = () => {
                                     rel="noopener noreferrer" 
                                     className="block pl-2 peer"
                                 >
-                                    <h4 className="text-[11px] font-bold text-slate-200 leading-tight group-hover:text-blue-400 transition-colors line-clamp-2">
+                                    <h4 className="text-[11px] font-bold text-slate-200 leading-tight group-hover:text-blue-400 transition-colors line-clamp-2" title={item.originalTitle}>
                                         {item.title}
                                     </h4>
                                 </a>

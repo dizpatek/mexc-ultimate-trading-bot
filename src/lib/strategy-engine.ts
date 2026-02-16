@@ -1,5 +1,5 @@
 import { getStrategiesByUser, createStrategySignal, Strategy } from './db';
-import { createStrategy } from './strategies';
+import { createStrategy, StrategyParameters } from './strategies';
 import { handleBuySignal, handleSellSignal } from './trade';
 
 const DEFAULT_USER_ID = 1; // Assuming single user mode for now or iterate all users in future
@@ -36,8 +36,9 @@ async function processStrategy(strategy: Strategy) {
         const symbol = strategy.symbol;
         console.log(`[StrategyEngine] Analyzing ${strategy.name} (${symbol})...`);
 
-        // Instantiate strategy
-        const strategyInstance = createStrategy(strategy.strategy_type, symbol, strategy.parameters);
+        // Instantiate strategy - cast parameters to StrategyParameters
+        const parameters = (strategy.parameters || {}) as StrategyParameters;
+        const strategyInstance = createStrategy(strategy.strategy_type, symbol, parameters);
         
         // Analyze market
         const signal = await strategyInstance.analyze();
@@ -50,7 +51,7 @@ async function processStrategy(strategy: Strategy) {
         console.log(`[StrategyEngine] 🚨 SIGNAL DETECTED for ${strategy.name}: ${signal.signal}`);
 
         // Execute Trade
-        let executionResult: any = { executed: false, reason: 'Simulation mode or error' };
+        let executionResult: Record<string, unknown> = { executed: false, reason: 'Simulation mode or error' };
         let executed = false;
 
         // Determine trade parameters (could be part of strategy config in future)
@@ -64,32 +65,32 @@ async function processStrategy(strategy: Strategy) {
                     risk: riskPerTrade,
                     balancePercent: 10 // Example: Use 10% of available USDT per trade
                 });
-                executionResult = res;
+                executionResult = res as Record<string, unknown>;
                 executed = true;
             } else if (signal.signal === 'SELL') {
                 const res = await handleSellSignal({
                     pair: symbol,
                     percent: 100 // Sell 100% of holdings for this pair
                 });
-                executionResult = res;
+                executionResult = res as Record<string, unknown>;
                 executed = true;
             }
-        } catch (tradeError: any) {
-            console.error(`[StrategyEngine] Trade execution failed for ${strategy.name}:`, tradeError.message);
-            executionResult = { error: tradeError.message };
+        } catch (tradeError: unknown) {
+            console.error(`[StrategyEngine] Trade execution failed for ${strategy.name}:`, tradeError instanceof Error ? tradeError.message : String(tradeError));
+            executionResult = { error: tradeError instanceof Error ? tradeError.message : String(tradeError) };
         }
 
         // Log Signal & Execution
         await createStrategySignal({
             strategy_id: strategy.id,
             signal_type: signal.signal,
-            price: signal.indicators.f4Slope || null, // Best effort price/value logging
+            price: signal.indicators.f4Slope !== undefined ? Number(signal.indicators.f4Slope) : undefined,
             timestamp: Date.now(),
             executed: executed,
             execution_result: executionResult
         });
 
-    } catch (error: any) {
-        console.error(`[StrategyEngine] Error processing strategy ${strategy.id}:`, error.message);
+    } catch (error: unknown) {
+        console.error(`[StrategyEngine] Error processing strategy ${strategy.id}:`, error instanceof Error ? error.message : String(error));
     }
 }

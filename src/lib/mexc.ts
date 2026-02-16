@@ -27,8 +27,11 @@ async function publicGet<T>(endpoint: string, params: Record<string, string | nu
         const res = await axios.get(url, { params, timeout: 10000, httpsAgent });
         return res.data;
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(`Public GET ${endpoint} error:`, message);
+        if (axios.isAxiosError(err)) {
+            console.error(`Public GET ${endpoint} error:`, err.response?.data || err.message);
+        } else {
+            console.error(`Public GET ${endpoint} error:`, err);
+        }
         throw err;
     }
 }
@@ -37,7 +40,7 @@ async function signedGet<T>(endpoint: string, params: Record<string, string | nu
     const { apiKey, apiSecret } = await getEnv();
 
     const timestamp = Date.now();
-    const recvWindow = 60000;
+    const recvWindow = 60000; // Increased to 60s
     const queryParams = { ...params, timestamp, recvWindow };
     const queryString = qs.stringify(queryParams, { encode: false });
     const signature = sign(queryString, apiSecret);
@@ -205,16 +208,13 @@ export async function cancelOrder(symbol: string, orderId: string) {
     const { apiKey, apiSecret } = await getEnv();
 
     const timestamp = Date.now();
-    const recvWindow = 5000;
+    const recvWindow = 60000;
     const body: Record<string, string | number> = { symbol, orderId, timestamp, recvWindow };
     const bodyString = qs.stringify(body, { encode: false });
     const signature = sign(bodyString, apiSecret);
-    const finalBody = `${bodyString}&signature=${signature}`;
-
-    const url = `${BASE}/api/v3/order`;
+    const url = `${BASE}/api/v3/order?${bodyString}&signature=${signature}`;
     const res = await axios.delete(url, {
-        headers: { 'X-MEXC-APIKEY': apiKey, 'Content-Type': 'application/x-www-form-urlencoded' },
-        data: finalBody,
+        headers: { 'X-MEXC-APIKEY': apiKey },
         timeout: 10000,
         httpsAgent
     });
@@ -225,16 +225,13 @@ export async function cancelAllOrders(symbol: string) {
     const { apiKey, apiSecret } = await getEnv();
 
     const timestamp = Date.now();
-    const recvWindow = 5000;
+    const recvWindow = 60000;
     const body: Record<string, string | number> = { symbol, timestamp, recvWindow };
     const bodyString = qs.stringify(body, { encode: false });
     const signature = sign(bodyString, apiSecret);
-    const finalBody = `${bodyString}&signature=${signature}`;
-
-    const url = `${BASE}/api/v3/openOrders`;
+    const url = `${BASE}/api/v3/openOrders?${bodyString}&signature=${signature}`;
     const res = await axios.delete(url, {
-        headers: { 'X-MEXC-APIKEY': apiKey, 'Content-Type': 'application/x-www-form-urlencoded' },
-        data: finalBody,
+        headers: { 'X-MEXC-APIKEY': apiKey },
         timeout: 10000,
         httpsAgent
     });
@@ -248,7 +245,29 @@ export async function getExchangeInfo(symbol: string | null = null) {
 
 export async function getKlines(symbol: string, interval: string = '1h', limit: number = 500) {
     const symbolUpper = symbol.toUpperCase();
-    const params: Record<string, string | number | boolean> = { symbol: symbolUpper, interval, limit };
+    
+    // MEXC expects 60m instead of 1h
+    // and case-specific interval strings
+    const intervalMapper: Record<string, string> = {
+        '1m': '1m',
+        '5m': '5m',
+        '15m': '15m',
+        '30m': '30m',
+        '1h': '60m',
+        '60m': '60m',
+        '4h': '4h',
+        '1d': '1d',
+        '1w': '1W',
+        '1W': '1W',
+        '1M': '1M'
+    };
+
+    const mexcInterval = intervalMapper[interval] || interval;
+    const params: Record<string, string | number | boolean> = { 
+        symbol: symbolUpper, 
+        interval: mexcInterval, 
+        limit 
+    };
     return publicGet<(string | number)[][]>('/api/v3/klines', params);
 }
 
@@ -256,24 +275,27 @@ export async function postOrder(params: Record<string, string | number | boolean
     const { apiKey, apiSecret } = await getEnv();
 
     const timestamp = Date.now();
-    const recvWindow = 5000;
+    const recvWindow = 60000;
+
+    // Optional: Synchronize with server time once every few calls or if needed
+    // For simplicity, we just use a large recvWindow for now.
 
     const body = { ...params, timestamp, recvWindow };
     const bodyString = qs.stringify(body, { encode: false });
     const signature = sign(bodyString, apiSecret);
-    const finalBody = `${bodyString}&signature=${signature}`;
+    const url = `${BASE}/api/v3/order?${bodyString}&signature=${signature}`;
 
-    const url = `${BASE}/api/v3/order`;
     const headers = {
         'X-MEXC-APIKEY': apiKey,
-        'Content-Type': 'application/x-www-form-urlencoded'
+        'Content-Type': 'application/json'
     };
 
     try {
-        const res = await axios.post(url, finalBody, {
+        // Some MEXC V3 endpoints prefer parameters in the URL even for POSTs
+        // but they still check the Content-Type header.
+        const res = await axios.post(url, {}, { 
             headers,
             timeout: 10000,
-            proxy: false,
             httpsAgent: new https.Agent({ rejectUnauthorized: false }),
         });
         return res.data;

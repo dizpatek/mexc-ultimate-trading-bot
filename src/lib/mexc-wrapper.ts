@@ -8,28 +8,13 @@ import { getSimulator } from './trading-simulator';
 export type TradingMode = 'test' | 'production';
 
 // Safe way to get cookies on server side without top-level import
-function getSafeServerCookie(name: string): string | undefined {
-    if (typeof window === 'undefined') {
-        try {
-            const { cookies } = require('next/headers');
-            const cookieStore = cookies();
-            return cookieStore.get(name)?.value;
-        } catch (e) {
-            return undefined;
-        }
-    }
-    return undefined;
-}
-
+// Safe way to check server side
 export function getTradingMode(): TradingMode {
     if (typeof window !== 'undefined') {
         return (localStorage.getItem('TRADING_MODE') as TradingMode) || 'test';
     }
 
-    // Server side
-    const cookieMode = getSafeServerCookie('TRADING_MODE') as TradingMode | undefined;
-    if (cookieMode === 'production' || cookieMode === 'test') return cookieMode;
-
+    // Server side: rely on environment variable for stability in Next.js 15
     return (process.env.TRADING_MODE as TradingMode) || 'test';
 }
 
@@ -65,11 +50,15 @@ export async function getOpenOrders(symbol: string | null = null, forcedMode?: T
     return getSimulator().getOpenOrders(symbol || undefined);
 }
 
-export async function postOrder(params: Record<string, any>, forcedMode?: TradingMode) {
+export async function postOrder(params: Record<string, string | number | boolean>, forcedMode?: TradingMode) {
     const mode = forcedMode || getTradingMode();
     if (mode === 'production') return realMexc.postOrder(params);
 
-    const { symbol, side, quoteOrderQty, quantity } = params;
+    const symbol = params.symbol as string;
+    const side = params.side as string;
+    const quoteOrderQty = params.quoteOrderQty;
+    const quantity = params.quantity;
+
     const currentPrice = await getPrice(symbol);
     const simulator = getSimulator();
 
@@ -104,3 +93,81 @@ export async function placeStopMarket(pair: string, side: string, stopPrice: str
 
 export { get24hrTicker, getTopAssets, getExchangeInfo, getKlines, cancelOrder, testConnection, getServerTime } from './mexc';
 export type { TickerData } from './mexc';
+
+// Get holdings (balances with value calculation)
+export interface HoldingItem {
+    symbol: string;
+    name: string;
+    price: number;
+    change24h: number;
+    holding: number;
+    value: number;
+    allocation: number;
+    id: string;
+}
+
+export async function getHoldings(forcedMode?: TradingMode): Promise<HoldingItem[]> {
+    const mode = forcedMode || getTradingMode();
+    const accountInfo = await getAccountInfo(mode);
+    
+    if (!accountInfo || !accountInfo.balances) {
+        return [];
+    }
+    
+    // Filter non-zero balances
+    const nonZeroBalances = accountInfo.balances.filter(
+        (b: { asset: string; free: string; locked: string }) => 
+            parseFloat(b.free) > 0 || parseFloat(b.locked) > 0
+    );
+    
+    // Get prices for all assets
+    const holdings: HoldingItem[] = [];
+    let totalValue = 0;
+    
+    for (const balance of nonZeroBalances) {
+        const symbol = balance.asset;
+        const holding = parseFloat(balance.free) + parseFloat(balance.locked);
+        
+        // Get price (USDT pairs)
+        let price = 0;
+        if (symbol === 'USDT') {
+            price = 1;
+        } else {
+            try {
+                price = await getPrice(`${symbol}USDT`);
+            } catch {
+                // Try with USDC if USDT fails
+                try {
+                    price = await getPrice(`${symbol}USDC`);
+                } catch {
+                    price = 0;
+                }
+            }
+        }
+        
+        const value = holding * price;
+        if (value > 0.01) { // Filter dust
+            totalValue += value;
+            holdings.push({
+                id: symbol,
+                symbol: `${symbol}/USDT`,
+                name: symbol,
+                price,
+                change24h: 0, // Would need separate API call
+                holding,
+                value,
+                allocation: 0, // Calculate after total
+            });
+        }
+    }
+    
+    // Calculate allocations
+    holdings.forEach(h => {
+        h.allocation = totalValue > 0 ? (h.value / totalValue) * 100 : 0;
+    });
+    
+    // Sort by value descending
+    holdings.sort((a, b) => b.value - a.value);
+    
+    return holdings;
+}

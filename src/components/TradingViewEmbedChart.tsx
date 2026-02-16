@@ -9,11 +9,7 @@ interface TradingViewEmbedChartProps {
     showTotal3?: boolean;
 }
 
-declare global {
-    interface Window {
-        TradingView?: any;
-    }
-}
+// TradingView type is declared in SmartChart.tsx
 
 export const TradingViewEmbedChart = ({
     symbol = 'BTCUSDT',

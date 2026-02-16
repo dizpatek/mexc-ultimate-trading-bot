@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '@/services/api';
 import { TrendingUp, TrendingDown, Bot, Target, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useHoldings } from '../hooks/usePortfolio';
@@ -24,14 +24,34 @@ const TIMEFRAMES = [
 ];
 
 export const PricePredictionWidget = () => {
-    const [symbol, setSymbol] = useState('BTCUSDT');
+    const { data: holdings, isLoading: isHoldingsLoading } = useHoldings();
+    const [symbol, setSymbol] = useState('');
     const [timeframe, setTimeframe] = useState('1h');
     const [prediction, setPrediction] = useState<Prediction | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const { data: holdings } = useHoldings();
+
+    // Filter real assets from holdings
+    const activeAssets = useMemo(() => {
+        if (!holdings) return [];
+        return holdings
+            .filter(h => h.symbol !== 'USDT' && h.symbol !== 'USDC')
+            .map(h => h.symbol);
+    }, [holdings]);
+
+    // Set initial symbol once holdings are loaded
+    useEffect(() => {
+        if (!isHoldingsLoading && !symbol) {
+            if (activeAssets.length > 0) {
+                setSymbol(`${activeAssets[0]}USDT`);
+            } else {
+                setSymbol('BTCUSDT');
+            }
+        }
+    }, [isHoldingsLoading, activeAssets, symbol]);
 
     const fetchPrediction = useCallback(async () => {
+        if (!symbol) return;
         setLoading(true);
         setError(null);
         try {
@@ -46,8 +66,6 @@ export const PricePredictionWidget = () => {
                 const rawSlope = (d.f4Slope * d.currentPrice) / 100;
                 
                 // Forecast distance (bars) based on timeframe
-                // 1h -> 1 bar, 4h -> 1 bar (since we request that timeframe)
-                // We project 1-3 bars into the future for the specific timeframe
                 const projectionBars = 1; 
                 const predictedPrice = d.currentPrice + (rawSlope * projectionBars);
                 
@@ -79,9 +97,6 @@ export const PricePredictionWidget = () => {
         fetchPrediction();
     }, [fetchPrediction]);
 
-    // Derived active assets list
-    const activeAssets = holdings?.filter(h => h.symbol !== 'USDT' && h.symbol !== 'USDC').map(h => h.symbol) || ['BTC', 'ETH', 'SOL'];
-
     return (
         <div className="stat-card flex flex-col h-full min-h-[350px] relative overflow-hidden group p-5 gap-5">
             {/* Background Icon */}
@@ -95,26 +110,50 @@ export const PricePredictionWidget = () => {
                     <Bot className="w-4 h-4 text-primary" />
                     YZ FİYAT TAHMİNİ
                 </h3>
-                {loading && <RefreshCw className="w-3.5 h-3.5 animate-spin text-primary" />}
+                {(loading || isHoldingsLoading) && <RefreshCw className="w-3.5 h-3.5 animate-spin text-primary" />}
             </div>
 
             {/* 1. Coin Selection (Scrollable Row) */}
             <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide relative z-10 shrink-0">
-                {activeAssets.map((asset) => (
-                    <button
-                        key={asset}
-                        onClick={() => setSymbol(`${asset}USDT`)}
-                        className={`
-                            px-4 py-2 rounded text-xs font-bold transition-all border whitespace-nowrap
-                            ${symbol === `${asset}USDT` 
-                                ? 'bg-primary/20 border-primary text-primary shadow-[0_0_15px_rgba(var(--primary-rgb),0.3)]' 
-                                : 'bg-slate-900/50 border-white/5 text-slate-400 hover:bg-white/5 hover:border-white/10'
-                            }
-                        `}
-                    >
-                        {asset}
-                    </button>
-                ))}
+                {isHoldingsLoading ? (
+                    // Button skeletons
+                    [1, 2, 3].map(i => (
+                        <div key={i} className="px-8 py-4 bg-white/5 rounded animate-pulse border border-white/5" />
+                    ))
+                ) : activeAssets.length > 0 ? (
+                    activeAssets.map((asset) => (
+                        <button
+                            key={asset}
+                            onClick={() => setSymbol(`${asset}USDT`)}
+                            className={`
+                                px-4 py-2 rounded text-xs font-bold transition-all border whitespace-nowrap
+                                ${symbol === `${asset}USDT` 
+                                    ? 'bg-primary/20 border-primary text-primary shadow-[0_0_15px_rgba(var(--primary-rgb),0.3)]' 
+                                    : 'bg-slate-900/50 border-white/5 text-slate-400 hover:bg-white/5 hover:border-white/10'
+                                }
+                            `}
+                        >
+                            {asset}
+                        </button>
+                    ))
+                ) : (
+                    // Default assets if NO holdings at all
+                    ['BTC', 'ETH', 'SOL'].map((asset: string) => (
+                        <button
+                            key={asset}
+                            onClick={() => setSymbol(`${asset}USDT`)}
+                            className={`
+                                px-4 py-2 rounded text-xs font-bold transition-all border whitespace-nowrap
+                                ${symbol === `${asset}USDT` 
+                                    ? 'bg-primary/20 border-primary text-primary shadow-[0_0_15px_rgba(var(--primary-rgb),0.3)]' 
+                                    : 'bg-slate-900/50 border-white/5 text-slate-400 hover:bg-white/5 hover:border-white/10'
+                                }
+                            `}
+                        >
+                            {asset}
+                        </button>
+                    ))
+                )}
             </div>
 
             {/* Main Content Area */}

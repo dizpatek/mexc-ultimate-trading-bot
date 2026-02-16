@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "name": "Matrix Pro Bridge",
+  "version": "3.0",
+  "description": "Advanced bypass for TradingView & Google Auth with Cookie Management.",
+  "permissions": [
+    "declarativeNetRequest",
+    "scripting",
+    "storage",
+    "cookies",
+    "identity"
+  ],
+  "host_permissions": [
+    "*://*.tradingview.com/*",
+    "*://*.google.com/*",
+    "*://accounts.google.com/*",
+    "*://*.mexc.com/*",
+    "*://localhost/*",
+    "*://127.0.0.1/*"
+  ],
+  "declarative_net_request": {
+    "rule_resources": [{
+      "id": "ruleset_1",
+      "enabled": true,
+      "path": "rules.json"
+    }]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.tradingview.com/*",
+        "*://localhost/*",
+        "*://127.0.0.1/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "*://*.tradingview.com/*"
+      ],
+      "js": ["bypass.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Matrix Pro Bridge"
+  }
+}

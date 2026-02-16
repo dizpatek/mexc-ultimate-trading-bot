@@ -197,6 +197,29 @@ export async function ensureTablesExist() {
             );
         `;
 
+        // 14. Bot Config (Global)
+        await sql`
+            CREATE TABLE IF NOT EXISTS bot_configs (
+                id INTEGER PRIMARY KEY,
+                f4_length INTEGER DEFAULT 10,
+                whale_multiplier NUMERIC DEFAULT 1.8,
+                ai_threshold INTEGER DEFAULT 65,
+                auto_trade BOOLEAN DEFAULT FALSE,
+                defense_mode BOOLEAN DEFAULT FALSE,
+                timeframe VARCHAR(10) DEFAULT '1h',
+                updated_at BIGINT NOT NULL
+            );
+        `;
+
+        // Insert default config if table is empty
+        const { rowCount } = await sql`SELECT 1 FROM bot_configs WHERE id = 1`;
+        if (rowCount === 0) {
+            await sql`
+                INSERT INTO bot_configs (id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, timeframe, updated_at)
+                VALUES (1, 10, 1.8, 65, false, false, '1h', ${Date.now()})
+            `;
+        }
+
         console.log('[DB-Init] All tables verified successfully.');
         return true;
     } catch (error) {

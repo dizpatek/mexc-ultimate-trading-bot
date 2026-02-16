@@ -6,6 +6,8 @@ import { useHoldings } from '../hooks/usePortfolio';
 import { useMexcWebSocket } from '../hooks/useMexcWebSocket';
 import { TrailingStopModal } from './TrailingStopModal';
 import { AssetDetailModal } from './AssetDetailModal';
+import { AssetIcon } from './AssetIcon';
+
 
 export const HoldingsTable = () => {
     const { data: holdings, isLoading, isError } = useHoldings();
@@ -129,20 +131,8 @@ export const HoldingsTable = () => {
                                         className="flex items-center cursor-pointer hover:opacity-80 transition-opacity"
                                         onClick={() => setViewAsset(`${holding.symbol}USDT`)}
                                     >
-                                        <div className="w-10 h-10 mr-3 flex-shrink-0">
-                                            <img
-                                                src={`https://api.iconify.design/cryptocurrency-color:${holding.symbol.toLowerCase()}.svg`}
-                                                alt={holding.symbol}
-                                                className={`w-10 h-10 rounded-full transition-all ${loading ? 'animate-pulse' : ''}`}
-                                                onError={(e) => {
-                                                    const target = e.currentTarget;
-                                                    target.style.display = 'none';
-                                                    target.nextElementSibling?.classList.remove('hidden');
-                                                }}
-                                            />
-                                            <div className="bg-primary/20 w-10 h-10 rounded-full flex items-center justify-center hidden">
-                                                <span className="text-sm font-bold text-primary">{holding.symbol.substring(0, 2)}</span>
-                                            </div>
+                                        <div className="w-10 h-10 mr-4 flex-shrink-0">
+                                            <AssetIcon symbol={holding.symbol} className="w-10 h-10" />
                                         </div>
                                         <div>
                                             <div className="text-sm font-medium">{holding.symbol}</div>

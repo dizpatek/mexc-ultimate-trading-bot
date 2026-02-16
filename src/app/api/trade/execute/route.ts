@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth-utils';
 import { handleBuySignal, handleSellSignal } from '@/lib/trade';
+import { getPrice } from '@/lib/mexc-wrapper';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,13 +28,37 @@ export async function POST(request: Request) {
                 usdt: parseFloat(amount.toString()),
                 risk: 0.01 // Standard risk
             });
+
+            if (result.ok === false) {
+                return NextResponse.json({ success: false, error: result.message });
+            }
+
             return NextResponse.json({ success: true, result });
         } else if (side === 'SELL') {
+            let finalAmount = quantity ? parseFloat(quantity.toString()) : null;
+            
+            // If usdtAmount is provided for SELL, calculate quantity
+            if (!finalAmount && usdtAmount) {
+                try {
+                    const price = await getPrice(pair);
+                    if (price > 0) {
+                        finalAmount = parseFloat(usdtAmount.toString()) / price;
+                    }
+                } catch (e) {
+                    console.error('Price fetch error for SELL calculation:', e);
+                }
+            }
+
             const result = await handleSellSignal({ 
                 pair,
-                amount: quantity ? parseFloat(quantity.toString()) : null,
-                percent: quantity ? null : 100 // Default 100% if no qty
+                amount: finalAmount,
+                percent: (!finalAmount && !quantity) ? 100 : null
             });
+
+            if (result.ok === false) {
+                return NextResponse.json({ success: false, error: result.message });
+            }
+
             return NextResponse.json({ success: true, result });
         }
 

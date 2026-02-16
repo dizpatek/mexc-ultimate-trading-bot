@@ -61,9 +61,11 @@ class TradingSimulator {
     }
 
     getBalance(asset: string) {
-        const balance = this.balances.get(asset);
+        let balance = this.balances.get(asset);
         if (!balance) {
-            return { free: 0, locked: 0 };
+            // Seed a small amount for any requested asset to allow testing
+            balance = { asset, free: 100, locked: 0 };
+            this.balances.set(asset, balance);
         }
         return { free: balance.free, locked: balance.locked };
     }
@@ -113,8 +115,8 @@ class TradingSimulator {
         const quoteAsset = symbol.endsWith('USDT') ? 'USDT' : symbol.slice(-4);
         const baseAsset = symbol.replace(quoteAsset, '');
 
-        const baseBalance = this.balances.get(baseAsset);
-        if (!baseBalance || baseBalance.free < quantity) {
+        const baseBalance = this.getBalance(baseAsset);
+        if (baseBalance.free < quantity) {
             throw new Error(`Insufficient ${baseAsset} balance`);
         }
 

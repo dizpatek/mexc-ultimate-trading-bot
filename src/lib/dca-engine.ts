@@ -79,8 +79,8 @@ async function processBot(bot: DcaBot) {
             filledQty = parseFloat(res.executedQty);
             filledQuote = parseFloat(res.cummulativeQuoteQty);
         } else if (res.fills) {
-            filledQty = res.fills.reduce((sum: number, f: any) => sum + parseFloat(f.qty), 0);
-            filledQuote = res.fills.reduce((sum: number, f: any) => sum + (parseFloat(f.price) * parseFloat(f.qty)), 0);
+            filledQty = res.fills.reduce((sum: number, f: { qty: string }) => sum + parseFloat(f.qty), 0);
+            filledQuote = res.fills.reduce((sum: number, f: { price: string; qty: string }) => sum + (parseFloat(f.price) * parseFloat(f.qty)), 0);
         } else {
             // Fallback for simulation if needed, but wrapper should handle it
             filledQuote = bot.amount;
@@ -134,7 +134,8 @@ async function processBot(bot: DcaBot) {
 async function closeBot(bot: DcaBot, price: number, profitPct: number) {
     try {
         // Sell All
-        const res = await marketSellByQty(bot.symbol, String(bot.total_bought_qty));
+        const sellRes = await marketSellByQty(bot.symbol, String(bot.total_bought_qty));
+        console.log(`[DCA Engine] Bot ${bot.id} liquidating holdings:`, sellRes);
 
         // Mark bot as COMPLETED
         await sql`

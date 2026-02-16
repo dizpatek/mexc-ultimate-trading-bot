@@ -35,8 +35,9 @@ export async function POST(request: Request) {
                     percent: 100 // Sell everything
                 });
                 return { symbol: asset.symbol, success: res.ok !== false, message: res.message || 'Sold' };
-            } catch (err: any) {
-                return { symbol: asset.symbol, success: false, error: err.message };
+            } catch (err: unknown) {
+                const errorMessage = err instanceof Error ? err.message : String(err);
+                return { symbol: asset.symbol, success: false, error: errorMessage };
             }
         }));
 
@@ -46,7 +47,7 @@ export async function POST(request: Request) {
             results 
         });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Panic Sell Error:', error);
         return NextResponse.json({ error: 'Panic sell failed' }, { status: 500 });
     }

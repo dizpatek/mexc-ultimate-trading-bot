@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
     Info, 
     TrendingUp, 
@@ -69,10 +69,10 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     const setSymbol = onSymbolChange ?? _setSymbol;
     // Format buyPrice correctly for input (always string)
     const buyPrice = controlledBuyPrice !== undefined ? controlledBuyPrice.toFixed(4) : _buyPrice;
-    const setBuyPrice = (val: string) => {
+    const setBuyPrice = useCallback((val: string) => {
         if (onBuyPriceChange) onBuyPriceChange(parseFloat(val) || 0);
         else _setBuyPrice(val);
-    };
+    }, [onBuyPriceChange]);
     
     // Selector State
     const [searchQuery, setSearchQuery] = useState('');
@@ -88,7 +88,15 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     // Handle Asset Selection
     const handleAssetSelect = (asset: typeof holdings[0]) => {
         setSymbol(asset.symbol);
-        setBuyPrice(asset.price.toString());
+        const currentPrice = asset.price;
+        setBuyPrice(currentPrice.toString());
+        
+        // Calculate logical targets (+10% / -5%)
+        const defaultTp = currentPrice * 1.10;
+        const defaultSl = currentPrice * 0.95;
+        
+        setTpPrice(defaultTp.toFixed(6));
+        setSlPrice(defaultSl.toFixed(6));
     };
 
     // 2. Take Profit State
@@ -100,10 +108,10 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     const [_tpPrice, _setTpPrice] = useState('0.5095');
     
     const tpPrice = controlledTpPrice !== undefined ? controlledTpPrice.toFixed(4) : _tpPrice;
-    const setTpPrice = (val: string) => {
+    const setTpPrice = useCallback((val: string) => {
         if (onTpPriceChange) onTpPriceChange(parseFloat(val) || 0);
         else _setTpPrice(val);
-    };
+    }, [onTpPriceChange]);
 
     const [tpPercent] = useState(10.00);
     const [trailingTp, setTrailingTp] = useState(false);
@@ -118,10 +126,10 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     const [_slPrice, _setSlPrice] = useState('0.4400');
 
     const slPrice = controlledSlPrice !== undefined ? controlledSlPrice.toFixed(4) : _slPrice;
-    const setSlPrice = (val: string) => {
+    const setSlPrice = useCallback((val: string) => {
         if (onSlPriceChange) onSlPriceChange(parseFloat(val) || 0);
         else _setSlPrice(val);
-    };
+    }, [onSlPriceChange]);
 
     const [slPercent] = useState(-5.00);
     const [slTimeout, setSlTimeout] = useState(false);
@@ -129,6 +137,21 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     const [moveToBreakeven, setMoveToBreakeven] = useState(false);
 
     const [isLoading, setIsLoading] = useState(false);
+
+    // Initial Sync: Set logical defaults once holdings are available
+    const [hasInitialized, setHasInitialized] = useState(false);
+    useEffect(() => {
+        if (holdings.length > 0 && !hasInitialized) {
+            const currentAsset = holdings.find(h => h.symbol === symbol) || holdings[0];
+            if (currentAsset) {
+                const p = currentAsset.price;
+                setBuyPrice(p.toString());
+                setTpPrice((p * 1.10).toFixed(4));
+                setSlPrice((p * 0.95).toFixed(4));
+                setHasInitialized(true);
+            }
+        }
+    }, [holdings, symbol, hasInitialized, setBuyPrice, setTpPrice, setSlPrice]);
 
     // Handle Submit
     const handleSubmit = async () => {

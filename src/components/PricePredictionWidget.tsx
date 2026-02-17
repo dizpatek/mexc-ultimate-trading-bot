@@ -113,8 +113,8 @@ export const PricePredictionWidget = () => {
                 {(loading || isHoldingsLoading) && <RefreshCw className="w-3.5 h-3.5 animate-spin text-primary" />}
             </div>
 
-            {/* 1. Coin Selection (Scrollable Row) */}
-            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide relative z-10 shrink-0">
+            {/* 1. Coin Selection (Wrapping Buttons) */}
+            <div className="flex flex-wrap gap-2 relative z-10 shrink-0">
                 {isHoldingsLoading ? (
                     // Button skeletons
                     [1, 2, 3].map(i => (

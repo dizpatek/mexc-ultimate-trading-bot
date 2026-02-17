@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { MatrixV3Engine } from '@/lib/matrix-v3-engine';
+import { monitorSmartTrades } from '@/lib/smart-trade-monitor';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,7 +78,7 @@ export async function GET(request: Request) {
         const result = engine.analyze(closes, highs, lows, volumes);
 
         // Map to Response
-        return NextResponse.json({
+        const payload = {
             symbol,
             interval: interval,
             timestamp: Date.now(),
@@ -104,7 +105,13 @@ export async function GET(request: Request) {
             // Legacy / Helper fields
             f4Signal: result.signal || 'NEUTRAL',
             actionRecommendation: result.systemDecision
-        });
+        };
+
+        // Trigger system-managed SL/TP monitoring (Virtual)
+        // Fire and forget - don't block the UI response
+        monitorSmartTrades().catch(err => console.error('[IndicatorAPI] Monitor Error:', err));
+
+        return NextResponse.json(payload);
 
     } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Unknown Server Error';

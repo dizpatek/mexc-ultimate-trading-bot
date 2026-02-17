@@ -7,13 +7,15 @@ export async function GET(req: NextRequest) {
         const symbol = searchParams.get('symbol');
         const interval = searchParams.get('interval') || '1h';
         const limit = parseInt(searchParams.get('limit') || '500');
+        const startTime = searchParams.get('startTime') ? parseInt(searchParams.get('startTime')!) : undefined;
+        const endTime = searchParams.get('endTime') ? parseInt(searchParams.get('endTime')!) : undefined;
 
         if (!symbol) {
             return NextResponse.json({ error: 'Symbol is required' }, { status: 400 });
         }
 
-        console.log(`[API] Fetching klines for ${symbol} (${interval})`);
-        const klines = await getKlines(symbol, interval, limit);
+        console.log(`[API] Fetching klines for ${symbol} (${interval}) limits: ${limit} range: ${startTime}-${endTime}`);
+        const klines = await getKlines(symbol, interval, limit, startTime, endTime);
         console.log(`[API] Received ${klines?.length || 0} klines for ${symbol}`);
         
         // Format klines for lightweight-charts
@@ -24,7 +26,7 @@ export async function GET(req: NextRequest) {
             high: parseFloat(k[2] as string),
             low: parseFloat(k[3] as string),
             close: parseFloat(k[4] as string),
-            // volume: parseFloat(k[5])
+            volume: parseFloat(k[5] as string),
         }));
 
         return NextResponse.json(formattedKlines);

@@ -14,8 +14,13 @@ export function getTradingMode(): TradingMode {
         return (localStorage.getItem('TRADING_MODE') as TradingMode) || 'test';
     }
 
-    // Server side: rely on environment variable for stability in Next.js 15
-    return (process.env.TRADING_MODE as TradingMode) || 'test';
+    // Server side
+    const mode = (process.env.TRADING_MODE as TradingMode) || 'test';
+    
+    // TRICK: Log to terminal but also try to see it in logs
+    console.log(`[ST_DEBUG] Server Mode: ${mode} | ENV: ${process.env.TRADING_MODE}`);
+    
+    return mode;
 }
 
 export function setTradingMode(mode: TradingMode) {
@@ -85,8 +90,8 @@ export async function marketSellByQty(pair: string, quantity: string, forcedMode
     return getSimulator().executeMarketSell(pair, parseFloat(quantity), await getPrice(pair));
 }
 
-export async function placeStopMarket(pair: string, side: string, stopPrice: string, qty: string) {
-    const mode = getTradingMode();
+export async function placeStopMarket(pair: string, side: string, stopPrice: string, qty: string, forcedMode?: TradingMode) {
+    const mode = forcedMode || getTradingMode();
     if (mode === 'production') return realMexc.placeStopMarket(pair, side, stopPrice, qty);
     return { orderId: 'SIM_STOP_' + Date.now(), status: 'NEW' };
 }

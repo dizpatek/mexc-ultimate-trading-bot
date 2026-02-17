@@ -1,33 +1,66 @@
-import { useQuery } from '@tanstack/react-query';
-import { fetchPortfolioSummary, fetchHoldings, fetchRecentTrades } from '../services/api';
+import { useState, useEffect } from 'react';
+import { core } from '../services/ApiCore';
 import type { PortfolioData, Holding, Trade } from '../services/api';
 
-// Hook to fetch portfolio summary
+/**
+ * Hook to consume Portfolio Summary from the Core
+ */
 export const usePortfolioSummary = () => {
-    return useQuery<PortfolioData, Error>({
-        queryKey: ['portfolioSummary'],
-        queryFn: fetchPortfolioSummary,
-        refetchInterval: 1000,
-        staleTime: 0,
-    });
+    const [data, setData] = useState<PortfolioData | null>(core.portfolio.getData()?.summary || null);
+    const [isLoading, setIsLoading] = useState(!data);
+
+    useEffect(() => {
+        // Fail-safe: ensure kernel is running if it stalled
+        core.portfolio.start();
+
+        return core.portfolio.subscribe((p) => {
+            console.log('[usePortfolioSummary] Received update');
+            setData(p.summary);
+            setIsLoading(false);
+        });
+    }, []);
+
+    return { data, isLoading, error: null };
 };
 
-// Hook to fetch holdings
+/**
+ * Hook to consume Holdings from the Core
+ */
 export const useHoldings = () => {
-    return useQuery<Holding[], Error>({
-        queryKey: ['holdings'],
-        queryFn: fetchHoldings,
-        refetchInterval: 1000,
-        staleTime: 0,
-    });
+    const [data, setData] = useState<Holding[]>(core.portfolio.getData()?.holdings || []);
+    const [isLoading, setIsLoading] = useState(data.length === 0);
+
+    useEffect(() => {
+        // Fail-safe: ensure kernel is running if it stalled
+        core.portfolio.start();
+
+        return core.portfolio.subscribe((p) => {
+            console.log('[useHoldings] Received update:', p.holdings?.length);
+            setData(p.holdings);
+            setIsLoading(false);
+        });
+    }, []);
+
+    return { data, isLoading, error: null };
 };
 
-// Hook to fetch recent trades
+/**
+ * Hook to consume Recent Trades from the Core
+ */
 export const useRecentTrades = () => {
-    return useQuery<Trade[], Error>({
-        queryKey: ['recentTrades'],
-        queryFn: fetchRecentTrades,
-        refetchInterval: 5000, // Trades update less frequently, kept at 5s to save some quota
-        staleTime: 0,
-    });
+    const [data, setData] = useState<Trade[]>(core.portfolio.getData()?.trades || []);
+    const [isLoading, setIsLoading] = useState(data.length === 0);
+
+    useEffect(() => {
+        // Fail-safe: ensure kernel is running if it stalled
+        core.portfolio.start();
+
+        return core.portfolio.subscribe((p) => {
+            console.log('[useRecentTrades] Received update:', p.trades?.length);
+            setData(p.trades);
+            setIsLoading(false);
+        });
+    }, []);
+
+    return { data, isLoading, error: null };
 };

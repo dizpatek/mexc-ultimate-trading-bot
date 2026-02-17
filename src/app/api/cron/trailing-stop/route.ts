@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { checkTrailingStops } from '@/lib/trailing-stop';
+import { monitorSmartTrades } from '@/lib/smart-trade-monitor';
 import { sql } from '@vercel/postgres';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: Request) {
+export async function GET() {
     try {
         // Ensure table exists (Lazy initialization)
         await sql`
@@ -24,10 +25,11 @@ export async function GET(req: Request) {
         `;
 
         await checkTrailingStops();
+        await monitorSmartTrades();
 
         return NextResponse.json({ success: true, timestamp: Date.now() });
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Trailing Stop Cron Failed:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
     }
 }

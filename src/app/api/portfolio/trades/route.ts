@@ -14,6 +14,11 @@ export async function GET(request: Request) {
 
         const tradeHistory = await getTradeHistory(limit);
 
+        const safeDate = (dateVal: any) => {
+            const d = new Date(dateVal);
+            return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+        };
+
         const trades = tradeHistory.map(trade => ({
             id: String(trade.id),
             symbol: trade.symbol,
@@ -21,7 +26,7 @@ export async function GET(request: Request) {
             price: trade.price,
             amount: trade.qty,
             total: trade.quote_qty,
-            time: new Date(trade.created_at).toISOString(),
+            time: safeDate(trade.created_at),
             status: 'completed',
             profitLoss: trade.profit_loss,
             profitLossPercentage: trade.profit_loss_percentage

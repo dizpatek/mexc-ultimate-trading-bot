@@ -243,19 +243,24 @@ export async function getExchangeInfo(symbol: string | null = null) {
     return publicGet('/api/v3/exchangeInfo', params);
 }
 
-export async function getKlines(symbol: string, interval: string = '1h', limit: number = 500) {
+export async function getKlines(symbol: string, interval: string = '1h', limit: number = 500, startTime?: number, endTime?: number) {
     const symbolUpper = symbol.toUpperCase();
     
     // MEXC expects 60m instead of 1h
     // and case-specific interval strings
     const intervalMapper: Record<string, string> = {
         '1m': '1m',
+        '3m': '3m',
         '5m': '5m',
         '15m': '15m',
         '30m': '30m',
         '1h': '60m',
         '60m': '60m',
+        '2h': '2h',
         '4h': '4h',
+        '6h': '6h',
+        '8h': '8h',
+        '12h': '12h',
         '1d': '1d',
         '1w': '1W',
         '1W': '1W',
@@ -268,7 +273,23 @@ export async function getKlines(symbol: string, interval: string = '1h', limit: 
         interval: mexcInterval, 
         limit 
     };
+
+    if (startTime) params.startTime = startTime;
+    if (endTime) params.endTime = endTime;
+
     return publicGet<(string | number)[][]>('/api/v3/klines', params);
+}
+
+export async function fetchKlines(symbol: string, interval: string = '1h', limit: number = 500) {
+    const raw = await getKlines(symbol, interval, limit);
+    return raw.map(k => ({
+        time: k[0],
+        open: parseFloat(k[1] as string),
+        high: parseFloat(k[2] as string),
+        low: parseFloat(k[3] as string),
+        close: parseFloat(k[4] as string),
+        volume: parseFloat(k[5] as string)
+    }));
 }
 
 export async function postOrder(params: Record<string, string | number | boolean> = {}) {

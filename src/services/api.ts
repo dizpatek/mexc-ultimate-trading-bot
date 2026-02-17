@@ -99,7 +99,7 @@ export const debugLog = async (level: 'info' | 'error' | 'warn', message: string
     try {
         let msg = `[${level.toUpperCase()}] ${message}`;
         if (context && typeof context === 'object') {
-            const ctx = context as any;
+            const ctx = context as { error?: string };
             if (ctx.error) msg += ` | Error: ${ctx.error}`;
         }
         const debugMsg = encodeURIComponent(msg);
@@ -110,9 +110,9 @@ export const debugLog = async (level: 'info' | 'error' | 'warn', message: string
 };
 
 // Fetch Klines
-export const fetchKlines = async (symbol: string, interval: string = '1h') => {
+export const fetchKlines = async (symbol: string, interval: string = '1h', limit: number = 500, startTime?: number, endTime?: number) => {
     const response = await api.get('/market/klines', {
-        params: { symbol, interval }
+        params: { symbol, interval, limit, startTime, endTime }
     });
     return response.data;
 };

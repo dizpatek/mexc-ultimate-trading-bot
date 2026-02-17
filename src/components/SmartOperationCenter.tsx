@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { SmartTrade } from './SmartTrade';
+import { ActiveSmartTrades, SmartTradeOrder } from './ActiveSmartTrades';
 import { debugLog } from '@/services/api';
 
 export const SmartOperationCenter = () => {
@@ -24,11 +25,14 @@ export const SmartOperationCenter = () => {
         }
     }, [isClient]);
 
-    const [buyPrice, setBuyPrice] = useState(0.4632);
-    const [tpPrice, setTpPrice] = useState(0.5095);
-    const [slPrice, setSlPrice] = useState(0.4400);
+    const [buyPrice, setBuyPrice] = useState("0");
+    const [tpPrice, setTpPrice] = useState("0");
+    const [slPrice, setSlPrice] = useState("0");
     const [tpEnabled, setTpEnabled] = useState(true);
     const [slEnabled, setSlEnabled] = useState(true);
+
+    const [editingTrade, setEditingTrade] = useState<SmartTradeOrder | undefined>(undefined);
+    const terminalRef = React.useRef<HTMLDivElement>(null);
 
     if (!isClient) {
         return (
@@ -42,19 +46,45 @@ export const SmartOperationCenter = () => {
     return (
         <div className="space-y-6">
             {/* Unified Terminal Module (Chart + Trade) */}
-            <SmartTrade 
-                controlledSymbol={symbol}
-                onSymbolChange={setSymbol}
-                controlledBuyPrice={buyPrice}
-                onBuyPriceChange={setBuyPrice}
-                controlledTpPrice={tpPrice}
-                onTpPriceChange={setTpPrice}
-                controlledSlPrice={slPrice}
-                onSlPriceChange={setSlPrice}
-                controlledTpEnabled={tpEnabled}
-                onTpEnabledChange={setTpEnabled}
-                controlledSlEnabled={slEnabled}
-                onSlEnabledChange={setSlEnabled}
+            <div ref={terminalRef}>
+                <SmartTrade 
+                    controlledSymbol={symbol}
+                    onSymbolChange={setSymbol}
+                    controlledBuyPrice={buyPrice}
+                    onBuyPriceChange={setBuyPrice}
+                    controlledTpPrice={tpPrice}
+                    onTpPriceChange={setTpPrice}
+                    controlledSlPrice={slPrice}
+                    onSlPriceChange={setSlPrice}
+                    controlledTpEnabled={tpEnabled}
+                    onTpEnabledChange={setTpEnabled}
+                    controlledSlEnabled={slEnabled}
+                    onSlEnabledChange={setSlEnabled}
+                    editingTrade={editingTrade}
+                    onCancelEdit={() => setEditingTrade(undefined)}
+                />
+            </div>
+
+            <ActiveSmartTrades 
+                onEdit={(trade) => {
+                    const p = trade.meta.payload;
+                    setEditingTrade(trade);
+                    setSymbol(trade.symbol);
+                    setBuyPrice(p.buyPrice?.toString() || "0");
+                    setTpPrice(p.takeProfit?.price?.toString() || "0");
+                    setSlPrice(p.stopLoss?.price?.toString() || "0");
+                    setTpEnabled(!!p.takeProfit);
+                    setSlEnabled(!!p.stopLoss);
+
+                    // Targeted scroll to controls section with 50px offset
+                    setTimeout(() => {
+                        const controls = document.getElementById('smart-trade-controls');
+                        if (controls) {
+                            const topPos = controls.getBoundingClientRect().top + window.pageYOffset - 50;
+                            window.scrollTo({ top: topPos, behavior: 'smooth' });
+                        }
+                    }, 100);
+                }}
             />
         </div>
     );

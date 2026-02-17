@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { core } from '../services/ApiCore';
 
 interface TickerData {
     s: string; // Symbol
@@ -8,83 +9,38 @@ interface TickerData {
 }
 
 /**
- * Hook to get real-time price updates from MEXC.
- * Uses REST polling as a robust fallback for the deprecated V3 JSON WebSocket.
- * 
- * @param symbols Array of symbols to track (e.g. ['BTCUSDT', 'ETHUSDT'])
+ * Bridge hook to consume real-time market data from the ApiCore MarketKernel.
  */
-interface MexcTicker {
-    symbol: string;
-    price: string;
-}
-
 export function useMexcWebSocket(symbols: string[]) {
     const [tickerData, setTickerData] = useState<Record<string, TickerData>>({});
-    const [isConnected, setIsConnected] = useState(false);
-    const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const [isConnected, setIsConnected] = useState(true);
 
-    // Dedup symbols to prevent unnecessary re-subscriptions
-    const symbolsString = [...new Set(symbols)].sort().join(',');
+    const symbolsKey = symbols.join(',');
 
+    // Register symbols with the MarketKernel
     useEffect(() => {
-        let isMounted = true;
-
-        if (symbols.length === 0) {
-            // No symbols, no connection needed.
-            return;
+        const syms = symbolsKey.split(',').filter(Boolean);
+        if (syms.length > 0) {
+            core.market.setSymbols(syms);
         }
+    }, [symbolsKey]);
 
-        const fetchPrices = async () => {
-            try {
-                const symbolsJson = JSON.stringify(symbols);
-                const url = `/api/market/ticker?symbols=${encodeURIComponent(symbolsJson)}`;
-                
-                const response = await fetch(url);
-                const data = await response.json();
-
-                if (!isMounted) return;
-                
-                if (data.error) {
-                    throw new Error(data.error);
-                }
-
-                if (Array.isArray(data)) {
-                    const newUpdates: Record<string, TickerData> = {};
-                    const now = Date.now();
-                    
-                    data.forEach((item: MexcTicker) => {
-                        newUpdates[item.symbol] = {
-                            s: item.symbol,
-                            p: item.price,
-                            r: '0', 
-                            t: now
-                        };
-                    });
-
-                    setTickerData(prev => ({
-                        ...prev,
-                        ...newUpdates
-                    }));
-                    setIsConnected(true);
-                }
-            } catch (err) {
-                if (isMounted) {
-                    console.error('[useMexcWebSocket] Proxy Polling Error:', err);
-                    setIsConnected(false);
-                }
-            }
-        };
-
-        fetchPrices();
-        pollIntervalRef.current = setInterval(fetchPrices, 3000);
-
-        return () => {
-            isMounted = false;
-            if (pollIntervalRef.current) {
-                clearInterval(pollIntervalRef.current);
-            }
-        };
-    }, [symbolsString, symbols]);
+    // Subscribe to updates
+    useEffect(() => {
+        return core.market.subscribe((updates) => {
+            const transformed: Record<string, TickerData> = {};
+            Object.entries(updates).forEach(([s, data]) => {
+                transformed[s] = {
+                    s,
+                    p: data.price,
+                    r: '0',
+                    t: data.time
+                };
+            });
+            setTickerData(transformed);
+            setIsConnected(true);
+        });
+    }, []);
 
     return { tickerData, isConnected };
 }

@@ -82,9 +82,13 @@ async function processTradeMonitoring(trade: MonitoredTrade, engine: MatrixV3Eng
             console.warn(`[SmartMonitor] AI Analysis failed for ${symbol}:`, aiErr);
         }
 
-        // 2. Trailing Logic
+        // 2. Trailing & SL/TP Logic
         const highestPrice = meta.highestPrice || entryPrice;
+        const lowestPrice = meta.lowestPrice || entryPrice;
+        let tpTriggered = meta.tpTriggered || false;
+        
         let newHighest = highestPrice;
+        let newLowest = lowestPrice;
         let shouldExit = false;
         let exitReason = '';
 
@@ -94,7 +98,7 @@ async function processTradeMonitoring(trade: MonitoredTrade, engine: MatrixV3Eng
                 newHighest = currentPrice;
             }
 
-            // Trailing Stop Loss
+            // A. STOP LOSS
             if (payload.stopLoss?.trailing && payload.stopLoss?.deviation) {
                 const slPrice = newHighest * (1 - payload.stopLoss.deviation / 100);
                 if (currentPrice <= slPrice) {
@@ -102,7 +106,6 @@ async function processTradeMonitoring(trade: MonitoredTrade, engine: MatrixV3Eng
                     exitReason = `TRAILING STOP LOSS HIT @ ${currentPrice}`;
                 }
             } else if (payload.stopLoss?.price) {
-                // Fixed SL
                 const fixedSL = parseFloat(payload.stopLoss.price);
                 if (currentPrice <= fixedSL) {
                     shouldExit = true;
@@ -110,57 +113,81 @@ async function processTradeMonitoring(trade: MonitoredTrade, engine: MatrixV3Eng
                 }
             }
 
-            // Take Profit
+            // B. TAKE PROFIT
             if (payload.takeProfit?.price) {
                 const tpPrice = parseFloat(payload.takeProfit.price);
-                if (currentPrice >= tpPrice) {
+                
+                // Check if target hit for the first time
+                if (!tpTriggered && currentPrice >= tpPrice) {
+                    tpTriggered = true;
+                    console.log(`[SmartMonitor] TP Target reached for ${symbol} @ ${currentPrice}. Trailing active.`);
+                }
+
+                if (tpTriggered) {
                     if (payload.takeProfit.trailing && payload.takeProfit.deviation) {
-                        // Trailing TP Logic: If price starts dropping by X% from Peak AFTER hitting TP
-                        // For now, simple implementation: Exit if price drops deviation% from newHighest
+                        // Trailing exit: price drops X% from the peak reached AFTER trigger
                         const trailExit = newHighest * (1 - payload.takeProfit.deviation / 100);
                         if (currentPrice <= trailExit) {
                             shouldExit = true;
-                            exitReason = `TRAILING TAKE PROFIT HIT @ ${currentPrice}`;
+                            exitReason = `TRAILING TAKE PROFIT HIT @ ${currentPrice} (Peak: ${newHighest})`;
                         }
-                    } else {
+                    } else if (currentPrice >= tpPrice) {
+                        // Fixed TP (Immediate exit if not trailing)
                         shouldExit = true;
                         exitReason = `FIXED TAKE PROFIT HIT @ ${currentPrice}`;
                     }
                 }
             }
         } else {
-            // Side === 'SELL' (Cover mode)
-            // Reverse logic: Track Lowest Price
-            const lowestPrice = meta.lowestPrice || entryPrice;
-            let newLowest = lowestPrice;
-
+            // Side === 'SELL' (Cover mode / Short)
             if (currentPrice < lowestPrice) {
                 newLowest = currentPrice;
             }
 
-            // Trailing Stop Loss (Buy back at higher price)
+            // A. STOP LOSS (Short)
             if (payload.stopLoss?.trailing && payload.stopLoss?.deviation) {
                 const slPrice = newLowest * (1 + payload.stopLoss.deviation / 100);
                 if (currentPrice >= slPrice) {
                     shouldExit = true;
                     exitReason = `TRAILING STOP LOSS (SELL) HIT @ ${currentPrice}`;
                 }
-            }
-
-            // Take Profit (Buy back at lower price)
-            if (payload.takeProfit?.price) {
-                const tpPrice = parseFloat(payload.takeProfit.price);
-                if (currentPrice <= tpPrice) {
+            } else if (payload.stopLoss?.price) {
+                const fixedSL = parseFloat(payload.stopLoss.price);
+                if (currentPrice >= fixedSL) {
                     shouldExit = true;
-                    exitReason = `TAKE PROFIT (SELL) HIT @ ${currentPrice}`;
+                    exitReason = `FIXED STOP LOSS (SELL) HIT @ ${currentPrice}`;
                 }
             }
-            
-            meta.lowestPrice = newLowest;
+
+            // B. TAKE PROFIT (Short)
+            if (payload.takeProfit?.price) {
+                const tpPrice = parseFloat(payload.takeProfit.price);
+                
+                if (!tpTriggered && currentPrice <= tpPrice) {
+                    tpTriggered = true;
+                    console.log(`[SmartMonitor] TP Target (Short) reached for ${symbol} @ ${currentPrice}. Trailing active.`);
+                }
+
+                if (tpTriggered) {
+                    if (payload.takeProfit.trailing && payload.takeProfit.deviation) {
+                        // Trailing exit for short: price rises X% from the BOTTOM reached after trigger
+                        const trailExit = newLowest * (1 + payload.takeProfit.deviation / 100);
+                        if (currentPrice >= trailExit) {
+                            shouldExit = true;
+                            exitReason = `TRAILING TAKE PROFIT (SELL) HIT @ ${currentPrice} (Bottom: ${newLowest})`;
+                        }
+                    } else if (currentPrice <= tpPrice) {
+                        shouldExit = true;
+                        exitReason = `FIXED TAKE PROFIT (SELL) HIT @ ${currentPrice}`;
+                    }
+                }
+            }
         }
 
         // 3. Update Meta & DB
         meta.highestPrice = newHighest;
+        meta.lowestPrice = newLowest;
+        meta.tpTriggered = tpTriggered;
         meta.lastAiScore = aiScore;
         meta.monitorLogs = aiLogs;
         meta.lastUpdate = Date.now();

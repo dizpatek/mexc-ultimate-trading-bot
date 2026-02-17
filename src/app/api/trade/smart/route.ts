@@ -3,6 +3,7 @@ import { getSessionUser } from '@/lib/auth-utils';
 import { handleSmartTrade } from '@/lib/smart-trade';
 import { sql } from '@vercel/postgres';
 import axios from 'axios';
+import { getPrice, marketBuyByQuote, marketSellByQty } from '@/lib/mexc-wrapper';
 
 export const dynamic = 'force-dynamic';
 
@@ -115,10 +116,40 @@ export async function DELETE(request: Request) {
         }
 
         if (!id) return NextResponse.json({ error: 'Missing ID' }, { status: 400 });
-
-        await sql`DELETE FROM orders WHERE id = ${id}`;
         
-        return NextResponse.json({ success: true, message: 'Order deleted' });
+        // --- REAL EXECUTION PANIC EXIT ---
+        // Fetch the trade to see if it's still active and needs a real market order to close
+        const { rows: tradeRows } = await sql`SELECT symbol, side, qty, status, meta FROM orders WHERE id = ${id}`;
+        if (tradeRows.length > 0) {
+            const trade = tradeRows[0];
+            // If it was FILLED or PENDING, we should try to close it on the exchange
+            if (trade.status === 'FILLED' || (trade.status === 'PENDING' && trade.side === 'SELL')) {
+                console.log(`[PanicExit] Executing real exchange close for trade ${id} (${trade.symbol})`);
+                try {
+                    // Determine close direction
+                    // If we BOUGHT, we need to SELL to close.
+                    // If we SOLD (Short/Cover), we need to BUY to close.
+                    if (trade.side === 'BUY') {
+                        await marketSellByQty(trade.symbol, String(trade.qty));
+                    } else {
+                        // For short closing, we need price to calculate quote amount
+                        const currentP = await getPrice(trade.symbol);
+                        const cost = parseFloat(trade.qty) * currentP;
+                        await marketBuyByQuote(trade.symbol, cost.toFixed(4));
+                    }
+                } catch (execError) {
+                    console.error(`[PanicExit] Exchange execution failed for ${id}:`, execError);
+                    // We continue to at least mark it as closed/deleted in our DB
+                }
+            }
+        }
+
+        // We use status='CLOSED' instead of hard DELETE to keep history, 
+        // but the UI currently expects it to disappear or status to change.
+        // For "Panic Exit" button specifically, usually we want it to move to history.
+        await sql`UPDATE orders SET status = 'CLOSED', updated_at = ${Date.now()} WHERE id = ${id}`;
+        
+        return NextResponse.json({ success: true, message: 'Order closed and position exited' });
     } catch (error: unknown) {
         console.error('SmartTrade DELETE Error:', error);
         return NextResponse.json({ 

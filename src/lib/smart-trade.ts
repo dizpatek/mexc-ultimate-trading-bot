@@ -1,7 +1,6 @@
 import { 
     marketBuyByQuote, 
     marketSellByQty, 
-    placeStopMarket, 
     getPrice,
     TradingMode
 } from './mexc-wrapper';
@@ -34,7 +33,7 @@ export interface SmartTradePayload {
 export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: TradingMode) {
     const { mode, symbol, amount, takeProfit, stopLoss, useExisting } = payload;
     const pair = symbol.replace('/', '');
-    const qty = parseFloat(amount);
+    let qty = parseFloat(amount);
     
     if (isNaN(qty) || qty <= 0) {
         throw new Error(`Invalid amount: ${amount}`);
@@ -75,15 +74,41 @@ export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: 
             if (!currentPrice || currentPrice <= 0) {
                 throw new Error(`Could not fetch valid price for ${pair}`);
             }
-            const quoteAmount = qty * currentPrice;
-            const quoteStr = quoteAmount.toFixed(precision.quote);
+            // 'amount' from UI is the USDT quote amount for BUY orders
+            const quoteStr = parseFloat(amount).toFixed(precision.quote);
             
             entryResult = await marketBuyByQuote(pair, quoteStr, forcedMode);
+            
+            // DEBUG: Log raw MEXC response to diagnose price recording
+            console.log(`[SmartTrade] RAW MEXC BUY Response:`, JSON.stringify(entryResult, null, 2));
+            console.log(`[SmartTrade] Key fields → price: ${entryResult?.price}, executedQty: ${entryResult?.executedQty}, cummulativeQuoteQty: ${entryResult?.cummulativeQuoteQty}`);
+            
+            // Calculate real average price from response if possible
+            if (entryResult?.cummulativeQuoteQty && entryResult?.executedQty && parseFloat(entryResult.executedQty) > 0) {
+                avgPrice = parseFloat(entryResult.cummulativeQuoteQty) / parseFloat(entryResult.executedQty);
+                console.log(`[SmartTrade] ✅ Used cummulativeQuoteQty/executedQty → avgPrice: ${avgPrice}`);
+            } else {
+                avgPrice = parseFloat(entryResult?.price) || currentPrice;
+                console.log(`[SmartTrade] ⚠️ Fallback to price field or ticker → avgPrice: ${avgPrice}`);
+            }
+            
+            // Recalculate base qty if available from result, otherwise estimate
+            if (entryResult?.executedQty) {
+                qty = parseFloat(entryResult.executedQty);
+            } else {
+                qty = parseFloat(quoteStr) / avgPrice;
+            }
         } else {
+            // For SELL/COVER, amount is the base quantity
             const qtyStr = qty.toFixed(precision.base);
             entryResult = await marketSellByQty(pair, qtyStr, forcedMode);
-            // Refetch price for DB record
-            avgPrice = await getPrice(pair);
+            
+            // Calculate real average price from response if possible
+            if (entryResult?.cummulativeQuoteQty && entryResult?.executedQty && parseFloat(entryResult.executedQty) > 0) {
+                avgPrice = parseFloat(entryResult.cummulativeQuoteQty) / parseFloat(entryResult.executedQty);
+            } else {
+                avgPrice = parseFloat(entryResult?.price) || await getPrice(pair);
+            }
         }
     } catch (e: unknown) {
         const message = e instanceof Error ? e.message : String(e);
@@ -114,20 +139,34 @@ export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: 
     // 2. RECORD ENTRY IN DB
     let dbId: number | undefined;
     try {
+        const hasFollowUp = (takeProfit && takeProfit.price && parseFloat(takeProfit.price) > 0) || 
+                           (stopLoss && stopLoss.price && parseFloat(stopLoss.price) > 0);
+
+        let initialStatus = entryResult.status || 'FILLED';
+        
+        // If it's a standalone exit (COVER/SELL) and has no TP/SL targets,
+        // we mark it as CLOSED immediately to move it to history.
+        if (mode === 'COVER' && !hasFollowUp && initialStatus === 'FILLED') {
+            initialStatus = 'CLOSED';
+            console.log(`[SmartTrade] Standalone SELL detected for ${pair}. Marking as CLOSED immediately.`);
+        }
+
         dbId = await insertOrder({
             symbol: pair,
             side: mode === 'TRADE' ? 'BUY' : 'SELL',
             type: 'MARKET',
             qty: qty,
             price: avgPrice,
-            status: entryResult.status || 'FILLED',
+            status: initialStatus,
             meta: { 
                 smartTrade: true, 
                 mode, 
                 payload, 
                 highestPrice: avgPrice, 
                 lowestPrice: avgPrice,
-                lastUpdate: Date.now()
+                lastUpdate: Date.now(),
+                exitReason: initialStatus === 'CLOSED' ? 'STANDALONE_MARKET_EXIT' : undefined,
+                closedAt: initialStatus === 'CLOSED' ? Date.now() : undefined
             }
         });
     } catch (dbError: unknown) {

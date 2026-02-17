@@ -332,6 +332,76 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
         }
     };
 
+
+
+    const handleQuickTrade = async (side: 'BUY' | 'SELL') => {
+        if (!symbol) {
+            alert('Lütfen bir sembol seçin.');
+            return;
+        }
+
+        if (!amount || parseFloat(amount) <= 0) {
+            alert('Lütfen geçerli bir miktar girin.');
+            return;
+        }
+
+        const confirmText = `${symbol} için ${amount} ${symbol.split('/')[0]} miktarında ${side === 'BUY' ? 'ALIM' : 'SATIŞ'} yapmak istediğinize emin misiniz? (STANDART İŞLEM)`;
+        if (!confirm(confirmText)) return;
+
+        setIsLoading(true);
+        try {
+            // WE NOW ROUTE THROUGH THE SMART TRADE API
+            // This ensures the trade is recorded in the DB and appears in "Active Smart Trades"
+            const payload = {
+                symbol,
+                amount,
+                mode: side === 'BUY' ? 'TRADE' : 'COVER',
+                buyPrice: (marketPrice || 0).toString(),
+                buyType: 'MARKET',
+                takeProfit: null,
+                stopLoss: null
+            };
+
+            const res = await api.post('/trade/smart', payload);
+            
+            if (res.data?.success) {
+                alert(`İşlem Başarılı: ${side === 'BUY' ? 'AL' : 'SAT'} emri iletildi ve takibe alındı.`);
+            } else {
+                let msg = res.data?.error || res.data?.message || res.data?.details?.msg || 'Bilinmeyen bir hata oluştu.';
+                // If it's a stringified JSON from MEXC error
+                if (typeof msg === 'string' && msg.startsWith('{')) {
+                    try {
+                        const parsed = JSON.parse(msg);
+                        msg = parsed.msg || parsed.message || msg;
+                    } catch { /* ignore */ }
+                }
+                alert(`Hata: ${msg}`);
+            }
+        } catch (error: unknown) {
+            console.error('Quick trade (Smart) failed:', error);
+            let errorMsg: string;
+
+            if (error instanceof Error) {
+                const errData = (error as any).response?.data; // Cast to any to access response property
+                errorMsg = errData?.details?.msg || errData?.details || errData?.message || errData?.error || error.message || 'Bilinmeyen bir hata';
+            } else {
+                errorMsg = 'Bilinmeyen bir hata';
+            }
+            
+            // Try to parse more friendly message from raw JSON
+            if (typeof errorMsg === 'string' && errorMsg.startsWith('{')) {
+                try {
+                    const parsed = JSON.parse(errorMsg);
+                    errorMsg = parsed.msg || parsed.message || errorMsg;
+                } catch { /* ignore */ }
+            }
+            
+            alert(`İşlem başarısız oldu: ${errorMsg}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     const handlePricesChange = useCallback((p: { buy?: number; tp?: number; sl?: number }) => {
         if (p.buy !== undefined) setBuyPrice(p.buy.toString());
         if (p.tp !== undefined) setTpPrice(p.tp.toString());
@@ -448,6 +518,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                     onTrailingTpChange={setTrailingTp}
                     currentMarketPrice={selectedHolding?.price}
                     onMarketPriceUpdate={setMarketPrice}
+
                 />
              </div>
 
@@ -705,11 +776,21 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                                 Smart Cover
                             </button>
                         </div>
-                        <div className={cn(
-                            "px-4 py-1 rounded-full border text-[9px] font-black uppercase tracking-[0.2em] animate-in fade-in zoom-in-95",
-                            mode === 'COVER' ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-cyan-500/10 border-cyan-500/20 text-cyan-400"
-                        )}>
-                            {mode === 'COVER' ? 'Varlık Biriktirme' : 'Standart Al/Sat'}
+                        <div className="flex gap-2 w-full">
+                            <button 
+                                onClick={() => handleQuickTrade('BUY')}
+                                disabled={isLoading}
+                                className="flex-1 py-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 text-[10px] font-black uppercase tracking-[0.2em] hover:bg-emerald-500/20 transition-all disabled:opacity-50"
+                            >
+                                STANDART AL
+                            </button>
+                            <button 
+                                onClick={() => handleQuickTrade('SELL')}
+                                disabled={isLoading}
+                                className="flex-1 py-1.5 rounded-full border border-rose-500/20 bg-rose-500/10 text-rose-400 text-[10px] font-black uppercase tracking-[0.2em] hover:bg-rose-500/20 transition-all disabled:opacity-50"
+                            >
+                                STANDART SAT
+                            </button>
                         </div>
                     </div>
                     <div className="bg-slate-950/40 p-6 rounded-3xl border border-white/5 space-y-6 animate-in fade-in slide-in-from-bottom-4 shadow-2xl relative overflow-hidden group/summary">
@@ -771,10 +852,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                                 </span>
                             </button>
 
-                            <div className="grid grid-cols-2 gap-3">
-                                <button className="py-2.5 rounded-xl border border-slate-800 bg-slate-900/50 text-[10px] font-black text-slate-500 uppercase tracking-widest hover:bg-slate-800 hover:text-slate-300 transition-all">
-                                    TEMİZLE
-                                </button>
+                            <div className="grid grid-cols-1 gap-3">
                                 {editingTrade && (
                                     <button 
                                         onClick={onCancelEdit}

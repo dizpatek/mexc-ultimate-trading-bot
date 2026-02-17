@@ -33,11 +33,23 @@ export interface SmartTradeOrder {
     created_at: number;
     meta: {
         mode: string;
+        lastAiScore?: number | string;
+        smartTrade?: boolean;
+        dca?: boolean;
+        exitPrice?: number | string;
+        exitResult?: { price: string; orderId: string };
+        entryReason?: string;
+        entryResult?: { price: string; orderId: string };
+        exitReason?: string;
+        closedAt?: number;
+        highestPrice?: number;
+        lowestPrice?: number;
         payload: {
             symbol: string;
             amount: string;
             buyPrice: string;
             buyType: string;
+            trailingBuy?: boolean;
             takeProfit?: {
                 price: string;
                 type?: string;
@@ -99,6 +111,18 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
         }
     };
 
+    const handleSilentClose = async (e: React.MouseEvent, trade: SmartTradeOrder) => {
+        e.stopPropagation();
+        if (!confirm(`${trade.symbol} işlemini ARŞİVE taşımak üzeresiniz. \n\n⚠️ DİKKAT: BORSADA HERHANGİ BİR SATIŞ YAPILMAZ! Sadece takip listesinden kaldırılır.`)) return;
+        try {
+            await api.delete(`/trade/smart?id=${trade.id}&silent=true`);
+            alert('SILENT CLOSE: İşlem arşive taşındı.');
+            fetchTrades();
+        } catch (error) {
+            console.error('Silent close failed:', error);
+        }
+    };
+
     const handleClearAll = async () => {
         if (!confirm('TÜM akıllı işlemleri temizlemek istediğinizden emin misiniz?')) return;
         try {
@@ -115,10 +139,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
         return () => clearInterval(interval);
     }, []);
 
-    const getAiScore = (symbol: string) => {
-        const charSum = symbol.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-        return (charSum % 41) + 55;
-    };
+
 
     if (isLoading) {
         return (
@@ -230,23 +251,31 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
                             .map((trade) => {
                             const isExpanded = expandedTrade === trade.id;
                             const payload = trade.meta.payload;
-                            const currentPrice = trade.currentPrice || trade.price;
+                            const isClosed = trade.status === 'CLOSED';
+                            const meta = trade.meta;
+                            const exitPrice = meta.exitPrice || meta.exitResult?.price;
                             
-                            const tp = parseFloat(payload.takeProfit?.price || "0");
-                            const sl = parseFloat(payload.stopLoss?.price || "0");
+                            // For closed trades, use the exitPrice. For active, use ticker currentPrice or fallback to entry.
+                            const currentPrice = isClosed ? (parseFloat(String(exitPrice || trade.price))) : (trade.currentPrice || trade.price);
+                            
+                            const tp = parseFloat(payload?.takeProfit?.price || "0");
+                            const sl = parseFloat(payload?.stopLoss?.price || "0");
                             const entry = trade.price;
                             
                             // Real PNL Calculation
-                            const pnlPercent = trade.side === 'BUY' 
+
+                            const pnlPercent = (trade.side === 'BUY' || meta.mode === 'COVER')
                                 ? ((currentPrice - entry) / entry) * 100
                                 : ((entry - currentPrice) / entry) * 100;
                             
-                            // PNL in USDT is qty * (marketPrice - entryPrice) for BUY
-                            const pnlUsdt = trade.side === 'BUY'
+                            // For standalone COVER (Spot Exit), we often don't want to show "short PNL"
+                            // If it's a spot sell, price going up means "I could have made more" but it's not a position loss.
+                            // However, let's keep it consistent for now but ensure the sign reflects the user's perspective.
+                            const pnlUsdt = (trade.side === 'BUY' || meta.mode === 'COVER')
                                 ? trade.qty * (currentPrice - entry)
                                 : trade.qty * (entry - currentPrice);
 
-                            const aiScore = getAiScore(trade.symbol);
+                            const aiScore = meta.lastAiScore ? Number(meta.lastAiScore) : 0;
                             const hasTrailing = payload.takeProfit?.trailing || payload.stopLoss?.trailing;
 
                             // Dynamic status logic
@@ -272,12 +301,24 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
                                 }
                             }
 
-                            const isClosed = trade.status === 'CLOSED';
+
+
+                            // Label logic
+                            let opLabel = "STANDARD TRADE";
+                            if (meta.smartTrade) opLabel = "SMART TRADE";
+                            else if (meta.mode === 'TRADE') opLabel = "STANDARD BUY";
+                            else if (meta.mode === 'COVER') opLabel = "STANDARD SELL";
+                            else if (meta.dca) opLabel = "DCA BOT";
+
+                            const isBuyExit = trade.side === 'BUY' && isClosed;
+                            const isSellExit = trade.side === 'SELL' && isClosed;
 
                             return (
                                 <div key={trade.id} className={cn(
                                     "group transition-all duration-300",
-                                    isClosed ? "opacity-60 grayscale bg-slate-900/20 pointer-events-auto" : "hover:bg-cyan-400/[0.03]"
+                                    !isClosed && "hover:bg-cyan-400/[0.03]",
+                                    isBuyExit && "bg-emerald-500/5 opacity-80 border-l-2 border-emerald-500/20",
+                                    isSellExit && "bg-rose-500/5 opacity-80 border-l-2 border-rose-500/20"
                                 )}>
                                     <div 
                                         className="grid grid-cols-[1.2fr_1.5fr_1fr_0.8fr_2fr_1fr_40px] gap-4 px-6 py-5 items-center cursor-pointer"
@@ -304,7 +345,17 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
                                                     <span className="text-sm font-black text-white tracking-tight">{trade.symbol.replace('USDT', '')}<span className="text-slate-600 font-bold">/USDT</span></span>
                                                     {hasTrailing && !isClosed && <Timer className="w-3 h-3 text-cyan-400 animate-pulse" />}
                                                 </div>
-                                                <div className="text-[9px] font-bold text-slate-600 uppercase tracking-widest mt-0.5">NEURO {trade.meta.mode} {" // "} V{trade.id}</div>
+                                                <div className="text-[9px] font-black uppercase tracking-widest mt-0.5 flex items-center gap-1.5">
+                                                    <span className={cn(
+                                                        "px-1.5 py-0.5 rounded-sm text-[8px]",
+                                                        opLabel === "SMART TRADE" ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20" :
+                                                        opLabel === "DCA BOT" ? "bg-purple-500/10 text-purple-400 border border-purple-500/20" :
+                                                        "bg-slate-800 text-slate-400 border border-white/5"
+                                                    )}>
+                                                        {opLabel}
+                                                    </span>
+                                                    <span className="text-slate-600 font-bold">V{trade.id}</span>
+                                                </div>
                                             </div>
                                         </div>
 
@@ -325,7 +376,9 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
                                         <div className="flex flex-col items-start gap-1">
                                             <div className="flex items-center gap-1.5">
                                                 <Brain className={cn("w-3.5 h-3.5", aiScore > 80 && !isClosed ? "text-cyan-400" : "text-slate-500")} />
-                                                <span className={cn("text-xs font-black", aiScore > 80 && !isClosed ? "text-cyan-400" : "text-slate-300")}>{aiScore}%</span>
+                                                <span className={cn("text-xs font-black", aiScore > 80 && !isClosed ? "text-cyan-400" : "text-slate-300")}>
+                                                    {aiScore > 0 ? `${aiScore}%` : 'SCANNING'}
+                                                </span>
                                             </div>
                                             <div className="w-16 h-1 bg-slate-800 rounded-full overflow-hidden">
                                                 <div style={{ width: `${aiScore}%` }} className={cn("h-full", aiScore > 80 && !isClosed ? "bg-cyan-400" : "bg-slate-500")}></div>
@@ -342,8 +395,8 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
                                                     "border-cyan-500/20 bg-cyan-500/5 text-cyan-400 animate-pulse"
                                                 )
                                             )}>
-                                                <span className="opacity-50 text-[7px] mb-0.5">{isClosed ? 'ARŞİVLENMİŞ VERİ' : 'YZ ALIM-SATIM YAKLAŞIMI'}</span>
-                                                {isClosed ? 'KAPALIDIR' : (statusText === "SCANNING" ? (aiScore > 75 ? "ŞU AN DİP" : aiScore < 30 ? "ŞU AN TEPE" : "YATAY") : statusText)}
+                                                <span className="opacity-50 text-[7px] mb-0.5">{isClosed ? 'ARŞİVLENMİŞ İŞLEM VERİSİ' : 'YZ ALIM-SATIM YAKLAŞIMI'}</span>
+                                                {isClosed ? (trade.side === 'SELL' ? 'SATIŞ TAMAM' : 'ALIM TAMAM') : (statusText === "SCANNING" ? (aiScore > 75 ? "ŞU AN DİP" : aiScore < 30 ? "ŞU AN TEPE" : "YATAY") : statusText)}
                                             </div>
                                         </div>
 
@@ -507,13 +560,23 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
                                                             </button>
                                                         </div>
 
-                                                        <div className="flex flex-col justify-center items-center p-4">
+                                                        <div className="flex flex-col gap-3 p-4">
                                                             <button 
                                                                 onClick={(e) => handlePanicClose(e, trade)}
-                                                                className="group/panic flex flex-col items-center justify-center gap-2 w-full h-full border-2 border-dashed border-rose-500/20 hover:border-rose-500/60 hover:bg-rose-500/10 rounded-2xl transition-all duration-300 shadow-[0_0_20px_rgba(244,63,94,0)] hover:shadow-[0_0_20px_rgba(244,63,94,0.1)]"
+                                                                className="group/panic flex flex-col items-center justify-center gap-2 w-full h-[80px] border-2 border-dashed border-rose-500/20 hover:border-rose-500/60 hover:bg-rose-500/10 rounded-2xl transition-all duration-300 shadow-[0_0_20px_rgba(244,63,94,0)] hover:shadow-[0_0_20px_rgba(244,63,94,0.1)]"
                                                             >
                                                                 <ZapOff className="w-6 h-6 text-rose-500/40 group-hover/panic:text-rose-500 group-hover/panic:scale-110 transition-all" />
-                                                                <span className="text-[10px] font-black text-rose-500/40 group-hover/panic:text-rose-500 uppercase tracking-[0.2em]">PANIC EXIT (MARKET)</span>
+                                                                <span className="text-[10px] font-black text-rose-500/40 group-hover/panic:text-rose-500 uppercase tracking-[0.2em]">PANIC EXIT (MARKET SELL)</span>
+                                                            </button>
+
+                                                            <button 
+                                                                onClick={(e) => handleSilentClose(e, trade)}
+                                                                className="group/silent flex flex-col items-center justify-center gap-2 w-full h-[60px] border border-slate-800 hover:border-slate-700 hover:bg-white/5 rounded-2xl transition-all duration-300"
+                                                            >
+                                                                <div className="flex items-center gap-2">
+                                                                    <RefreshCw className="w-4 h-4 text-slate-500 group-hover/silent:text-slate-300 group-hover/silent:rotate-180 transition-all duration-700" />
+                                                                    <span className="text-[9px] font-black text-slate-500 group-hover/silent:text-slate-300 uppercase tracking-[0.2em]">CLOSE ORDER (SESSİZ ARŞİV)</span>
+                                                                </div>
                                                             </button>
                                                         </div>
                                                     </>

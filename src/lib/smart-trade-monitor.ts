@@ -5,6 +5,7 @@ import { fetchKlines } from './mexc'; // Need to make sure this exists or use a 
 
 let lastRun = 0;
 const MONITOR_INTERVAL = 5000; // 5 seconds minimum between cycles
+const AI_ANALYSIS_INTERVAL = 60000; // Only re-analyze every 60s per trade
 
 export async function monitorSmartTrades() {
     const now = Date.now();
@@ -60,27 +61,32 @@ async function processTradeMonitoring(trade: MonitoredTrade, engine: MatrixV3Eng
         const currentPrice = await getPrice(symbol);
         if (!currentPrice) return;
 
-        // 1. AI Analysis
-        let aiScore = 0;
-        let aiLogs: string[] = [];
-        try {
-            const klines = await fetchKlines(symbol, '1m', 200);
-            if (klines && klines.length >= 50) {
-                const closes = klines.map((k) => k.close);
-                const highs = klines.map((k) => k.high);
-                const lows = klines.map((k) => k.low);
-                const volumes = klines.map((k) => k.volume);
-                
-                const result = engine.analyze(closes, highs, lows, volumes);
-                aiScore = result.aiScore;
-                aiLogs = [
-                    `Trend: ${result.trend}`,
-                    `Regime: ${result.regimePrediction}`,
-                    `Decision: ${result.systemDecision}`
-                ];
+        // 1. AI Analysis Throttling
+        let aiScore = meta.lastAiScore || 0;
+        let aiLogs: string[] = meta.monitorLogs || [];
+        const lastAiRun = meta.lastAiRunAt || 0;
+
+        if (Date.now() - lastAiRun > AI_ANALYSIS_INTERVAL) {
+            try {
+                const klines = await fetchKlines(symbol, '1m', 200);
+                if (klines && klines.length >= 50) {
+                    const closes = klines.map((k) => k.close);
+                    const highs = klines.map((k) => k.high);
+                    const lows = klines.map((k) => k.low);
+                    const volumes = klines.map((k) => k.volume);
+                    
+                    const result = engine.analyze(closes, highs, lows, volumes);
+                    aiScore = result.aiScore;
+                    aiLogs = [
+                        `Trend: ${result.trend}`,
+                        `Regime: ${result.regimePrediction}`,
+                        `Decision: ${result.systemDecision}`
+                    ];
+                    meta.lastAiRunAt = Date.now();
+                }
+            } catch (aiErr) {
+                console.warn(`[SmartMonitor] AI Analysis failed for ${symbol}:`, aiErr);
             }
-        } catch (aiErr) {
-            console.warn(`[SmartMonitor] AI Analysis failed for ${symbol}:`, aiErr);
         }
 
         // 2. Trailing & SL/TP Logic
@@ -99,9 +105,24 @@ async function processTradeMonitoring(trade: MonitoredTrade, engine: MatrixV3Eng
             const trailingBuyDev = payload.trailingBuyDev || 1.0;
             let entryTriggered = meta.entryTriggered || false;
 
-            // Update Lowest Price seen so far
+            // Update Lowest Price seen so far and adjust SL/TP to follow
             if (currentPrice < lowestPrice) {
+                const dropRatio = currentPrice / lowestPrice;
                 newLowest = currentPrice;
+                
+                if (isTrailingBuy) {
+                    // Update payload prices proportionally
+                    if (payload.buyPrice) {
+                        payload.buyPrice = (parseFloat(payload.buyPrice) * dropRatio).toString();
+                    }
+                    if (payload.stopLoss?.price) {
+                        payload.stopLoss.price = (parseFloat(payload.stopLoss.price) * dropRatio).toString();
+                    }
+                    if (payload.takeProfit?.price) {
+                        payload.takeProfit.price = (parseFloat(payload.takeProfit.price) * dropRatio).toString();
+                    }
+                    console.log(`[SmartMonitor] Trailing Buy: Price dropped. Adjusted SL/TP by factor ${dropRatio.toFixed(6)}`);
+                }
             }
 
             // 1. Check Entry Condition
@@ -254,10 +275,16 @@ async function executeEntry(trade: MonitoredTrade, currentPrice: number, reason:
     try {
         // Execute real market buy using our quote amount logic
         const quoteAmount = qty * currentPrice;
-        // In SmartTrade, we use quoteAmount for the real MEXC order to match the "Usage" percentage
-        const result = await marketBuyByQuote(symbol, quoteAmount.toFixed(4));
+        // Round quote amount to standard precision
+        const result = await marketBuyByQuote(symbol, quoteAmount.toFixed(6));
         
-        const avgPrice = result?.price ? parseFloat(result.price) : currentPrice;
+        // Calculate real average price from fill data
+        let avgPrice = currentPrice;
+        if (result?.cummulativeQuoteQty && result?.executedQty && parseFloat(result.executedQty) > 0) {
+            avgPrice = parseFloat(result.cummulativeQuoteQty) / parseFloat(result.executedQty);
+        } else if (result?.price) {
+            avgPrice = parseFloat(result.price);
+        }
 
         await sql`
             UPDATE orders 
@@ -287,18 +314,27 @@ async function executeExit(trade: MonitoredTrade, currentPrice: number, reason: 
     try {
         let result;
         if (side === 'BUY') {
-            // Sell to close
-            result = await marketSellByQty(symbol, String(qty));
+            // Sell to close: Round quantity to avoid MEXC precision rejection
+            const sellQty = parseFloat(String(qty)).toFixed(8).replace(/\.?0+$/, '');
+            result = await marketSellByQty(symbol, sellQty);
         } else {
             // Buy back to close
             const cost = qty * currentPrice;
-            result = await marketBuyByQuote(symbol, cost.toFixed(4));
+            result = await marketBuyByQuote(symbol, cost.toFixed(6));
+        }
+
+        // Calculate real exit price from the fill result
+        let realExitPrice = currentPrice;
+        if (result?.cummulativeQuoteQty && result?.executedQty && parseFloat(result.executedQty) > 0) {
+            realExitPrice = parseFloat(result.cummulativeQuoteQty) / parseFloat(result.executedQty);
+        } else if (result?.price) {
+            realExitPrice = parseFloat(result.price);
         }
 
         await sql`
             UPDATE orders 
             SET status = 'CLOSED', 
-                meta = ${JSON.stringify({ ...meta, exitReason: reason, exitResult: result, exitPrice: currentPrice, closedAt: Date.now() })} 
+                meta = ${JSON.stringify({ ...meta, exitReason: reason, exitResult: result, exitPrice: realExitPrice, closedAt: Date.now() })} 
             WHERE id = ${id}
         `;
         

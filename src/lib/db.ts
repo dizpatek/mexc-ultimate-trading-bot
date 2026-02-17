@@ -297,6 +297,18 @@ export async function getStrategySignals(strategyId: number, limit = 100) {
 // --- BOT CONFIG ---
 export async function getBotConfig(): Promise<BotConfig> {
     const { rows } = await sql`SELECT * FROM bot_configs WHERE id = 1`;
+    if (!rows[0]) {
+        return {
+            id: 1,
+            f4_length: 14,
+            whale_multiplier: 2,
+            ai_threshold: 0.5,
+            auto_trade: false,
+            defense_mode: false,
+            timeframe: '1h',
+            updated_at: Date.now()
+        } as BotConfig;
+    }
     return rows[0] as BotConfig;
 }
 

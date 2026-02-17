@@ -121,12 +121,15 @@ export async function handleBuySignal({
         const res = await marketBuyByQuote(pair, String(finalQuote)) as { orderId: string; executedQty: string; cummulativeQuoteQty: string; fills?: { price: string; qty: string; commission?: string; commissionAsset?: string }[] };
         notify(`BUY executed ${pair} => ${JSON.stringify(res)}`);
 
-        // Calculate average price from fills
+        // Calculate average price from fills or cumulative fields
         let avgPrice = currentPrice;
         if (res.fills && res.fills.length > 0) {
             const totalQty = res.fills.reduce((sum: number, fill) => sum + parseFloat(fill.qty), 0);
             const totalQuote = res.fills.reduce((sum: number, fill) => sum + (parseFloat(fill.price) * parseFloat(fill.qty)), 0);
             avgPrice = totalQuote / totalQty;
+        } else if (res.cummulativeQuoteQty && res.executedQty && parseFloat(res.executedQty) > 0) {
+            // Fallback: MEXC often doesn't return fills for market orders
+            avgPrice = parseFloat(res.cummulativeQuoteQty) / parseFloat(res.executedQty);
         }
 
         // Record primary order in DB
@@ -239,6 +242,9 @@ export async function handleSellSignal({ pair, amount = null, percent = null }: 
             const totalQty = res.fills.reduce((sum: number, fill) => sum + parseFloat(fill.qty), 0);
             const totalQuote = res.fills.reduce((sum: number, fill) => sum + (parseFloat(fill.price) * parseFloat(fill.qty)), 0);
             avgPrice = totalQuote / totalQty;
+        } else if (res.cummulativeQuoteQty && res.executedQty && parseFloat(res.executedQty) > 0) {
+            // Fallback: MEXC often doesn't return fills for market orders
+            avgPrice = parseFloat(res.cummulativeQuoteQty) / parseFloat(res.executedQty);
         }
 
         const dbId = await insertOrder({

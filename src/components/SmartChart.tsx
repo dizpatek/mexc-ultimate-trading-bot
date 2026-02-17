@@ -826,13 +826,16 @@ export const SmartChart: React.FC<SmartChartProps> = ({
 
             {/* Chart Footer: Focus Button */}
             <div className="flex items-center justify-between px-1">
-                <button 
-                    onClick={focusOnPrices} 
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900/40 border border-slate-800/50 text-[10px] font-black text-cyan-400 hover:bg-cyan-400/10 hover:border-cyan-400/30 transition-all backdrop-blur-md group/focus"
-                >
-                    <Target className="w-4 h-4 group-hover/focus:scale-125 transition-transform" />
-                    ODAKLA (FİYATA HIZALA)
-                </button>
+                <div className="flex items-center gap-2">
+                    <button 
+                        onClick={focusOnPrices} 
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900/40 border border-slate-800/50 text-[10px] font-black text-cyan-400 hover:bg-cyan-400/10 hover:border-cyan-400/30 transition-all backdrop-blur-md group/focus"
+                    >
+                        <Target className="w-4 h-4 group-hover/focus:scale-125 transition-transform" />
+                        ODAKLA (FİYATA HIZALA)
+                    </button>
+
+                </div>
                 
                 <div className="text-[9px] font-bold text-slate-600 uppercase tracking-widest flex items-center gap-2 pr-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-slate-800" />

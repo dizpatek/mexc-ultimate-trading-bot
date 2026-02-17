@@ -103,67 +103,87 @@ export async function DELETE(request: Request) {
         const { searchParams } = new URL(request.url);
         const id = searchParams.get('id');
         const clearAll = searchParams.get('all') === 'true';
+        const silent = searchParams.get('silent') === 'true';
+        const now = Date.now();
 
         if (clearAll) {
-            // Move all smart trades to CLOSED status instead of hard deleting
-            await sql`
-                UPDATE orders 
-                SET status = 'CLOSED', 
-                    updated_at = ${Date.now()},
-                    meta = jsonb_set(
-                        jsonb_set(meta, '{closedAt}', to_jsonb(${Date.now()})),
-                        '{exitReason}', '"MANUAL_FLUSH_ALL"'
-                    )
-                WHERE meta::jsonb->>'smartTrade' = 'true'
-                AND status IN ('FILLED', 'PENDING')
+            // meta is TEXT column — we must read, parse, merge in JS, write back
+            const { rows } = await sql`
+                SELECT id, meta FROM orders 
+                WHERE status IN ('FILLED', 'PENDING')
             `;
-            return NextResponse.json({ success: true, message: 'All smart trades moved to history' });
+            
+            const smartRows = rows.filter(r => {
+                try {
+                    const m = typeof r.meta === 'string' ? JSON.parse(r.meta) : r.meta;
+                    return m?.smartTrade === true;
+                } catch { return false; }
+            });
+
+            for (const row of smartRows) {
+                const existingMeta = typeof row.meta === 'string' ? JSON.parse(row.meta) : (row.meta || {});
+                const updatedMeta = JSON.stringify({
+                    ...existingMeta,
+                    closedAt: now,
+                    exitReason: silent ? 'MANUAL_SILENT_FLUSH_ALL' : 'MANUAL_FLUSH_ALL'
+                });
+                await sql`
+                    UPDATE orders 
+                    SET status = 'CLOSED', updated_at = ${now}, meta = ${updatedMeta}
+                    WHERE id = ${row.id}
+                `;
+            }
+            return NextResponse.json({ success: true, message: `${smartRows.length} smart trades moved to history` });
         }
 
-        if (!id) return NextResponse.json({ error: 'Missing ID' }, { status: 400 });
+        if (!id && !clearAll) return NextResponse.json({ error: 'Missing ID' }, { status: 400 });
         
-        // --- REAL EXECUTION PANIC EXIT ---
-        // Fetch the trade to see if it's still active and needs a real market order to close
-        const { rows: tradeRows } = await sql`SELECT symbol, side, qty, status, meta FROM orders WHERE id = ${id}`;
-        if (tradeRows.length > 0) {
-            const trade = tradeRows[0];
-            // If it was FILLED or PENDING, we should try to close it on the exchange
-            if (trade.status === 'FILLED' || (trade.status === 'PENDING' && trade.side === 'SELL')) {
-                console.log(`[PanicExit] Executing real exchange close for trade ${id} (${trade.symbol})`);
-                try {
-                    // Determine close direction
-                    // If we BOUGHT, we need to SELL to close.
-                    // If we SOLD (Short/Cover), we need to BUY to close.
-                    if (trade.side === 'BUY') {
-                        await marketSellByQty(trade.symbol, String(trade.qty));
-                    } else {
-                        // For short closing, we need price to calculate quote amount
-                        const currentP = await getPrice(trade.symbol);
-                        const cost = parseFloat(trade.qty) * currentP;
-                        await marketBuyByQuote(trade.symbol, cost.toFixed(4));
+        // --- REAL EXECUTION PANIC EXIT (Skip if silent) ---
+        if (id && !silent) {
+            const { rows: tradeRows } = await sql`SELECT symbol, side, qty, status, meta FROM orders WHERE id = ${id}`;
+            if (tradeRows.length > 0) {
+                const trade = tradeRows[0];
+                if (trade.status === 'FILLED' || (trade.status === 'PENDING' && trade.side === 'SELL')) {
+                    console.log(`[PanicExit] Executing real exchange close for trade ${id} (${trade.symbol})`);
+                    try {
+                        if (trade.side === 'BUY') {
+                            const sellQty = parseFloat(String(trade.qty)).toFixed(8).replace(/\.?0+$/, '');
+                            await marketSellByQty(trade.symbol, sellQty);
+                        } else {
+                            const currentP = await getPrice(trade.symbol);
+                            const cost = parseFloat(String(trade.qty)) * currentP;
+                            await marketBuyByQuote(trade.symbol, cost.toFixed(6));
+                        }
+                    } catch (execError) {
+                        console.error(`[PanicExit] Exchange execution failed for ${id}:`, execError);
                     }
-                } catch (execError) {
-                    console.error(`[PanicExit] Exchange execution failed for ${id}:`, execError);
-                    // We continue to at least mark it as closed/deleted in our DB
                 }
             }
         }
-
-        // We use status='CLOSED' instead of hard DELETE to keep history, 
-        // but the UI currently expects it to disappear or status to change.
-        // For "Panic Exit" button specifically, we move it to history with metadata.
-        await sql`
-            UPDATE orders 
-            SET status = 'CLOSED', 
-                updated_at = ${Date.now()},
-                meta = jsonb_set(
-                    jsonb_set(meta, '{closedAt}', to_jsonb(${Date.now()})),
-                    '{exitReason}', '"MANUAL_PANIC_EXIT"'
-                )
-            WHERE id = ${id}
-        `;
         
-        return NextResponse.json({ success: true, message: 'Order closed and position exited' });
+        if (id) {
+            // Update meta as TEXT (parse → merge → stringify)
+            const { rows: currentRows } = await sql`SELECT meta FROM orders WHERE id = ${id}`;
+            let existingMeta = {};
+            if (currentRows.length > 0) {
+                try {
+                    existingMeta = typeof currentRows[0].meta === 'string' ? JSON.parse(currentRows[0].meta) : (currentRows[0].meta || {});
+                } catch { existingMeta = {}; }
+            }
+            const updatedMeta = JSON.stringify({
+                ...existingMeta,
+                closedAt: now,
+                exitReason: silent ? 'MANUAL_SILENT_CLOSE' : 'MANUAL_PANIC_EXIT'
+            });
+
+            await sql`
+                UPDATE orders 
+                SET status = 'CLOSED', updated_at = ${now}, meta = ${updatedMeta}
+                WHERE id = ${id}
+            `;
+            
+            return NextResponse.json({ success: true, message: silent ? 'Order archived silently' : 'Order closed and position exited' });
+        }
     } catch (error: unknown) {
         console.error('SmartTrade DELETE Error:', error);
         return NextResponse.json({ 

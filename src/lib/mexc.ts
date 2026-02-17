@@ -195,7 +195,8 @@ export async function getAccountInfo() {
 
 export async function getBalance(asset: string) {
     const account = await getAccountInfo();
-    const balance = account?.balances.find(b => b.asset === asset);
+    if (!account || !account.balances) return { free: 0, locked: 0 };
+    const balance = account.balances.find(b => b.asset === asset);
     return balance ? { free: parseFloat(balance.free), locked: parseFloat(balance.locked) } : { free: 0, locked: 0 };
 }
 
@@ -322,7 +323,16 @@ export async function postOrder(params: Record<string, string | number | boolean
         return res.data;
     } catch (error: unknown) {
         if (axios.isAxiosError(error)) {
-             console.error('MEXC API Error:', error.response?.data || error.message);
+             const mexcErr = error.response?.data;
+             console.error('MEXC API Error Detail:', mexcErr || error.message);
+             // Enrich the error message with MEXC detail
+             interface EnrichedAxiosError extends Error {
+                 mexcDetail?: Record<string, unknown>;
+             }
+             if (mexcErr && typeof mexcErr === 'object') {
+                 (error as EnrichedAxiosError).mexcDetail = mexcErr;
+                 error.message = `${error.message} | MEXC: ${JSON.stringify(mexcErr)}`;
+             }
         } else {
              console.error('MEXC API Error:', error);
         }

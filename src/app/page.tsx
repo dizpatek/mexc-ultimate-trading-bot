@@ -131,7 +131,7 @@ export default function Dashboard() {
         </div>
 
         {/* MIDDLE ROW: CHART & ACTION CENTER */}
-        <div className="grid grid-cols-12 gap-3 h-[800px]">
+        <div className="grid grid-cols-12 gap-3 h-[820px]">
             {/* MAIN CHART */}
             <div className="col-span-12 lg:col-span-8">
                 <HorizonCard className="h-full bg-slate-900/30 backdrop-blur-sm border-slate-800" glowColor="emerald">

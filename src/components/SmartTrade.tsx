@@ -798,10 +798,6 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
 
                         <div className={cn("space-y-4 transition-opacity duration-300 relative z-10", !tpEnabled && "opacity-30 pointer-events-none")}>
                             {/* TP Type Forced to Market */}
-                            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-900 border border-slate-800/50 rounded-lg shadow-inner">
-                                <Zap className="w-3 h-3 text-emerald-500 fill-emerald-500/20" />
-                                <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">Piyasa Emir (Market)</span>
-                            </div>
 
                             <div className="space-y-2">
                                 <div className="flex justify-between items-end mb-1">
@@ -974,10 +970,6 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
 
                         <div className={cn("space-y-4 transition-opacity duration-300 relative z-10", !slEnabled && "opacity-30 pointer-events-none")}>
                             {/* SL Type Forced to Market */}
-                            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-900 border border-slate-800/50 rounded-lg shadow-inner">
-                                <Zap className="w-3 h-3 text-rose-500 fill-rose-500/20" />
-                                <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">Piyasa Emir (Market)</span>
-                            </div>
 
                             <div className="space-y-2">
                                 <div className="flex justify-between items-end mb-1">

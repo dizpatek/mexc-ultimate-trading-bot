@@ -91,6 +91,9 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
         return hSym === sSym;
     });
 
+    const usdtHolding = holdings.find(h => h.symbol === 'USDT' || h.symbol === 'USDC');
+    const usdtBalance = usdtHolding?.holding || 0;
+
     // 2. Take Profit State
     const [internalTpEnabled, setInternalTpEnabled] = useState(true);
     const tpEnabled = controlledTpEnabled ?? internalTpEnabled;
@@ -523,23 +526,32 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                         </div>
 
                         {/* Percentage Slider (Ratio) */}
-                        {useExisting && selectedHolding && (
+                        {((useExisting && selectedHolding) || (!useExisting && usdtBalance > 0)) && (
                             <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
                                 <div className="flex justify-between text-[9px] font-bold text-slate-500 uppercase">
-                                    <span>Oran</span>
+                                    <span>{useExisting ? 'Varlık Oranı' : 'USDT Kullanımı'}</span>
                                     <span className="text-cyan-400">{allocationPercent.toFixed(0)}%</span>
                                 </div>
                                 <input 
                                     type="range" 
                                     min="0" 
                                     max="100" 
-                                    step="5" 
+                                    step="1" 
                                     value={allocationPercent}
                                     onChange={(e) => {
                                         const pct = parseFloat(e.target.value);
                                         setAllocationPercent(pct);
-                                        const calculatedAmount = (selectedHolding.holding * pct) / 100;
-                                        setAmount(calculatedAmount.toFixed(4));
+                                        
+                                        if (useExisting && selectedHolding) {
+                                            const calculatedAmount = (selectedHolding.holding * pct) / 100;
+                                            setAmount(calculatedAmount.toFixed(4));
+                                        } else if (!useExisting && usdtBalance > 0) {
+                                            const buyP = parseFloat(buyPrice) || 0;
+                                            if (buyP > 0) {
+                                                const calculatedAmount = ((usdtBalance * pct) / 100) / buyP;
+                                                setAmount(calculatedAmount.toFixed(6));
+                                            }
+                                        }
                                     }}
                                     className="w-full accent-cyan-500 h-2 rounded-full cursor-pointer"
                                 />
@@ -573,10 +585,16 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                                     <button 
                                         key={p} 
                                         onClick={() => {
+                                            setAllocationPercent(p);
                                             if (useExisting && selectedHolding) {
-                                                setAllocationPercent(p);
                                                 const calculatedAmount = (selectedHolding.holding * p) / 100;
                                                 setAmount(calculatedAmount.toFixed(4));
+                                            } else if (!useExisting && usdtBalance > 0) {
+                                                const buyP = parseFloat(buyPrice) || 0;
+                                                if (buyP > 0) {
+                                                    const calculatedAmount = ((usdtBalance * p) / 100) / buyP;
+                                                    setAmount(calculatedAmount.toFixed(6));
+                                                }
                                             }
                                         }}
                                         className="py-1.5 rounded-lg border border-white/5 bg-white/5 text-[9px] font-black text-slate-400 hover:text-white hover:bg-white/10 transition-all"

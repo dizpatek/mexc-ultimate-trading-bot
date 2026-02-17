@@ -27,6 +27,8 @@ export interface SmartTradePayload {
         trailing?: boolean;
         deviation?: number;
     } | null;
+    trailingBuy?: boolean;
+    trailingBuyDev?: number;
 }
 
 export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: TradingMode) {
@@ -47,6 +49,8 @@ export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: 
     
     // 1. ENTRY EXECUTION
     try {
+        const isTrailingBuy = !!payload.trailingBuy;
+
         if (useExisting) {
             console.log('[SmartTrade] bypassing entry order (useExisting=true)');
             avgPrice = await getPrice(pair);
@@ -55,6 +59,16 @@ export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: 
                 status: 'FILLED',
                 price: avgPrice.toString(),
                 executedQty: amount
+            };
+        } else if (mode === 'TRADE' && isTrailingBuy) {
+            // PENDING ENTRY (Trailing Buy)
+            console.log('[SmartTrade] Trailing Buy enabled. Setting order to PENDING.');
+            avgPrice = parseFloat(payload.buyPrice) || await getPrice(pair);
+            entryResult = {
+                orderId: 'PENDING_ENTRY_' + Date.now(),
+                status: 'PENDING',
+                price: avgPrice.toString(),
+                executedQty: '0'
             };
         } else if (mode === 'TRADE') {
             const currentPrice = await getPrice(pair);
@@ -106,7 +120,7 @@ export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: 
             type: 'MARKET',
             qty: qty,
             price: avgPrice,
-            status: 'FILLED',
+            status: entryResult.status || 'FILLED',
             meta: { 
                 smartTrade: true, 
                 mode, 

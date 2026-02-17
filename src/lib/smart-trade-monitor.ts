@@ -16,12 +16,12 @@ export async function monitorSmartTrades() {
     console.log('[SmartMonitor] Starting monitoring cycle...');
     
     try {
-        // 1. Fetch active smart trades
+        // 1. Fetch active smart trades (both filled and pending entry)
         const { rows } = await sql`
-            SELECT id, symbol, side, qty, price, meta 
+            SELECT id, symbol, side, qty, price, meta, status 
             FROM orders 
             WHERE meta::jsonb->>'smartTrade' = 'true' 
-            AND status = 'FILLED'
+            AND status IN ('FILLED', 'PENDING')
         `;
 
         if (rows.length === 0) {
@@ -48,6 +48,7 @@ interface MonitoredTrade {
     qty: number;
     price: number;
     meta: Record<string, unknown>;
+    status: string;
 }
 
 async function processTradeMonitoring(trade: MonitoredTrade, engine: MatrixV3Engine) {
@@ -92,7 +93,44 @@ async function processTradeMonitoring(trade: MonitoredTrade, engine: MatrixV3Eng
         let shouldExit = false;
         let exitReason = '';
 
-        if (side === 'BUY') {
+        if (trade.status === 'PENDING') {
+            const targetEntryPrice = parseFloat(payload.buyPrice) || entryPrice;
+            const isTrailingBuy = !!payload.trailingBuy;
+            const trailingBuyDev = payload.trailingBuyDev || 1.0;
+            let entryTriggered = meta.entryTriggered || false;
+
+            // Update Lowest Price seen so far
+            if (currentPrice < lowestPrice) {
+                newLowest = currentPrice;
+            }
+
+            // 1. Check Entry Condition
+            if (!entryTriggered && currentPrice <= targetEntryPrice) {
+                entryTriggered = true;
+                console.log(`[SmartMonitor] Entry trigger reached for ${symbol} @ ${currentPrice}.`);
+                if (!isTrailingBuy) {
+                    shouldExit = true; // Non-trailing immediate entry
+                    exitReason = 'LIMIT ENTRY REACHED';
+                }
+            }
+
+            if (entryTriggered && isTrailingBuy) {
+                // Tracking bounce from bottom
+                const buyTrigger = newLowest * (1 + trailingBuyDev / 100);
+                if (currentPrice >= buyTrigger) {
+                    shouldExit = true;
+                    exitReason = `TRAILING BUY EXECUTED @ ${currentPrice} (Bottom: ${newLowest})`;
+                }
+            }
+
+            meta.entryTriggered = entryTriggered;
+            
+            if (shouldExit) {
+                console.log(`[SmartMonitor] 🟢 EXECUTING ENTRY for ${symbol}: ${exitReason}`);
+                await executeEntry(trade, currentPrice, exitReason);
+                return; // executeEntry handles DB update
+            }
+        } else if (side === 'BUY') {
             // Update Highest Price
             if (currentPrice > highestPrice) {
                 newHighest = currentPrice;
@@ -126,7 +164,7 @@ async function processTradeMonitoring(trade: MonitoredTrade, engine: MatrixV3Eng
                 if (tpTriggered) {
                     if (payload.takeProfit.trailing && payload.takeProfit.deviation) {
                         // Trailing exit: price drops X% from the peak reached AFTER trigger
-                        const trailExit = newHighest * (1 - payload.takeProfit.deviation / 100);
+                        const trailExit = newHighest * (1 - Math.abs(payload.takeProfit.deviation) / 100);
                         if (currentPrice <= trailExit) {
                             shouldExit = true;
                             exitReason = `TRAILING TAKE PROFIT HIT @ ${currentPrice} (Peak: ${newHighest})`;
@@ -138,7 +176,8 @@ async function processTradeMonitoring(trade: MonitoredTrade, engine: MatrixV3Eng
                     }
                 }
             }
-        } else {
+        }
+ else {
             // Side === 'SELL' (Cover mode / Short)
             if (currentPrice < lowestPrice) {
                 newLowest = currentPrice;
@@ -205,6 +244,39 @@ async function processTradeMonitoring(trade: MonitoredTrade, engine: MatrixV3Eng
 
     } catch (err) {
         console.error(`[SmartMonitor] Error processing trade ${id}:`, err);
+    }
+}
+
+async function executeEntry(trade: MonitoredTrade, currentPrice: number, reason: string) {
+    const { id, symbol, qty, meta: rawMeta } = trade;
+    const meta = typeof rawMeta === 'string' ? JSON.parse(rawMeta) : rawMeta;
+    
+    try {
+        // Execute real market buy using our quote amount logic
+        const quoteAmount = qty * currentPrice;
+        // In SmartTrade, we use quoteAmount for the real MEXC order to match the "Usage" percentage
+        const result = await marketBuyByQuote(symbol, quoteAmount.toFixed(4));
+        
+        const avgPrice = result?.price ? parseFloat(result.price) : currentPrice;
+
+        await sql`
+            UPDATE orders 
+            SET status = 'FILLED',
+                price = ${avgPrice},
+                meta = ${JSON.stringify({ 
+                    ...meta, 
+                    entryReason: reason, 
+                    entryResult: result, 
+                    highestPrice: avgPrice, 
+                    lowestPrice: avgPrice, 
+                    filledAt: Date.now() 
+                })} 
+            WHERE id = ${id}
+        `;
+        
+        console.log(`[SmartMonitor] Successfully entered trade ${id} for ${symbol} @ ${avgPrice}`);
+    } catch (err) {
+        console.error(`[SmartMonitor] Failed to execute entry for ${symbol}:`, err);
     }
 }
 

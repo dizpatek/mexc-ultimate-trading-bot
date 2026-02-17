@@ -131,7 +131,7 @@ export default function Dashboard() {
         </div>
 
         {/* MIDDLE ROW: CHART & ACTION CENTER */}
-        <div className="grid grid-cols-12 gap-3 h-[820px]">
+        <div className="grid grid-cols-12 gap-3 h-[900px]">
             {/* MAIN CHART */}
             <div className="col-span-12 lg:col-span-8">
                 <HorizonCard className="h-full bg-slate-900/30 backdrop-blur-sm border-slate-800" glowColor="emerald">
@@ -144,12 +144,12 @@ export default function Dashboard() {
 
             {/* ACTION CENTER */}
             <div className="col-span-12 lg:col-span-4 flex flex-col gap-3 h-full">
-                <div className="flex-1">
+                <div className="h-[320px]">
                     <HorizonCard className="h-full bg-slate-900/30 backdrop-blur-sm border-slate-800" glowColor="amber">
                         <PricePredictionWidget />
                     </HorizonCard>
                 </div>
-                <div className="h-[280px]">
+                <div className="flex-1">
                     <HorizonCard className="h-full bg-slate-900/30 backdrop-blur-sm border-slate-800" glowColor="rose">
                          <TradeForm />
                     </HorizonCard>

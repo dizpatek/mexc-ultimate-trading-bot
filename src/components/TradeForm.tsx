@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Send, Zap, TrendingUp, TrendingDown } from 'lucide-react';
+import { Send, Zap, TrendingUp, TrendingDown, Target, Shield, Percent, DollarSign, Activity } from 'lucide-react';
 import { sendTradeSignal } from '../services/api';
 import type { TradeSignal } from '../services/api';
+import { cn } from '@/lib/utils';
 
 export const TradeForm = () => {
     const [signal, setSignal] = useState<'buy' | 'sell'>('buy');
@@ -37,185 +38,197 @@ export const TradeForm = () => {
             const response = await sendTradeSignal(tradeSignal);
 
             if (response && (response.success || response.ok)) {
-                setMessage({ type: 'success', text: `Trade signal sent successfully` });
+                setMessage({ type: 'success', text: `Sinyal başarıyla gönderildi` });
                 setAmount('');
                 setUsdt('');
                 setRisk('');
                 setTp('');
                 setSl('');
+                setTimeout(() => setMessage(null), 3000);
             } else {
-                setMessage({ type: 'error', text: 'Failed to send trade signal' });
+                setMessage({ type: 'error', text: 'Sinyal gönderimi başarısız' });
             }
         } catch (error) {
-            setMessage({ type: 'error', text: `Error: ${(error as Error).message}` });
+            setMessage({ type: 'error', text: `Hata: ${(error as Error).message}` });
         } finally {
             setIsLoading(false);
         }
     };
 
     return (
-        <div className="portfolio-container p-6 mb-8">
-            <div className="flex items-center gap-3 mb-6">
-                <div className={`p-2 ${signal === 'buy' ? 'bg-green-500/10' : 'bg-red-500/10'} rounded-lg transition-colors`}>
-                    {signal === 'buy' ? (
-                        <TrendingUp className={`h-5 w-5 text-green-500`} />
-                    ) : (
-                        <TrendingDown className={`h-5 w-5 text-red-500`} />
-                    )}
-                </div>
-                <div>
-                    <h2 className="text-xl font-semibold">Send Trade Signal</h2>
-                    <p className="text-xs text-muted-foreground">Execute trades with advanced parameters</p>
-                </div>
+        <div className="flex flex-col h-full p-4 relative overflow-hidden group">
+            {/* Background Icon */}
+            <div className="absolute -bottom-6 -right-6 opacity-[0.02] pointer-events-none group-hover:opacity-[0.05] transition-opacity">
+                <Send className="w-48 h-48 text-cyan-500" />
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-5">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                    <div>
-                        <label className="block text-sm font-medium text-muted-foreground mb-2">
-                            Signal Type
-                        </label>
-                        <div className="flex space-x-2">
-                            <button
-                                type="button"
-                                className={`flex-1 py-3 px-4 rounded-md transition-all ${signal === 'buy'
-                                        ? 'bg-green-500 text-white shadow-lg shadow-green-500/20'
-                                        : 'btn-outline'
-                                    }`}
-                                onClick={() => setSignal('buy')}
-                            >
-                                Buy
-                            </button>
-                            <button
-                                type="button"
-                                className={`flex-1 py-3 px-4 rounded-md transition-all ${signal === 'sell'
-                                        ? 'bg-red-500 text-white shadow-lg shadow-red-500/20'
-                                        : 'btn-outline'
-                                    }`}
-                                onClick={() => setSignal('sell')}
-                            >
-                                Sell
-                            </button>
-                        </div>
+            {/* Header */}
+            <div className="flex items-center justify-between mb-4 relative z-10 shrink-0">
+                <div className="flex items-center gap-2">
+                    <div className={cn(
+                        "p-1.5 rounded-lg border shadow-sm transition-all duration-500",
+                        signal === 'buy' ? "bg-emerald-500/10 border-emerald-500/20" : "bg-rose-500/10 border-rose-500/20"
+                    )}>
+                        {signal === 'buy' ? (
+                            <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                            <TrendingDown className="w-3.5 h-3.5 text-rose-400" />
+                        )}
                     </div>
-
                     <div>
-                        <label className="block text-sm font-medium text-muted-foreground mb-2">
-                            Trading Pair
-                        </label>
-                        <input
-                            type="text"
-                            value={pair}
-                            onChange={(e) => setPair(e.target.value)}
-                            className="input-field w-full px-4 py-3"
-                            placeholder="e.g., BTC_USDT"
-                        />
+                        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">
+                            Send Trade Signal
+                        </h3>
+                        <p className="text-[8px] font-bold text-slate-600 uppercase tracking-tight">Operation Center</p>
                     </div>
                 </div>
+                
+                {isLoading && <Activity className="w-3.5 h-3.5 animate-spin text-cyan-500" />}
+            </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                    <div>
-                        <label className="block text-sm font-medium text-muted-foreground mb-2">
-                            Amount
-                        </label>
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="flex-1 flex flex-col gap-3 relative z-10">
+                {/* 1. Signal Type Toggle */}
+                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950/50 border border-white/5 rounded-xl shrink-0">
+                    <button
+                        type="button"
+                        onClick={() => setSignal('buy')}
+                        className={cn(
+                            "py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+                            signal === 'buy' 
+                                ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20" 
+                                : "text-slate-500 hover:text-slate-300"
+                        )}
+                    >
+                        Buy
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setSignal('sell')}
+                        className={cn(
+                            "py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+                            signal === 'sell' 
+                                ? "bg-rose-500 text-slate-950 shadow-lg shadow-rose-500/20" 
+                                : "text-slate-500 hover:text-slate-300"
+                        )}
+                    >
+                        Sell
+                    </button>
+                </div>
+
+                {/* 2. Pair Input */}
+                <div className="space-y-1 shrink-0">
+                    <div className="flex items-center justify-between px-1">
+                        <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Symbol</label>
+                        <Target className="w-2.5 h-2.5 text-slate-700" />
+                    </div>
+                    <input
+                        type="text"
+                        value={pair}
+                        onChange={(e) => setPair(e.target.value)}
+                        className="w-full bg-slate-900/50 border border-white/5 rounded-xl px-3 py-2 text-xs font-black text-white outline-none focus:border-cyan-500/50 transition-all placeholder:text-slate-700"
+                        placeholder="e.g. BTC_USDT"
+                    />
+                </div>
+
+                {/* 3. Amount & Value Grid */}
+                <div className="grid grid-cols-2 gap-3 shrink-0">
+                    <div className="space-y-1">
+                        <div className="flex items-center justify-between px-1">
+                            <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Amount</label>
+                            <Activity className="w-2.5 h-2.5 text-slate-700" />
+                        </div>
                         <input
                             type="number"
                             value={amount}
                             onChange={(e) => setAmount(e.target.value)}
-                            className="input-field w-full px-4 py-3"
-                            placeholder="Token amount"
+                            className="w-full bg-slate-900/50 border border-white/5 rounded-xl px-3 py-2 text-xs font-black text-white outline-none focus:border-cyan-500/50 transition-all placeholder:text-slate-700"
+                            placeholder="0.00"
                             step="any"
                         />
                     </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-muted-foreground mb-2">
-                            USDT Value
-                        </label>
+                    <div className="space-y-1">
+                        <div className="flex items-center justify-between px-1">
+                            <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest">USDT</label>
+                            <DollarSign className="w-2.5 h-2.5 text-slate-700" />
+                        </div>
                         <input
                             type="number"
                             value={usdt}
                             onChange={(e) => setUsdt(e.target.value)}
-                            className="input-field w-full px-4 py-3"
-                            placeholder="USDT value"
+                            className="w-full bg-slate-900/50 border border-white/5 rounded-xl px-3 py-2 text-xs font-black text-white outline-none focus:border-cyan-500/50 transition-all placeholder:text-slate-700"
+                            placeholder="0.00"
                             step="any"
                         />
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                    <div>
-                        <label className="block text-sm font-medium text-muted-foreground mb-2">
-                            Risk (%)
-                        </label>
+                {/* 4. TP / SL / Risk Row */}
+                <div className="grid grid-cols-3 gap-2 shrink-0">
+                    <div className="space-y-1">
+                        <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest px-1">Risk%</label>
                         <input
                             type="number"
                             value={risk}
                             onChange={(e) => setRisk(e.target.value)}
-                            className="input-field w-full px-4 py-3"
-                            placeholder="Risk percentage"
-                            step="0.1"
+                            className="w-full bg-slate-900/50 border border-white/5 rounded-lg px-2 py-1.5 text-[10px] font-black text-white outline-none focus:border-amber-500/50 transition-all"
+                            placeholder="1.0"
                         />
                     </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-muted-foreground mb-2">
-                            Take Profit
-                        </label>
+                    <div className="space-y-1">
+                        <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest px-1">TP %</label>
                         <input
                             type="text"
                             value={tp}
                             onChange={(e) => setTp(e.target.value)}
-                            className="input-field w-full px-4 py-3"
-                            placeholder="e.g., 1.5,2.0,2.5"
+                            className="w-full bg-slate-900/50 border border-white/5 rounded-lg px-2 py-1.5 text-[10px] font-black text-white outline-none focus:border-emerald-500/50 transition-all"
+                            placeholder="1.5,2.0"
                         />
                     </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-muted-foreground mb-2">
-                            Stop Loss
-                        </label>
+                    <div className="space-y-1">
+                        <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest px-1">SL %</label>
                         <input
                             type="text"
                             value={sl}
                             onChange={(e) => setSl(e.target.value)}
-                            className="input-field w-full px-4 py-3"
-                            placeholder="e.g., 0.8,0.6"
+                            className="w-full bg-slate-900/50 border border-white/5 rounded-lg px-2 py-1.5 text-[10px] font-black text-white outline-none focus:border-rose-500/50 transition-all"
+                            placeholder="0.8"
                         />
                     </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-4">
-                    <div>
-                        {message && (
-                            <div
-                                className={`text-sm p-3 rounded-md flex items-center gap-2 ${message.type === 'success'
-                                        ? 'bg-green-500/10 text-green-500 border border-green-500/20'
-                                        : 'bg-red-500/10 text-red-500 border border-red-500/20'
-                                    }`}
-                            >
-                                {message.type === 'success' && <Zap className="h-4 w-4" />}
-                                {message.text}
-                            </div>
-                        )}
+                {/* Message Overlay - Absolute positioned to not move fields */}
+                {message && (
+                    <div className={cn(
+                        "absolute top-0 inset-x-0 p-2 rounded-lg border text-[9px] font-black uppercase text-center animate-in fade-in slide-in-from-top-2 duration-300",
+                        message.type === 'success' ? "bg-emerald-500/20 border-emerald-500/30 text-emerald-400" : "bg-rose-500/20 border-rose-500/30 text-rose-400"
+                    )}>
+                        {message.text}
                     </div>
+                )}
 
+                {/* 5. Submit Button */}
+                <div className="mt-auto">
                     <button
                         type="submit"
                         disabled={isLoading}
-                        className={`flex items-center px-6 py-3 shadow-lg transition-all ${signal === 'buy'
-                            ? 'btn-primary bg-green-500 hover:bg-green-600'
-                            : 'btn-primary bg-red-500 hover:bg-red-600'
-                        }`}
-                    >
-                        {isLoading ? (
-                            <span>Sending...</span>
-                        ) : (
-                            <>
-                                <Send className="h-4 w-4 mr-2" />
-                                <span>Send Signal</span>
-                            </>
+                        className={cn(
+                            "w-full py-3 rounded-xl text-xs font-black uppercase tracking-[0.2em] transition-all relative overflow-hidden group/btn",
+                            signal === 'buy' 
+                                ? "bg-emerald-500 text-slate-950 shadow-emerald-500/20" 
+                                : "bg-rose-500 text-slate-950 shadow-rose-500/20",
+                            isLoading && "opacity-50 cursor-wait"
                         )}
+                    >
+                        <div className="absolute inset-0 bg-white/20 translate-y-full group-hover/btn:translate-y-0 transition-transform duration-500" />
+                        <span className="relative z-10 flex items-center justify-center gap-2">
+                            {isLoading ? "Sending..." : (
+                                <>
+                                    <Send className="w-3.5 h-3.5" />
+                                    Send Signal
+                                </>
+                            )}
+                        </span>
                     </button>
                 </div>
             </form>

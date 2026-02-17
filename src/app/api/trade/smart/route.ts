@@ -105,14 +105,19 @@ export async function DELETE(request: Request) {
         const clearAll = searchParams.get('all') === 'true';
 
         if (clearAll) {
-            // Delete all smart trades for this user? 
-            // Since we don't have perfect user isolation in the query above yet, 
-            // let's be careful. For now, we filter by meta.
+            // Move all smart trades to CLOSED status instead of hard deleting
             await sql`
-                DELETE FROM orders 
+                UPDATE orders 
+                SET status = 'CLOSED', 
+                    updated_at = ${Date.now()},
+                    meta = jsonb_set(
+                        jsonb_set(meta, '{closedAt}', to_jsonb(${Date.now()})),
+                        '{exitReason}', '"MANUAL_FLUSH_ALL"'
+                    )
                 WHERE meta::jsonb->>'smartTrade' = 'true'
+                AND status IN ('FILLED', 'PENDING')
             `;
-            return NextResponse.json({ success: true, message: 'All smart trades cleared' });
+            return NextResponse.json({ success: true, message: 'All smart trades moved to history' });
         }
 
         if (!id) return NextResponse.json({ error: 'Missing ID' }, { status: 400 });
@@ -146,8 +151,17 @@ export async function DELETE(request: Request) {
 
         // We use status='CLOSED' instead of hard DELETE to keep history, 
         // but the UI currently expects it to disappear or status to change.
-        // For "Panic Exit" button specifically, usually we want it to move to history.
-        await sql`UPDATE orders SET status = 'CLOSED', updated_at = ${Date.now()} WHERE id = ${id}`;
+        // For "Panic Exit" button specifically, we move it to history with metadata.
+        await sql`
+            UPDATE orders 
+            SET status = 'CLOSED', 
+                updated_at = ${Date.now()},
+                meta = jsonb_set(
+                    jsonb_set(meta, '{closedAt}', to_jsonb(${Date.now()})),
+                    '{exitReason}', '"MANUAL_PANIC_EXIT"'
+                )
+            WHERE id = ${id}
+        `;
         
         return NextResponse.json({ success: true, message: 'Order closed and position exited' });
     } catch (error: unknown) {

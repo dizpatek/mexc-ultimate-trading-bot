@@ -66,6 +66,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
     const [trades, setTrades] = useState<SmartTradeOrder[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [expandedTrade, setExpandedTrade] = useState<number | null>(null);
+    const [activeTab, setActiveTab] = useState<'AKTIF' | 'PASIF'>('AKTIF');
     const [lastFetchTime, setLastFetchTime] = useState<number>(Date.now());
 
     const [error, setError] = useState<string | null>(null);
@@ -159,16 +160,37 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
                         </div>
                     )}
                     <div className="flex bg-slate-950/50 border border-slate-800 rounded-lg overflow-hidden p-0.5">
-                        <button className="p-1.5 px-3 text-[9px] font-black text-white bg-slate-800 rounded-md transition-all">ALL</button>
-                        <button className="p-1.5 px-3 text-[9px] font-black text-slate-500 hover:text-slate-300 transition-all">TRAILING</button>
+                        <button 
+                            onClick={() => setActiveTab('AKTIF')}
+                            className={cn(
+                                "p-1.5 px-3 text-[9px] font-black transition-all rounded-md",
+                                activeTab === 'AKTIF' ? "text-white bg-slate-800" : "text-slate-500 hover:text-slate-300"
+                            )}
+                        >
+                            AKTİF
+                        </button>
+                        <button 
+                            onClick={() => setActiveTab('PASIF')}
+                            className={cn(
+                                "p-1.5 px-3 text-[9px] font-black transition-all rounded-md",
+                                activeTab === 'PASIF' ? "text-white bg-slate-800" : "text-slate-500 hover:text-slate-300"
+                            )}
+                        >
+                            PASİF
+                        </button>
                     </div>
-                    {trades.length > 0 && (
+                    {trades.filter(t => activeTab === 'AKTIF' ? (t.status === 'FILLED' || t.status === 'PENDING') : t.status === 'CLOSED').length > 0 && (
                         <button 
                             onClick={handleClearAll}
-                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500/20 text-rose-400 transition-all text-[9px] font-black uppercase tracking-widest group"
+                            className={cn(
+                                "flex items-center gap-2 px-3 py-2 rounded-lg transition-all text-[9px] font-black uppercase tracking-widest group",
+                                activeTab === 'AKTIF' 
+                                    ? "bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500/20 text-rose-400" 
+                                    : "bg-slate-500/10 border border-slate-500/20 hover:bg-slate-500/20 text-slate-400"
+                            )}
                         >
                             <ShieldAlert className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
-                            FLUSH ALL
+                            {activeTab === 'AKTIF' ? 'FLUSH ALL' : 'CLEAR HISTORY'}
                         </button>
                     )}
                 </div>
@@ -188,16 +210,24 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
                 </div>
 
                 <div className="divide-y divide-white/5">
-                    {trades.length === 0 ? (
+                    {trades.filter(t => activeTab === 'AKTIF' ? (t.status === 'FILLED' || t.status === 'PENDING') : t.status === 'CLOSED').length === 0 ? (
                         <div className="py-24 flex flex-col items-center justify-center gap-4 text-center">
                             <div className="w-16 h-16 rounded-3xl bg-slate-900 border border-slate-800 flex items-center justify-center mb-2">
                                 <Search className="w-6 h-6 text-slate-700" />
                             </div>
-                            <span className="text-[11px] font-black text-slate-600 uppercase tracking-[0.2em]">Matrix Searching for Active Sessions...</span>
-                            <p className="text-[10px] text-slate-700 max-w-[240px]">Neural-link ready. Deploy orders from operation center to begin tracking.</p>
+                            <span className="text-[11px] font-black text-slate-600 uppercase tracking-[0.2em]">
+                                {activeTab === 'AKTIF' ? 'Aktif İşlem Bulunamadı' : 'Geçmiş İşlem Bulunamadı'}
+                            </span>
+                            <p className="text-[10px] text-slate-700 max-w-[240px]">
+                                {activeTab === 'AKTIF' 
+                                    ? 'Şu anda takip edilen aktif bir pozisyon yok.' 
+                                    : 'Kapatılmış veya pasife düşmüş bir işlem geçmişi görünmüyor.'}
+                            </p>
                         </div>
                     ) : (
-                        trades.map((trade) => {
+                        trades
+                            .filter(t => activeTab === 'AKTIF' ? (t.status === 'FILLED' || t.status === 'PENDING') : t.status === 'CLOSED')
+                            .map((trade) => {
                             const isExpanded = expandedTrade === trade.id;
                             const payload = trade.meta.payload;
                             const currentPrice = trade.currentPrice || trade.price;
@@ -436,44 +466,61 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
                                                     </div>
                                                 </div>
 
-                                                <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-xl flex flex-col justify-center gap-2">
-                                                    <a 
-                                                        href={`https://www.mexc.com/exchange/${trade.symbol.replace('/', '_')}`}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="flex items-center justify-center gap-2 w-full py-2 bg-slate-800 hover:bg-slate-755 rounded-lg transition-all border border-slate-700 text-white text-[10px] font-black uppercase tracking-widest"
-                                                    >
-                                                        <ExternalLink className="w-3.5 h-3.5" />
-                                                        VIEW MEXC
-                                                    </a>
-                                                    <button 
-                                                        onClick={(e) => { 
-                                                            e.stopPropagation(); 
-                                                            if (onEdit) onEdit(trade); 
-                                                        }}
-                                                        className="flex items-center justify-center gap-2 w-full py-2 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-lg transition-all border border-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase tracking-widest"
-                                                    >
-                                                        <TrendingUp className="w-3.5 h-3.5" />
-                                                        DÜZENLE
-                                                    </button>
-                                                    <button 
-                                                        onClick={(e) => { e.stopPropagation(); fetchTrades(); }}
-                                                        className="flex items-center justify-center gap-2 w-full py-2 bg-cyan-500/5 hover:bg-cyan-500/10 rounded-lg transition-all border border-cyan-500/20 text-cyan-400 text-[10px] font-black uppercase tracking-widest"
-                                                    >
-                                                        <RefreshCw className="w-3.5 h-3.5" />
-                                                        FORCE SYNC
-                                                    </button>
-                                                </div>
+                                                 {trade.status !== 'CLOSED' ? (
+                                                    <>
+                                                        <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-xl flex flex-col justify-center gap-2">
+                                                            <a 
+                                                                href={`https://www.mexc.com/exchange/${trade.symbol.replace('/', '_')}`}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="flex items-center justify-center gap-2 w-full py-2 bg-slate-800 hover:bg-slate-755 rounded-lg transition-all border border-slate-700 text-white text-[10px] font-black uppercase tracking-widest"
+                                                            >
+                                                                <ExternalLink className="w-3.5 h-3.5" />
+                                                                VIEW MEXC
+                                                            </a>
+                                                            <button 
+                                                                onClick={(e) => { 
+                                                                    e.stopPropagation(); 
+                                                                    if (onEdit) onEdit(trade); 
+                                                                }}
+                                                                className="flex items-center justify-center gap-2 w-full py-2 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-lg transition-all border border-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase tracking-widest"
+                                                            >
+                                                                <TrendingUp className="w-3.5 h-3.5" />
+                                                                DÜZENLE
+                                                            </button>
+                                                            <button 
+                                                                onClick={(e) => { e.stopPropagation(); fetchTrades(); }}
+                                                                className="flex items-center justify-center gap-2 w-full py-2 bg-cyan-500/5 hover:bg-cyan-500/10 rounded-lg transition-all border border-cyan-500/20 text-cyan-400 text-[10px] font-black uppercase tracking-widest"
+                                                            >
+                                                                <RefreshCw className="w-3.5 h-3.5" />
+                                                                FORCE SYNC
+                                                            </button>
+                                                        </div>
 
-                                                <div className="flex flex-col justify-center items-center p-4">
-                                                    <button 
-                                                        onClick={(e) => handlePanicClose(e, trade)}
-                                                        className="group/panic flex flex-col items-center justify-center gap-2 w-full h-full border-2 border-dashed border-rose-500/20 hover:border-rose-500/60 hover:bg-rose-500/10 rounded-2xl transition-all duration-300 shadow-[0_0_20px_rgba(244,63,94,0)] hover:shadow-[0_0_20px_rgba(244,63,94,0.1)]"
-                                                    >
-                                                        <ZapOff className="w-6 h-6 text-rose-500/40 group-hover/panic:text-rose-500 group-hover/panic:scale-110 transition-all" />
-                                                        <span className="text-[10px] font-black text-rose-500/40 group-hover/panic:text-rose-500 uppercase tracking-[0.2em]">PANIC EXIT (MARKET)</span>
-                                                    </button>
-                                                </div>
+                                                        <div className="flex flex-col justify-center items-center p-4">
+                                                            <button 
+                                                                onClick={(e) => handlePanicClose(e, trade)}
+                                                                className="group/panic flex flex-col items-center justify-center gap-2 w-full h-full border-2 border-dashed border-rose-500/20 hover:border-rose-500/60 hover:bg-rose-500/10 rounded-2xl transition-all duration-300 shadow-[0_0_20px_rgba(244,63,94,0)] hover:shadow-[0_0_20px_rgba(244,63,94,0.1)]"
+                                                            >
+                                                                <ZapOff className="w-6 h-6 text-rose-500/40 group-hover/panic:text-rose-500 group-hover/panic:scale-110 transition-all" />
+                                                                <span className="text-[10px] font-black text-rose-500/40 group-hover/panic:text-rose-500 uppercase tracking-[0.2em]">PANIC EXIT (MARKET)</span>
+                                                            </button>
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <div className="col-span-2 p-4 bg-slate-900/60 border border-slate-800 rounded-xl flex flex-col items-center justify-center gap-3">
+                                                        <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center">
+                                                            <ShieldAlert className="w-6 h-6 text-slate-500" />
+                                                        </div>
+                                                        <div className="text-center">
+                                                            <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest block">İŞLEM KAPATILDI</span>
+                                                            <p className="text-[9px] text-slate-600 mt-1 uppercase tracking-tight font-bold">
+                                                                Bu işlem sonlandırıldı ve arşive taşındı. <br/>
+                                                                Son fiyat: ${currentPrice.toLocaleString()}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     )}

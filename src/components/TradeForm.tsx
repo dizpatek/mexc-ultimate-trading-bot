@@ -265,7 +265,7 @@ export const TradeForm = ({ selectedSymbol, assetData }: TradeFormProps) => {
                             step="1" 
                             value={percentage}
                             onChange={(e) => handlePercentageChange(parseInt(e.target.value))}
-                            className="w-full accent-cyan-500 h-1.5 rounded-full cursor-pointer bg-slate-800 appearance-none outline-none"
+                            className="w-full accent-cyan-500 h-1.5 rounded-full cursor-pointer bg-slate-800 outline-none"
                         />
                     </div>
                     <div className="flex justify-between text-[7px] font-bold text-slate-600 uppercase px-0.5">

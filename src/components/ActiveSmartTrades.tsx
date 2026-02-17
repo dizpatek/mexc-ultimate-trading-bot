@@ -272,8 +272,13 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
                                 }
                             }
 
+                            const isClosed = trade.status === 'CLOSED';
+
                             return (
-                                <div key={trade.id} className="group transition-all duration-300 hover:bg-cyan-400/[0.03]">
+                                <div key={trade.id} className={cn(
+                                    "group transition-all duration-300",
+                                    isClosed ? "opacity-60 grayscale bg-slate-900/20 pointer-events-auto" : "hover:bg-cyan-400/[0.03]"
+                                )}>
                                     <div 
                                         className="grid grid-cols-[1.2fr_1.5fr_1fr_0.8fr_2fr_1fr_40px] gap-4 px-6 py-5 items-center cursor-pointer"
                                         onClick={() => setExpandedTrade(isExpanded ? null : trade.id)}
@@ -297,7 +302,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
                                             <div>
                                                 <div className="flex items-center gap-2">
                                                     <span className="text-sm font-black text-white tracking-tight">{trade.symbol.replace('USDT', '')}<span className="text-slate-600 font-bold">/USDT</span></span>
-                                                    {hasTrailing && <Timer className="w-3 h-3 text-cyan-400 animate-pulse" />}
+                                                    {hasTrailing && !isClosed && <Timer className="w-3 h-3 text-cyan-400 animate-pulse" />}
                                                 </div>
                                                 <div className="text-[9px] font-bold text-slate-600 uppercase tracking-widest mt-0.5">NEURO {trade.meta.mode} {" // "} V{trade.id}</div>
                                             </div>
@@ -319,24 +324,26 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
                                         {/* AI SCORE */}
                                         <div className="flex flex-col items-start gap-1">
                                             <div className="flex items-center gap-1.5">
-                                                <Brain className={cn("w-3.5 h-3.5", aiScore > 80 ? "text-cyan-400" : "text-slate-500")} />
-                                                <span className={cn("text-xs font-black", aiScore > 80 ? "text-cyan-400" : "text-slate-300")}>{aiScore}%</span>
+                                                <Brain className={cn("w-3.5 h-3.5", aiScore > 80 && !isClosed ? "text-cyan-400" : "text-slate-500")} />
+                                                <span className={cn("text-xs font-black", aiScore > 80 && !isClosed ? "text-cyan-400" : "text-slate-300")}>{aiScore}%</span>
                                             </div>
                                             <div className="w-16 h-1 bg-slate-800 rounded-full overflow-hidden">
-                                                <div style={{ width: `${aiScore}%` }} className={cn("h-full", aiScore > 80 ? "bg-cyan-400" : "bg-slate-500")}></div>
+                                                <div style={{ width: `${aiScore}%` }} className={cn("h-full", aiScore > 80 && !isClosed ? "bg-cyan-400" : "bg-slate-500")}></div>
                                             </div>
                                         </div>
 
                                         {/* STATUS */}
                                         <div className="text-center">
                                             <div className={cn(
-                                                "text-[9px] font-black px-2 py-1 rounded border uppercase tracking-widest whitespace-nowrap animate-pulse flex flex-col items-center",
-                                                statusColor === "text-emerald-400" ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-400" :
-                                                statusColor === "text-rose-400" ? "border-rose-500/20 bg-rose-500/5 text-rose-400" :
-                                                "border-cyan-500/20 bg-cyan-500/5 text-cyan-400"
+                                                "text-[9px] font-black px-2 py-1 rounded border uppercase tracking-widest whitespace-nowrap flex flex-col items-center",
+                                                isClosed ? "border-white/10 bg-white/5 text-slate-500 animate-none opacity-50" : (
+                                                    statusColor === "text-emerald-400" ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-400 animate-pulse" :
+                                                    statusColor === "text-rose-400" ? "border-rose-500/20 bg-rose-500/5 text-rose-400 animate-pulse" :
+                                                    "border-cyan-500/20 bg-cyan-500/5 text-cyan-400 animate-pulse"
+                                                )
                                             )}>
-                                                <span className="opacity-50 text-[7px] mb-0.5">YZ ALIM-SATIM YAKLAŞIMI</span>
-                                                {statusText === "SCANNING" ? (aiScore > 75 ? "ŞU AN DİP" : aiScore < 30 ? "ŞU AN TEPE" : "YATAY") : statusText}
+                                                <span className="opacity-50 text-[7px] mb-0.5">{isClosed ? 'ARŞİVLENMİŞ VERİ' : 'YZ ALIM-SATIM YAKLAŞIMI'}</span>
+                                                {isClosed ? 'KAPALIDIR' : (statusText === "SCANNING" ? (aiScore > 75 ? "ŞU AN DİP" : aiScore < 30 ? "ŞU AN TEPE" : "YATAY") : statusText)}
                                             </div>
                                         </div>
 
@@ -386,15 +393,15 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
                                             </div>
                                             <div className="flex justify-between mt-1 text-[8px] font-bold text-slate-600 uppercase tracking-widest">
                                                 <span className="flex items-center gap-1">
-                                                    {payload.stopLoss?.trailing && <Radar className="w-2 h-2 text-cyan-500" />}
+                                                    {payload.stopLoss?.trailing && <Radar className={cn("w-2 h-2 text-cyan-500", !isClosed && "animate-spin")} />}
                                                     {payload.stopLoss?.trailing ? `-${payload.stopLoss.deviation}% TR` : ''}
                                                 </span>
-                                                <span className="text-cyan-400/60 font-black animate-pulse">
+                                                <span className={cn("text-cyan-400/60 font-black", !isClosed && "animate-pulse")}>
                                                     GİRİŞ: ${entry.toLocaleString()}
                                                 </span>
                                                 <span className="flex items-center gap-1">
                                                     {payload.takeProfit?.trailing ? `+${payload.takeProfit.deviation}% TR` : ''}
-                                                    {payload.takeProfit?.trailing && <Radar className="w-2 h-2 text-cyan-500" />}
+                                                    {payload.takeProfit?.trailing && <Radar className={cn("w-2 h-2 text-cyan-500", !isClosed && "animate-spin")} />}
                                                 </span>
                                             </div>
                                         </div>
@@ -457,11 +464,14 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
                                                         <div className="text-[8px] font-mono text-cyan-400 uppercase bg-cyan-400/5 px-1 py-0.5 rounded flex items-center gap-1">
                                                             <Brain className="w-2 h-2" /> AI Sent: {aiScore}% Conf.
                                                         </div>
-                                                        <div className="text-[8px] font-mono text-cyan-400 uppercase bg-cyan-400/5 px-1 py-0.5 rounded flex items-center gap-1">
-                                                            <Radar className="w-2 h-2 animate-spin" /> {statusText} ACTIVE
+                                                        <div className={cn(
+                                                            "text-[8px] font-mono uppercase bg-opacity-5 px-1 py-0.5 rounded flex items-center gap-1",
+                                                            isClosed ? "text-slate-500 bg-slate-500/10" : "text-cyan-400 bg-cyan-400/5"
+                                                        )}>
+                                                            <Radar className={cn("w-2 h-2", !isClosed && "animate-spin")} /> {isClosed ? 'MONITORING STANDBY (CLOSED)' : `${statusText} ACTIVE`}
                                                         </div>
                                                         <div className="text-[8px] font-mono text-slate-550 uppercase px-1 pt-1 opacity-50">
-                                                            Feed @ {new Date().toLocaleTimeString([], { hour12: false })}
+                                                            Logged @ {new Date(trade.created_at).toLocaleTimeString([], { hour12: false })}
                                                         </div>
                                                     </div>
                                                 </div>

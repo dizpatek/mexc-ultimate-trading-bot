@@ -14,6 +14,8 @@ interface TradeFormProps {
 export const TradeForm = ({ selectedSymbol, assetData }: TradeFormProps) => {
     const [signal, setSignal] = useState<'buy' | 'sell'>('buy');
     const [pair, setPair] = useState('BTC_USDT');
+    const [useAssets, setUseAssets] = useState(true);
+    const [percentage, setPercentage] = useState(0);
 
     // Sync pair with dashboard selected symbol
     React.useEffect(() => {
@@ -35,15 +37,31 @@ export const TradeForm = ({ selectedSymbol, assetData }: TradeFormProps) => {
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+    // Handle percentage slider change
+    const handlePercentageChange = (pct: number) => {
+        setPercentage(pct);
+        if (signal === 'buy' && assetData?.usdt) {
+            const calculatedUsdt = (assetData.usdt * pct) / 100;
+            setUsdt(calculatedUsdt.toFixed(2));
+            setAmount(''); // Clear manual amount if usdt is set via %
+        } else if (signal === 'sell' && assetData?.holding) {
+            const calculatedAmount = (assetData.holding * pct) / 100;
+            setAmount(calculatedAmount.toFixed(4));
+            setUsdt(''); // Clear manual usdt if amount is set via %
+        }
+    };
+
     const handleMaxAmount = () => {
         if (assetData?.holding) {
             setAmount(assetData.holding.toString());
+            setPercentage(100);
         }
     };
 
     const handleMaxUsdt = () => {
         if (assetData?.usdt) {
             setUsdt(assetData.usdt.toString());
+            setPercentage(100);
         }
     };
 
@@ -71,7 +89,7 @@ export const TradeForm = ({ selectedSymbol, assetData }: TradeFormProps) => {
                 setMessage({ type: 'success', text: `Sinyal Gönderildi - ${signal.toUpperCase()}` });
                 setAmount('');
                 setUsdt('');
-                // Keep SL/TP/Risk as they might be reusable
+                setPercentage(0);
                 setTimeout(() => setMessage(null), 3000);
             } else {
                 setMessage({ type: 'error', text: 'Sinyal Gönderilemedi' });
@@ -113,7 +131,23 @@ export const TradeForm = ({ selectedSymbol, assetData }: TradeFormProps) => {
                     </div>
                 </div>
                 
-                {isLoading && <Activity className="w-3.5 h-3.5 animate-spin text-cyan-500" />}
+                <div className="flex items-center gap-2">
+                    <span className="text-[8px] font-black text-slate-500 uppercase">Varlıkları Kullan</span>
+                    <button 
+                        type="button"
+                        onClick={() => setUseAssets(!useAssets)}
+                        className={cn(
+                            "w-7 h-4 rounded-full transition-all relative px-0.5",
+                            useAssets ? "bg-cyan-500" : "bg-slate-800 border border-slate-700"
+                        )}
+                    >
+                        <div className={cn(
+                            "w-2.5 h-2.5 bg-white rounded-full transition-all shadow-sm",
+                            useAssets ? "translate-x-3" : "translate-x-0"
+                        )} />
+                    </button>
+                    {isLoading && <Activity className="w-3.5 h-3.5 animate-spin text-cyan-500 ml-1" />}
+                </div>
             </div>
 
             {/* Form */}
@@ -122,7 +156,10 @@ export const TradeForm = ({ selectedSymbol, assetData }: TradeFormProps) => {
                 <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950/50 border border-white/5 rounded-xl shrink-0">
                     <button
                         type="button"
-                        onClick={() => setSignal('buy')}
+                        onClick={() => {
+                            setSignal('buy');
+                            setPercentage(0);
+                        }}
                         className={cn(
                             "py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
                             signal === 'buy' 
@@ -134,7 +171,10 @@ export const TradeForm = ({ selectedSymbol, assetData }: TradeFormProps) => {
                     </button>
                     <button
                         type="button"
-                        onClick={() => setSignal('sell')}
+                        onClick={() => {
+                            setSignal('sell');
+                            setPercentage(0);
+                        }}
                         className={cn(
                             "py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
                             signal === 'sell' 
@@ -177,7 +217,10 @@ export const TradeForm = ({ selectedSymbol, assetData }: TradeFormProps) => {
                         <input
                             type="number"
                             value={amount}
-                            onChange={(e) => setAmount(e.target.value)}
+                            onChange={(e) => {
+                                setAmount(e.target.value);
+                                setPercentage(0); // Reset percentage on manual input
+                            }}
                             className="w-full bg-slate-900/50 border border-white/5 rounded-xl px-3 py-2 text-xs font-black text-white outline-none focus:border-cyan-500/50 transition-all placeholder:text-slate-700"
                             placeholder="0.00"
                             step="any"
@@ -197,11 +240,40 @@ export const TradeForm = ({ selectedSymbol, assetData }: TradeFormProps) => {
                         <input
                             type="number"
                             value={usdt}
-                            onChange={(e) => setUsdt(e.target.value)}
+                            onChange={(e) => {
+                                setUsdt(e.target.value);
+                                setPercentage(0); // Reset percentage on manual input
+                            }}
                             className="w-full bg-slate-900/50 border border-white/5 rounded-xl px-3 py-2 text-xs font-black text-white outline-none focus:border-cyan-500/50 transition-all placeholder:text-slate-700"
                             placeholder="0.00"
                             step="any"
                         />
+                    </div>
+                </div>
+
+                {/* 3.5 Precision Slider */}
+                <div className="space-y-2 py-1 px-1 shrink-0">
+                    <div className="flex justify-between items-center text-[8px] font-black text-slate-500 uppercase tracking-widest">
+                        <span>HASSAS AYAR (ORAN)</span>
+                        <span className="text-cyan-400 font-mono text-[10px]">{percentage}%</span>
+                    </div>
+                    <div className="relative h-6 flex items-center">
+                        <input 
+                            type="range" 
+                            min="0" 
+                            max="100" 
+                            step="1" 
+                            value={percentage}
+                            onChange={(e) => handlePercentageChange(parseInt(e.target.value))}
+                            className="w-full accent-cyan-500 h-1.5 rounded-full cursor-pointer bg-slate-800 appearance-none outline-none"
+                        />
+                    </div>
+                    <div className="flex justify-between text-[7px] font-bold text-slate-600 uppercase px-0.5">
+                        <button type="button" onClick={() => handlePercentageChange(0)} className="hover:text-cyan-400">0%</button>
+                        <button type="button" onClick={() => handlePercentageChange(25)} className="hover:text-cyan-400">25%</button>
+                        <button type="button" onClick={() => handlePercentageChange(50)} className="hover:text-cyan-400">50%</button>
+                        <button type="button" onClick={() => handlePercentageChange(75)} className="hover:text-cyan-400">75%</button>
+                        <button type="button" onClick={() => handlePercentageChange(100)} className="hover:text-cyan-400">100%</button>
                     </div>
                 </div>
 

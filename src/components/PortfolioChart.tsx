@@ -70,6 +70,7 @@ function TradingViewWidget() {
     const [isLoading, setIsLoading] = useState(false);
     const [showLoginModal, setShowLoginModal] = useState(false);
     const [extensionInstalled, setExtensionInstalled] = useState(false);
+    const [extensionChecked, setExtensionChecked] = useState(false);
     const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
     
     // Use refs for callbacks to avoid hoisting issues
@@ -167,6 +168,9 @@ function TradingViewWidget() {
                 source: 'matrix-bridge-page',
                 action: 'restoreSession'
             }, '*');
+            
+            // Set checked to true after a small delay to show missing notice if no reply
+            setTimeout(() => setExtensionChecked(true), 2500);
         };
 
         // Small delay to ensure bridge is ready
@@ -353,6 +357,21 @@ function TradingViewWidget() {
                 <div className="flex items-center gap-3">
                     <div className="flex items-center gap-2">
                         <span className="text-[10px] font-black tracking-widest text-slate-500 uppercase">Pro Chart V3</span>
+                        {extensionChecked && !extensionInstalled && (
+                            <div 
+                                onClick={() => setShowLoginModal(true)}
+                                className="flex items-center gap-1.5 px-2 py-0.5 bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[9px] font-black rounded cursor-pointer hover:bg-rose-500/20 transition-all animate-pulse"
+                            >
+                                <AlertCircle className="w-3 h-3" />
+                                <span>@ [.matrix-extension] BULUNAMADI</span>
+                            </div>
+                        )}
+                        {extensionInstalled && (
+                            <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[9px] font-black rounded">
+                                <CheckCircle className="w-3 h-3" />
+                                <span>BRIDGE AKTIF</span>
+                            </div>
+                        )}
                     </div>
 
                     {/* Notification Pill */}
@@ -479,10 +498,41 @@ function TradingViewWidget() {
                             
                             <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4">
                                 <div className="flex items-start gap-3">
-                                    <CheckCircle className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
-                                    <div className="text-xs text-blue-100/70 leading-relaxed">
-                                        <p className="font-bold text-blue-400 mb-1">Akıllı Oturum Yönetimi</p>
-                                        <p>Giriş yaptıktan sonra sistem oturumunuzu otomatik olarak korumaya alır ve her seferinde tekrar sormaz.</p>
+                                    <div className="shrink-0 mt-0.5">
+                                        {!extensionInstalled ? (
+                                            <AlertCircle className="w-5 h-5 text-rose-500" />
+                                        ) : (
+                                            <CheckCircle className="w-5 h-5 text-blue-500" />
+                                        )}
+                                    </div>
+                                    <div className="text-xs leading-relaxed">
+                                        {!extensionInstalled ? (
+                                            <>
+                                                <p className="font-bold text-rose-400 mb-1">Eklenti Gerekli!</p>
+                                                <p className="text-slate-400 mb-3">TradingView oturumunu senkronize etmek için Matrix Bridge eklentisi yüklü olmalıdır.</p>
+                                                <a 
+                                                    href="/matrix-extension-v3.zip" 
+                                                    className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg border border-slate-700 transition-all font-bold"
+                                                >
+                                                    <RefreshCw className="w-3 h-3" />
+                                                    EKLENTIYI INDIR (.ZIP)
+                                                </a>
+                                                <div className="mt-3 p-2 bg-black/40 rounded border border-white/5 text-[10px] text-slate-500">
+                                                    <p className="font-bold mb-1">NASIL KURULUR?</p>
+                                                    <ol className="list-decimal list-inside space-y-1">
+                                                        <li>Zip dosyasını çıkarın.</li>
+                                                        <li>Chrome/Edge: <span className="text-slate-300">Ayarlar {">"} Uzantılar</span> açın.</li>
+                                                        <li><span className="text-slate-300">Geliştirici Modu</span>&apos;nu açın.</li>
+                                                        <li><span className="text-slate-300">Paketlenmiş öğe yükle</span> diyerek klasörü seçin.</li>
+                                                    </ol>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <p className="font-bold text-blue-400 mb-1">Akıllı Oturum Yönetimi</p>
+                                                <p className="text-blue-100/70">Bridge eklentisi aktif. Giriş yaptıktan sonra oturumunuz otomatik korunacaktır.</p>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -491,7 +541,9 @@ function TradingViewWidget() {
                                 <button
                                     onClick={handleLogin}
                                     disabled={isLoading}
-                                    className="flex-1 h-12 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 text-white text-sm font-bold rounded-xl flex items-center justify-center gap-3 transition-all shadow-lg shadow-blue-600/20"
+                                    className={`flex-1 h-12 text-white text-sm font-bold rounded-xl flex items-center justify-center gap-3 transition-all shadow-lg ${
+                                        isLoading ? 'bg-slate-800' : 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/20'
+                                    }`}
                                 >
                                     {isLoading ? (
                                         <>
@@ -501,7 +553,7 @@ function TradingViewWidget() {
                                     ) : (
                                         <>
                                             <LogIn className="w-5 h-5" />
-                                            <span>Google hesabıyla devam et</span>
+                                            <span>Giriş Panelini Aç</span>
                                         </>
                                     )}
                                 </button>

@@ -61,6 +61,18 @@ Matrix F4 Ultimate V3, **9 ana katmandan** oluşan profesyonel bir trading indik
 - 🛡️ **Kill switch** (ardışık kayıp koruması)
 - ✅ **Tek bir SİSTEM KARARI** ile işlem izni
 
+## 1.1 🌐 Bridge Eklentisi Kurulumu (GEREKLİ)
+
+TradingView Pro özelliklerinin ve oturumunun korunması için **Matrix Bridge** eklentisini kurmanız gerekmektedir:
+
+1. Dashboard'da **Pro Chart V3** yanındaki uyarıya tıklayın veya Giriş Paneline gidin.
+2. **EKLENTİYİ İNDİR (.ZIP)** butonuna basarak dosyayı indirin.
+3. İndirdiğiniz `.zip` dosyasını bir klasöre çıkarın.
+4. Tarayıcınızda (Chrome/Edge/Opera) `Ayarlar > Uzantılar` sayfasını açın.
+5. Sağ üstteki **Geliştirici Modu**'nu aktif hale getirin.
+6. **Paketlenmiş öğe yükle** butonuna basarak çıkardığınız klasörü seçin.
+7. Eklenti kurulduğunda dashboard üzerinde **"BRIDGE AKTİF"** yazısı görünecektir.
+
 ---
 
 ## 2. Kurulum

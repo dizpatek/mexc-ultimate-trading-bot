@@ -704,28 +704,28 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                                 {mode === 'COVER' ? 'Varlık Biriktirme Özeti' : 'Standart Al/Sat Özeti'}
                             </h3>
                             
-                            <div className="grid grid-cols-1 gap-4">
-                                <div className="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/10">
-                                    <div className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter mb-1">
+                            <div className="grid grid-cols-3 gap-2">
+                                <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10 flex flex-col justify-center items-center text-center">
+                                    <div className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter mb-0.5 whitespace-nowrap">
                                         {mode === 'COVER' ? 'Tahmini Kazanç' : 'Hesaplanan Kar'}
                                     </div>
-                                    <div className="text-xl font-black text-emerald-400 font-mono tracking-tighter">
+                                    <div className="text-sm font-black text-emerald-400 font-mono tracking-tighter">
                                         ${profitUsdt.toFixed(2)} ({displayTpPercent >= 0 ? '+' : ''}{displayTpPercent.toFixed(2)}%)
                                     </div>
                                 </div>
                                 
-                                <div className="p-4 rounded-2xl bg-rose-500/5 border border-rose-500/10">
-                                    <div className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter mb-1">
+                                <div className="p-3 rounded-xl bg-rose-500/5 border border-rose-500/10 flex flex-col justify-center items-center text-center">
+                                    <div className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter mb-0.5 whitespace-nowrap">
                                         {mode === 'COVER' ? 'Tahmini Kayıp' : 'Maksimum Risk'}
                                     </div>
-                                    <div className="text-xl font-black text-rose-400 font-mono tracking-tighter">
+                                    <div className="text-sm font-black text-rose-400 font-mono tracking-tighter">
                                         -${riskUsdt.toFixed(2)} ({displaySlPercent >= 0 ? '+' : ''}{displaySlPercent.toFixed(2)}%)
                                     </div>
                                 </div>
 
-                                <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
-                                    <div className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter mb-1">Risk/Ödül</div>
-                                    <div className="text-xl font-black text-white font-mono tracking-tighter">1 : {riskReward}</div>
+                                <div className="p-3 rounded-xl bg-white/5 border border-white/10 flex flex-col justify-center items-center text-center">
+                                    <div className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter mb-0.5 whitespace-nowrap">Risk/Ödül</div>
+                                    <div className="text-sm font-black text-white font-mono tracking-tighter">1 : {riskReward}</div>
                                 </div>
                             </div>
                         </div>

@@ -20,7 +20,7 @@ export const usePortfolioSummary = () => {
         });
     }, []);
 
-    return { data, isLoading, error: null };
+    return { data, isLoading, error: null, isError: false, refetch: () => core.portfolio.refresh() };
 };
 
 /**
@@ -41,7 +41,7 @@ export const useHoldings = () => {
         });
     }, []);
 
-    return { data, isLoading, error: null };
+    return { data, isLoading, error: null, isError: false, refetch: () => core.portfolio.refresh() };
 };
 
 /**
@@ -62,5 +62,5 @@ export const useRecentTrades = () => {
         });
     }, []);
 
-    return { data, isLoading, error: null };
+    return { data, isLoading, error: null, isError: false, refetch: () => core.portfolio.refresh() };
 };

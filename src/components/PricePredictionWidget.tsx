@@ -26,9 +26,10 @@ const TIMEFRAMES = [
 interface PricePredictionWidgetProps {
     selectedSymbol?: string;
     onSymbolSelect?: (symbol: string) => void;
+    onAssetDataUpdate?: (data: { holding: number; usdt: number }) => void;
 }
 
-export const PricePredictionWidget = ({ selectedSymbol, onSymbolSelect }: PricePredictionWidgetProps) => {
+export const PricePredictionWidget = ({ selectedSymbol, onSymbolSelect, onAssetDataUpdate }: PricePredictionWidgetProps) => {
     const { data: holdings, isLoading: isHoldingsLoading } = useHoldings();
     const [timeframe, setTimeframe] = useState('1h');
     const [prediction, setPrediction] = useState<Prediction | null>(null);
@@ -45,6 +46,20 @@ export const PricePredictionWidget = ({ selectedSymbol, onSymbolSelect }: PriceP
 
     // Internal "effective" symbol used for fetching
     const symbol = selectedSymbol || 'BTCUSDT';
+
+    // Sync holding data to parent
+    useEffect(() => {
+        if (holdings && onAssetDataUpdate) {
+            const assetBase = symbol.replace('USDT', '');
+            const asset = holdings.find(h => h.symbol === assetBase);
+            const usdt = holdings.find(h => h.symbol === 'USDT' || h.symbol === 'USDC');
+            
+            onAssetDataUpdate({
+                holding: asset?.holding || 0,
+                usdt: usdt?.holding || 0
+            });
+        }
+    }, [holdings, symbol, onAssetDataUpdate]);
 
     // Set initial symbol once holdings are loaded if none selected
     useEffect(() => {

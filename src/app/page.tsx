@@ -58,6 +58,7 @@ export default function Dashboard() {
     const router = useRouter();
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [activeSymbol, setActiveSymbol] = useState<string>('BTCUSDT');
+  const [activeAssetData, setActiveAssetData] = useState<{ holding: number; usdt: number }>({ holding: 0, usdt: 0 });
 
   const tickerSymbols = useMemo(() => {
     if (!holdings) return [];
@@ -150,6 +151,7 @@ export default function Dashboard() {
                         <PricePredictionWidget 
                             selectedSymbol={activeSymbol} 
                             onSymbolSelect={setActiveSymbol} 
+                            onAssetDataUpdate={setActiveAssetData}
                         />
                     </HorizonCard>
                 </div>
@@ -157,6 +159,7 @@ export default function Dashboard() {
                     <HorizonCard className="h-full bg-slate-900/30 backdrop-blur-sm border-slate-800" glowColor="rose">
                          <TradeForm 
                             selectedSymbol={activeSymbol} 
+                            assetData={activeAssetData}
                          />
                     </HorizonCard>
                 </div>

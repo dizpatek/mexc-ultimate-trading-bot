@@ -1,16 +1,17 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Send, TrendingUp, TrendingDown, Target, DollarSign, Activity } from 'lucide-react';
+import { Send, TrendingUp, TrendingDown, Target, Activity } from 'lucide-react';
 import { sendTradeSignal } from '../services/api';
 import type { TradeSignal } from '../services/api';
 import { cn } from '@/lib/utils';
 
 interface TradeFormProps {
     selectedSymbol?: string;
+    assetData?: { holding: number; usdt: number };
 }
 
-export const TradeForm = ({ selectedSymbol }: TradeFormProps) => {
+export const TradeForm = ({ selectedSymbol, assetData }: TradeFormProps) => {
     const [signal, setSignal] = useState<'buy' | 'sell'>('buy');
     const [pair, setPair] = useState('BTC_USDT');
 
@@ -34,6 +35,18 @@ export const TradeForm = ({ selectedSymbol }: TradeFormProps) => {
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+    const handleMaxAmount = () => {
+        if (assetData?.holding) {
+            setAmount(assetData.holding.toString());
+        }
+    };
+
+    const handleMaxUsdt = () => {
+        if (assetData?.usdt) {
+            setUsdt(assetData.usdt.toString());
+        }
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
@@ -55,18 +68,18 @@ export const TradeForm = ({ selectedSymbol }: TradeFormProps) => {
             const response = await sendTradeSignal(tradeSignal);
 
             if (response && (response.success || response.ok)) {
-                setMessage({ type: 'success', text: `Sinyal başarıyla gönderildi` });
+                setMessage({ type: 'success', text: `Sinyal Gönderildi - ${signal.toUpperCase()}` });
                 setAmount('');
                 setUsdt('');
-                setRisk('');
-                setTp('');
-                setSl('');
+                // Keep SL/TP/Risk as they might be reusable
                 setTimeout(() => setMessage(null), 3000);
             } else {
-                setMessage({ type: 'error', text: 'Sinyal gönderimi başarısız' });
+                setMessage({ type: 'error', text: 'Sinyal Gönderilemedi' });
+                setTimeout(() => setMessage(null), 4000);
             }
         } catch (error) {
             setMessage({ type: 'error', text: `Hata: ${(error as Error).message}` });
+            setTimeout(() => setMessage(null), 5000);
         } finally {
             setIsLoading(false);
         }
@@ -94,9 +107,9 @@ export const TradeForm = ({ selectedSymbol }: TradeFormProps) => {
                     </div>
                     <div>
                         <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">
-                            Send Trade Signal
+                            Trade Signal
                         </h3>
-                        <p className="text-[8px] font-bold text-slate-600 uppercase tracking-tight">Operation Center</p>
+                        <p className="text-[8px] font-bold text-slate-600 uppercase tracking-tight">Matrix Operation Center</p>
                     </div>
                 </div>
                 
@@ -153,7 +166,13 @@ export const TradeForm = ({ selectedSymbol }: TradeFormProps) => {
                     <div className="space-y-1">
                         <div className="flex items-center justify-between px-1">
                             <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Amount</label>
-                            <Activity className="w-2.5 h-2.5 text-slate-700" />
+                            <button 
+                                type="button"
+                                onClick={handleMaxAmount}
+                                className="text-[7px] font-black text-cyan-500 hover:text-cyan-400 uppercase tracking-tighter"
+                            >
+                                MAX: {assetData?.holding.toFixed(4) || '0'}
+                            </button>
                         </div>
                         <input
                             type="number"
@@ -167,7 +186,13 @@ export const TradeForm = ({ selectedSymbol }: TradeFormProps) => {
                     <div className="space-y-1">
                         <div className="flex items-center justify-between px-1">
                             <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest">USDT</label>
-                            <DollarSign className="w-2.5 h-2.5 text-slate-700" />
+                            <button 
+                                type="button"
+                                onClick={handleMaxUsdt}
+                                className="text-[7px] font-black text-amber-500 hover:text-amber-400 uppercase tracking-tighter"
+                            >
+                                MAX: ${assetData?.usdt.toFixed(0) || '0'}
+                            </button>
                         </div>
                         <input
                             type="number"
@@ -217,32 +242,37 @@ export const TradeForm = ({ selectedSymbol }: TradeFormProps) => {
                 {/* Message Overlay - Absolute positioned to not move fields */}
                 {message && (
                     <div className={cn(
-                        "absolute top-0 inset-x-0 p-2 rounded-lg border text-[9px] font-black uppercase text-center animate-in fade-in slide-in-from-top-2 duration-300",
-                        message.type === 'success' ? "bg-emerald-500/20 border-emerald-500/30 text-emerald-400" : "bg-rose-500/20 border-rose-500/30 text-rose-400"
+                        "absolute bottom-20 inset-x-4 p-2.5 rounded-xl border text-[9px] font-black uppercase text-center animate-in fade-in slide-in-from-bottom-2 duration-300 z-50 shadow-2xl backdrop-blur-md",
+                        message.type === 'success' ? "bg-emerald-500 text-slate-950 border-emerald-400" : "bg-rose-500 text-slate-950 border-rose-400"
                     )}>
                         {message.text}
                     </div>
                 )}
 
                 {/* 5. Submit Button */}
-                <div className="mt-auto">
+                <div className="mt-auto pt-2">
                     <button
                         type="submit"
                         disabled={isLoading}
                         className={cn(
-                            "w-full py-3 rounded-xl text-xs font-black uppercase tracking-[0.2em] transition-all relative overflow-hidden group/btn",
+                            "w-full py-4 rounded-xl text-xs font-black uppercase tracking-[0.3em] transition-all relative overflow-hidden group/btn shadow-lg active:scale-[0.98]",
                             signal === 'buy' 
-                                ? "bg-emerald-500 text-slate-950 shadow-emerald-500/20" 
-                                : "bg-rose-500 text-slate-950 shadow-rose-500/20",
-                            isLoading && "opacity-50 cursor-wait"
+                                ? "bg-emerald-500 text-slate-950 shadow-emerald-500/20 hover:shadow-emerald-500/40" 
+                                : "bg-rose-500 text-slate-950 shadow-rose-500/20 hover:shadow-rose-500/40",
+                            isLoading && "opacity-50 cursor-wait grayscale"
                         )}
                     >
-                        <div className="absolute inset-0 bg-white/20 translate-y-full group-hover/btn:translate-y-0 transition-transform duration-500" />
-                        <span className="relative z-10 flex items-center justify-center gap-2">
-                            {isLoading ? "Sending..." : (
+                        <div className="absolute inset-0 bg-white/20 translate-y-full group-hover/btn:translate-y-0 transition-transform duration-300" />
+                        <span className="relative z-10 flex items-center justify-center gap-3">
+                            {isLoading ? (
                                 <>
-                                    <Send className="w-3.5 h-3.5" />
-                                    Send Signal
+                                    <Activity className="w-4 h-4 animate-spin" />
+                                    PROCESSING
+                                </>
+                            ) : (
+                                <>
+                                    {signal === 'buy' ? 'SEND BUY SIGNAL' : 'SEND SELL SIGNAL'}
+                                    <TrendingUp className={cn("w-4 h-4 transition-transform group-hover/btn:translate-x-1", signal === 'sell' && "rotate-90")} />
                                 </>
                             )}
                         </span>

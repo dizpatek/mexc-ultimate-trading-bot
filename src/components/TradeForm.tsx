@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Send, Zap, TrendingUp, TrendingDown, Target, Shield, Percent, DollarSign, Activity } from 'lucide-react';
+import { Send, TrendingUp, TrendingDown, Target, DollarSign, Activity } from 'lucide-react';
 import { sendTradeSignal } from '../services/api';
 import type { TradeSignal } from '../services/api';
 import { cn } from '@/lib/utils';

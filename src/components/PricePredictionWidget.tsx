@@ -98,7 +98,7 @@ export const PricePredictionWidget = () => {
     }, [fetchPrediction]);
 
     return (
-        <div className="stat-card flex flex-col h-full min-h-[350px] relative overflow-hidden group p-5 gap-5">
+        <div className="stat-card flex flex-col h-full relative overflow-hidden group p-5 gap-5">
             {/* Background Icon */}
             <div className="absolute -bottom-8 -right-8 opacity-[0.03] group-hover:opacity-10 transition-opacity pointer-events-none">
                 <Bot className="w-56 h-56" />
@@ -171,86 +171,85 @@ export const PricePredictionWidget = () => {
                         <div className="h-2 w-40 bg-white/5 rounded animate-pulse" />
                     </div>
                 ) : prediction ? (
-                    <div className="flex flex-col gap-3 h-full">
+                    <div className="flex flex-col gap-5 h-full">
                         {/* Selected Asset Header */}
                         <div className="flex items-center justify-between">
-                            <h2 className="text-xl font-black text-white tracking-tight">{symbol.replace('USDT','')}</h2>
+                            <h2 className="text-2xl font-black text-white tracking-tight">{symbol.replace('USDT','')}</h2>
                              {/* Trend Badge */}
                             <div className={`
-                                flex items-center gap-1.5 px-2 py-1 rounded-md border backdrop-blur-md
+                                flex items-center gap-1.5 px-3 py-1.5 rounded-lg border backdrop-blur-md shadow-sm
                                 ${prediction.trend === 'UP'
                                     ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
                                     : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
                                 }
                             `}>
-                                {prediction.trend === 'UP' ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                                <span className="text-[9px] font-black uppercase tracking-wider">
-                                    {prediction.trend === 'UP' ? 'UP' : 'DOWN'}
+                                {prediction.trend === 'UP' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                                <span className="text-[10px] font-black uppercase tracking-wider">
+                                    {prediction.trend === 'UP' ? 'YÜKSELİŞ' : 'DÜŞÜŞ'}
                                 </span>
                             </div>
                         </div>
 
                         {/* Split Price View */}
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-2 gap-4">
                             {/* Left: Current Price */}
-                            <div className="flex flex-col p-2.5 rounded-xl bg-slate-900/40 border border-white/5">
-                                <span className="text-[8px] font-bold uppercase text-slate-500 mb-0.5">ANLIK</span>
-                                <span className="text-xl font-black font-mono tracking-tighter text-white">
+                            <div className="flex flex-col p-4 rounded-2xl bg-slate-900/40 border border-white/5 shadow-inner">
+                                <span className="text-[10px] font-bold uppercase text-slate-500 mb-1">ANLIK FİYAT</span>
+                                <span className="text-2xl lg:text-3xl font-black font-mono tracking-tighter text-white">
                                     ${prediction.currentPrice.toLocaleString()}
                                 </span>
                             </div>
 
                             {/* Right: Predicted Price */}
-                            <div className={`flex flex-col p-2.5 rounded-xl border ${prediction.trend === 'UP' ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-rose-500/5 border-rose-500/20'}`}>
-                                <span className={`text-[8px] font-bold uppercase mb-0.5 ${prediction.trend === 'UP' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            <div className={`flex flex-col p-4 rounded-2xl border shadow-inner ${prediction.trend === 'UP' ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-rose-500/5 border-rose-500/20'}`}>
+                                <span className={`text-[10px] font-bold uppercase mb-1 ${prediction.trend === 'UP' ? 'text-emerald-400' : 'text-rose-400'}`}>
                                     {TIMEFRAMES.find(t => t.value === timeframe)?.label} HEDEF
                                 </span>
-                                <span className={`text-xl font-black font-mono tracking-tighter ${prediction.trend === 'UP' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                    ${prediction.predictedPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                <span className={`text-2xl lg:text-3xl font-black font-mono tracking-tighter ${prediction.trend === 'UP' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                    ${prediction.predictedPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
                                 </span>
                             </div>
                         </div>
 
                         {/* Confidence & Time Selector */}
-                        <div className="mt-auto space-y-3">
-                            <div className="flex items-center justify-between py-2 border-t border-white/5">
-                                <div className="flex flex-col gap-1 w-1/3">
-                                    <div className="flex items-center gap-1 text-[8px] font-bold uppercase text-slate-500">
-                                        <Target className="w-2.5 h-2.5" />
-                                        <span>GÜVEN</span>
+                        <div className="mt-auto pt-6 border-t border-white/5 space-y-5">
+                            {/* Confidence Bar */}
+                            <div className="flex flex-col gap-2.5">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase text-slate-500">
+                                        <Target className="w-3.5 h-3.5" />
+                                        <span>Model Güven Endeksi</span>
                                     </div>
-                                    <div className="flex items-center gap-1.5">
-                                        <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden border border-white/5">
-                                            <div
-                                                className={`h-full rounded-full transition-all duration-1000 ${
-                                                    prediction.confidence > 75 ? 'bg-emerald-500' :
-                                                    prediction.confidence > 45 ? 'bg-amber-500' : 'bg-rose-500'
-                                                }`}
-                                                style={{ width: `${prediction.confidence}%` }}
-                                            />
-                                        </div>
-                                        <span className="text-[10px] font-mono font-black text-white">{prediction.confidence.toFixed(1)}%</span>
-                                    </div>
+                                    <span className="text-xs font-mono font-black text-white">{prediction.confidence.toFixed(1)}%</span>
                                 </div>
+                                <div className="h-2 bg-slate-950/80 rounded-full overflow-hidden border border-white/5 p-[1px]">
+                                    <div
+                                        className={`h-full rounded-full transition-all duration-1000 ${
+                                            prediction.confidence > 75 ? 'bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)]' :
+                                            prediction.confidence > 45 ? 'bg-amber-500' : 'bg-rose-500'
+                                        }`}
+                                        style={{ width: `${prediction.confidence}%` }}
+                                    />
+                                </div>
+                            </div>
 
-                                {/* Time Selector */}
-                                <div className="flex gap-0.5 bg-slate-900/80 p-1 rounded-lg border border-white/10">
-                                    {TIMEFRAMES.map((tf) => (
-                                        <button
-                                            key={tf.value}
-                                            onClick={() => setTimeframe(tf.value)}
-                                            className={`
-                                                w-7 h-6 flex items-center justify-center text-[8px] font-bold rounded transition-all
-                                                ${timeframe === tf.value
-                                                    ? 'bg-white text-black font-black'
-                                                    : 'text-slate-500 hover:text-slate-200'
-                                                }
-                                            `}
-                                        >
-                                            {tf.label}
-                                        </button>
-                                    ))}
-                                </div>
+                            {/* Time Selector */}
+                            <div className="grid grid-cols-6 gap-1 bg-slate-950/60 p-1.5 rounded-xl border border-white/10">
+                                {TIMEFRAMES.map((tf) => (
+                                    <button
+                                        key={tf.value}
+                                        onClick={() => setTimeframe(tf.value)}
+                                        className={`
+                                            h-9 flex items-center justify-center text-[10px] font-black rounded-lg transition-all
+                                            ${timeframe === tf.value
+                                                ? 'bg-white text-black shadow-lg shadow-white/10 scale-105'
+                                                : 'text-slate-500 hover:text-slate-200 hover:bg-white/5'
+                                            }
+                                        `}
+                                    >
+                                        {tf.label}
+                                    </button>
+                                ))}
                             </div>
                         </div>
                     </div>

@@ -144,7 +144,7 @@ export default function Dashboard() {
 
             {/* ACTION CENTER */}
             <div className="col-span-12 lg:col-span-4 flex flex-col gap-3 h-full">
-                <div className="h-[320px]">
+                <div className="flex-1">
                     <HorizonCard className="h-full bg-slate-900/30 backdrop-blur-sm border-slate-800" glowColor="amber">
                         <PricePredictionWidget />
                     </HorizonCard>

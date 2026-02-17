@@ -23,9 +23,13 @@ const TIMEFRAMES = [
     { label: '1H', value: '1w' },
 ];
 
-export const PricePredictionWidget = () => {
+interface PricePredictionWidgetProps {
+    selectedSymbol?: string;
+    onSymbolSelect?: (symbol: string) => void;
+}
+
+export const PricePredictionWidget = ({ selectedSymbol, onSymbolSelect }: PricePredictionWidgetProps) => {
     const { data: holdings, isLoading: isHoldingsLoading } = useHoldings();
-    const [symbol, setSymbol] = useState('');
     const [timeframe, setTimeframe] = useState('1h');
     const [prediction, setPrediction] = useState<Prediction | null>(null);
     const [loading, setLoading] = useState(false);
@@ -39,16 +43,19 @@ export const PricePredictionWidget = () => {
             .map(h => h.symbol);
     }, [holdings]);
 
-    // Set initial symbol once holdings are loaded
+    // Internal "effective" symbol used for fetching
+    const symbol = selectedSymbol || 'BTCUSDT';
+
+    // Set initial symbol once holdings are loaded if none selected
     useEffect(() => {
-        if (!isHoldingsLoading && !symbol) {
+        if (!isHoldingsLoading && !selectedSymbol && onSymbolSelect) {
             if (activeAssets.length > 0) {
-                setSymbol(`${activeAssets[0]}USDT`);
+                onSymbolSelect(`${activeAssets[0]}USDT`);
             } else {
-                setSymbol('BTCUSDT');
+                onSymbolSelect('BTCUSDT');
             }
         }
-    }, [isHoldingsLoading, activeAssets, symbol]);
+    }, [isHoldingsLoading, activeAssets, selectedSymbol, onSymbolSelect]);
 
     const fetchPrediction = useCallback(async () => {
         if (!symbol) return;
@@ -124,7 +131,7 @@ export const PricePredictionWidget = () => {
                     activeAssets.map((asset) => (
                         <button
                             key={asset}
-                            onClick={() => setSymbol(`${asset}USDT`)}
+                            onClick={() => onSymbolSelect?.(`${asset}USDT`)}
                             className={`
                                 px-4 py-2 rounded text-xs font-bold transition-all border whitespace-nowrap
                                 ${symbol === `${asset}USDT` 
@@ -141,7 +148,7 @@ export const PricePredictionWidget = () => {
                     ['BTC', 'ETH', 'SOL'].map((asset: string) => (
                         <button
                             key={asset}
-                            onClick={() => setSymbol(`${asset}USDT`)}
+                            onClick={() => onSymbolSelect?.(`${asset}USDT`)}
                             className={`
                                 px-4 py-2 rounded text-xs font-bold transition-all border whitespace-nowrap
                                 ${symbol === `${asset}USDT` 

@@ -6,9 +6,26 @@ import { sendTradeSignal } from '../services/api';
 import type { TradeSignal } from '../services/api';
 import { cn } from '@/lib/utils';
 
-export const TradeForm = () => {
+interface TradeFormProps {
+    selectedSymbol?: string;
+}
+
+export const TradeForm = ({ selectedSymbol }: TradeFormProps) => {
     const [signal, setSignal] = useState<'buy' | 'sell'>('buy');
     const [pair, setPair] = useState('BTC_USDT');
+
+    // Sync pair with dashboard selected symbol
+    React.useEffect(() => {
+        if (selectedSymbol) {
+            // Convert BTCUSDT to BTC_USDT for the form/API
+            let formatted = selectedSymbol;
+            if (selectedSymbol.includes('USDT') && !selectedSymbol.includes('_')) {
+                formatted = selectedSymbol.replace('USDT', '_USDT');
+            }
+            setPair(formatted);
+        }
+    }, [selectedSymbol]);
+
     const [amount, setAmount] = useState('');
     const [usdt, setUsdt] = useState('');
     const [risk, setRisk] = useState('');

@@ -2,13 +2,21 @@
 import { sql } from '@vercel/postgres';
 import { getAccountInfo, marketSellByQty, getTradingMode } from '@/lib/mexc-wrapper';
 
+interface SellResult {
+    asset: string;
+    success: boolean;
+    quantity?: number;
+    usdtReceived?: number;
+    error?: string;
+}
+
 export async function executePanicSell(userId: string) {
     try {
-        const tradingMode = getTradingMode();
+        const tradingMode = await getTradingMode(Number(userId));
         console.log(`[PanicService] Initiating Panic Sell for user ${userId} in ${tradingMode.toUpperCase()} mode`);
 
         // Get all current balances (works in both test and production mode)
-        const accountInfo = await getAccountInfo();
+        const accountInfo = await getAccountInfo(Number(userId));
 
         // Filter assets: >0 balance and not USDT/USDC
         const activeBalances = accountInfo.balances.filter(
@@ -23,8 +31,8 @@ export async function executePanicSell(userId: string) {
             return { success: false, message: 'No assets to sell', totalUsdtValue: 0, mode: tradingMode };
         }
 
-        const snapshotData: any[] = [];
-        const sellResults: any[] = [];
+        const snapshotData: unknown[] = [];
+        const sellResults: SellResult[] = [];
         let totalUsdtValue = 0;
 
         // Sell all assets
@@ -39,7 +47,7 @@ export async function executePanicSell(userId: string) {
                 // Check if symbol exists/is tradable? Assuming mostly yes for major assets
                 // In a perfect world we check exchangeInfo
 
-                const sellResult = await marketSellByQty(symbol, String(quantity));
+                const sellResult = await marketSellByQty(Number(userId), symbol, String(quantity));
 
                 const usdtReceived = parseFloat(sellResult.cummulativeQuoteQty || '0');
                 totalUsdtValue += usdtReceived;
@@ -61,12 +69,13 @@ export async function executePanicSell(userId: string) {
                     usdtReceived
                 });
 
-            } catch (error: any) {
-                console.error(`[PanicService] Failed to sell ${asset}:`, error.message);
+            } catch (error: unknown) {
+                const message = error instanceof Error ? error.message : 'Unknown error';
+                console.error(`[PanicService] Failed to sell ${asset}:`, message);
                 sellResults.push({
                     asset,
                     success: false,
-                    error: error.message
+                    error: message
                 });
             }
         }
@@ -92,7 +101,7 @@ export async function executePanicSell(userId: string) {
             mode: tradingMode
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[PanicService] Critical error:', error);
         throw error;
     }

@@ -37,7 +37,7 @@ export async function checkTrailingStops() {
         for (const symbol of symbols) {
             try {
                 prices[symbol] = await getPrice(symbol);
-            } catch (e) {
+            } catch {
                 console.error(`[TrailingStop] Failed to get price for ${symbol}`);
             }
         }
@@ -83,9 +83,9 @@ async function executeTrailingStop(stop: TrailingStop, triggerPrice: number) {
     try {
         // 1. Execute Market Sell
         // mexc-wrapper handles Test Mode logic automatically
-        const res = await marketSellByQty(stop.symbol, String(stop.quantity));
+        const res = await marketSellByQty(Number(stop.user_id), stop.symbol, String(stop.quantity));
 
-        const tradingMode = getTradingMode();
+        const tradingMode = await getTradingMode(Number(stop.user_id));
         console.log(`[TrailingStop] Sell Result (${tradingMode}):`, res);
 
         // 2. Calculate PnL (Simplified)
@@ -133,8 +133,9 @@ async function executeTrailingStop(stop: TrailingStop, triggerPrice: number) {
 
         console.log(`[TrailingStop] Execution complete. PnL: ${pnl.toFixed(2)} USDT (${pnlPercent.toFixed(2)}%)`);
 
-    } catch (error: any) {
-        console.error(`[TrailingStop] Failed to execute sell for ${stop.id}:`, error);
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        console.error(`[TrailingStop] Failed to execute sell for ${stop.id}:`, message);
         // Don't mark as executed if failed, maybe verify balance first?
         // For now, logging error.
     }

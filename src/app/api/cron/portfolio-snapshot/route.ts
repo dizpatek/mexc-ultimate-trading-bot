@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createPortfolioSnapshot } from '@/lib/db';
-import { getAccountInfo, getPrice } from '@/lib/mexc';
+import { getAccountInfo, getPrice } from '@/lib/mexc-wrapper';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,7 +22,7 @@ export async function GET(request: Request) {
 
         console.log('[Cron] Starting portfolio snapshot...');
 
-        // Get account info
+        // Get account info (cron uses system-wide mode, no specific user)
         const accountInfo = await getAccountInfo();
         const activeBalances = accountInfo.balances.filter(
             b => parseFloat(b.free) + parseFloat(b.locked) > 0
@@ -47,7 +47,7 @@ export async function GET(request: Request) {
             } else {
                 try {
                     price = await getPrice(pair);
-                } catch (e) {
+                } catch {
                     console.warn(`[Cron] Could not get price for ${pair}`);
                 }
             }
@@ -86,10 +86,10 @@ export async function GET(request: Request) {
             timestamp: Date.now()
         });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[Cron] Error creating portfolio snapshot:', error);
         return NextResponse.json(
-            { error: 'Failed to create snapshot', details: error.message },
+            { error: 'Failed to create snapshot', details: error instanceof Error ? error.message : String(error) },
             { status: 500 }
         );
     }

@@ -26,6 +26,7 @@ export interface StrategyParameters {
     f4Length?: number;
     whaleVolumeMultiplier?: number;
     minAiScore?: number;
+    timeframe?: string;
     [key: string]: string | number | boolean | undefined;
 }
 
@@ -41,7 +42,8 @@ abstract class BaseStrategy {
 
     async getHistoricalData(limit: number = 100): Promise<number[]> {
         try {
-            const klines = await getKlines(this.symbol, '1h', limit);
+            const timeframe = this.parameters.timeframe as string || '1h';
+            const klines = await getKlines(this.symbol, timeframe, limit);
             // Klines: [time, open, high, low, close, volume, ...]
             return klines.map(k => parseFloat(String(k[4]))); // Close prices
         } catch (error: unknown) {
@@ -209,11 +211,9 @@ class MACrossoverStrategy extends BaseStrategy {
     }
 }
 
-import { MatrixV3Engine } from './matrix-v3-engine';
+import { MatrixV3Engine } from './matrix-v3-engine-enhanced';
 
-// ... existing imports ...
-
-// Matrix V3 Strategy
+// Matrix V3 Strategy - Enhanced
 class MatrixV3Strategy extends BaseStrategy {
     private engine: MatrixV3Engine;
 
@@ -226,21 +226,26 @@ class MatrixV3Strategy extends BaseStrategy {
         });
         
         this.engine = new MatrixV3Engine({
-            f4Length: this.parameters.f4Length,
-            whaleVolumeMultiplier: this.parameters.whaleVolumeMultiplier,
-            minAiScore: this.parameters.minAiScore,
-            useWhaleEngine: true
+            f4Length: Number(this.parameters.f4Length),
+            whaleVolumeMultiplier: Number(this.parameters.whaleVolumeMultiplier),
+            minAiScore: Number(this.parameters.minAiScore),
+            useWhaleEngine: true,
+            tradeMode: 'Scalp' // Can be parameterized later
         });
     }
 
     async analyze(): Promise<StrategySignal | null> {
-        // We need 500 bars for EMA200 and V3 calculations
+        // We need 500 bars for EMA200, SMC, and V3 calculations
         const limit = 500;
         
         try {
-            const klines = await getKlines(this.symbol, '1h', limit);
-            // Klines: [time, open, high, low, close, volume, ...]
-            
+            const timeframe = this.parameters.timeframe as string || '1h';
+            const klines = await getKlines(this.symbol, timeframe, limit);
+            if (!klines || klines.length < 200) {
+                 logger.info(`Insufficient data for ${this.symbol}: ${klines?.length || 0} bars`);
+                 return null;
+            }
+
             const closes = klines.map(k => parseFloat(String(k[4])));
             const highs = klines.map(k => parseFloat(String(k[2])));
             const lows = klines.map(k => parseFloat(String(k[3])));
@@ -248,39 +253,36 @@ class MatrixV3Strategy extends BaseStrategy {
             
             const result = this.engine.analyze(closes, highs, lows, volumes);
             
-            const signal: 'BUY' | 'SELL' | null = result.signal;
-            let reason = '';
+            // The enhanced engine provides 'systemDecision' which is the final GO/NO-GO
+            const signalType: 'BUY' | 'SELL' | null = result.systemDecision === 'GO_LONG' ? 'BUY' : result.systemDecision === 'GO_SHORT' ? 'SELL' : null;
             
-            if (signal === 'BUY') {
-                reason = `Matrix V3 Bullish (Slope: ${result.slope.toFixed(4)}) + AI Score: ${result.aiScore}`;
-                if (result.whaleDetected) reason += ' + WHALE';
-            } else if (signal === 'SELL') {
-                reason = `Matrix V3 Bearish (Slope: ${result.slope.toFixed(4)}) + AI Score: ${result.aiScore}`;
-                if (result.whaleDetected) reason += ' + WHALE';
-            }
-            
-            // If no signal but whale detected, maybe log it or consider it a warning?
-            // For now, adhere to engine signal.
+            if (!signalType) return null;
 
-            if (!signal) return null;
+            let reason = `[MatrixV3-Enhanced] Decision: ${result.systemDecision} | AI Score: ${result.aiScore}`;
+            reason += ` | Regime: ${result.regimePrediction} | Whale: ${result.whaleStatus}`;
+            
+            if (result.vixBottom) reason += ' | VIX BOTTOM DETECTED';
 
             return {
                 symbol: this.symbol,
                 strategy: 'matrix_v3',
-                signal,
+                signal: signalType,
                 reason,
                 indicators: {
                     f4Slope: result.slope,
                     f4Accel: result.acceleration,
-                    whale: result.whaleDetected,
-                    trend: result.trend
+                    aiScore: result.aiScore,
+                    whaleStatus: result.whaleStatus,
+                    regime: result.regimePrediction,
+                    marketRegime: result.marketRegime,
+                    vixBottom: result.vixBottom
                 },
                 timestamp: Date.now()
             };
             
         } catch (error: unknown) {
              const message = error instanceof Error ? error.message : String(error);
-             logger.error(`Matrix V3 analysis failed for ${this.symbol}`, { error: message });
+             logger.error(`Matrix V3 Enhanced analysis failed for ${this.symbol}`, { error: message });
              return null;
         }
     }

@@ -18,8 +18,9 @@ export async function monitorSmartTrades() {
     
     try {
         // 1. Fetch active smart trades (both filled and pending entry)
+        // Now selecting user_id as well
         const { rows } = await sql`
-            SELECT id, symbol, side, qty, price, meta, status 
+            SELECT id, user_id, symbol, side, qty, price, meta, status 
             FROM orders 
             WHERE meta::jsonb->>'smartTrade' = 'true' 
             AND status IN ('FILLED', 'PENDING')
@@ -34,7 +35,11 @@ export async function monitorSmartTrades() {
         const engine = new MatrixV3Engine();
 
         for (const trade of trades) {
-            await processTradeMonitoring(trade, engine);
+            try {
+                await processTradeMonitoring(trade, engine);
+            } catch (err) {
+                console.error(`[SmartMonitor] Error monitoring trade ${trade.id}:`, err);
+            }
         }
 
     } catch (error) {
@@ -44,6 +49,7 @@ export async function monitorSmartTrades() {
 
 interface MonitoredTrade {
     id: number;
+    user_id: number;
     symbol: string;
     side: 'BUY' | 'SELL';
     qty: number;
@@ -53,13 +59,16 @@ interface MonitoredTrade {
 }
 
 async function processTradeMonitoring(trade: MonitoredTrade, engine: MatrixV3Engine) {
-    const { id, symbol, side, price: entryPrice, meta: rawMeta } = trade;
+    const { id, user_id, symbol, side, qty: rawQty, price: rawEntryPrice, meta: rawMeta } = trade;
+    const entryPrice = typeof rawEntryPrice === 'string' ? parseFloat(rawEntryPrice) : Number(rawEntryPrice);
+    const qty = typeof rawQty === 'string' ? parseFloat(rawQty) : Number(rawQty);
+    
     const meta = typeof rawMeta === 'string' ? JSON.parse(rawMeta) : rawMeta;
     const payload = meta.payload;
 
     try {
         const currentPrice = await getPrice(symbol);
-        if (!currentPrice) return;
+        if (!currentPrice || isNaN(currentPrice)) return;
 
         // 1. AI Analysis Throttling
         let aiScore = meta.lastAiScore || 0;
@@ -105,44 +114,67 @@ async function processTradeMonitoring(trade: MonitoredTrade, engine: MatrixV3Eng
             const trailingBuyDev = payload.trailingBuyDev || 1.0;
             let entryTriggered = meta.entryTriggered || false;
 
-            // Update Lowest Price seen so far and adjust SL/TP to follow
-            if (currentPrice < lowestPrice) {
-                const dropRatio = currentPrice / lowestPrice;
-                newLowest = currentPrice;
+                // Directional tracking for Entry phase
+                if (side === 'BUY') {
+                    // Long Entry: Trail the bottom
+                    if (currentPrice < lowestPrice) {
+                        newLowest = currentPrice;
+                    }
+                } else if (side === 'SELL') {
+                    // Short Entry: Trail the top
+                    if (currentPrice > highestPrice) {
+                        newHighest = currentPrice;
+                    }
+                }
                 
-                if (isTrailingBuy) {
-                    // Update payload prices proportionally
-                    if (payload.buyPrice) {
-                        payload.buyPrice = (parseFloat(payload.buyPrice) * dropRatio).toString();
+                // 1. Check Entry Condition
+                if (!entryTriggered) {
+                    // Long Entry Trigger: Price drops to or below target
+                    if (side === 'BUY' && currentPrice <= targetEntryPrice) {
+                        entryTriggered = true;
+                        console.log(`[SmartMonitor] Long Entry triggered for ${symbol} @ ${currentPrice}.`);
+                        if (!isTrailingBuy) {
+                            shouldExit = true;
+                            exitReason = 'LIMIT ENTRY REACHED';
+                        } else {
+                             // Initialize trailing tracking
+                             newLowest = currentPrice;
+                             console.log(`[SmartMonitor] Trailing Buy Activates! Tracking bottom from ${newLowest}`);
+                        }
+                    } 
+                    // Short Entry Trigger (Cover Mode): Price rises to or above target
+                    else if (side === 'SELL' && currentPrice >= targetEntryPrice) {
+                        entryTriggered = true;
+                        console.log(`[SmartMonitor] Short Entry triggered for ${symbol} @ ${currentPrice}.`);
+                         if (!isTrailingBuy) { // Reusing 'trailingBuy' flag for 'Trailing Entry' generic
+                            shouldExit = true;
+                            exitReason = 'LIMIT ENTRY REACHED (SHORT)';
+                        } else {
+                             // Initialize trailing tracking
+                             newHighest = currentPrice;
+                             console.log(`[SmartMonitor] Trailing Short Entry Activates! Tracking top from ${newHighest}`);
+                        }
                     }
-                    if (payload.stopLoss?.price) {
-                        payload.stopLoss.price = (parseFloat(payload.stopLoss.price) * dropRatio).toString();
-                    }
-                    if (payload.takeProfit?.price) {
-                        payload.takeProfit.price = (parseFloat(payload.takeProfit.price) * dropRatio).toString();
-                    }
-                    console.log(`[SmartMonitor] Trailing Buy: Price dropped. Adjusted SL/TP by factor ${dropRatio.toFixed(6)}`);
                 }
-            }
 
-            // 1. Check Entry Condition
-            if (!entryTriggered && currentPrice <= targetEntryPrice) {
-                entryTriggered = true;
-                console.log(`[SmartMonitor] Entry trigger reached for ${symbol} @ ${currentPrice}.`);
-                if (!isTrailingBuy) {
-                    shouldExit = true; // Non-trailing immediate entry
-                    exitReason = 'LIMIT ENTRY REACHED';
+                if (entryTriggered && isTrailingBuy) {
+                    if (side === 'BUY') {
+                        // Trailing Buy: Wait for bounce from bottom
+                        // 3Commas behavior: Once triggered, track absolute bottom. Buy when price bounces by deviation%.
+                        const buyTrigger = newLowest * (1 + trailingBuyDev / 100);
+                        if (currentPrice >= buyTrigger) {
+                            shouldExit = true;
+                            exitReason = `TRAILING BUY EXECUTED @ ${currentPrice} (Bottom: ${newLowest}, Dev: ${trailingBuyDev}%)`;
+                        }
+                    } else {
+                        // Trailing Sell (Short Entry): Wait for drop from top
+                        const sellTrigger = newHighest * (1 - trailingBuyDev / 100);
+                        if (currentPrice <= sellTrigger) {
+                            shouldExit = true;
+                            exitReason = `TRAILING SHORT ENTRY EXECUTED @ ${currentPrice} (Top: ${newHighest}, Dev: ${trailingBuyDev}%)`;
+                        }
+                    }
                 }
-            }
-
-            if (entryTriggered && isTrailingBuy) {
-                // Tracking bounce from bottom
-                const buyTrigger = newLowest * (1 + trailingBuyDev / 100);
-                if (currentPrice >= buyTrigger) {
-                    shouldExit = true;
-                    exitReason = `TRAILING BUY EXECUTED @ ${currentPrice} (Bottom: ${newLowest})`;
-                }
-            }
 
             meta.entryTriggered = entryTriggered;
             
@@ -158,88 +190,264 @@ async function processTradeMonitoring(trade: MonitoredTrade, engine: MatrixV3Eng
             }
 
             // A. STOP LOSS
+            // Check Move to Breakeven: If first TP filled and breakeven enabled, override SL to entry price
+            let effectiveSLPrice = payload.stopLoss?.price ? parseFloat(payload.stopLoss.price) : 0;
+            const filledTargetsForBE = meta.filledTargets || [];
+            if (payload.stopLoss?.breakeven && filledTargetsForBE.length > 0 && !meta.slMovedToBreakeven) {
+                meta.slMovedToBreakeven = true;
+                effectiveSLPrice = entryPrice;
+                console.log(`[SmartMonitor] Move to Breakeven activated for ${symbol}. SL moved to entry: ${entryPrice}`);
+            } else if (meta.slMovedToBreakeven) {
+                effectiveSLPrice = entryPrice; // Keep SL at entry after breakeven
+            }
+
             if (payload.stopLoss?.trailing && payload.stopLoss?.deviation) {
-                const slPrice = newHighest * (1 - payload.stopLoss.deviation / 100);
-                if (currentPrice <= slPrice) {
-                    shouldExit = true;
-                    exitReason = `TRAILING STOP LOSS HIT @ ${currentPrice}`;
+                // 3Commas AEP-based formula: Trail value = AEP × SL%
+                const trailValue = entryPrice * (Math.abs(payload.stopLoss.deviation) / 100);
+                const trailingSLPrice = newHighest - trailValue;
+                
+                // Use the higher of trailing SL and breakeven SL
+                const finalSL = Math.max(trailingSLPrice, meta.slMovedToBreakeven ? entryPrice : 0);
+                
+                // DEBUG LOG
+                if (Date.now() % 30000 < 5000) { // Log every ~30s to avoid spam
+                    console.log(`[SmartMonitor] ${symbol} TSL Check | Price: ${currentPrice.toFixed(2)} | TrailSL: ${finalSL.toFixed(2)} | Peak: ${newHighest.toFixed(2)}`);
                 }
-            } else if (payload.stopLoss?.price) {
-                const fixedSL = parseFloat(payload.stopLoss.price);
-                if (currentPrice <= fixedSL) {
-                    shouldExit = true;
-                    exitReason = `FIXED STOP LOSS HIT @ ${currentPrice}`;
+
+                if (currentPrice <= finalSL) {
+                    // SL Timeout: Wait N seconds before confirming
+                    if (payload.stopLoss.timeout && payload.stopLoss.timeoutSeconds) {
+                        const timeoutSec = Number(payload.stopLoss.timeoutSeconds) || 10;
+                        if (!meta.slTimeoutStart) {
+                            meta.slTimeoutStart = Date.now();
+                            console.log(`[SmartMonitor] ⏱ SL Timeout started for ${symbol}. Waiting ${timeoutSec}s...`);
+                        } else if (Date.now() - meta.slTimeoutStart >= timeoutSec * 1000) {
+                            shouldExit = true;
+                            exitReason = `TRAILING STOP LOSS HIT @ ${currentPrice} (after ${timeoutSec}s timeout)`;
+                        }
+                    } else {
+                        shouldExit = true;
+                        exitReason = `TRAILING STOP LOSS HIT @ ${currentPrice} (AEP Trail: ${trailValue.toFixed(4)})`;
+                    }
+                } else {
+                    // Price recovered above SL, reset timeout
+                    if (meta.slTimeoutStart) {
+                        console.log(`[SmartMonitor] ✨ SL Timeout reset for ${symbol}. Price recovered to ${currentPrice}`);
+                        meta.slTimeoutStart = null;
+                    }
+                }
+            } else if (effectiveSLPrice > 0) {
+                if (currentPrice <= effectiveSLPrice) {
+                    // SL Timeout for fixed SL
+                    if (payload.stopLoss?.timeout && payload.stopLoss?.timeoutSeconds) {
+                        const timeoutSec = Number(payload.stopLoss.timeoutSeconds) || 10;
+                        if (!meta.slTimeoutStart) {
+                            meta.slTimeoutStart = Date.now();
+                            console.log(`[SmartMonitor] ⏱ SL Timeout started for ${symbol}. Waiting ${timeoutSec}s...`);
+                        } else if (Date.now() - meta.slTimeoutStart >= timeoutSec * 1000) {
+                            shouldExit = true;
+                            exitReason = `FIXED STOP LOSS HIT @ ${currentPrice} (after ${timeoutSec}s timeout)`;
+                        }
+                    } else {
+                        shouldExit = true;
+                        exitReason = `FIXED STOP LOSS HIT @ ${currentPrice}`;
+                    }
+                } else {
+                    if (meta.slTimeoutStart) {
+                        meta.slTimeoutStart = null;
+                    }
                 }
             }
 
             // B. TAKE PROFIT
-            if (payload.takeProfit?.price) {
-                const tpPrice = parseFloat(payload.takeProfit.price);
-                
-                // Check if target hit for the first time
-                if (!tpTriggered && currentPrice >= tpPrice) {
-                    tpTriggered = true;
-                    console.log(`[SmartMonitor] TP Target reached for ${symbol} @ ${currentPrice}. Trailing active.`);
-                }
+            if (payload.takeProfit?.price || payload.takeProfit?.targets?.length > 0) {
+                const isSplit = !!payload.takeProfit.isSplit && payload.takeProfit.targets?.length > 0;
+                const targets = isSplit ? payload.takeProfit.targets : [{ price: payload.takeProfit.price, volume: 100 }];
+                const filledTargets = meta.filledTargets || []; // Array of indices
 
-                if (tpTriggered) {
-                    if (payload.takeProfit.trailing && payload.takeProfit.deviation) {
-                        // Trailing exit: price drops X% from the peak reached AFTER trigger
-                        const trailExit = newHighest * (1 - Math.abs(payload.takeProfit.deviation) / 100);
-                        if (currentPrice <= trailExit) {
-                            shouldExit = true;
-                            exitReason = `TRAILING TAKE PROFIT HIT @ ${currentPrice} (Peak: ${newHighest})`;
+                // Sort targets by price ascending for BUY trades
+                const sortedTargets = [...targets].sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
+                
+                for (let i = 0; i < sortedTargets.length; i++) {
+                    if (filledTargets.includes(i)) continue;
+
+                    const target = sortedTargets[i];
+                    const tpPrice = parseFloat(target.price);
+                    const isLastTarget = i === sortedTargets.length - 1;
+
+                    // If target reached
+                    if (currentPrice >= tpPrice) {
+                        // Check if trailing applies to THIS target
+                        // Rule: Trailing only applies to the LAST target if multiple exist, or the single target.
+                        const useTrailing = payload.takeProfit.trailing && payload.takeProfit.deviation && isLastTarget;
+
+                        if (useTrailing) {
+                            if (!tpTriggered) {
+                                tpTriggered = true;
+                                meta.tpTriggered = true;
+                                console.log(`[SmartMonitor] Final TP Target reached for ${symbol} @ ${currentPrice}. Trailing active.`);
+                            }
+
+                            const trailExit = newHighest * (1 - Math.abs(payload.takeProfit.deviation) / 100);
+                            if (currentPrice <= trailExit) {
+                                shouldExit = true;
+                                exitReason = `TRAILING TAKE PROFIT HIT @ ${currentPrice} (Peak: ${newHighest})`;
+                            }
+                        } else {
+                            // Immediate Partial or Full Exit
+                            if (isSplit && !isLastTarget) {
+                                console.log(`[SmartMonitor] Split TP Target ${i+1} reached for ${symbol} @ ${currentPrice}. Executing partial sell.`);
+                                // Execute partial sell
+                                const targetVolume = parseFloat(String(target.volume)) / 100;
+                                const originalQty = parseFloat(meta.initialQty || qty); // track initial qty for precise % calculation
+                                const sellQty = originalQty * targetVolume;
+                                
+                                // Safety: Ensure we don't oversell current qty
+                                const safeSellQty = Math.min(sellQty, qty);
+
+                                try {
+                                    await marketSellByQty(user_id, symbol, safeSellQty.toFixed(8).replace(/\.?0+$/, ''));
+                                    filledTargets.push(i);
+                                    meta.filledTargets = filledTargets;
+                                    
+                                    // Update internal Quantity tracking
+                                    const remainingQty = qty - safeSellQty;
+                                    
+                                    // Update the 'qty' in the main order record for consistent display/logic
+                                    await sql`UPDATE orders SET qty = ${remainingQty} WHERE id = ${id}`;
+                                    
+                                    console.log(`[SmartMonitor] Partial sell successful. Remaining: ${remainingQty}`);
+                                    
+                                    // We need to return here to avoid double processing or inconsistent state in this loop
+                                    // The next tick will pick up the new Qty.
+                                    meta.lastUpdate = Date.now();
+                                    await sql`UPDATE orders SET meta = ${JSON.stringify(meta)} WHERE id = ${id}`;
+                                    return; 
+                                } catch (err) {
+                                    console.error(`[SmartMonitor] Partial sell failed for target ${i+1}:`, err);
+                                }
+                            } else {
+                                // Final or Single Target (No Trailing)
+                                shouldExit = true;
+                                exitReason = isSplit ? `FINAL SPLIT TP TARGET HIT @ ${currentPrice}` : `FIXED TAKE PROFIT HIT @ ${currentPrice}`;
+                            }
                         }
-                    } else if (currentPrice >= tpPrice) {
-                        // Fixed TP (Immediate exit if not trailing)
-                        shouldExit = true;
-                        exitReason = `FIXED TAKE PROFIT HIT @ ${currentPrice}`;
                     }
+                    
+                    // Only process one target at a time per tick for safety, 
+                    // or break if we found the first un-filled target that isn't hit yet.
+                    if (!filledTargets.includes(i)) break;
                 }
             }
-        }
- else {
+        } else {
             // Side === 'SELL' (Cover mode / Short)
             if (currentPrice < lowestPrice) {
                 newLowest = currentPrice;
             }
 
             // A. STOP LOSS (Short)
+            // Check Move to Breakeven for Short
+            let effectiveSLPriceShort = payload.stopLoss?.price ? parseFloat(payload.stopLoss.price) : 0;
+            const filledTargetsForBEShort = meta.filledTargets || [];
+            if (payload.stopLoss?.breakeven && filledTargetsForBEShort.length > 0 && !meta.slMovedToBreakeven) {
+                meta.slMovedToBreakeven = true;
+                effectiveSLPriceShort = entryPrice;
+                console.log(`[SmartMonitor] Move to Breakeven (Short) activated for ${symbol}. SL moved to entry: ${entryPrice}`);
+            } else if (meta.slMovedToBreakeven) {
+                effectiveSLPriceShort = entryPrice;
+            }
+
             if (payload.stopLoss?.trailing && payload.stopLoss?.deviation) {
-                const slPrice = newLowest * (1 + payload.stopLoss.deviation / 100);
-                if (currentPrice >= slPrice) {
-                    shouldExit = true;
-                    exitReason = `TRAILING STOP LOSS (SELL) HIT @ ${currentPrice}`;
+                // 3Commas AEP-based formula for Short: Trail value = AEP × SL%
+                const trailValue = entryPrice * (Math.abs(payload.stopLoss.deviation) / 100);
+                const trailingSLPrice = newLowest + trailValue;
+                const finalSL = Math.min(trailingSLPrice, meta.slMovedToBreakeven ? entryPrice : Infinity);
+                if (currentPrice >= finalSL) {
+                    if (payload.stopLoss.timeout && payload.stopLoss.timeoutSeconds) {
+                        if (!meta.slTimeoutStart) {
+                            meta.slTimeoutStart = Date.now();
+                        } else if (Date.now() - meta.slTimeoutStart >= payload.stopLoss.timeoutSeconds * 1000) {
+                            shouldExit = true;
+                            exitReason = `TRAILING STOP LOSS (SELL) HIT @ ${currentPrice} (after timeout)`;
+                        }
+                    } else {
+                        shouldExit = true;
+                        exitReason = `TRAILING STOP LOSS (SELL) HIT @ ${currentPrice} (AEP Trail: ${trailValue.toFixed(4)})`;
+                    }
+                } else {
+                    if (meta.slTimeoutStart) meta.slTimeoutStart = null;
                 }
-            } else if (payload.stopLoss?.price) {
-                const fixedSL = parseFloat(payload.stopLoss.price);
-                if (currentPrice >= fixedSL) {
-                    shouldExit = true;
-                    exitReason = `FIXED STOP LOSS (SELL) HIT @ ${currentPrice}`;
+            } else if (effectiveSLPriceShort > 0) {
+                if (currentPrice >= effectiveSLPriceShort) {
+                    if (payload.stopLoss?.timeout && payload.stopLoss?.timeoutSeconds) {
+                        if (!meta.slTimeoutStart) {
+                            meta.slTimeoutStart = Date.now();
+                        } else if (Date.now() - meta.slTimeoutStart >= payload.stopLoss.timeoutSeconds * 1000) {
+                            shouldExit = true;
+                            exitReason = `FIXED STOP LOSS (SELL) HIT @ ${currentPrice} (after timeout)`;
+                        }
+                    } else {
+                        shouldExit = true;
+                        exitReason = `FIXED STOP LOSS (SELL) HIT @ ${currentPrice}`;
+                    }
+                } else {
+                    if (meta.slTimeoutStart) meta.slTimeoutStart = null;
                 }
             }
 
             // B. TAKE PROFIT (Short)
-            if (payload.takeProfit?.price) {
-                const tpPrice = parseFloat(payload.takeProfit.price);
-                
-                if (!tpTriggered && currentPrice <= tpPrice) {
-                    tpTriggered = true;
-                    console.log(`[SmartMonitor] TP Target (Short) reached for ${symbol} @ ${currentPrice}. Trailing active.`);
-                }
+            if (payload.takeProfit?.price || payload.takeProfit?.targets?.length > 0) {
+                const isSplit = !!payload.takeProfit.isSplit && payload.takeProfit.targets?.length > 0;
+                const targets = isSplit ? payload.takeProfit.targets : [{ price: payload.takeProfit.price, volume: 100 }];
+                const filledTargets = meta.filledTargets || [];
 
-                if (tpTriggered) {
-                    if (payload.takeProfit.trailing && payload.takeProfit.deviation) {
-                        // Trailing exit for short: price rises X% from the BOTTOM reached after trigger
-                        const trailExit = newLowest * (1 + payload.takeProfit.deviation / 100);
-                        if (currentPrice >= trailExit) {
-                            shouldExit = true;
-                            exitReason = `TRAILING TAKE PROFIT (SELL) HIT @ ${currentPrice} (Bottom: ${newLowest})`;
+                // Sort targets by price descending for SELL (Short) trades
+                const sortedTargets = [...targets].sort((a, b) => parseFloat(b.price) - parseFloat(a.price));
+
+                for (let i = 0; i < sortedTargets.length; i++) {
+                    if (filledTargets.includes(i)) continue;
+
+                    const target = sortedTargets[i];
+                    const tpPrice = parseFloat(target.price);
+                    const isLastTarget = i === sortedTargets.length - 1;
+
+                    // If target reached (price went DOWN)
+                    if (currentPrice <= tpPrice) {
+                        const useTrailing = payload.takeProfit.trailing && payload.takeProfit.deviation && isLastTarget;
+
+                        if (useTrailing) {
+                            if (!tpTriggered) {
+                                tpTriggered = true;
+                                meta.tpTriggered = true;
+                                console.log(`[SmartMonitor] Final TP Target (Short) reached for ${symbol} @ ${currentPrice}. Trailing active.`);
+                            }
+
+                            const trailExit = newLowest * (1 + Math.abs(payload.takeProfit.deviation) / 100);
+                            if (currentPrice >= trailExit) {
+                                shouldExit = true;
+                                exitReason = `TRAILING TAKE PROFIT (SELL) HIT @ ${currentPrice} (Bottom: ${newLowest})`;
+                            }
+                        } else {
+                            if (isSplit && !isLastTarget) {
+                                console.log(`[SmartMonitor] Split TP Target (Short) ${i+1} reached for ${symbol} @ ${currentPrice}. Executing partial buyback.`);
+                                const targetVolume = parseFloat(String(target.volume)) / 100;
+                                const buyQty = qty * targetVolume;
+                                
+                                try {
+                                    const cost = buyQty * currentPrice;
+                                    await marketBuyByQuote(user_id, symbol, cost.toFixed(6));
+                                    filledTargets.push(i);
+                                    meta.filledTargets = filledTargets;
+                                } catch (err) {
+                                    console.error(`[SmartMonitor] Partial buyback failed for target ${i+1}:`, err);
+                                }
+                            } else {
+                                shouldExit = true;
+                                exitReason = isSplit ? `FINAL SPLIT TP TARGET (SHORT) HIT @ ${currentPrice}` : `FIXED TAKE PROFIT (SELL) HIT @ ${currentPrice}`;
+                            }
                         }
-                    } else if (currentPrice <= tpPrice) {
-                        shouldExit = true;
-                        exitReason = `FIXED TAKE PROFIT (SELL) HIT @ ${currentPrice}`;
                     }
+                    if (!filledTargets.includes(i)) break;
                 }
             }
         }
@@ -269,14 +477,16 @@ async function processTradeMonitoring(trade: MonitoredTrade, engine: MatrixV3Eng
 }
 
 async function executeEntry(trade: MonitoredTrade, currentPrice: number, reason: string) {
-    const { id, symbol, qty, meta: rawMeta } = trade;
+    const { id, user_id, symbol, qty, meta: rawMeta } = trade;
     const meta = typeof rawMeta === 'string' ? JSON.parse(rawMeta) : rawMeta;
     
     try {
         // Execute real market buy using our quote amount logic
         const quoteAmount = qty * currentPrice;
         // Round quote amount to standard precision
-        const result = await marketBuyByQuote(symbol, quoteAmount.toFixed(6));
+        
+        // Use userId to get their specific mode/keys
+        const result = await marketBuyByQuote(user_id, symbol, quoteAmount.toFixed(6));
         
         // Calculate real average price from fill data
         let avgPrice = currentPrice;
@@ -308,7 +518,7 @@ async function executeEntry(trade: MonitoredTrade, currentPrice: number, reason:
 }
 
 async function executeExit(trade: MonitoredTrade, currentPrice: number, reason: string) {
-    const { id, symbol, side, qty, meta: rawMeta } = trade;
+    const { id, user_id, symbol, side, qty, meta: rawMeta } = trade;
     const meta = typeof rawMeta === 'string' ? JSON.parse(rawMeta) : rawMeta;
     
     try {
@@ -316,11 +526,11 @@ async function executeExit(trade: MonitoredTrade, currentPrice: number, reason: 
         if (side === 'BUY') {
             // Sell to close: Round quantity to avoid MEXC precision rejection
             const sellQty = parseFloat(String(qty)).toFixed(8).replace(/\.?0+$/, '');
-            result = await marketSellByQty(symbol, sellQty);
+            result = await marketSellByQty(user_id, symbol, sellQty);
         } else {
             // Buy back to close
             const cost = qty * currentPrice;
-            result = await marketBuyByQuote(symbol, cost.toFixed(6));
+            result = await marketBuyByQuote(user_id, symbol, cost.toFixed(6));
         }
 
         // Calculate real exit price from the fill result

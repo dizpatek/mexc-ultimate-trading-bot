@@ -9,7 +9,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ symb
 
         const trades = await getTradeHistoryBySymbol(symbol, limit);
         return NextResponse.json(trades);
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Error fetching symbol trades:', error);
         return NextResponse.json({ error: 'Failed to fetch symbol trades' }, { status: 500 });
     }

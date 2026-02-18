@@ -1,4 +1,4 @@
-import { calculateF4 } from './indicators/f4';
+import { calculateF4, F4Result } from './indicators/f4';
 import { getKlines } from './mexc-wrapper'; // Use wrapper!
 import { sql } from '@vercel/postgres';
 import { executePanicSell } from './panic-service';
@@ -9,16 +9,23 @@ interface Alarm {
     symbol: string;
     condition_type: 'BUY_SIGNAL' | 'SELL_SIGNAL' | 'F4_BUY_SIGNAL' | 'F4_SELL_SIGNAL' | 'PRICE_ABOVE' | 'PRICE_BELOW'; // added F4
     action_type: 'NOTIFY' | 'TRADE' | 'PANIC_SELL';
-    parameters?: any;
+    parameters?: Record<string, unknown>;
+}
+
+interface KlineData {
+    high: number[];
+    low: number[];
+    close: number[];
+    volume: number[];
 }
 
 // Helper to map raw MEXC klines to arrays required by F4
-function mapToArrays(rawKlines: any[]): any {
+function mapToArrays(rawKlines: unknown[][]): KlineData {
     // MEXC kline structure: [time, open, high, low, close, vol, ...]
-    const high = rawKlines.map(k => parseFloat(k[2]));
-    const low = rawKlines.map(k => parseFloat(k[3]));
-    const close = rawKlines.map(k => parseFloat(k[4]));
-    const volume = rawKlines.map(k => parseFloat(k[5]));
+    const high = rawKlines.map(k => parseFloat(String(k[2])));
+    const low = rawKlines.map(k => parseFloat(String(k[3])));
+    const close = rawKlines.map(k => parseFloat(String(k[4])));
+    const volume = rawKlines.map(k => parseFloat(String(k[5])));
 
     return { high, low, close, volume };
 }
@@ -55,7 +62,7 @@ async function processSymbolAlarms(symbol: string, alarms: Alarm[]) {
     try {
         // 2. Fetch OHLC Data
         // Default to 1h interval for now as per F4 standard
-        const rawKlines: any[] = await getKlines(symbol, '60m');
+        const rawKlines: unknown[][] = await getKlines(symbol, '60m') as unknown[][];
         if (!rawKlines || rawKlines.length < 100) {
             console.warn(`[AlarmEngine] Insufficient data for ${symbol}`);
             return;
@@ -74,7 +81,7 @@ async function processSymbolAlarms(symbol: string, alarms: Alarm[]) {
             wtAvgLength: 21,
         });
 
-        const { f4Signal, actionRecommendation } = f4Result;
+        const { f4Signal } = f4Result;
 
         // Log latest values
         const latestPrice = close[close.length - 1];
@@ -101,11 +108,11 @@ async function processSymbolAlarms(symbol: string, alarms: Alarm[]) {
     }
 }
 
-async function executeAlarmAction(alarm: Alarm, price: number, f4Result: any) {
-    console.log(`[AlarmEngine] 🚨 ALARM TRIGGERED: ${alarm.symbol} ${alarm.condition_type}`);
+async function executeAlarmAction(alarm: Alarm, price: number, f4Result: F4Result) {
+    console.log(`[AlarmEngine] ALARM TRIGGERED: ${alarm.symbol} ${alarm.condition_type}`);
 
     try {
-        let actionResult: any = { status: 'triggered', f4Data: f4Result };
+        let actionResult: Record<string, unknown> = { status: 'triggered', f4Data: f4Result };
 
         // Execute Action
         if (alarm.action_type === 'PANIC_SELL') {

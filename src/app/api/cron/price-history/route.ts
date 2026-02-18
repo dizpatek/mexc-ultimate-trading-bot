@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@vercel/postgres';
-import { getTopAssets, get24hrTicker } from '@/lib/mexc';
+import { getTopAssets } from '@/lib/mexc';
 
 export const dynamic = 'force-dynamic';
 
@@ -65,8 +65,9 @@ export async function GET(request: Request) {
                 `;
 
                 recordedCount++;
-            } catch (error: any) {
-                console.warn(`[Cron] Failed to record price for ${asset.symbol}:`, error.message);
+            } catch (error: unknown) {
+                const message = error instanceof Error ? error.message : 'Unknown error';
+                console.warn(`[Cron] Failed to record price for ${asset.symbol}:`, message);
             }
         }
 
@@ -78,10 +79,11 @@ export async function GET(request: Request) {
             timestamp
         });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[Cron] Error tracking price history:', error);
+        const message = error instanceof Error ? error.message : 'Unknown error';
         return NextResponse.json(
-            { error: 'Failed to track price history', details: error.message },
+            { error: 'Failed to track price history', details: message },
             { status: 500 }
         );
     }

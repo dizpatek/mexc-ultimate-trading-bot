@@ -12,7 +12,7 @@ export async function GET(request: Request) {
 
         const strategies = await getStrategiesByUser(user.id);
         return NextResponse.json(strategies);
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Error fetching strategies:', error);
         return NextResponse.json({ error: 'Failed to fetch strategies' }, { status: 500 });
     }
@@ -32,8 +32,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Name, symbol, and strategy_type are required' }, { status: 400 });
         }
 
-        // @ts-ignore
-        if (!AVAILABLE_STRATEGIES[strategy_type]) {
+        if (!AVAILABLE_STRATEGIES[strategy_type as keyof typeof AVAILABLE_STRATEGIES]) {
             return NextResponse.json({ error: 'Invalid strategy type' }, { status: 400 });
         }
 
@@ -46,7 +45,7 @@ export async function POST(request: Request) {
         });
 
         return NextResponse.json({ id: strategyId, success: true });
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Error creating strategy:', error);
         return NextResponse.json({ error: 'Failed to create strategy' }, { status: 500 });
     }

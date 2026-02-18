@@ -21,7 +21,7 @@ export async function GET(request: Request) {
         }));
 
         return NextResponse.json(history);
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Error fetching portfolio history:', error);
         return NextResponse.json({ error: 'Failed to fetch portfolio history' }, { status: 500 });
     }

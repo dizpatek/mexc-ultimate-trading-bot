@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
     RefreshCw, TrendingUp, TrendingDown, Wallet, Fish, 
     AlertCircle, Activity, Zap, LineChart, CircleDollarSign, 
-    X, ExternalLink 
+    X
 } from 'lucide-react';
 import { api } from '@/services/api';
 import { TradingViewEmbedChart } from './TradingViewEmbedChart';
@@ -208,9 +208,9 @@ export function MatrixPortfolio() {
                 setTradeStatus(prev => ({ ...prev, [symbol]: { type: 'error', msg: errorMsg } }));
                 setTimeout(() => setTradeStatus(prev => ({ ...prev, [symbol]: null })), 5000);
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Trade execution error', error);
-            const errorMsg = error.response?.data?.message || error.response?.data?.error || 'Hata Oluştu';
+            const errorMsg = error instanceof Error ? error.message : 'Hata Oluştu';
             setTradeStatus(prev => ({ ...prev, [symbol]: { type: 'error', msg: errorMsg } }));
             setTimeout(() => setTradeStatus(prev => ({ ...prev, [symbol]: null })), 5000);
         } finally {

@@ -22,14 +22,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             api.get('/auth/me')
                 .then(response => {
                     setUser(response.data.user);
-                    setLoading(false);
                 })
                 .catch(() => {
                     localStorage.removeItem('token');
-                    setLoading(false);
+                })
+                .finally(() => {
+                    // Use setTimeout to avoid synchronous setState in effect
+                    setTimeout(() => setLoading(false), 0);
                 });
         } else {
-            setLoading(false);
+            // Use setTimeout to avoid synchronous setState in effect
+            setTimeout(() => setLoading(false), 0);
         }
     }, []);
 
@@ -40,8 +43,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             localStorage.setItem('token', token);
             setUser(userData);
             return true;
-        } catch {
-            return false;
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : 'Login failed';
+            throw new Error(message);
         }
     };
 
@@ -52,14 +56,25 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             localStorage.setItem('token', token);
             setUser(userData);
             return true;
-        } catch {
-            return false;
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : 'Registration failed';
+            throw new Error(message);
         }
     };
 
     const logout = () => {
         localStorage.removeItem('token');
         setUser(null);
+        
+        // Matrix Bridge Integration: Clear TV Session
+        localStorage.removeItem('tv_login_status');
+        window.dispatchEvent(new Event('tv-session-clear'));
+        
+        // Notify Extension if present
+        window.postMessage({
+            source: 'matrix-bridge-page',
+            action: 'logout'
+        }, '*');
     };
 
     const value: AuthContextType = {

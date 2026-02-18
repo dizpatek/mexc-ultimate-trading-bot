@@ -33,8 +33,9 @@ export async function POST(request: Request) {
         } else {
             return NextResponse.json({ error: 'unknown signal' }, { status: 400 });
         }
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Webhook error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }

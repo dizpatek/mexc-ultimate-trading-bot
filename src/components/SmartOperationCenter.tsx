@@ -45,26 +45,6 @@ export const SmartOperationCenter = () => {
 
     return (
         <div className="space-y-6">
-            {/* Unified Terminal Module (Chart + Trade) */}
-            <div ref={terminalRef}>
-                <SmartTrade 
-                    controlledSymbol={symbol}
-                    onSymbolChange={setSymbol}
-                    controlledBuyPrice={buyPrice}
-                    onBuyPriceChange={setBuyPrice}
-                    controlledTpPrice={tpPrice}
-                    onTpPriceChange={setTpPrice}
-                    controlledSlPrice={slPrice}
-                    onSlPriceChange={setSlPrice}
-                    controlledTpEnabled={tpEnabled}
-                    onTpEnabledChange={setTpEnabled}
-                    controlledSlEnabled={slEnabled}
-                    onSlEnabledChange={setSlEnabled}
-                    editingTrade={editingTrade}
-                    onCancelEdit={() => setEditingTrade(undefined)}
-                />
-            </div>
-
             <ActiveSmartTrades 
                 onEdit={(trade) => {
                     const p = trade.meta.payload;
@@ -86,6 +66,26 @@ export const SmartOperationCenter = () => {
                     }, 100);
                 }}
             />
+
+            {/* Unified Terminal Module (Chart + Trade) */}
+            <div ref={terminalRef}>
+                <SmartTrade 
+                    controlledSymbol={symbol}
+                    onSymbolChange={setSymbol}
+                    controlledBuyPrice={buyPrice}
+                    onBuyPriceChange={setBuyPrice}
+                    controlledTpPrice={tpPrice}
+                    onTpPriceChange={setTpPrice}
+                    controlledSlPrice={slPrice}
+                    onSlPriceChange={setSlPrice}
+                    controlledTpEnabled={tpEnabled}
+                    onTpEnabledChange={setTpEnabled}
+                    controlledSlEnabled={slEnabled}
+                    onSlEnabledChange={setSlEnabled}
+                    editingTrade={editingTrade}
+                    onCancelEdit={() => setEditingTrade(undefined)}
+                />
+            </div>
         </div>
     );
 };

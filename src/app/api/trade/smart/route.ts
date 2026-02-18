@@ -3,7 +3,9 @@ import { getSessionUser } from '@/lib/auth-utils';
 import { handleSmartTrade } from '@/lib/smart-trade';
 import { sql } from '@vercel/postgres';
 import axios from 'axios';
-import { getPrice, marketBuyByQuote, marketSellByQty } from '@/lib/mexc-wrapper';
+import { getPrice, marketBuyByQuote, marketSellByQty, type TradingMode } from '@/lib/mexc-wrapper';
+import { getMexcCredentials } from '@/lib/settings';
+import { cookies } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,10 +16,26 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        // Fetch orders
+        // Check mode and credentials for GET too (since we fetch prices)
+        const cookieStore = await cookies();
+        const mode = cookieStore.get('TRADING_MODE')?.value as TradingMode || 'test';
+        
+        if (mode === 'production') {
+            const { apiKey, apiSecret } = await getMexcCredentials(user.id, mode);
+            if (!apiKey || !apiSecret) {
+                // Return 400 BUT also empty list to avoid breaking UI if not strict
+                // Actually better to error so user knows why prices are 0 or missing
+                return NextResponse.json({ 
+                    error: 'Production mode requires API keys. Please configure them in Settings.' 
+                }, { status: 400 });
+            }
+        }
+
+        // Fetch orders for this user only
         const { rows } = await sql`
-            SELECT id, symbol, side, type, qty, price, status, created_at, meta 
+            SELECT id, user_id, symbol, side, type, qty, price, status, created_at, meta 
             FROM orders 
+            WHERE user_id = ${user.id}
             ORDER BY created_at DESC
         `;
 
@@ -110,7 +128,7 @@ export async function DELETE(request: Request) {
             // meta is TEXT column — we must read, parse, merge in JS, write back
             const { rows } = await sql`
                 SELECT id, meta FROM orders 
-                WHERE status IN ('FILLED', 'PENDING')
+                WHERE user_id = ${user.id} AND status IN ('FILLED', 'PENDING')
             `;
             
             const smartRows = rows.filter(r => {
@@ -140,7 +158,7 @@ export async function DELETE(request: Request) {
         
         // --- REAL EXECUTION PANIC EXIT (Skip if silent) ---
         if (id && !silent) {
-            const { rows: tradeRows } = await sql`SELECT symbol, side, qty, status, meta FROM orders WHERE id = ${id}`;
+            const { rows: tradeRows } = await sql`SELECT user_id, symbol, side, qty, status, meta FROM orders WHERE id = ${id} AND user_id = ${user.id}`;
             if (tradeRows.length > 0) {
                 const trade = tradeRows[0];
                 if (trade.status === 'FILLED' || (trade.status === 'PENDING' && trade.side === 'SELL')) {
@@ -148,11 +166,11 @@ export async function DELETE(request: Request) {
                     try {
                         if (trade.side === 'BUY') {
                             const sellQty = parseFloat(String(trade.qty)).toFixed(8).replace(/\.?0+$/, '');
-                            await marketSellByQty(trade.symbol, sellQty);
+                            await marketSellByQty(user.id, trade.symbol, sellQty);
                         } else {
                             const currentP = await getPrice(trade.symbol);
                             const cost = parseFloat(String(trade.qty)) * currentP;
-                            await marketBuyByQuote(trade.symbol, cost.toFixed(6));
+                            await marketBuyByQuote(user.id, trade.symbol, cost.toFixed(6));
                         }
                     } catch (execError) {
                         console.error(`[PanicExit] Exchange execution failed for ${id}:`, execError);
@@ -179,7 +197,7 @@ export async function DELETE(request: Request) {
             await sql`
                 UPDATE orders 
                 SET status = 'CLOSED', updated_at = ${now}, meta = ${updatedMeta}
-                WHERE id = ${id}
+                WHERE id = ${id} AND user_id = ${user.id}
             `;
             
             return NextResponse.json({ success: true, message: silent ? 'Order archived silently' : 'Order closed and position exited' });
@@ -265,7 +283,7 @@ export async function POST(request: Request) {
             }, { status: 400 });
         }
 
-        const result = await handleSmartTrade(payload, tradingMode);
+        const result = await handleSmartTrade({ ...payload, user_id: user.id }, tradingMode);
         
         console.log('[API] SmartTrade Result:', result);
 

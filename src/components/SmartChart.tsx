@@ -5,8 +5,10 @@ import { createChart, ColorType, LineStyle, CandlestickSeries, LineSeries, Histo
 import type { IChartApi, ISeriesApi, IPriceLine, Time, MouseEventParams, LogicalRange } from 'lightweight-charts';
 import { fetchKlines } from '@/services/api';
 import { Target } from 'lucide-react';
+import { AssetIcon } from '@/components/AssetIcon';
 import { core } from '@/services/ApiCore';
 import { cn } from '@/lib/utils';
+import type { Holding } from '@/services/api';
 
 
 interface SmartChartProps {
@@ -25,6 +27,13 @@ interface SmartChartProps {
     onTrailingTpChange: (v: boolean) => void;
     currentMarketPrice?: number;
     onMarketPriceUpdate?: (price: number) => void;
+    mode?: 'TRADE' | 'COVER';
+    // Trailing deviation values for visual display
+    trailingBuyDev?: number;
+    trailingTpDev?: number;
+    trailingSlDev?: number;
+    assets?: Holding[];
+    onAssetChange?: (asset: Holding) => void;
 }
 
 interface CandleData {
@@ -44,6 +53,33 @@ interface RawCandle {
     volume?: number | string;
 }
 
+const TIMEFRAMES = [
+    { label: '1m', value: '1m' },
+    { label: '5m', value: '5m' },
+    { label: '15m', value: '15m' },
+    { label: '30m', value: '30m' },
+    { label: '1h', value: '1h' },
+    { label: '4h', value: '4h' },
+    { label: '12h', value: '12h' },
+    { label: '1d', value: '1d' },
+    { label: '1w', value: '1w' },
+];
+
+const TIMEFRAME_SECONDS: Record<string, number> = {
+    '1m': 60,
+    '3m': 180,
+    '5m': 300,
+    '15m': 900,
+    '30m': 1800,
+    '1h': 3600,
+    '2h': 7200,
+    '4h': 14400,
+    '8h': 28800,
+    '12h': 43200,
+    '1d': 86400,
+    '1w': 604800,
+};
+
 export const SmartChart: React.FC<SmartChartProps> = ({ 
     symbol,
     buyPrice,
@@ -60,6 +96,12 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     onTrailingTpChange,
     currentMarketPrice: externalMarketPrice,
     onMarketPriceUpdate,
+    mode = 'TRADE',
+    trailingBuyDev = 1.0,
+    trailingTpDev = -1.0,
+    trailingSlDev = -1.0,
+    assets = [],
+    onAssetChange,
 }) => {
     const chartContainerRef = useRef<HTMLDivElement>(null);
     const chartRef = useRef<IChartApi | null>(null);
@@ -68,27 +110,19 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     const ghostSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
     const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [isChartReady, setIsChartReady] = useState(false);
+    const [historyLoading, setHistoryLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [syncError, setSyncError] = useState<boolean>(false);
+    const [isChartReady, setIsChartReady] = useState(false);
     const [lastClose, setLastClose] = useState(0);
     const lastCandleRef = useRef<CandleData | null>(null);
     const allKlinesRef = useRef<CandleData[]>([]);
     const allVolumeRef = useRef<{ time: Time; value: number; color: string }[]>([]);
     const isHistoryLoadingRef = useRef(false);
-    const [historyLoading, setHistoryLoading] = useState(false);
     const [timeframe, setTimeframe] = useState('1h');
+    const isUpdatingOverlaysRef = useRef(false);
 
-    const TIMEFRAMES = [
-        { label: '1dk', value: '1m' },
-        { label: '5dk', value: '5m' },
-        { label: '15dk', value: '15m' },
-        { label: '30dk', value: '30m' },
-        { label: '1s', value: '1h' },
-        { label: '4s', value: '4h' },
-        { label: '12s', value: '12h' },
-        { label: '1g', value: '1d' },
-        { label: '1h', value: '1w' },
-    ];
+
 
     // The "current price" is the last close price from the data, or the external one
     const currentPrice = externalMarketPrice || lastClose;
@@ -136,9 +170,6 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     }, []);
 
     // Refs for price lines
-    const buyLineRef = useRef<IPriceLine | null>(null);
-    const tpLineRef = useRef<IPriceLine | null>(null);
-    const slLineRef = useRef<IPriceLine | null>(null);
     const currentPriceLineRef = useRef<IPriceLine | null>(null);
     const tpFillRef = useRef<ISeriesApi<"Baseline"> | null>(null);
     const slFillRef = useRef<ISeriesApi<"Baseline"> | null>(null);
@@ -251,55 +282,112 @@ export const SmartChart: React.FC<SmartChartProps> = ({
         
         let isMounted = true;
         
-        const updateSeriesData = (newKlines: CandleData[], newVolume: { time: Time; value: number; color: string }[]) => {
-            if (!seriesRef.current || !volumeSeriesRef.current) return;
+        const updateSeriesData = (newKlines: CandleData[], newVolume: { time: Time; value: number; color: string }[], mode: 'reset' | 'update' | 'prepend' = 'reset') => {
+            if (!seriesRef.current || !volumeSeriesRef.current || !isChartReady) return;
             
-            // Merge with existing
-            const combinedKlines = [...allKlinesRef.current, ...newKlines];
-            const combinedVolume = [...allVolumeRef.current, ...newVolume];
+            const toSeconds = (t: Time): number => {
+                if (typeof t === 'number') return t;
+                if (typeof t === 'string') return Number(t);
+                if (t && typeof t === 'object' && 'timestamp' in t) return (t as { timestamp: number }).timestamp;
+                return 0;
+            };
 
-            // 1. Force numeric conversion and filter out NaNs
-            const sanitize = <T extends { time: Time }>(data: T[]): T[] => data.filter(d => {
-                const t = Number(d.time);
-                return !isNaN(t) && t > 0;
-            });
+            const sanitize = <T extends { time: Time }>(data: T[]): T[] => {
+                return data.filter(d => {
+                    const t = toSeconds(d.time);
+                    return !isNaN(t) && t > 0;
+                }).map(d => ({
+                    ...d,
+                    time: toSeconds(d.time) as Time
+                }));
+            };
 
-            const cleanKlines = sanitize(combinedKlines);
-            const cleanVolume = sanitize(combinedVolume);
+            const cleanKlines = sanitize(newKlines);
+            const cleanVolume = sanitize(newVolume);
 
-            // 2. Sort by time ascending
-            cleanKlines.sort((a, b) => Number(a.time) - Number(b.time));
-            cleanVolume.sort((a, b) => Number(a.time) - Number(b.time));
+            if (mode === 'reset' || allKlinesRef.current.length === 0) {
+                 // Full Reset Mode
+                cleanKlines.sort((a, b) => toSeconds(a.time) - toSeconds(b.time));
+                cleanVolume.sort((a, b) => toSeconds(a.time) - toSeconds(b.time));
 
-            // 3. De-duplicate by time
-            const uniqueKlines: CandleData[] = [];
-            for (const k of cleanKlines) {
-                if (uniqueKlines.length === 0 || k.time !== uniqueKlines[uniqueKlines.length - 1].time) {
-                    uniqueKlines.push(k);
+                allKlinesRef.current = cleanKlines;
+                allVolumeRef.current = cleanVolume;
+                seriesRef.current.setData(cleanKlines);
+                volumeSeriesRef.current.setData(cleanVolume);
+            } else if (mode === 'prepend') {
+                // Prepend Mode (for history)
+                const firstKnownTime = allKlinesRef.current.length > 0 
+                    ? toSeconds(allKlinesRef.current[0].time) 
+                    : Infinity;
+
+                const olderKlines = cleanKlines.filter(k => toSeconds(k.time) < firstKnownTime);
+                const olderVolume = cleanVolume.filter(v => toSeconds(v.time) < firstKnownTime);
+
+                if (olderKlines.length > 0) {
+                    allKlinesRef.current = [...olderKlines, ...allKlinesRef.current];
+                    allVolumeRef.current = [...olderVolume, ...allVolumeRef.current];
+                    seriesRef.current.setData(allKlinesRef.current);
+                    volumeSeriesRef.current.setData(allVolumeRef.current);
+                }
+            } else {
+                // Smart Update Mode (Merge API data into existing ref)
+                const klineMap = new Map<number, CandleData>(allKlinesRef.current.map(k => [toSeconds(k.time), k]));
+                const volMap = new Map<number, { time: Time; value: number; color: string }>(
+                    allVolumeRef.current.map(v => [toSeconds(v.time), v])
+                );
+
+                const hasSignificantChange = (a: number, b: number) => Math.abs(a - b) > 0.00000001;
+                let hasHistoricalChange = false;
+                const lastExistingTime = allKlinesRef.current.length > 0 ? toSeconds(allKlinesRef.current[allKlinesRef.current.length - 1].time) : 0;
+
+                cleanKlines.forEach(k => {
+                    const t = toSeconds(k.time);
+                    const existing = klineMap.get(t);
+                    if (!existing || hasSignificantChange(existing.close, k.close) || hasSignificantChange(existing.high, k.high) || hasSignificantChange(existing.low, k.low)) {
+                        klineMap.set(t, k);
+                        if (t < lastExistingTime) hasHistoricalChange = true;
+                    }
+                });
+
+                cleanVolume.forEach(v => {
+                    const t = toSeconds(v.time);
+                    const existing = volMap.get(t);
+                    if (!existing || Math.abs(existing.value - v.value) > 0.1) {
+                        volMap.set(t, v);
+                        if (t < lastExistingTime) hasHistoricalChange = true;
+                    }
+                });
+
+                allKlinesRef.current = Array.from(klineMap.values()).sort((a, b) => toSeconds(a.time) - toSeconds(b.time));
+                allVolumeRef.current = Array.from(volMap.values()).sort((a, b) => toSeconds(a.time) - toSeconds(b.time));
+
+                if (hasHistoricalChange) {
+                    // Must use setData if older candles were updated
+                    seriesRef.current.setData(allKlinesRef.current);
+                    volumeSeriesRef.current.setData(allVolumeRef.current);
+                } else {
+                    // Only update candles at or after the current tip
+                    cleanKlines.filter(k => toSeconds(k.time) >= lastExistingTime)
+                              .sort((a, b) => toSeconds(a.time) - toSeconds(b.time))
+                              .forEach(k => seriesRef.current?.update(k));
+                    
+                    cleanVolume.filter(v => toSeconds(v.time) >= lastExistingTime)
+                               .sort((a, b) => toSeconds(a.time) - toSeconds(b.time))
+                               .forEach(v => volumeSeriesRef.current?.update(v));
                 }
             }
 
-            const uniqueVolume: typeof cleanVolume = [];
-            for (const v of cleanVolume) {
-                if (uniqueVolume.length === 0 || v.time !== uniqueVolume[uniqueVolume.length - 1].time) {
-                    uniqueVolume.push(v);
-                }
-            }
-
-            // Update refs and series
-            allKlinesRef.current = uniqueKlines;
-            allVolumeRef.current = uniqueVolume;
-            seriesRef.current.setData(uniqueKlines);
-            volumeSeriesRef.current.setData(uniqueVolume);
-
-            if (uniqueKlines.length > 0) {
-                lastCandleRef.current = uniqueKlines[uniqueKlines.length - 1];
+            if (allKlinesRef.current.length > 0) {
+                lastCandleRef.current = allKlinesRef.current[allKlinesRef.current.length - 1];
             }
         };
 
         const fetchData = async (shouldFocus = false) => {
-            if (shouldFocus) setIsLoading(true);
-            setError(null);
+            if (shouldFocus) {
+                setIsLoading(true);
+                setError(null);
+            }
+            setSyncError(false);
             const apiSymbol = symbol.replace('/', '');
             
             try {
@@ -329,9 +417,8 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                         color: Number(d.close) >= Number(d.open) ? 'rgba(16,185,129,0.25)' : 'rgba(244,63,94,0.25)',
                     }));
 
-                // Center point for data management: fetchData replaces or merges?
-                // Usually fetchData is for recent data, so we merge it
-                updateSeriesData(validData, volumeData);
+                // Use 'reset' for initial load/focus, 'update' for background polling
+                updateSeriesData(validData, volumeData, shouldFocus ? 'reset' : 'update');
 
                 if (allKlinesRef.current.length > 0) {
                     const latest = allKlinesRef.current[allKlinesRef.current.length - 1];
@@ -344,7 +431,17 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                 }
             } catch (err) {
                 console.error('[SmartChart] Data error:', err);
-                if (isMounted) setError(`Bağlantı hatası: ${apiSymbol}`);
+                if (isMounted) {
+                    // Only show blocking error if we HAVE NO DATA YET
+                    if (allKlinesRef.current.length === 0) {
+                        setError(`Bağlantı hatası: ${apiSymbol}`);
+                    } else {
+                        // Background sync failed, show subtle warning instead
+                        setSyncError(true);
+                        // Reset sync error after some time to avoid permanent warning
+                        setTimeout(() => setSyncError(false), 5000);
+                    }
+                }
             } finally {
                 if (isMounted) setIsLoading(false);
             }
@@ -382,7 +479,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                             color: Number(d.close) >= Number(d.open) ? 'rgba(16,185,129,0.25)' : 'rgba(244,63,94,0.25)',
                         }));
 
-                    updateSeriesData(historicalKlines, historicalVolume);
+                    updateSeriesData(historicalKlines, historicalVolume, 'prepend');
                 }
             } catch (err) {
                 console.error('[SmartChart] History fetch error:', err);
@@ -421,17 +518,61 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                 }
 
                 // Update the very last candle visually
+                const candlestickSeconds = TIMEFRAME_SECONDS[timeframe] || 3600;
+                const nowTotalSeconds = Math.floor(Date.now() / 1000);
+                
+                // Determine currentBarTime robustly: 
+                // We use the ideal alignment based on clock, BUT we respect the last known candle's offset
+                // (crucial for timeframes like 1w which might not start on Unix epoch boundaries)
+                const lastKnownTime = allKlinesRef.current.length > 0 
+                    ? Number(allKlinesRef.current[allKlinesRef.current.length - 1].time) 
+                    : 0;
+                
+                let currentBarTime: number;
+                if (lastKnownTime > 0) {
+                    const offset = lastKnownTime % candlestickSeconds;
+                    const ideal = Math.floor((nowTotalSeconds - offset) / candlestickSeconds) * candlestickSeconds + offset;
+                    currentBarTime = Math.max(ideal, lastKnownTime);
+                } else {
+                    currentBarTime = Math.floor(nowTotalSeconds / candlestickSeconds) * candlestickSeconds;
+                }
+
                 const lastCandle = lastCandleRef.current;
-                if (lastCandle && isMounted) {
-                    const updatedCandle = {
-                        ...lastCandle,
-                        close: price,
-                        high: Math.max(lastCandle.high, price),
-                        low: Math.min(lastCandle.low, price),
-                    };
-                    candlestickSeries.update(updatedCandle);
-                    // Keep the ref in sync for subsequent pulses until next kline fetch
-                    lastCandleRef.current = updatedCandle;
+                
+                if (isMounted) {
+                    if (lastCandle && Number(lastCandle.time) === currentBarTime) {
+                        // Update existing bar
+                        const updatedCandle = {
+                            ...lastCandle,
+                            close: price,
+                            high: Math.max(lastCandle.high, price),
+                            low: Math.min(lastCandle.low, price),
+                        };
+                        candlestickSeries.update(updatedCandle);
+                        lastCandleRef.current = updatedCandle;
+                        
+                        // Sync internal ref
+                        if (allKlinesRef.current.length > 0 && Number(allKlinesRef.current[allKlinesRef.current.length-1].time) === currentBarTime) {
+                            allKlinesRef.current[allKlinesRef.current.length - 1] = updatedCandle;
+                        }
+                    } else if (!lastCandle || currentBarTime > Number(lastCandle.time)) {
+                        // Create NEW bar born from pulses
+                        const newBar = {
+                            time: currentBarTime as Time,
+                            open: price,
+                            high: price,
+                            low: price,
+                            close: price,
+                        };
+                        candlestickSeries.update(newBar);
+                        lastCandleRef.current = newBar;
+                        
+                        // Append to internal ref without duplicates
+                        allKlinesRef.current = [
+                            ...allKlinesRef.current.filter(k => Number(k.time) < currentBarTime), 
+                            newBar
+                        ];
+                    }
                 }
             }
         });
@@ -446,13 +587,84 @@ export const SmartChart: React.FC<SmartChartProps> = ({
         };
     }, [isChartReady, symbol, timeframe, onMarketPriceUpdate, focusOnPrices, triggerCoordSync]);
 
-    // Sync price lines, current price line, and compute coordinates
+    // Unified Chart Update Function (Zones + Coords)
+    const refreshChartOverlays = useCallback(() => {
+        if (!chartRef.current || !seriesRef.current || !isChartReady || isUpdatingOverlaysRef.current) return;
+        
+        isUpdatingOverlaysRef.current = true;
+        try {
+            const series = seriesRef.current;
+            const chart = chartRef.current;
+            const buy = localPricesRef.current.buy;
+            const tp = localPricesRef.current.tp;
+            const sl = localPricesRef.current.sl;
+            
+            if (typeof buy !== 'number' || isNaN(buy)) return;
+
+            // 1. Sync Labels (React side)
+            const buyCoord = series.priceToCoordinate(buy);
+            const tpCoord = (tpEnabled && typeof tp === 'number') ? series.priceToCoordinate(tp) : null;
+            const slCoord = (slEnabled && typeof sl === 'number') ? series.priceToCoordinate(sl) : null;
+
+            const newCoords = {
+                buy: buyCoord ?? undefined,
+                tp: tpCoord ?? undefined,
+                sl: slCoord ?? undefined
+            };
+            setLineCoords(prev => {
+                if (prev.buy === newCoords.buy && prev.tp === newCoords.tp && prev.sl === newCoords.sl) return prev;
+                return newCoords;
+            });
+
+            // 2. Sync Background Zones (Chart side)
+            const timeScale = chart.timeScale();
+            const range = timeScale.getVisibleRange();
+            if (range && range.from && range.to) {
+                // Stabilization: conversion logic for numeric and object timestamps
+                const toSecs = (t: Time): number => {
+                    if (typeof t === 'number') return t;
+                    if (t && typeof t === 'object' && 'timestamp' in t) return (t as { timestamp: number }).timestamp;
+                    return 0;
+                };
+
+                const fromNum = toSecs(range.from);
+                const toNum = toSecs(range.to);
+                
+                if (isNaN(fromNum) || isNaN(toNum) || fromNum === 0) return;
+
+                const tStart = (fromNum - 10000) as Time;
+                const tEnd = (toNum + 10000) as Time;
+
+                if (tpFillRef.current && tpEnabled) {
+                    tpFillRef.current.applyOptions({ baseValue: { type: 'price', price: buy } });
+                    tpFillRef.current.setData([{ time: tStart, value: tp }, { time: tEnd, value: tp }]);
+                }
+                if (slFillRef.current && slEnabled) {
+                    slFillRef.current.applyOptions({ baseValue: { type: 'price', price: buy } });
+                    slFillRef.current.setData([{ time: tStart, value: sl }, { time: tEnd, value: sl }]);
+                }
+            }
+        } finally {
+            isUpdatingOverlaysRef.current = false;
+        }
+    }, [isChartReady, tpEnabled, slEnabled]);
+
+    // Subscriptions for timescale changes to keep overlays in sync
+    useEffect(() => {
+        if (!isChartReady || !chartRef.current) return;
+        const chart = chartRef.current;
+        const handleScaleChange = () => refreshChartOverlays();
+        chart.timeScale().subscribeVisibleLogicalRangeChange(handleScaleChange);
+        return () => chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleScaleChange);
+    }, [isChartReady, refreshChartOverlays]);
+
+    // Update markers and trigger overlay refresh on price changes
     useEffect(() => {
         if (!seriesRef.current || !isChartReady) return;
         const series = seriesRef.current;
 
-        const updateLine = (lineRef: React.MutableRefObject<IPriceLine | null>, price: number, color: string, title: string, enabled: boolean, style: number = LineStyle.Solid) => {
-            if (!enabled) {
+        const updateMarkerLine = (lineRef: React.MutableRefObject<IPriceLine | null>, price: number, color: string, title: string, enabled: boolean, style: number = LineStyle.Solid) => {
+            if (!enabled || price <= 0) {
                 if (lineRef.current) { series.removePriceLine(lineRef.current); lineRef.current = null; }
                 return;
             }
@@ -463,162 +675,41 @@ export const SmartChart: React.FC<SmartChartProps> = ({
             }
         };
 
-        updateLine(buyLineRef, localPrices.buy, '#06b6d4', 'Giriş', true, LineStyle.Dashed);
-        updateLine(tpLineRef, localPrices.tp, '#10b981', 'Hedef', tpEnabled, LineStyle.Dashed);
-        updateLine(slLineRef, localPrices.sl, '#f43f5e', 'Stop', slEnabled, LineStyle.Dashed);
-        
-        // Ensure axis labels are OFF for these lines
-        if (buyLineRef.current) buyLineRef.current.applyOptions({ axisLabelVisible: false });
-        if (tpLineRef.current) tpLineRef.current.applyOptions({ axisLabelVisible: false });
-        if (slLineRef.current) slLineRef.current.applyOptions({ axisLabelVisible: false });
-        
-        // Fill zones (colored areas) using Baseline series
-        if (isChartReady && chartRef.current) {
-            const chart = chartRef.current;
-            
-            // Profit Area (Buy -> TP)
-            if (tpEnabled && localPrices.tp > localPrices.buy) {
-                if (!tpFillRef.current) {
-                    tpFillRef.current = chart.addSeries(BaselineSeries, {
-                        baseValue: { type: 'price', price: localPrices.buy },
-                        topFillColor1: 'rgba(16, 185, 129, 0.15)',
-                        topFillColor2: 'rgba(16, 185, 129, 0.05)',
-                        bottomFillColor1: 'transparent',
-                        bottomFillColor2: 'transparent',
-                        topLineColor: 'transparent',
-                        bottomLineColor: 'transparent',
-                        lineVisible: false,
-                        lastValueVisible: false,
-                        priceLineVisible: false,
-                        autoscaleInfoProvider: () => null
-                    });
-                }
-                const tpFill = tpFillRef.current;
-                if (tpFill) {
-                    const timeScale = chart.timeScale();
-                    const range = timeScale.getVisibleRange();
-                    const from = Number(range?.from);
-                    const to = Number(range?.to);
+        // Current market price marker
+        updateMarkerLine(currentPriceLineRef, currentPrice, '#fbbf24', 'Fiyat', true, LineStyle.Dashed);
 
-                    if (!isNaN(from) && !isNaN(to)) {
-                        tpFill.applyOptions({ baseValue: { type: 'price', price: localPrices.buy } });
-                        tpFill.setData([
-                            { time: (from - 100000) as Time, value: localPrices.tp },
-                            { time: (to + 100000) as Time, value: localPrices.tp }
-                        ]);
-                    }
-                }
-            } else if (tpFillRef.current) {
-                chart.removeSeries(tpFillRef.current);
-                tpFillRef.current = null;
+        // Manage Profit/Risk Area Series Lifecycle
+        const chart = chartRef.current!;
+        if (tpEnabled && localPrices.tp > localPrices.buy) {
+            if (!tpFillRef.current) {
+                tpFillRef.current = chart.addSeries(BaselineSeries, {
+                    baseValue: { type: 'price', price: localPrices.buy },
+                    topFillColor1: 'rgba(16, 185, 129, 0.15)', topFillColor2: 'rgba(16, 185, 129, 0.05)',
+                    bottomFillColor1: 'transparent', bottomFillColor2: 'transparent',
+                    lineVisible: false, lastValueVisible: false, priceLineVisible: false, autoscaleInfoProvider: () => null
+                });
             }
-
-            // Risk Area (Buy -> SL)
-            if (slEnabled && localPrices.sl < localPrices.buy) {
-                if (!slFillRef.current) {
-                    slFillRef.current = chart.addSeries(BaselineSeries, {
-                        baseValue: { type: 'price', price: localPrices.buy },
-                        topFillColor1: 'transparent',
-                        topFillColor2: 'transparent',
-                        bottomFillColor1: 'rgba(244, 63, 94, 0.15)',
-                        bottomFillColor2: 'rgba(244, 63, 94, 0.05)',
-                        topLineColor: 'transparent',
-                        bottomLineColor: 'transparent',
-                        lineVisible: false,
-                        lastValueVisible: false,
-                        priceLineVisible: false,
-                        autoscaleInfoProvider: () => null
-                    });
-                }
-                const slFill = slFillRef.current;
-                if (slFill) {
-                    const timeScale = chart.timeScale();
-                    const range = timeScale.getVisibleRange();
-                    const from = Number(range?.from);
-                    const to = Number(range?.to);
-
-                    if (!isNaN(from) && !isNaN(to)) {
-                        slFill.applyOptions({ baseValue: { type: 'price', price: localPrices.buy } });
-                        slFill.setData([
-                            { time: (from - 100000) as Time, value: localPrices.sl },
-                            { time: (to + 100000) as Time, value: localPrices.sl }
-                        ]);
-                    }
-                }
-            } else if (slFillRef.current) {
-                chart.removeSeries(slFillRef.current);
-                slFillRef.current = null;
-            }
+        } else if (tpFillRef.current) {
+            chart.removeSeries(tpFillRef.current);
+            tpFillRef.current = null;
         }
 
-        // Current market price line (dashed, amber)
-        if (currentPrice > 0) {
-            updateLine(currentPriceLineRef, currentPrice, '#fbbf24', 'Fiyat', true, LineStyle.Dashed);
+        if (slEnabled && localPrices.sl < localPrices.buy) {
+            if (!slFillRef.current) {
+                slFillRef.current = chart.addSeries(BaselineSeries, {
+                    baseValue: { type: 'price', price: localPrices.buy },
+                    topFillColor1: 'transparent', topFillColor2: 'transparent',
+                    bottomFillColor1: 'rgba(244, 63, 94, 0.15)', bottomFillColor2: 'rgba(244, 63, 94, 0.05)',
+                    lineVisible: false, lastValueVisible: false, priceLineVisible: false, autoscaleInfoProvider: () => null
+                });
+            }
+        } else if (slFillRef.current) {
+            chart.removeSeries(slFillRef.current);
+            slFillRef.current = null;
         }
 
-        const updateCoords = () => {
-            if (!chartRef.current || !seriesRef.current || !isChartReady) return;
-            const series = seriesRef.current;
-            const chart = chartRef.current;
-
-            // 1. Label Coordinates (React side)
-            const currentBuy = localPricesRef.current.buy;
-            const currentTp = localPricesRef.current.tp;
-            const currentSl = localPricesRef.current.sl;
-
-            const newCoords = {
-                buy: series.priceToCoordinate(currentBuy) ?? undefined,
-                tp: tpEnabled ? series.priceToCoordinate(currentTp) ?? undefined : undefined,
-                sl: slEnabled ? series.priceToCoordinate(currentSl) ?? undefined : undefined
-            };
-
-            // Only update if changed to avoid unnecessary renders
-            setLineCoords(prev => {
-                if (prev.buy === newCoords.buy && prev.tp === newCoords.tp && prev.sl === newCoords.sl) return prev;
-                return newCoords;
-            });
-
-            // 2. Chart Series Updates (Direct side)
-            const timeScale = chart.timeScale();
-            const range = timeScale.getVisibleRange();
-            const from = Number(range?.from);
-            const to = Number(range?.to);
-
-            if (!isNaN(from) && !isNaN(to)) {
-                const tStart = (from - 100000) as Time;
-                const tEnd = (to + 100000) as Time;
-
-                if (tpFillRef.current) {
-                    tpFillRef.current.applyOptions({ baseValue: { type: 'price', price: currentBuy } });
-                    tpFillRef.current.setData([
-                        { time: tStart, value: currentTp },
-                        { time: tEnd, value: currentTp }
-                    ]);
-                }
-                if (slFillRef.current) {
-                    slFillRef.current.applyOptions({ baseValue: { type: 'price', price: currentBuy } });
-                    slFillRef.current.setData([
-                        { time: tStart, value: currentSl },
-                        { time: tEnd, value: currentSl }
-                    ]);
-                }
-            }
-        };
-
-        let isMountedLoop = true;
-        const loop = () => {
-            if (isMountedLoop) {
-                updateCoords();
-                animId = requestAnimationFrame(loop);
-            }
-        };
-        
-        let animId = requestAnimationFrame(loop);
-        return () => {
-            isMountedLoop = false;
-            cancelAnimationFrame(animId);
-        };
-    }, [isChartReady, tpEnabled, slEnabled]);
+        refreshChartOverlays();
+    }, [isChartReady, tpEnabled, slEnabled, currentPrice, localPrices.buy, localPrices.tp, localPrices.sl, refreshChartOverlays]);
 
     // Optimize Dragging
     useEffect(() => {
@@ -651,11 +742,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                         // 1. Immediate Ref sync for next frame
                         localPricesRef.current = { ...localPricesRef.current, [draggingLine]: rounded };
                         
-                        // 2. Direct PriceLine Update
-                        const lineRef = draggingLine === 'buy' ? buyLineRef : draggingLine === 'tp' ? tpLineRef : slLineRef;
-                        if (lineRef.current) lineRef.current.applyOptions({ price: rounded });
-
-                        // 3. Parent Sync
+                        // 2. Parent Sync
                         propsRef.current.onPricesChange({ [draggingLine]: rounded });
                     }
                 }
@@ -699,24 +786,62 @@ export const SmartChart: React.FC<SmartChartProps> = ({
             {/* Chart Header: Price and Timeframe */}
             <div className="flex items-end justify-between px-1">
                 {/* Current Price Indicator */}
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-6">
                     {currentPrice > 0 ? (
-                        <div className="flex flex-col">
-                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Cari Fiyat</span>
-                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 backdrop-blur-xl">
-                                <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.4)]" />
-                                <span className="text-sm font-black text-amber-400 font-mono">
-                                    {currentPrice > 0 
-                                        ? currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })
-                                        : '---'}
-                                </span>
+                        <div className="flex items-center gap-3 pr-6 border-r border-slate-800/50">
+                            <div className="relative group/asset">
+                                <div className="absolute -inset-2 bg-gradient-to-tr from-amber-500/20 to-transparent rounded-full blur-md opacity-0 group-hover/asset:opacity-100 transition-opacity duration-500" />
+                                <AssetIcon symbol={symbol} size={42} className="relative z-10 shadow-2xl" />
+                            </div>
+                            <div className="flex flex-col">
+                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">{symbol}</span>
+                                <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 backdrop-blur-xl">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.4)]" />
+                                    <span className="text-base font-black text-amber-400 font-mono">
+                                        {currentPrice > 0 
+                                            ? (currentPrice < 1 ? currentPrice.toFixed(4) : currentPrice < 100 ? currentPrice.toFixed(2) : currentPrice.toFixed(0))
+                                            : '---'}
+                                    </span>
+                                </div>
                             </div>
                         </div>
                     ) : (
-                        <div className="h-[42px] flex items-center">
+                        <div className="h-[42px] flex items-center pr-6 border-r border-slate-800/50">
                             <div className="w-4 h-4 border-2 border-slate-700 border-t-transparent rounded-full animate-spin" />
                         </div>
                     )}
+
+                    {/* Active Assets Horizontal Scroll */}
+                    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar max-w-[50vw]">
+                        {assets.map((asset) => (
+                            <button
+                                key={asset.id}
+                                onClick={() => onAssetChange?.(asset)}
+                                className={cn(
+                                    "flex items-center gap-3 p-1.5 pr-4 rounded-xl border transition-all relative group h-[44px] min-w-fit",
+                                    symbol.split('/')[0] === asset.symbol 
+                                        ? "bg-cyan-500/10 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.1)]" 
+                                        : "bg-slate-900/40 border-slate-800/50 hover:border-slate-700 hover:bg-slate-800/50"
+                                )}
+                            >
+                                <div className="relative">
+                                    <AssetIcon symbol={asset.symbol} size={28} />
+                                    {symbol.startsWith(asset.symbol) && (
+                                        <div className="absolute -top-1 -right-1">
+                                            <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee]" />
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="flex flex-col items-start">
+                                    <div className="text-[10px] font-black text-white leading-none mb-1">{asset.symbol}</div>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">{asset.holding.toFixed(asset.holding < 1 ? 4 : 2)}</span>
+                                        <span className="text-[9px] font-black text-emerald-400 font-mono group-hover:block hidden">${asset.price.toLocaleString()}</span>
+                                    </div>
+                                </div>
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 {/* Timeframe Selector Moved Outside */}
@@ -744,7 +869,14 @@ export const SmartChart: React.FC<SmartChartProps> = ({
             <div className="relative group/chart">
 
             <div ref={chartContainerRef} className="w-full h-[500px] bg-slate-950/20 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl" />
-            {isLoading && (
+            {syncError && allKlinesRef.current.length > 0 && (
+                <div className="absolute top-4 right-4 z-30 px-3 py-1 bg-rose-500/20 border border-rose-500/40 backdrop-blur-md rounded-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+                    <div className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
+                    <span className="text-[10px] font-black text-rose-400 uppercase tracking-widest">Senkronizasyon Sorunu</span>
+                </div>
+            )}
+
+            {isLoading && !error && (
                 <div className="absolute inset-0 flex items-center justify-center bg-slate-950/50 backdrop-blur-sm z-20">
                     <div className="flex flex-col items-center gap-3">
                         <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
@@ -774,7 +906,17 @@ export const SmartChart: React.FC<SmartChartProps> = ({
             <div className="absolute inset-0 pointer-events-none overflow-hidden z-20">
                 {Object.entries(lineCoords).map(([key, coord]) => {
                     if (coord === undefined) return null;
-                    const label = key === 'buy' ? 'Giriş' : key === 'tp' ? 'Hedef' : 'Stop';
+                    
+                    let label = '';
+                    if (key === 'buy') label = mode === 'TRADE' ? 'Giriş (Al)' : 'Giriş (Sat)';
+                    else if (key === 'tp') label = 'Hedef';
+                    else label = 'Stop';
+                    
+                    // Append trailing indicator suffix with deviation
+                    if (key === 'buy' && trailingBuy) label += ` ⟐TB ${trailingBuyDev.toFixed(1)}%`;
+                    else if (key === 'tp' && trailingTp) label += ` ⟐TTP ${Math.abs(trailingTpDev).toFixed(1)}%`;
+                    else if (key === 'sl' && trailingSl) label += ` ⟐TSL ${Math.abs(trailingSlDev).toFixed(1)}%`;
+
                     const bgColor = key === 'buy' ? 'bg-cyan-500' : key === 'tp' ? 'bg-emerald-500' : 'bg-rose-500';
                     const bgGlow = key === 'buy' ? 'shadow-cyan-500/30' : key === 'tp' ? 'shadow-emerald-500/30' : 'shadow-rose-500/30';
                     const lineColor = key === 'buy' ? 'border-cyan-500/40' : key === 'tp' ? 'border-emerald-500/40' : 'border-rose-500/40';

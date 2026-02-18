@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, Play, Pause, TrendingUp, Clock, DollarSign, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Clock, RefreshCw } from 'lucide-react';
+import Image from 'next/image';
 import { api } from '@/services/api';
 import { useMexcWebSocket } from '../hooks/useMexcWebSocket';
 
@@ -18,6 +19,13 @@ interface DcaBot {
     status: string;
     last_run_at: number;
     created_at: number;
+}
+
+interface CreateDcaBotRequest {
+    symbol: string;
+    amount: number;
+    intervalHours: number;
+    takeProfitPercent: number | null;
 }
 
 export const DcaManager = () => {
@@ -45,7 +53,7 @@ export const DcaManager = () => {
 
     // Create Bot Mutation
     const createMutation = useMutation({
-        mutationFn: async (data: any) => {
+        mutationFn: async (data: CreateDcaBotRequest) => {
             return api.post('/trade/dca', data);
         },
         onSuccess: () => {
@@ -180,10 +188,12 @@ export const DcaManager = () => {
                             <div key={bot.id} className="stat-card relative overflow-hidden flex flex-col">
                                 <div className="flex justify-between items-start mb-4">
                                     <div className="flex items-center gap-2">
-                                        <img
+                                        <Image
                                             src={`https://api.iconify.design/cryptocurrency-color:${bot.symbol.replace('USDT', '').toLowerCase()}.svg`}
                                             className="w-8 h-8 rounded-full"
                                             alt={bot.symbol}
+                                            width={32}
+                                            height={32}
                                         />
                                         <div>
                                             <h3 className="font-bold">{bot.symbol}</h3>

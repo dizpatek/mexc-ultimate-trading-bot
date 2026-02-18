@@ -4,6 +4,8 @@ import { predictPrice } from '@/lib/price-predictor';
 
 export const dynamic = 'force-dynamic';
 
+type KlineData = [string, string, string, string, string, string, string, string, string, string, string, string];
+
 export async function GET(request: Request) {
     try {
         const user = await getSessionUser(request);
@@ -25,26 +27,27 @@ export async function GET(request: Request) {
             const mxRes = await fetch(mexcUrl);
             if (!mxRes.ok) throw new Error('Global market data sources unavailable');
 
-            const mxData = await mxRes.json();
-            const prices = mxData.map((k: any) => parseFloat(k[4]));
+            const mxData: KlineData[] = await mxRes.json();
+            const prices = mxData.map((k) => parseFloat(k[4]));
             return NextResponse.json(predictPrice(symbol, prices));
         }
 
-        const data = await response.json();
-        const prices = data.map((k: any) => parseFloat(k[4]));
+        const data: KlineData[] = await response.json();
+        const prices = data.map((k) => parseFloat(k[4]));
         const prediction = predictPrice(symbol, prices);
 
         return NextResponse.json(prediction);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Prediction API Error:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         return NextResponse.json({
             symbol: 'UNKNOWN',
             currentPrice: 0,
             predictedPrice: 0,
             trend: 'FLAT',
             confidence: 0,
-            error: error.message
+            error: errorMessage
         }, { status: 500 });
     }
 }

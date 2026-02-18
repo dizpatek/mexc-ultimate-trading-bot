@@ -7,13 +7,31 @@ import axios from 'axios';
 import { useHoldings } from '../hooks/usePortfolio';
 import { DcaManager } from './DcaManager';
 
+interface StrategyParameters {
+    [key: string]: string | number | boolean;
+}
+
 interface Strategy {
     id: number;
     name: string;
     symbol: string;
     strategy_type: string;
     active: boolean;
-    parameters: any;
+    parameters: StrategyParameters;
+}
+
+interface Holding {
+    symbol: string;
+    name: string;
+    holding: number;
+    value: number;
+}
+
+interface CreateStrategyData {
+    name: string;
+    symbol: string;
+    strategy_type: string;
+    parameters: StrategyParameters;
 }
 
 export const StrategyManagement = () => {
@@ -24,7 +42,7 @@ export const StrategyManagement = () => {
 
     const { data: holdings } = useHoldings();
 
-    const { data: strategies, isLoading, isError } = useQuery<Strategy[]>({
+    const { data: strategies, isLoading } = useQuery<Strategy[]>({
         queryKey: ['strategies'],
         queryFn: async () => {
             const token = localStorage.getItem('token');
@@ -60,7 +78,7 @@ export const StrategyManagement = () => {
     });
 
     const createMutation = useMutation({
-        mutationFn: async (data: any) => {
+        mutationFn: async (data: CreateStrategyData) => {
             const token = localStorage.getItem('token');
             return axios.post('/api/strategies', data, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -160,7 +178,7 @@ export const StrategyManagement = () => {
                             onChange={e => setNewStrategy({ ...newStrategy, symbol: e.target.value })}
                         >
                             {holdings && holdings.length > 0 ? (
-                                holdings.map((h: any) => (
+                                holdings.map((h: Holding) => (
                                     <option key={h.symbol} value={`${h.symbol}USDT`}>
                                         {h.symbol}/USDT
                                     </option>
@@ -262,7 +280,7 @@ export const StrategyManagement = () => {
                             <Activity className="w-8 h-8 text-muted-foreground" />
                         </div>
                         <h3 className="text-lg font-medium">No active phases</h3>
-                        <p className="text-muted-foreground max-w-xs mx-auto mb-6">You haven't added any trading strategies yet. Start by creating your first automated phase.</p>
+                        <p className="text-muted-foreground max-w-xs mx-auto mb-6">You haven&apos;t added any trading strategies yet. Start by creating your first automated phase.</p>
                         <button
                             onClick={() => setIsAddingMode(true)}
                             className="btn-secondary"

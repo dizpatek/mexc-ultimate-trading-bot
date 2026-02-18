@@ -3,13 +3,12 @@
 import { TrendingUp, TrendingDown, Wallet, RefreshCw, Activity } from 'lucide-react';
 import { usePortfolioSummary, useHoldings } from '../hooks/usePortfolio';
 import { useEffect } from 'react';
-import { debugLog } from '@/services/api';
 
 export const PortfolioSummary = () => {
     useEffect(() => {
         fetch('/api/portfolio/summary?debug=PortfolioSummary_VERIFIED_MOUNT').catch(() => {});
     }, []);
-    const { data: summaryData, isLoading: summaryLoading, isError: summaryError } = usePortfolioSummary();
+    const { data: summaryData, isLoading: summaryLoading } = usePortfolioSummary();
     const { data: holdings, isLoading: holdingsLoading } = useHoldings();
 
     const loading = summaryLoading || holdingsLoading;

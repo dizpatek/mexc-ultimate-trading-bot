@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { MatrixV3Engine } from '@/lib/matrix-v3-engine';
+import { MatrixV3Engine } from '@/lib/matrix-v3-engine-enhanced';
 import { monitorSmartTrades } from '@/lib/smart-trade-monitor';
 
 export const dynamic = 'force-dynamic';
@@ -17,11 +17,44 @@ async function fetchWithTimeout(url: string, options = {}, timeout = 8000) {
     }
 }
 
+// Fetch market data (BTC.D, USDT.D, OTHERS.D, DXY)
+async function fetchMarketData() {
+    try {
+        // Using CoinGecko for dominance data (free API)
+        const response = await fetch('https://api.coingecko.com/api/v3/global', {
+            next: { revalidate: 60 }
+        });
+        
+        if (!response.ok) return null;
+        
+        const data = await response.json();
+        const btcDominance = data.data?.market_cap_percentage?.btc || 0;
+        const usdtDominance = data.data?.market_cap_percentage?.usdt || 0;
+        
+        // Calculate OTHERS.D (100 - BTC - USDT - ETH - BNB roughly)
+        const othersDominance = 100 - btcDominance - usdtDominance - (data.data?.market_cap_percentage?.eth || 0);
+        
+        return {
+            btcDominance,
+            btcDomChange: 0, // Would need historical data
+            usdtDominance,
+            usdtDomChange: 0,
+            othersDominance,
+            othersDomChange: 0,
+            dxyValue: 104, // Placeholder - would need forex API
+            dxyChange: 0
+        };
+    } catch {
+        return null;
+    }
+}
+
 export async function GET(request: Request) {
     try {
         const { searchParams } = new URL(request.url);
         const symbol = (searchParams.get('symbol') || 'BTCUSDT').toUpperCase();
         const interval = searchParams.get('interval') || '1h';
+        const tradeMode = searchParams.get('mode') || 'Scalp';
 
         const bncInterval = interval === '60m' ? '1h' : interval;
         const mxcInterval = interval === '1h' ? '60m' : interval;
@@ -66,16 +99,30 @@ export async function GET(request: Request) {
         const closes = data.map((k: string[]) => parseFloat(k[4]));
         const volumes = data.map((k: string[]) => parseFloat(k[5]));
 
-        // Initialize Engine
+        // Fetch market data (dominance, DXY)
+        const marketData = await fetchMarketData();
+
+        // Initialize Engine with mode-specific settings
         const engine = new MatrixV3Engine({
-            f4Length: 10,
+            f4Length: tradeMode === 'Scalp' ? 10 : 10,
+            f4Alpha: tradeMode === 'Scalp' ? 3.7 : 1.2,
+            f4SlopeThresholdFactor: 0.01,
+            f4FiboLength: tradeMode === 'Scalp' ? 5 : 8,
+            f4FiboAlpha: 0.618,
+            tradeMode: tradeMode as 'Scalp' | 'Swing',
             whaleVolumeMultiplier: 1.8,
             minAiScore: 65,
-            useWhaleEngine: true
+            useWhaleEngine: true,
+            useQFL: false,
+            useMomentum: false,
+            qflLookback: 30,
+            qflDropPct: 3.0,
+            signalFreshnessBars: 5,
+            maxConsecutiveLoss: 6
         });
 
-        // Run Analysis
-        const result = engine.analyze(closes, highs, lows, volumes);
+        // Run Analysis with market data
+        const result = engine.analyze(closes, highs, lows, volumes, marketData || undefined);
 
         // Map to Response
         const payload = {
@@ -84,23 +131,83 @@ export async function GET(request: Request) {
             timestamp: Date.now(),
             currentPrice: closes[closes.length - 1],
             
-            // Matrix V3 Data
+            // Matrix V3 Core Data
             f4Slope: result.slope,
             f4Acceleration: result.acceleration,
+            f4Value: result.f4Value,
+            f4FiboValue: result.f4FiboValue,
             whaleDetected: result.whaleDetected,
-            whaleStatus: result.whaleStatus, // Added V3 field
+            whaleStatus: result.whaleStatus,
             trend: result.trend,
             signal: result.signal,
+            earlyReversal: result.earlyReversal,
+            fastSlope: result.fastSlope,
+            fastAcceleration: result.fastAcceleration,
             
-            // New V3 Advanced Data
+            // AI Score
             aiScore: result.aiScore,
             aiComponents: result.aiComponents,
+            
+            // Market Regime
             marketRegime: result.marketRegime,
-            volatilityRegime: result.volatilityRegime, // Added V3 field
+            volatilityRegime: result.volatilityRegime,
             regimePrediction: result.regimePrediction,
             systemDecision: result.systemDecision,
             zScoreValue: result.zScoreValue,
-            mtfConsensus: result.mtfConsensus, // Added V3 field
+            mtfConsensus: result.mtfConsensus,
+            mtfBullCount: result.mtfBullCount,
+            
+            // SMC Structure
+            internalTrend: result.internalTrend,
+            swingTrend: result.swingTrend,
+            lastBOS: result.lastBOS,
+            lastCHoCH: result.lastCHoCH,
+            orderBlocks: result.orderBlocks.slice(-5), // Last 5 active OBs
+            fairValueGaps: result.fairValueGaps.slice(-3), // Last 3 active FVGs
+            
+            // Premium/Discount
+            trailingTop: result.trailingTop,
+            trailingBottom: result.trailingBottom,
+            inPremium: result.inPremium,
+            inDiscount: result.inDiscount,
+            
+            // Vix Fix & QFL
+            vixBottom: result.vixBottom,
+            vixValue: result.vixValue,
+            qflPanicBottom: result.qflPanicBottom,
+            
+            // WaveTrend
+            wt1: result.wt1,
+            wt2: result.wt2,
+            wtDivergence: result.wtDivergence,
+            
+            // Market Data
+            btcDominance: result.btcDominance,
+            btcDomChange: result.btcDomChange,
+            usdtDominance: result.usdtDominance,
+            usdtDomChange: result.usdtDomChange,
+            othersDominance: result.othersDominance,
+            othersDomChange: result.othersDomChange,
+            dxyValue: result.dxyValue,
+            dxyChange: result.dxyChange,
+            marketFlow: result.marketFlow,
+            
+            // Capital Engine
+            capitalPhase: result.capitalPhase,
+            signalFreshness: result.signalFreshness,
+            decayFactor: result.decayFactor,
+            timeValid: result.timeValid,
+            
+            // System Health
+            whaleTrust: result.whaleTrust,
+            consecutiveLosses: result.consecutiveLosses,
+            deathRisk: result.deathRisk,
+            systemRestMode: result.systemRestMode,
+            metaAllow: result.metaAllow,
+            
+            // Dashboard
+            confluenceText: result.confluenceText,
+            confluenceColor: result.confluenceColor,
             
             // Legacy / Helper fields
             f4Signal: result.signal || 'NEUTRAL',

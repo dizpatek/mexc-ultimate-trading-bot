@@ -25,13 +25,17 @@ export interface SmartTradePayload {
         price: string;
         trailing?: boolean;
         deviation?: number;
+        timeout?: boolean;
+        timeoutSeconds?: number;
+        breakeven?: boolean;
     } | null;
     trailingBuy?: boolean;
     trailingBuyDev?: number;
+    user_id: number;
 }
 
 export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: TradingMode) {
-    const { mode, symbol, amount, takeProfit, stopLoss, useExisting } = payload;
+    const { mode, symbol, amount, takeProfit, stopLoss, useExisting, user_id } = payload;
     const pair = symbol.replace('/', '');
     let qty = parseFloat(amount);
     
@@ -77,7 +81,7 @@ export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: 
             // 'amount' from UI is the USDT quote amount for BUY orders
             const quoteStr = parseFloat(amount).toFixed(precision.quote);
             
-            entryResult = await marketBuyByQuote(pair, quoteStr, forcedMode);
+            entryResult = await marketBuyByQuote(user_id, pair, quoteStr, forcedMode);
             
             // DEBUG: Log raw MEXC response to diagnose price recording
             console.log(`[SmartTrade] RAW MEXC BUY Response:`, JSON.stringify(entryResult, null, 2));
@@ -101,7 +105,7 @@ export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: 
         } else {
             // For SELL/COVER, amount is the base quantity
             const qtyStr = qty.toFixed(precision.base);
-            entryResult = await marketSellByQty(pair, qtyStr, forcedMode);
+            entryResult = await marketSellByQty(user_id, pair, qtyStr, forcedMode);
             
             // Calculate real average price from response if possible
             if (entryResult?.cummulativeQuoteQty && entryResult?.executedQty && parseFloat(entryResult.executedQty) > 0) {
@@ -144,14 +148,15 @@ export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: 
 
         let initialStatus = entryResult.status || 'FILLED';
         
-        // If it's a standalone exit (COVER/SELL) and has no TP/SL targets,
+        // If it's a standalone exit (COVER/SELL) OR standalone entry (TRADE/BUY) and has no TP/SL targets,
         // we mark it as CLOSED immediately to move it to history.
-        if (mode === 'COVER' && !hasFollowUp && initialStatus === 'FILLED') {
+        if (!hasFollowUp && initialStatus === 'FILLED') {
             initialStatus = 'CLOSED';
-            console.log(`[SmartTrade] Standalone SELL detected for ${pair}. Marking as CLOSED immediately.`);
+            console.log(`[SmartTrade] Standalone ${mode} detected for ${pair}. Marking as CLOSED immediately.`);
         }
 
         dbId = await insertOrder({
+            user_id,
             symbol: pair,
             side: mode === 'TRADE' ? 'BUY' : 'SELL',
             type: 'MARKET',
@@ -166,7 +171,8 @@ export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: 
                 lowestPrice: avgPrice,
                 lastUpdate: Date.now(),
                 exitReason: initialStatus === 'CLOSED' ? 'STANDALONE_MARKET_EXIT' : undefined,
-                closedAt: initialStatus === 'CLOSED' ? Date.now() : undefined
+                closedAt: initialStatus === 'CLOSED' ? Date.now() : undefined,
+                initialQty: qty
             }
         });
     } catch (dbError: unknown) {

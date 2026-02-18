@@ -14,6 +14,7 @@ interface DcaBot {
     average_price: number;
     status: string;
     last_run_at: number;
+    meta?: string | Record<string, unknown>;
 }
 
 export async function checkDcaBots() {
@@ -59,16 +60,51 @@ async function processBot(bot: DcaBot) {
         if (bot.take_profit_percent && bot.total_bought_qty > 0) {
             const currentValue = bot.total_bought_qty * currentPrice;
             const profitPct = ((currentValue - bot.total_invested) / bot.total_invested) * 100;
+            
+            // Trailing TP Logic for DCA
+            const meta = typeof bot.meta === 'string' ? JSON.parse(bot.meta) : (bot.meta || {});
+            const isTrailingTp = !!meta.trailingTp;
+            const trailingDev = meta.trailingDev || 0.5; // Default 0.5% if not set
+            
+            let highestPrice = meta.highestPrice || 0;
+            let tpTriggered = meta.tpTriggered || false;
 
-            if (profitPct >= bot.take_profit_percent) {
-                console.log(`[DCA Engine] 🎯 Take Profit triggered! Profit: ${profitPct.toFixed(2)}%`);
-                await closeBot(bot, currentPrice, profitPct);
-                return;
+            if (!tpTriggered && profitPct >= bot.take_profit_percent) {
+                tpTriggered = true;
+                highestPrice = currentPrice;
+                console.log(`[DCA Engine] 🎯 TP Level triggered for bot ${bot.id} @ ${currentPrice}. Trailing active.`);
+            }
+
+            if (tpTriggered) {
+                if (currentPrice > highestPrice) {
+                    highestPrice = currentPrice;
+                }
+
+                if (isTrailingTp) {
+                    const trailExit = highestPrice * (1 - trailingDev / 100);
+                    if (currentPrice <= trailExit) {
+                        console.log(`[DCA Engine] 🚨 Trailing TP triggered! Profit: ${profitPct.toFixed(2)}% (Peak: ${highestPrice})`);
+                        await closeBot(bot, currentPrice, profitPct);
+                        return;
+                    } else {
+                        // Still trailing, update meta and skip buy logic
+                        meta.highestPrice = highestPrice;
+                        meta.tpTriggered = tpTriggered;
+                        await sql`UPDATE dca_bots SET meta = ${JSON.stringify(meta)} WHERE id = ${bot.id}`;
+                        console.log(`[DCA Engine] Bot ${bot.id} trailing... Current: ${currentPrice}, Peak: ${highestPrice}, Exit: ${trailExit.toFixed(4)}`);
+                        return; // Don't execute DCA buy while trailing TP
+                    }
+                } else {
+                    // Fixed TP
+                    console.log(`[DCA Engine] 🎯 Fixed Take Profit triggered! Profit: ${profitPct.toFixed(2)}%`);
+                    await closeBot(bot, currentPrice, profitPct);
+                    return;
+                }
             }
         }
 
         // 2. EXECUTE BUY
-        const res = await marketBuyByQuote(bot.symbol, String(bot.amount));
+        const res = await marketBuyByQuote(Number(bot.user_id), bot.symbol, String(bot.amount));
         console.log(`[DCA Engine] Buy executed:`, res);
 
         // Calculate filled quantity (Simulated or Real)
@@ -134,8 +170,8 @@ async function processBot(bot: DcaBot) {
 async function closeBot(bot: DcaBot, price: number, profitPct: number) {
     try {
         // Sell All
-        const sellRes = await marketSellByQty(bot.symbol, String(bot.total_bought_qty));
-        console.log(`[DCA Engine] Bot ${bot.id} liquidating holdings:`, sellRes);
+        const res = await marketSellByQty(Number(bot.user_id), bot.symbol, String(bot.total_bought_qty));
+        console.log(`[DCA Engine] Bot ${bot.id} liquidating holdings:`, res);
 
         // Mark bot as COMPLETED
         await sql`

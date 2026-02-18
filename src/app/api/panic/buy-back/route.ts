@@ -12,7 +12,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        const tradingMode = getTradingMode();
+        const tradingMode = await getTradingMode(user.id);
         console.log(`[BuyBack] Initiating buy-back for user ${user.id} in ${tradingMode.toUpperCase()} mode`);
 
         // Get the most recent panic snapshot
@@ -31,9 +31,9 @@ export async function POST(request: Request) {
         }
 
         const snapshot = result.rows[0];
-        const snapshotData = snapshot.snapshot_data as any[];
+        const snapshotData = snapshot.snapshot_data as { asset: string; usdtValue: number; symbol: string; quantity: number }[];
 
-        const buyResults: any[] = [];
+        const buyResults: { asset: string; success: boolean; quantityReceived?: number; usdtSpent?: number; originalQuantity?: number; error?: string }[] = [];
         let totalSpent = 0;
 
         // Buy back all assets from snapshot
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
                 const { asset, usdtValue, symbol } = item;
 
                 // Use the USDT value from the snapshot to buy back
-                const buyResult = await marketBuyByQuote(symbol, String(usdtValue));
+                const buyResult = await marketBuyByQuote(user.id, symbol, String(usdtValue));
 
                 const quantityReceived = parseFloat(buyResult.executedQty || '0');
                 const spent = parseFloat(buyResult.cummulativeQuoteQty || '0');
@@ -56,12 +56,13 @@ export async function POST(request: Request) {
                     originalQuantity: item.quantity
                 });
 
-            } catch (error: any) {
-                console.error(`Failed to buy back ${item.asset}:`, error.message);
+            } catch (error: unknown) {
+                const message = error instanceof Error ? error.message : 'Unknown error';
+                console.error(`Failed to buy back ${item.asset}:`, message);
                 buyResults.push({
                     asset: item.asset,
                     success: false,
-                    error: error.message
+                    error: message
                 });
             }
         }
@@ -75,11 +76,12 @@ export async function POST(request: Request) {
             mode: tradingMode
         });
 
-    } catch (error: any) {
-        console.error('Buy back error:', error);
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        console.error('Buy back error:', message);
         return NextResponse.json({
             error: 'Buy back failed',
-            message: error.message
+            message
         }, { status: 500 });
     }
 }

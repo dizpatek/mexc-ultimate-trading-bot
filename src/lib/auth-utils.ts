@@ -1,8 +1,20 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { createUser, getUserByEmail, getUserById } from './db';
+import { createUser, getUserByEmail, getUserById, getUserByUsername } from './db';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-it';
+
+interface User {
+    id: number;
+    email: string;
+    username: string;
+}
+
+interface JwtPayload {
+    id: number;
+    email: string;
+    username: string;
+}
 
 export async function hashPassword(password: string): Promise<string> {
     const salt = await bcrypt.genSalt(10);
@@ -13,7 +25,7 @@ export async function comparePassword(password: string, hash: string): Promise<b
     return bcrypt.compare(password, hash);
 }
 
-export function generateToken(user: any): string {
+export function generateToken(user: { id: number; email: string; username: string }): string {
     return jwt.sign(
         { id: user.id, email: user.email, username: user.username },
         JWT_SECRET,
@@ -21,18 +33,23 @@ export function generateToken(user: any): string {
     );
 }
 
-export function verifyToken(token: string): any {
+export function verifyToken(token: string): JwtPayload | null {
     try {
-        return jwt.verify(token, JWT_SECRET);
-    } catch (error) {
+        return jwt.verify(token, JWT_SECRET) as JwtPayload;
+    } catch {
         return null;
     }
 }
 
 export async function registerUser(username: string, email: string, password: string) {
-    const existingUser = await getUserByEmail(email);
-    if (existingUser) {
+    const existingEmail = await getUserByEmail(email);
+    if (existingEmail) {
         return { success: false, message: 'Email already registered' };
+    }
+
+    const existingUser = await getUserByUsername(username);
+    if (existingUser) {
+        return { success: false, message: 'Username already taken' };
     }
 
     const passwordHash = await hashPassword(password);
@@ -43,7 +60,7 @@ export async function registerUser(username: string, email: string, password: st
     });
 
     const user = await getUserById(userId);
-    const token = generateToken(user);
+    const token = generateToken(user as User);
 
     return {
         success: true,
@@ -67,7 +84,7 @@ export async function authenticateUser(email: string, password: string) {
         return { success: false, message: 'Invalid email or password' };
     }
 
-    const token = generateToken(user);
+    const token = generateToken(user as User);
 
     return {
         success: true,
@@ -102,17 +119,22 @@ export async function getCurrentUser(token: string) {
 }
 
 export async function getSessionUser(request: Request) {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    try {
+        const authHeader = request.headers.get('authorization');
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return null;
+        }
+
+        const token = authHeader.split(' ')[1];
+        const result = await getCurrentUser(token);
+
+        if (result.success && result.user) {
+            return result.user;
+        }
+
         return null;
+    } catch (error) {
+        console.error('[Auth] getSessionUser Error:', error);
+        return null; // Return null on error to treat as unauthorized instead of crashing
     }
-
-    const token = authHeader.split(' ')[1];
-    const result = await getCurrentUser(token);
-
-    if (result.success && result.user) {
-        return result.user;
-    }
-
-    return null;
 }

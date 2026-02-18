@@ -16,7 +16,7 @@ export async function GET(request: Request) {
         } else {
             return NextResponse.json(result, { status: 401 });
         }
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Auth verification error:', error);
         return NextResponse.json({ success: false, message: 'Internal Server Error' }, { status: 500 });
     }

@@ -1,17 +1,16 @@
 import { NextResponse } from 'next/server';
+import { getSessionUser } from '@/lib/auth-utils';
 import { getMexcCredentials, setSetting } from '@/lib/settings';
-import { testConnection } from '@/lib/mexc';
-import { ensureTablesExist } from '@/lib/db-init';
+import { getAccountInfo } from '@/lib/mexc';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
     try {
-        // Ensure tables exist on first load of settings page
-        // (This is a lazy init strategy since we don't have a distinct migrate step in Vercel)
-        await ensureTablesExist();
+        const user = await getSessionUser(req);
+        if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const { apiKey, apiSecret } = await getMexcCredentials();
+        const { apiKey, apiSecret } = await getMexcCredentials(user.id, 'production');
         const hasKeys = !!apiKey && !!apiSecret;
 
         // Test connection
@@ -19,11 +18,12 @@ export async function GET(req: Request) {
         let error = null;
         if (hasKeys) {
             try {
-                await testConnection();
+                // Better test:
+                await getAccountInfo(user.id);
                 health = 'ok';
-            } catch (e: any) {
+            } catch (e: unknown) {
                 health = 'error';
-                error = e.message;
+                error = e instanceof Error ? e.message : String(e);
             }
         }
 
@@ -33,13 +33,16 @@ export async function GET(req: Request) {
             error,
             apiKeyMasked: apiKey ? `${apiKey.substring(0, 6)}...${apiKey.substring(apiKey.length - 6)}` : null
         });
-    } catch (e: any) {
-        return NextResponse.json({ error: 'Failed to fetch settings: ' + e.message }, { status: 500 });
+    } catch (e: unknown) {
+        return NextResponse.json({ error: 'Failed to fetch settings: ' + (e instanceof Error ? e.message : String(e)) }, { status: 500 });
     }
 }
 
 export async function POST(req: Request) {
     try {
+        const user = await getSessionUser(req);
+        if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
         const body = await req.json();
         const { apiKey, apiSecret } = body;
 
@@ -47,21 +50,18 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: 'Missing keys' }, { status: 400 });
         }
 
-        await ensureTablesExist();
+        await setSetting('MEXC_API_KEY', apiKey, user.id);
+        await setSetting('MEXC_API_SECRET', apiSecret, user.id);
 
-        await setSetting('MEXC_API_KEY', apiKey);
-        await setSetting('MEXC_API_SECRET', apiSecret);
-
-        // Test immediately with the new keys (which are now in DB)
-        // Wait, getMexcCredentials fetches from DB, so testConnection() which calls getMexcCredentials() will use new keys.
+        // Test immediately with the new keys
         try {
-            await testConnection();
+            await getAccountInfo(user.id);
             return NextResponse.json({ success: true, health: 'ok' });
-        } catch (e: any) {
-            return NextResponse.json({ success: true, health: 'error', warning: 'Keys saved but connection failed: ' + e.message });
+        } catch (e: unknown) {
+            return NextResponse.json({ success: true, health: 'error', warning: 'Keys saved but connection failed: ' + (e instanceof Error ? e.message : String(e)) });
         }
 
-    } catch (e: any) {
+    } catch (e: unknown) {
         console.error('Settings save error:', e);
         return NextResponse.json({ error: 'Failed to save settings' }, { status: 500 });
     }

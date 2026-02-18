@@ -151,9 +151,28 @@ function TradingViewWidget() {
                 case 'cookieChanged':
                     checkLoginStatus();
                     break;
+                    
+                case 'logout':
+                    // Extension confirmed logout
+                    setLoginStatus(null);
+                    localStorage.removeItem(LOGIN_STORAGE_KEY);
+                    break;
             }
         }
     }, [checkLoginStatus, showMessage]); // Removed loginStatus from dependencies
+
+    // Listen for app-wide logout events
+    useEffect(() => {
+        const handleSessionClear = () => {
+            console.log('[PortfolioChart] Global session clear received');
+            setLoginStatus(null);
+            localStorage.removeItem(LOGIN_STORAGE_KEY);
+            setIsWebMode(false);
+        };
+
+        window.addEventListener('tv-session-clear', handleSessionClear);
+        return () => window.removeEventListener('tv-session-clear', handleSessionClear);
+    }, []);
 
     // Check for extension on mount
     useEffect(() => {
@@ -168,10 +187,24 @@ function TradingViewWidget() {
                 source: 'matrix-bridge-page',
                 action: 'restoreSession'
             }, '*');
-            
-            // Set checked to true after a small delay to show missing notice if no reply
-            setTimeout(() => setExtensionChecked(true), 2500);
         };
+
+        // Efficient Polling: Check every 500ms for the first 5 seconds, then stop
+        // This makes detection much snappier on page load
+        let attempts = 0;
+        const pollInterval = setInterval(() => {
+            if (!extensionInstalledRef.current && attempts < 10) {
+                initDiscovery();
+                attempts++;
+            } else {
+                clearInterval(pollInterval);
+            }
+        }, 500);
+        
+        // Set checked to true after initial delay to show missing notice if no reply
+        const checkTimer = setTimeout(() => {
+            setExtensionChecked(true);
+        }, 3000);
 
         // Small delay to ensure bridge is ready
         const timer = setTimeout(initDiscovery, 1000);
@@ -179,6 +212,8 @@ function TradingViewWidget() {
         return () => {
             window.removeEventListener('message', handleExtensionMessage);
             clearTimeout(timer);
+            clearTimeout(checkTimer);
+            clearInterval(pollInterval);
         };
     }, [handleExtensionMessage]);
 
@@ -344,10 +379,18 @@ function TradingViewWidget() {
 
     // Logout
     const handleLogout = useCallback(() => {
+        // Send command to extension to clear its session
+        if (extensionInstalledRef.current) {
+            window.postMessage({
+                source: 'matrix-bridge-page',
+                action: 'purgeSession'
+            }, '*');
+        }
+
         setLoginStatus(null);
         setIsWebMode(false);
         localStorage.removeItem(LOGIN_STORAGE_KEY);
-        showMessage('Cikis yapildi.', 'info');
+        showMessage('Cikis yapildi ve Bridge verileri temizlendi.', 'info');
     }, [showMessage]);
 
     return (

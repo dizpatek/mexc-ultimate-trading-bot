@@ -111,8 +111,8 @@ export async function insertOrder(obj: Partial<Order>) {
     try {
         const now = Date.now();
         const result = await sql`
-            INSERT INTO orders (mexc_order_id, symbol, side, type, qty, quote, price, status, created_at, updated_at, meta) 
-            VALUES (${obj.mexc_order_id || null}, ${obj.symbol}, ${obj.side}, ${obj.type}, ${obj.qty || null}, ${obj.quote || null}, ${obj.price || null}, ${obj.status || 'NEW'}, ${now}, ${now}, ${JSON.stringify(obj.meta || {})}) 
+            INSERT INTO orders (user_id, mexc_order_id, symbol, side, type, qty, quote, price, status, created_at, updated_at, meta) 
+            VALUES (${obj.user_id || null}, ${obj.mexc_order_id || null}, ${obj.symbol}, ${obj.side}, ${obj.type}, ${obj.qty || null}, ${obj.quote || null}, ${obj.price || null}, ${obj.status || 'NEW'}, ${now}, ${now}, ${JSON.stringify(obj.meta || {})}) 
             RETURNING id
         `;
         return result.rows[0].id;
@@ -300,12 +300,12 @@ export async function getBotConfig(): Promise<BotConfig> {
     if (!rows[0]) {
         return {
             id: 1,
-            f4_length: 14,
-            whale_multiplier: 2,
-            ai_threshold: 0.5,
+            f4_length: 10,
+            whale_multiplier: 1.8,
+            ai_threshold: 65,
             auto_trade: false,
             defense_mode: false,
-            timeframe: '1h',
+            timeframe: '4h',
             updated_at: Date.now()
         } as BotConfig;
     }
@@ -315,27 +315,31 @@ export async function getBotConfig(): Promise<BotConfig> {
 export async function updateBotConfig(updates: Partial<BotConfig>) {
     try {
         const current = await getBotConfig();
-        const f4 = updates.f4_length !== undefined ? updates.f4_length : current.f4_length;
-        const whale = updates.whale_multiplier !== undefined ? updates.whale_multiplier : current.whale_multiplier;
-        const ai = updates.ai_threshold !== undefined ? updates.ai_threshold : current.ai_threshold;
-        const auto = updates.auto_trade !== undefined ? updates.auto_trade : current.auto_trade;
-        const defense = updates.defense_mode !== undefined ? updates.defense_mode : current.defense_mode;
-        const timeframe = updates.timeframe !== undefined ? updates.timeframe : current.timeframe;
+        
+        // Ensure strictly numbers for numeric fields
+        const f4 = parseInt(String(updates.f4_length !== undefined ? updates.f4_length : (current.f4_length ?? 10)));
+        const whale = parseFloat(String(updates.whale_multiplier !== undefined ? updates.whale_multiplier : (current.whale_multiplier ?? 1.8)));
+        const ai = parseInt(String(updates.ai_threshold !== undefined ? updates.ai_threshold : (current.ai_threshold ?? 65)));
+        
+        const auto = !!(updates.auto_trade !== undefined ? updates.auto_trade : (current.auto_trade ?? false));
+        const defense = !!(updates.defense_mode !== undefined ? updates.defense_mode : (current.defense_mode ?? false));
+        const timeframe = String(updates.timeframe !== undefined ? updates.timeframe : (current.timeframe ?? '4h'));
         const now = Date.now();
 
         await sql`
-            UPDATE bot_configs 
-            SET f4_length = ${f4}, 
-                whale_multiplier = ${whale}, 
-                ai_threshold = ${ai}, 
-                auto_trade = ${auto}, 
-                defense_mode = ${defense},
-                timeframe = ${timeframe},
-                updated_at = ${now} 
-            WHERE id = 1
+            INSERT INTO bot_configs (id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, timeframe, updated_at)
+            VALUES (1, ${f4}, ${whale}, ${ai}, ${auto}, ${defense}, ${timeframe}, ${now})
+            ON CONFLICT (id) DO UPDATE SET
+                f4_length = EXCLUDED.f4_length,
+                whale_multiplier = EXCLUDED.whale_multiplier,
+                ai_threshold = EXCLUDED.ai_threshold,
+                auto_trade = EXCLUDED.auto_trade,
+                defense_mode = EXCLUDED.defense_mode,
+                timeframe = EXCLUDED.timeframe,
+                updated_at = EXCLUDED.updated_at
         `;
-    } catch (e: unknown) {
-        console.error('DB Update Bot Config Error:', e instanceof Error ? e.message : String(e));
-        throw e;
+    } catch (err: unknown) {
+        console.error('DB Update Bot Config Error:', err instanceof Error ? err.message : String(err));
+        throw err;
     }
 }

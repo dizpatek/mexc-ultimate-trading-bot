@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { TestTube, Shield, AlertTriangle, Settings as SettingsIcon } from 'lucide-react';
-import { getTradingMode, setTradingMode, type TradingMode } from '@/lib/mexc-wrapper';
+import { getTradingModeSync, setTradingModeClient, type TradingMode } from '@/lib/mexc-wrapper';
 import { getSimulator, resetSimulator } from '@/lib/trading-simulator';
 
 export function TradingModeToggle() {
@@ -10,16 +10,7 @@ export function TradingModeToggle() {
     const [showConfirm, setShowConfirm] = useState(false);
     const [simulatorBalance, setSimulatorBalance] = useState<number>(0);
 
-    useEffect(() => {
-        const currentMode = getTradingMode();
-        setMode(currentMode);
-
-        if (currentMode === 'test') {
-            updateSimulatorBalance();
-        }
-    }, []);
-
-    const updateSimulatorBalance = async () => {
+    const updateSimulatorBalance = useCallback(async () => {
         try {
             const simulator = getSimulator();
             const accountInfo = simulator.getAccountInfo();
@@ -30,30 +21,49 @@ export function TradingModeToggle() {
         } catch (error) {
             console.error('Failed to get simulator balance:', error);
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        const syncMode = () => {
+            const currentMode = getTradingModeSync();
+            setMode(currentMode);
+            if (currentMode === 'test') {
+                updateSimulatorBalance();
+            }
+        };
+
+        // Initial sync
+        syncMode();
+
+        // Listen for changes
+        window.addEventListener('tradingModeChanged', syncMode);
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'TRADING_MODE') syncMode();
+        });
+
+        return () => {
+            window.removeEventListener('tradingModeChanged', syncMode);
+            window.removeEventListener('storage', syncMode);
+        };
+    }, [updateSimulatorBalance]);
 
     const handleModeChange = (newMode: TradingMode) => {
-        if (newMode === 'production') {
-            setShowConfirm(true);
-        } else {
-            setTradingMode(newMode);
-            setMode(newMode);
+        setTradingModeClient(newMode);
+        setMode(newMode);
+        if (newMode === 'test') {
             updateSimulatorBalance();
         }
     };
 
     const confirmProductionMode = () => {
-        setTradingMode('production');
+        setTradingModeClient('production');
         setMode('production');
         setShowConfirm(false);
     };
 
     const handleResetSimulator = () => {
-        if (confirm('Reset simulator to default state? This will restore $100,000 USDT and reset all test positions.')) {
-            resetSimulator();
-            updateSimulatorBalance();
-            alert('Simulator reset successfully!');
-        }
+        resetSimulator();
+        updateSimulatorBalance();
     };
 
     return (

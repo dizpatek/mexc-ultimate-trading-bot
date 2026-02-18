@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAccountInfo, getPrice, get24hrTicker, type TradingMode } from '@/lib/mexc-wrapper';
+import { getMexcCredentials } from '@/lib/settings';
 import { getSessionUser } from '@/lib/auth-utils';
 import { cookies } from 'next/headers';
 
@@ -10,11 +11,22 @@ export async function GET(request: Request) {
         const user = await getSessionUser(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        // Get mode from cookies
-        const cookieStore = cookies();
-        const mode = (await cookieStore).get('TRADING_MODE')?.value as TradingMode || 'test';
+        // Get mode from cookies (Next.js 15+ await cookies())
+        const cookieStore = await cookies();
+        const mode = cookieStore.get('TRADING_MODE')?.value as TradingMode || 'test';
 
-        const accountInfo = await getAccountInfo(mode);
+        if (mode === 'production') {
+            const { apiKey, apiSecret } = await getMexcCredentials(user.id, mode);
+            if (!apiKey || !apiSecret) {
+                return NextResponse.json({ 
+                    error: 'Production mode requires API keys. Please configure them in Settings.' 
+                }, { status: 400 });
+            }
+        }
+
+        console.log(`[PortfolioHoldings] Fetching for user ${user.id} in ${mode} mode`);
+
+        const accountInfo = await getAccountInfo(user.id, mode);
         const activeBalances = accountInfo.balances.filter(
             b => parseFloat(b.free) + parseFloat(b.locked) > 0
         );
@@ -44,7 +56,7 @@ export async function GET(request: Request) {
                         change24h = ((last / open) - 1) * 100;
                     }
                 } catch {
-                    // Ignore
+                    // console.warn(`Price fetch failed for ${pair}`, e);
                 }
             }
 
@@ -75,7 +87,11 @@ export async function GET(request: Request) {
         return NextResponse.json(finalHoldings);
     } catch (error) {
         const err = error as Error;
-        console.error('Error fetching holdings:', err);
-        return NextResponse.json({ error: 'Failed to fetch holdings', details: err.message }, { status: 500 });
+        console.error('Error fetching holdings [500]:', err);
+        return NextResponse.json({ 
+            error: 'Failed to fetch holdings', 
+            details: err.message,
+            stack: err.stack 
+        }, { status: 500 });
     }
 }

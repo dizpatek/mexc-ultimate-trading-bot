@@ -40,7 +40,7 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ success: true, message: 'Password updated successfully' });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Password change error:', error);
         return NextResponse.json({ error: 'Failed to update password' }, { status: 500 });
     }

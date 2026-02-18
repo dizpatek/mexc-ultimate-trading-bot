@@ -4,7 +4,7 @@ import { TrendingUp, TrendingDown, ArrowRight } from 'lucide-react';
 import { useRecentTrades } from '../hooks/usePortfolio';
 
 export const RecentTrades = () => {
-    const { data: trades, isLoading, isError } = useRecentTrades();
+    const { data: trades, isLoading } = useRecentTrades();
 
     const displayTrades = trades || [];
     const loading = isLoading;

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth-utils';
 import { sql } from '@vercel/postgres';
 import { ensureTablesExist } from '@/lib/db-init';
+import { resetSimulator } from '@/lib/trading-simulator';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,10 +21,11 @@ export async function POST(request: Request) {
             try {
                 await sql.query(`DELETE FROM ${tableName} WHERE user_id = $1`, [user.id]);
                 console.log(`[Reset] Cleaned table: ${tableName}`);
-            } catch (e: any) {
-                console.warn(`[Reset] Could not clean ${tableName}: ${e.message}`);
+            } catch (e: unknown) {
+                const errorMessage = e instanceof Error ? e.message : 'Unknown error';
+                console.warn(`[Reset] Could not clean ${tableName}: ${errorMessage}`);
                 // Try again without WHERE if user_id column is missing (legacy)
-                try { await sql.query(`DELETE FROM ${tableName}`); } catch (e2) { }
+                try { await sql.query(`DELETE FROM ${tableName}`); } catch { }
             }
         };
 
@@ -41,7 +43,7 @@ export async function POST(request: Request) {
         // 2. Portfolio Table - Total Wipe for this user
         try {
             await sql`DELETE FROM portfolio WHERE user_id = ${user.id}`;
-        } catch (e) { }
+        } catch { }
 
         // 3. Re-initialize with crisp $100,000 USDT Simulator entry
         await sql`
@@ -51,6 +53,9 @@ export async function POST(request: Request) {
             SET balance = 100000.00, updated_at = ${Date.now()}
         `;
 
+        // 3. Clear in-memory simulator instance (singleton)
+        resetSimulator();
+
         console.log(`[Reset] Wipe complete. User ${user.id} has $100k USDT reset.`);
 
         return NextResponse.json({
@@ -58,11 +63,12 @@ export async function POST(request: Request) {
             message: 'Simulator data wiped and $100,000 USDT balance restored.'
         });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('CRITICAL RESET ERROR:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         return NextResponse.json({
             success: false,
-            error: error.message
+            error: errorMessage
         }, { status: 500 });
     }
 }

@@ -9,7 +9,9 @@ const SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT
 const DAYS = 30;
 const INTERVAL = '1h'; // 1 hour interval
 
-async function getKlines(symbol: string) {
+type KlineData = [number, string, string, string, string, string, string, string, string, string, string, string];
+
+async function getKlines(symbol: string): Promise<KlineData[]> {
     // MEXC limits kline requests, so we might need multiple calls or just get last 1000 candles
     // 30 days * 24 hours = 720 candles. Limit 1000 is enough.
     const url = `https://api.mexc.com/api/v3/klines?symbol=${symbol}&interval=${INTERVAL}&limit=1000`;
@@ -18,7 +20,7 @@ async function getKlines(symbol: string) {
         const response = await fetch(url);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const data = await response.json();
-        return data as any[]; // [time, open, high, low, close, vol, ...]
+        return data as KlineData[];
     } catch (error) {
         console.error(`Failed to fetch klines for ${symbol}:`, error);
         return [];
@@ -45,7 +47,7 @@ async function backfill() {
         const cutoff = Date.now() - (DAYS * 24 * 60 * 60 * 1000);
 
         // Filter klines within range
-        const recentKlines = klines.filter((k: any[]) => k[0] >= cutoff);
+        const recentKlines = klines.filter((k) => k[0] >= cutoff);
 
         console.log(`  Found ${recentKlines.length} data points.`);
 

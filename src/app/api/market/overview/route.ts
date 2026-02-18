@@ -9,6 +9,21 @@ const TARGET_SYMBOLS = [
     'cgpt', 'gmx', 'tao', 'aitech', 'nst', 'ldo', 'render', 'zeph'
 ];
 
+interface CoinGeckoMarket {
+    symbol: string;
+    name: string;
+    current_price: number;
+    price_change_percentage_24h: number;
+    price_change_percentage_7d_in_currency: number;
+    price_change_percentage_30d_in_currency: number;
+    price_change_percentage_90d_in_currency: number;
+    total_volume: number;
+    market_cap_rank: number;
+    market_cap: number;
+    circulating_supply: number;
+    total_supply: number;
+}
+
 export async function GET() {
     try {
         const response = await axios.get('https://api.coingecko.com/api/v3/coins/markets', {
@@ -28,7 +43,7 @@ export async function GET() {
             return NextResponse.json([]);
         }
 
-        const marketData = response.data.map((coin: any) => ({
+        const marketData = response.data.map((coin: CoinGeckoMarket) => ({
             symbol: coin.symbol,
             name: coin.name,
             price: coin.current_price || 0,
@@ -47,7 +62,7 @@ export async function GET() {
         }));
 
         return NextResponse.json(marketData);
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Error in market overview API:', error);
         return NextResponse.json({ error: 'Failed to fetch market data' }, { status: 500 });
     }

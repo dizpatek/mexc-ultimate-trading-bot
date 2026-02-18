@@ -1,6 +1,6 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { Brain, Disc, Target } from 'lucide-react';
+import { Brain, Target } from 'lucide-react';
 
 interface CentralCommandProps {
   score: number;
@@ -9,7 +9,6 @@ interface CentralCommandProps {
 }
 
 export const CentralCommand: React.FC<CentralCommandProps> = ({ score, status, prediction }) => {
-  const rotation = (score / 100) * 360; // Calculate rotation for circular progress
   
   return (
     <div className="relative w-full aspect-square max-h-[350px] flex items-center justify-center p-4">

@@ -4,44 +4,57 @@
  */
 import * as realMexc from './mexc';
 import { getSimulator } from './trading-simulator';
+import { getSetting } from './settings';
 
 export type TradingMode = 'test' | 'production';
 
-// Safe way to get cookies on server side without top-level import
-// Safe way to check server side
-export function getTradingMode(): TradingMode {
+/**
+ * Gets the trading mode for a user.
+ * On client: uses localStorage.
+ * On server: uses DB if userId provided, otherwise env fallback.
+ */
+export async function getTradingMode(userId?: number): Promise<TradingMode> {
     if (typeof window !== 'undefined') {
         return (localStorage.getItem('TRADING_MODE') as TradingMode) || 'test';
     }
 
-    // Server side
+    if (userId) {
+        const dbMode = await getSetting('TRADING_MODE', userId);
+        if (dbMode === 'test' || dbMode === 'production') return dbMode;
+    }
+
+    // Server side fallback (Admin only or global env)
     const mode = (process.env.TRADING_MODE as TradingMode) || 'test';
-    
-    // TRICK: Log to terminal but also try to see it in logs
-    console.log(`[ST_DEBUG] Server Mode: ${mode} | ENV: ${process.env.TRADING_MODE}`);
-    
     return mode;
 }
 
-export function setTradingMode(mode: TradingMode) {
+/**
+ * Synchronous version for client side components
+ */
+export function getTradingModeSync(): TradingMode {
+    if (typeof window !== 'undefined') {
+        return (localStorage.getItem('TRADING_MODE') as TradingMode) || 'test';
+    }
+    return 'test';
+}
+
+export function setTradingModeClient(mode: TradingMode) {
     if (typeof window !== 'undefined') {
         localStorage.setItem('TRADING_MODE', mode);
         document.cookie = `TRADING_MODE=${mode}; path=/; max-age=31536000; SameSite=Lax`;
-        // Notify other components
         window.dispatchEvent(new Event('tradingModeChanged'));
     }
 }
 
-// Wrapper Functions
-export async function getAccountInfo(forcedMode?: TradingMode) {
-    const mode = forcedMode || getTradingMode();
-    if (mode === 'production') return realMexc.getAccountInfo();
+export async function getAccountInfo(userId?: number, forcedMode?: TradingMode) {
+    const mode = forcedMode || await getTradingMode(userId);
+    if (mode === 'production' && userId) return realMexc.getAccountInfo(userId);
     return getSimulator().getAccountInfo();
 }
 
-export async function getBalance(asset: string, forcedMode?: TradingMode) {
-    const mode = forcedMode || getTradingMode();
-    if (mode === 'production') return realMexc.getBalance(asset);
+export async function getBalance(asset: string, userId?: number, forcedMode?: TradingMode) {
+    const mode = forcedMode || await getTradingMode(userId);
+    if (mode === 'production' && userId) return realMexc.getBalance(asset, userId);
     return getSimulator().getBalance(asset);
 }
 
@@ -49,15 +62,15 @@ export async function getPrice(symbol: string): Promise<number> {
     return realMexc.getPrice(symbol);
 }
 
-export async function getOpenOrders(symbol: string | null = null, forcedMode?: TradingMode) {
-    const mode = forcedMode || getTradingMode();
-    if (mode === 'production') return realMexc.getOpenOrders(symbol);
+export async function getOpenOrders(userId?: number, symbol: string | null = null, forcedMode?: TradingMode) {
+    const mode = forcedMode || await getTradingMode(userId);
+    if (mode === 'production' && userId) return realMexc.getOpenOrders(userId, symbol);
     return getSimulator().getOpenOrders(symbol || undefined);
 }
 
-export async function postOrder(params: Record<string, string | number | boolean>, forcedMode?: TradingMode) {
-    const mode = forcedMode || getTradingMode();
-    if (mode === 'production') return realMexc.postOrder(params);
+export async function postOrder(userId: number, params: Record<string, string | number | boolean>, forcedMode?: TradingMode) {
+    const mode = forcedMode || await getTradingMode(userId);
+    if (mode === 'production') return realMexc.postOrder(userId, params);
 
     const symbol = params.symbol as string;
     const side = params.side as string;
@@ -76,23 +89,25 @@ export async function postOrder(params: Record<string, string | number | boolean
     }
 }
 
-export async function marketBuyByQuote(pair: string, quoteAmount: string, forcedMode?: TradingMode) {
-    if (forcedMode === 'production' || (forcedMode === undefined && getTradingMode() === 'production')) {
-        return realMexc.marketBuyByQuote(pair, quoteAmount);
+export async function marketBuyByQuote(userId: number, pair: string, quoteAmount: string, forcedMode?: TradingMode) {
+    const mode = forcedMode || await getTradingMode(userId);
+    if (mode === 'production') {
+        return realMexc.marketBuyByQuote(userId, pair, quoteAmount);
     }
     return getSimulator().executeMarketBuy(pair, parseFloat(quoteAmount), await getPrice(pair));
 }
 
-export async function marketSellByQty(pair: string, quantity: string, forcedMode?: TradingMode) {
-    if (forcedMode === 'production' || (forcedMode === undefined && getTradingMode() === 'production')) {
-        return realMexc.marketSellByQty(pair, quantity);
+export async function marketSellByQty(userId: number, pair: string, quantity: string, forcedMode?: TradingMode) {
+    const mode = forcedMode || await getTradingMode(userId);
+    if (mode === 'production') {
+        return realMexc.marketSellByQty(userId, pair, quantity);
     }
     return getSimulator().executeMarketSell(pair, parseFloat(quantity), await getPrice(pair));
 }
 
-export async function placeStopMarket(pair: string, side: string, stopPrice: string, qty: string, forcedMode?: TradingMode) {
-    const mode = forcedMode || getTradingMode();
-    if (mode === 'production') return realMexc.placeStopMarket(pair, side, stopPrice, qty);
+export async function placeStopMarket(userId: number, pair: string, side: string, stopPrice: string, qty: string, forcedMode?: TradingMode) {
+    const mode = forcedMode || await getTradingMode(userId);
+    if (mode === 'production') return realMexc.placeStopMarket(userId, pair, side, stopPrice, qty);
     return { orderId: 'SIM_STOP_' + Date.now(), status: 'NEW' };
 }
 
@@ -111,9 +126,9 @@ export interface HoldingItem {
     id: string;
 }
 
-export async function getHoldings(forcedMode?: TradingMode): Promise<HoldingItem[]> {
-    const mode = forcedMode || getTradingMode();
-    const accountInfo = await getAccountInfo(mode);
+export async function getHoldings(userId?: number, forcedMode?: TradingMode): Promise<HoldingItem[]> {
+    const mode = forcedMode || await getTradingMode(userId);
+    const accountInfo = await getAccountInfo(userId, mode);
     
     if (!accountInfo || !accountInfo.balances) {
         return [];

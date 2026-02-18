@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth-utils';
 import { sql } from '@vercel/postgres';
-import { getPrice } from '@/lib/mexc-wrapper';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,8 +19,9 @@ export async function GET(request: Request) {
         // Calculate current performance for each bot (optional real-time check)
         // For simplicity, we just return DB state. Frontend can fetch real-time price.
         return NextResponse.json(rows);
-    } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }
 
@@ -50,9 +50,10 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ success: true, id: result.rows[0].id });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Create DCA Bot Error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }
 
@@ -72,7 +73,8 @@ export async function DELETE(request: Request) {
         `;
 
         return NextResponse.json({ success: true });
-    } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }

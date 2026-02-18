@@ -1,6 +1,6 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { Activity, Zap, Cpu, Layers } from 'lucide-react';
+import { Activity } from 'lucide-react';
 
 interface DataStreamProps {
   title: string;

@@ -3,12 +3,21 @@
 import { useState } from 'react';
 import { AlertTriangle, TrendingDown, TrendingUp, X, Loader2 } from 'lucide-react';
 import { api } from '@/services/api';
+import axios from 'axios';
+
+interface PanicResult {
+    error?: boolean;
+    message?: string;
+    totalUsdtValue?: number;
+    totalSpent?: number;
+    mode?: string;
+}
 
 export const PanicButton = () => {
     const [showSellModal, setShowSellModal] = useState(false);
     const [showBuyModal, setShowBuyModal] = useState(false);
     const [loading, setLoading] = useState(false);
-    const [result, setResult] = useState<any>(null);
+    const [result, setResult] = useState<PanicResult | null>(null);
 
     const handleSellAll = async () => {
         setLoading(true);
@@ -19,8 +28,11 @@ export const PanicButton = () => {
                 setShowSellModal(false);
                 setResult(null);
             }, 5000);
-        } catch (error: any) {
-            setResult({ error: true, message: error.response?.data?.message || 'Sell failed' });
+        } catch (error: unknown) {
+            const message = axios.isAxiosError(error) 
+                ? error.response?.data?.message || 'Sell failed' 
+                : 'Sell failed';
+            setResult({ error: true, message });
         } finally {
             setLoading(false);
         }
@@ -35,8 +47,11 @@ export const PanicButton = () => {
                 setShowBuyModal(false);
                 setResult(null);
             }, 5000);
-        } catch (error: any) {
-            setResult({ error: true, message: error.response?.data?.message || 'Buy back failed' });
+        } catch (error: unknown) {
+            const message = axios.isAxiosError(error) 
+                ? error.response?.data?.message || 'Buy back failed' 
+                : 'Buy back failed';
+            setResult({ error: true, message });
         } finally {
             setLoading(false);
         }

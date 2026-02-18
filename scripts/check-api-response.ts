@@ -1,5 +1,4 @@
 import { MatrixV3Engine } from '../src/lib/matrix-v3-engine';
-import { getKlines } from '../src/lib/mexc-wrapper';
 
 async function checkApiResponse() {
     console.log('--- Checking Matrix V3 API Response Structure ---');

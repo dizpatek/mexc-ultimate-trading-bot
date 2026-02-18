@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 
 export const HorizonLayout = ({ children, className }: { children: React.ReactNode, className?: string }) => {
     return (
-        <div className={cn("min-h-screen bg-[#020617] text-slate-300 font-sans selection:bg-cyan-500/30", className)}>
+        <div className={cn("h-screen overflow-hidden bg-[#020617] text-slate-300 font-sans selection:bg-cyan-500/30", className)}>
             
             {/* GLOBAL BACKGROUND EFFECTS */}
             <div className="fixed inset-0 pointer-events-none z-0">
@@ -27,7 +27,7 @@ export const HorizonLayout = ({ children, className }: { children: React.ReactNo
             </div>
 
             {/* CONTENT WRAPPER */}
-            <div className="relative z-10 flex flex-col min-h-screen">
+            <div className="relative z-10 flex flex-row h-screen">
                 {children}
             </div>
 

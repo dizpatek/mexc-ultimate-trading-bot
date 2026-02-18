@@ -4,7 +4,7 @@ import { DecisionBar } from "./DecisionBar";
 import { DataStream } from "./DataStream";
 import { CentralCommand } from "./CentralCommand";
 import { MatrixPortfolio } from "../MatrixPortfolio"; // Real Asset List Component
-import { RefreshCw, LayoutTemplate, Shield, Zap, Activity } from "lucide-react"; 
+import { RefreshCw, LayoutTemplate } from "lucide-react"; 
 
 // Types
 type MarketRegime = "RISK_ON" | "RISK_OFF" | "NEUTRAL";
@@ -91,14 +91,19 @@ export const MatrixHorizon = () => {
                 const diffOthers = liveOthers - baseOthers;
 
                 const getPredictionLabel = (pred: string): MomentumState => {
-                    // Engine V3 Keys
-                    if (pred === "ACCELERATING_TREND") return "HIZLANIYOR 🚀";
-                    if (pred === "DECELERATING_TREND") return "YAVAŞLIYOR ⚠️";
-                    if (pred === "ACCELERATING_DROP") return "ÇÖKÜŞ 💀";
-                    if (pred === "BOTTOM_FINDING") return "DİP ARAYIŞI 🔄";
+                    // Engine V3 Turkish Keys
+                    if (pred === "HIZLANAN_TREND") return "HIZLANIYOR 🚀";
+                    if (pred === "YAVAŞLAYAN_TREND") return "YAVAŞLIYOR ⚠️";
+                    if (pred === "HIZLANAN_DÜŞÜŞ") return "ÇÖKÜŞ 💀";
+                    if (pred === "DİP_ARAYIŞI") return "DİP ARAYIŞI 🔄";
                     if (pred === "RANGE") return "YATAY 🌫️";
-                    if (pred === "STOPPING_VOLUME") return "DİP ARAYIŞI 🔄";
+                    if (pred === "STOPPING_VOL") return "DİP ARAYIŞI 🔄";
                     if (pred === "PRE_EXPLOSION") return "PATLAMA ÖNCESİ 💥";
+                    if (pred === "ERKEN_DÖNÜŞ_YUKARI") return "HIZLANIYOR 🚀";
+                    if (pred === "ERKEN_DÖNÜŞ_AŞAĞI") return "ÇÖKÜŞ 💀";
+                    if (pred === "DİP_FIRSATI_VIX") return "DİP ARAYIŞI 🔄";
+                    if (pred === "EXHAUSTION") return "YAVAŞLIYOR ⚠️";
+                    if (pred === "TRANSITION") return "ANALİZ EDİLİYOR...";
                     return "ANALİZ EDİLİYOR...";
                 };
 
@@ -110,7 +115,7 @@ export const MatrixHorizon = () => {
                         f4Trend: btcData.f4Slope > 0 ? "YÜKSELİYOR 🟢" : "DÜŞÜYOR 🔴",
                         fiboTrend: btcData.aiScore > 65 ? "GÜÇLÜ 🟢" : btcData.aiScore < 35 ? "ZAYIF 🔴" : "NÖTR ⚪",
                         momentum: btcData.f4Acceleration > 0 ? "ARTIYOR 🚀" : "AZALIYOR ⚠️",
-                        divergence: btcData.aiComponents.volumePower > 0 ? "POZİTİF" : "NÖTR"
+                        divergence: btcData.aiComponents?.volumePower > 0 ? "POZİTİF" : "NÖTR"
                     },
                     market: {
                         btcd: { 
@@ -135,23 +140,29 @@ export const MatrixHorizon = () => {
                         regime: btcData.marketRegime as MarketRegime,
                         aiScore: btcData.aiScore,
                         prediction: getPredictionLabel(btcData.regimePrediction),
-                        capital: btcData.aiComponents.whaleConfirmed > 0 ? "GÜÇLÜ GİRİŞ" : btcData.aiComponents.trapPenalty < 0 ? "TUZAK!" : "NORMAL",
+                        capital: btcData.aiComponents?.whaleConfirmed > 0 ? "GÜÇLÜ GİRİŞ" : btcData.aiComponents?.trapPenalty < 0 ? "TUZAK!" : "NORMAL",
                         btcCheck: true,
                         freshness: "CANLI 🟢",
                         whaleType: btcData.whaleDetected ? "ALGORİTMİK" : "---",
                         moduleHealth: "ÇALIŞIYOR",
-                        protection: btcData.volatilityRegime === "EXPLOSION" ? "VOLATİLİTE!" : "AKTİF"
+                        protection: btcData.volatilityRegime === "YUKSEK_VOL" ? "VOLATİLİTE!" : "AKTİF"
                     },
                     engineering: {
-                        mtfConsensus: btcData.mtfConsensus === "STRONG_BULL" ? "BOĞA KONSENSÜS" : btcData.mtfConsensus === "STRONG_BEAR" ? "AYI KONSENSÜS" : "KARIŞIK",
+                        // Engine returns Turkish strings like "GÜÇLÜ YÜKSELİŞ" / "GÜÇLÜ DÜŞÜŞ" / "KARIŞIK"
+                        mtfConsensus: btcData.mtfConsensus?.includes("YÜKSELİŞ") ? "BOĞA KONSENSÜS" 
+                            : btcData.mtfConsensus?.includes("DÜŞÜŞ") ? "AYI KONSENSÜS" : "KARIŞIK",
                         momentumAccel: btcData.f4Acceleration > 0.5 ? "YÜKSEK HIZ" : btcData.f4Acceleration > 0 ? "GÜÇLENİYOR" : "YAVAŞLIYOR",
-                        volatility: btcData.volatilityRegime === "HIGH_VOL" ? "YÜKSEK" : btcData.volatilityRegime === "SQUEEZE" ? "SIKIŞMA" : "NORMAL",
-                        zScore: btcData.zScoreValue ? btcData.zScoreValue.toFixed(2) : "0.00",
-                        winRate: btcData.aiComponents.bayesianWinRate ? (btcData.aiComponents.bayesianWinRate * 10) : 50
+                        // Engine returns Turkish: SIKISTIRMA / PATLAMA / YUKSEK_VOL / NORMAL
+                        volatility: btcData.volatilityRegime === "YUKSEK_VOL" ? "YÜKSEK" 
+                            : btcData.volatilityRegime === "SIKISTIRMA" ? "SIKIŞMA" : "NORMAL",
+                        zScore: btcData.zScoreValue != null ? btcData.zScoreValue.toFixed(2) : "0.00",
+                        winRate: btcData.aiComponents?.bayesianWinRate != null 
+                            ? Math.min(100, Math.max(0, btcData.aiComponents.bayesianWinRate * 10 + 50)) 
+                            : 50
                     },
                     decision: {
                         system: btcData.systemDecision === "GO_LONG" ? "İŞLEM AÇ ✅" : btcData.systemDecision === "GO_SHORT" ? "SATIŞ YAP 📉" : "BEKLE ❌" as SystemDecision,
-                        aiSuggestion: btcData.systemDecision === "GO_LONG" ? "MOMENTUM LONG" : btcData.systemDecision === "GO_SHORT" ? "DÜŞÜŞ TRENDİ" : "NÖTR/BEKLE"
+                        aiSuggestion: btcData.confluenceText || (btcData.systemDecision === "GO_LONG" ? "MOMENTUM LONG" : btcData.systemDecision === "GO_SHORT" ? "DÜŞÜŞ TRENDİ" : "NÖTR/BEKLE")
                     }
                 });
                 setLastSync(new Date());
@@ -318,36 +329,15 @@ export const MatrixHorizon = () => {
             </div>
 
             {/* BOTTOM DECK: EXECUTION & MODE SETTINGS */}
-            <div className="relative z-10 flex flex-col lg:flex-row items-center gap-4 mb-2">
+            <div className="relative z-10 flex items-center gap-4 mb-2">
                 <div className="flex-1 w-full">
                     <DecisionBar 
                         decision={data.decision.system} 
                         aiSuggestion={data.decision.aiSuggestion} 
                         mode={data.technical.mode}
+                        riskMode={riskMode}
+                        onRiskModeChange={(val) => setRiskMode(val)}
                     />
-                </div>
-                
-                {/* GLOBAL RISK SWITCHER */}
-                <div className="flex bg-slate-900/80 backdrop-blur border border-slate-700 rounded-lg p-1 gap-1">
-                    {[
-                        { id: 'safe', label: 'STEALTH', icon: Shield, color: 'text-emerald-400' },
-                        { id: 'normal', label: 'SCALP', icon: Activity, color: 'text-cyan-400' },
-                        { id: 'aggressive', label: 'ALPHA', icon: Zap, color: 'text-rose-400' }
-                    ].map((mode) => (
-                        <button 
-                            key={mode.id}
-                            onClick={() => setRiskMode(mode.id as any)}
-                            className={cn(
-                                "flex items-center gap-2 px-3 py-2 rounded-md transition-all duration-300 group",
-                                riskMode === mode.id ? "bg-slate-800 border border-slate-600 shadow-lg" : "hover:bg-white/5 opacity-50 hover:opacity-100"
-                            )}
-                        >
-                            <mode.icon className={cn("w-3.5 h-3.5", riskMode === mode.id ? mode.color : "text-slate-500")} />
-                            <span className={cn("text-[10px] font-bold tracking-widest", riskMode === mode.id ? "text-slate-100" : "text-slate-500")}>
-                                {mode.label}
-                            </span>
-                        </button>
-                    ))}
                 </div>
             </div>
 
@@ -355,7 +345,7 @@ export const MatrixHorizon = () => {
             <div className="relative z-20 flex-1 overflow-visible">
                  <div className="flex items-center gap-2 mb-2 px-1">
                     <div className="w-1 h-4 bg-cyan-500 rounded-sm shadow-[0_0_8px_cyan]" />
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em]">MATRIX INTELLIGENCE GÖRDÜSÜ</h3>
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em]">MATRIX INTELLIGENCE PÖRTFÖY</h3>
                     <div className="h-[1px] flex-1 bg-gradient-to-r from-slate-800 to-transparent" />
                  </div>
                  <MatrixPortfolio />

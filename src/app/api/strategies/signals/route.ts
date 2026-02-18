@@ -25,7 +25,7 @@ export async function GET(request: Request) {
 
         const signals = await getStrategySignals(sid, limit);
         return NextResponse.json(signals);
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Error fetching strategy signals:', error);
         return NextResponse.json({ error: 'Failed to get signals' }, { status: 500 });
     }

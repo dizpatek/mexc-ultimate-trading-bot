@@ -7,7 +7,6 @@ import {
     ShieldAlert, 
     Zap,
     Split,
-    Wallet,
     ArrowRightLeft,
     Trash2,
     RefreshCw
@@ -58,7 +57,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     onCancelEdit,
 }) => {
     // 0. External Data
-    const { data: holdings = [] } = useHoldings();
+    const { data: holdings = [], refetch: refetchHoldings } = useHoldings();
 
     // 1. Core State
     const [mode, setMode] = useState<'TRADE' | 'COVER'>('TRADE');
@@ -170,6 +169,8 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     const [trailingSl, setTrailingSl] = useState(false);
     const [trailingSlDev, setTrailingSlDev] = useState(-1.0);
     const [moveToBreakeven, setMoveToBreakeven] = useState(false);
+    const [slTimeout, setSlTimeout] = useState(false);
+    const [slTimeoutSeconds, setSlTimeoutSeconds] = useState(10);
 
     // Handle Asset Selection
     const handleAssetSelect = useCallback((asset: typeof holdings[0]) => {
@@ -201,6 +202,15 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     }, [setSymbol, setBuyPrice, setTpPrice, setSlPrice]);
 
     const [isLoading, setIsLoading] = useState(false);
+    const [statusMsg, setStatusMsg] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
+
+    // Auto-clear status message
+    useEffect(() => {
+        if (statusMsg) {
+            const timer = setTimeout(() => setStatusMsg(null), 5000);
+            return () => clearTimeout(timer);
+        }
+    }, [statusMsg]);
 
     // Sync buyPrice with marketPrice if we're using existing assets (or if buyPrice is empty)
     useEffect(() => {
@@ -312,21 +322,24 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                     price: slPrice,
                     trailing: trailingSl,
                     deviation: trailingSlDev,
-                    breakeven: moveToBreakeven
+                    breakeven: moveToBreakeven,
+                    timeout: slTimeout,
+                    timeoutSeconds: slTimeout ? slTimeoutSeconds : undefined
                 } : null
             };
             
             if (editingTrade) {
                 await api.put(`/trade/smart?id=${editingTrade.id}`, payload);
-                alert('Değişiklikler başarıyla kaydedildi!');
+                setStatusMsg({ text: 'Değişiklikler başarıyla kaydedildi!', type: 'success' });
                 if (onCancelEdit) onCancelEdit();
             } else {
                 await createSmartTrade(payload as Record<string, unknown>);
-                alert('SmartTrade başarıyla oluşturuldu!');
+                setStatusMsg({ text: 'SmartTrade başarıyla oluşturuldu!', type: 'success' });
             }
+            refetchHoldings(); // Refresh portfolio immediately
         } catch (error) {
             console.error('SmartTrade submission failed:', error);
-            alert('Hata: İşlem gerçekleştirilemedi.');
+            setStatusMsg({ text: 'Hata: İşlem gerçekleştirilemedi.', type: 'error' });
         } finally {
             setIsLoading(false);
         }
@@ -334,73 +347,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
 
 
 
-    const handleQuickTrade = async (side: 'BUY' | 'SELL') => {
-        if (!symbol) {
-            alert('Lütfen bir sembol seçin.');
-            return;
-        }
 
-        if (!amount || parseFloat(amount) <= 0) {
-            alert('Lütfen geçerli bir miktar girin.');
-            return;
-        }
-
-        const confirmText = `${symbol} için ${amount} ${symbol.split('/')[0]} miktarında ${side === 'BUY' ? 'ALIM' : 'SATIŞ'} yapmak istediğinize emin misiniz? (STANDART İŞLEM)`;
-        if (!confirm(confirmText)) return;
-
-        setIsLoading(true);
-        try {
-            // WE NOW ROUTE THROUGH THE SMART TRADE API
-            // This ensures the trade is recorded in the DB and appears in "Active Smart Trades"
-            const payload = {
-                symbol,
-                amount,
-                mode: side === 'BUY' ? 'TRADE' : 'COVER',
-                buyPrice: (marketPrice || 0).toString(),
-                buyType: 'MARKET',
-                takeProfit: null,
-                stopLoss: null
-            };
-
-            const res = await api.post('/trade/smart', payload);
-            
-            if (res.data?.success) {
-                alert(`İşlem Başarılı: ${side === 'BUY' ? 'AL' : 'SAT'} emri iletildi ve takibe alındı.`);
-            } else {
-                let msg = res.data?.error || res.data?.message || res.data?.details?.msg || 'Bilinmeyen bir hata oluştu.';
-                // If it's a stringified JSON from MEXC error
-                if (typeof msg === 'string' && msg.startsWith('{')) {
-                    try {
-                        const parsed = JSON.parse(msg);
-                        msg = parsed.msg || parsed.message || msg;
-                    } catch { /* ignore */ }
-                }
-                alert(`Hata: ${msg}`);
-            }
-        } catch (error: unknown) {
-            console.error('Quick trade (Smart) failed:', error);
-            let errorMsg: string;
-
-            if (error instanceof Error) {
-                const errData = (error as any).response?.data; // Cast to any to access response property
-                errorMsg = errData?.details?.msg || errData?.details || errData?.message || errData?.error || error.message || 'Bilinmeyen bir hata';
-            } else {
-                errorMsg = 'Bilinmeyen bir hata';
-            }
-            
-            // Try to parse more friendly message from raw JSON
-            if (typeof errorMsg === 'string' && errorMsg.startsWith('{')) {
-                try {
-                    const parsed = JSON.parse(errorMsg);
-                    errorMsg = parsed.msg || parsed.message || errorMsg;
-                } catch { /* ignore */ }
-            }
-            
-            alert(`İşlem başarısız oldu: ${errorMsg}`);
-        } finally {
-            setIsLoading(false);
-        }
-    };
 
     const handlePricesChange = useCallback((p: { buy?: number; tp?: number; sl?: number }) => {
         if (p.buy !== undefined) setBuyPrice(p.buy.toString());
@@ -425,6 +372,33 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     const riskReward = riskUsdt > 0 ? (profitUsdt / riskUsdt).toFixed(1) : '∞';
     const computedTotal = (amt * buyP).toFixed(2);
 
+    // --- VISUALIZATION LOGIC FOR CHART ---
+    // If Trailing Buy is active and price is better than trigger, 
+    // we visualize the potential Entry/TP/SL moving with the market price.
+    let vizBuyPrice = buyP;
+    let vizTpPrice = tpP;
+    let vizSlPrice = slP;
+
+    if (marketPrice && trailingBuy && !useExisting) {
+        // Mode TRADE: Buying Low. Trigger is buyP. If Market < buyP, we trail down.
+        if (mode === 'TRADE' && marketPrice < buyP) {
+             // Simulated Entry = Current Market * (1 + Dev)
+             vizBuyPrice = marketPrice * (1 + (trailingBuyDev / 100));
+             
+             // Recalculate TP/SL based on this new Entry, keeping the same percentages
+             vizTpPrice = vizBuyPrice * (1 + (tpPercent / 100));
+             vizSlPrice = vizBuyPrice * (1 + (slPercent / 100));
+        }
+        // Mode COVER: Selling High. Trigger is buyP (Entry). If Market > buyP, we trail up.
+        else if (mode === 'COVER' && marketPrice > buyP) {
+             // Simulated Entry = Current Market * (1 - Dev)
+             vizBuyPrice = marketPrice * (1 - (trailingBuyDev / 100));
+
+             vizTpPrice = vizBuyPrice * (1 + (tpPercent / 100));
+             vizSlPrice = vizBuyPrice * (1 + (slPercent / 100));
+        }
+    }
+
     return (
         <HorizonCard className="bg-[#020617]/40 backdrop-blur-xl border-slate-800/50 p-4 shadow-2xl overflow-hidden group/smart" glowColor={mode === 'COVER' ? "emerald" : "cyan"}>
             {editingTrade && (
@@ -444,69 +418,13 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                 </div>
             )}
             
-            {/* Centered Asset Tiles */}
-             <div className="mb-4 space-y-4">
-                <div className="flex items-center justify-center gap-3">
-                    <div className="h-px w-12 bg-gradient-to-r from-transparent to-slate-800" />
-                    <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-900/40 border border-slate-800/50">
-                        <Wallet className="w-3.5 h-3.5 text-cyan-500" />
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Aktif Portföyüm</span>
-                    </div>
-                    <div className="h-px w-12 bg-gradient-to-l from-transparent to-slate-800" />
-                </div>
-
-                <div className="flex flex-wrap items-center justify-center gap-4 w-full max-w-5xl mx-auto px-4">
-                    {filteredAssets.length > 0 ? filteredAssets.slice(0, 16).map((asset) => (
-                        <button
-                            key={asset.id}
-                            onClick={() => handleAssetSelect(asset)}
-                            className={cn(
-                                "flex flex-col items-center gap-3 p-4 rounded-2xl border transition-all relative group overflow-hidden min-w-[100px] hover:scale-105 active:scale-95",
-                                symbol.split('/')[0] === asset.symbol 
-                                    ? "bg-cyan-500/10 border-cyan-500/50 shadow-[0_0_25px_rgba(6,182,212,0.15)] ring-1 ring-cyan-500/20" 
-                                    : "bg-slate-900/40 border-slate-800/50 hover:border-slate-600/50 hover:bg-slate-800/60"
-                            )}
-                        >
-                            {symbol.startsWith(asset.symbol) && (
-                                <div className="absolute top-0 right-0 p-1.5">
-                                    <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_rgba(34,211,238,0.6)]" />
-                                </div>
-                            )}
-                            <div className="relative z-20">
-                                <AssetIcon symbol={asset.symbol} size={32} />
-                            </div>
-                            <div className="text-center relative z-20">
-                                <div className="text-[11px] font-black text-white tracking-tight">
-                                    {(() => {
-                                        const b = asset.symbol.split(/[/_-]/)[0];
-                                        const quotes = ['USDT', 'USDC', 'BUSD', 'TUSD', 'BTC', 'ETH', 'BNB'];
-                                        for (const q of quotes) {
-                                            if (b.endsWith(q) && b.length > q.length) return b.substring(0, b.length - q.length);
-                                        }
-                                        return b;
-                                    })()}
-                                </div>
-                                <div className="text-[9px] font-semibold text-slate-500 uppercase tracking-tighter mt-1 group-hover:hidden transition-all">{asset.holding.toFixed(2)}</div>
-                                <div className="text-[9px] font-black text-cyan-400 mt-1 hidden group-hover:block transition-all animate-in fade-in slide-in-from-bottom-1">${asset.price.toLocaleString()}</div>
-                            </div>
-                        </button>
-                    )) : null}
-                    
-                    {filteredAssets.length === 0 && (
-                        <div className="w-full max-w-lg py-12 text-center bg-slate-900/20 border border-dashed border-slate-800/50 rounded-3xl mx-auto">
-                            <span className="text-xs font-bold text-slate-600 uppercase tracking-[0.2em]">Varlık bulunamadı</span>
-                        </div>
-                    )}
-                </div>
-             </div>
-             
-             {/* Integrated SmartChart Section */}
+            {/* Integrated SmartChart Section (Moved Top) */}
              <div className="mb-4">
                 <SmartChart 
                     symbol={symbol}
-                    buyPrice={parseFloat(buyPrice)}
-                    tpPrice={parseFloat(tpPrice)}
-                    slPrice={parseFloat(slPrice)}
+                    buyPrice={vizBuyPrice}
+                    tpPrice={vizTpPrice}
+                    slPrice={vizSlPrice}
                     onPricesChange={handlePricesChange}
                     tpEnabled={tpEnabled}
                     slEnabled={slEnabled}
@@ -518,9 +436,16 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                     onTrailingTpChange={setTrailingTp}
                     currentMarketPrice={selectedHolding?.price}
                     onMarketPriceUpdate={setMarketPrice}
-
+                    mode={mode}
+                    trailingBuyDev={trailingBuyDev}
+                    trailingTpDev={tpDeviation}
+                    trailingSlDev={trailingSlDev}
+                    assets={filteredAssets}
+                    onAssetChange={handleAssetSelect}
                 />
              </div>
+
+
 
              {/* Main Grid: 3 Columns */}
              <div id="smart-trade-controls" className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -699,14 +624,16 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                             <div className="space-y-3">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2">
-                                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Trailing Buy</span>
+                                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                            {mode === 'TRADE' ? 'Trailing Buy' : 'Trailing Sell'}
+                                        </span>
                                         <Info className="w-3 h-3 text-slate-700" />
                                     </div>
                                     <button 
                                         onClick={() => setTrailingBuy(!trailingBuy)}
                                         className={cn(
                                             "w-8 h-4 rounded-full transition-all relative px-0.5",
-                                            trailingBuy ? "bg-cyan-500" : "bg-slate-700"
+                                            trailingBuy ? (mode === 'TRADE' ? "bg-cyan-500" : "bg-emerald-500") : "bg-slate-700"
                                         )}
                                     >
                                         <div className={cn(
@@ -716,8 +643,14 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                                     </button>
                                 </div>
                                 {trailingBuy && (
-                                    <div className="p-3 rounded-lg bg-cyan-500/5 border border-cyan-500/20 space-y-2 animate-in fade-in slide-in-from-top-2">
-                                        <div className="flex justify-between text-[9px] font-bold text-cyan-400 uppercase tracking-tighter">
+                                    <div className={cn(
+                                        "p-3 rounded-lg border space-y-2 animate-in fade-in slide-in-from-top-2",
+                                        mode === 'TRADE' ? "bg-cyan-500/5 border-cyan-500/20" : "bg-emerald-500/5 border-emerald-500/20"
+                                    )}>
+                                        <div className={cn(
+                                            "flex justify-between text-[9px] font-bold uppercase tracking-tighter",
+                                            mode === 'TRADE' ? "text-cyan-400" : "text-emerald-400"
+                                        )}>
                                             <span>Trailing Sapma</span>
                                             <span>{trailingBuyDev}%</span>
                                         </div>
@@ -726,7 +659,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                                             min="0.1" max="5" step="0.1" 
                                             value={trailingBuyDev}
                                             onChange={(e) => setTrailingBuyDev(parseFloat(e.target.value))}
-                                            className="w-full accent-cyan-500 h-1 rounded-full cursor-pointer"
+                                            className={cn("w-full h-1 rounded-full cursor-pointer", mode === 'TRADE' ? "accent-cyan-500" : "accent-emerald-500")}
                                         />
                                     </div>
                                 )}
@@ -776,22 +709,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                                 Smart Cover
                             </button>
                         </div>
-                        <div className="flex gap-2 w-full">
-                            <button 
-                                onClick={() => handleQuickTrade('BUY')}
-                                disabled={isLoading}
-                                className="flex-1 py-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 text-[10px] font-black uppercase tracking-[0.2em] hover:bg-emerald-500/20 transition-all disabled:opacity-50"
-                            >
-                                STANDART AL
-                            </button>
-                            <button 
-                                onClick={() => handleQuickTrade('SELL')}
-                                disabled={isLoading}
-                                className="flex-1 py-1.5 rounded-full border border-rose-500/20 bg-rose-500/10 text-rose-400 text-[10px] font-black uppercase tracking-[0.2em] hover:bg-rose-500/20 transition-all disabled:opacity-50"
-                            >
-                                STANDART SAT
-                            </button>
-                        </div>
+
                     </div>
                     <div className="bg-slate-950/40 p-6 rounded-3xl border border-white/5 space-y-6 animate-in fade-in slide-in-from-bottom-4 shadow-2xl relative overflow-hidden group/summary">
                         <div className="absolute top-0 right-0 p-8 opacity-[0.03] pointer-events-none group-hover/summary:opacity-[0.05] transition-opacity">
@@ -799,9 +717,19 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                         </div>
 
                         <div className="space-y-4">
-                            <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] border-b border-white/5 pb-3">
-                                {mode === 'COVER' ? 'Varlık Biriktirme Özeti' : 'Standart Al/Sat Özeti'}
-                            </h3>
+                            <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                                <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em]">
+                                    {mode === 'COVER' ? 'Varlık Biriktirme Özeti' : 'SON KARAR'}
+                                </h3>
+                                {statusMsg && (
+                                    <div className={cn(
+                                        "px-2 py-0.5 rounded text-[9px] font-black uppercase animate-in fade-in slide-in-from-right-2 duration-300",
+                                        statusMsg.type === 'success' ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/50" : "bg-rose-500/20 text-rose-400 border border-rose-500/50"
+                                    )}>
+                                        {statusMsg.text}
+                                    </div>
+                                )}
+                            </div>
                             
                             <div className="grid grid-cols-3 gap-2">
                                 <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10 flex flex-col justify-center items-center text-center">
@@ -1032,6 +960,17 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                                             onChange={(e) => setTpDeviation(parseFloat(e.target.value))}
                                             className="w-full accent-emerald-500 h-1 rounded-full cursor-pointer"
                                         />
+                                        {/* Deviation Validation */}
+                                        {Math.abs(tpDeviation) >= Math.abs(displayTpPercent) && displayTpPercent !== 0 && (
+                                            <div className="text-[8px] font-bold text-rose-400 bg-rose-500/10 px-2 py-1 rounded animate-in fade-in">
+                                                ⚠️ Sapma, TP yüzdesine eşit veya büyük! İşlem anında kapanabilir.
+                                            </div>
+                                        )}
+                                        {Math.abs(tpDeviation) > Math.abs(displayTpPercent) * 0.25 && Math.abs(tpDeviation) < Math.abs(displayTpPercent) && displayTpPercent !== 0 && (
+                                            <div className="text-[8px] font-bold text-amber-400 bg-amber-500/10 px-2 py-1 rounded animate-in fade-in">
+                                                ⚡ Sapma, TP yüzdesinin ¼ünden fazla. Erken çıkış riski yüksek.
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -1120,21 +1059,79 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                                     )}
                                 </div>
 
+                                {/* SL Timeout (Wick Protection) */}
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">SL Timeout</span>
+                                            <span className="text-[8px] text-slate-600">(Wick Koruması)</span>
+                                        </div>
+                                        <button 
+                                            onClick={() => setSlTimeout(!slTimeout)}
+                                            className={cn(
+                                                "w-8 h-4 rounded-full transition-all relative px-0.5",
+                                                slTimeout ? "bg-amber-500" : "bg-slate-700"
+                                            )}
+                                        >
+                                            <div className={cn(
+                                                "w-3 h-3 bg-white rounded-full transition-all",
+                                                slTimeout ? "translate-x-4" : "translate-x-0"
+                                            )} />
+                                        </button>
+                                    </div>
+                                    {slTimeout && (
+                                        <div className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20 space-y-2 animate-in fade-in slide-in-from-top-2">
+                                            <div className="flex justify-between text-[9px] font-bold text-amber-400 uppercase tracking-tighter">
+                                                <span>Bekleme Süresi</span>
+                                                <span>{slTimeoutSeconds} saniye</span>
+                                            </div>
+                                            <input 
+                                                type="range" 
+                                                min="3" max="60" step="1" 
+                                                value={slTimeoutSeconds}
+                                                onChange={(e) => setSlTimeoutSeconds(parseInt(e.target.value))}
+                                                className="w-full accent-amber-500 h-1 rounded-full cursor-pointer"
+                                            />
+                                            <div className="text-[8px] text-slate-600">
+                                                Fiyat SL altına düştüğünde {slTimeoutSeconds}s bekler. Geri çıkarsa tetiklenmez.
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
                                 {/* Move to Breakeven */}
-                                <div className="flex items-center justify-between">
-                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Maliyete Taşı (BE)</span>
-                                    <button 
-                                        onClick={() => setMoveToBreakeven(!moveToBreakeven)}
-                                        className={cn(
-                                            "w-8 h-4 rounded-full transition-all relative px-0.5",
-                                            moveToBreakeven ? "bg-rose-500" : "bg-slate-700"
-                                        )}
-                                    >
-                                        <div className={cn(
-                                            "w-3 h-3 bg-white rounded-full transition-all",
-                                            moveToBreakeven ? "translate-x-4" : "translate-x-0"
-                                        )} />
-                                    </button>
+                                <div className="space-y-1">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Maliyete Taşı (BE)</span>
+                                        <button 
+                                            onClick={() => {
+                                                if (isSplitTp && tpTargets.length >= 2) {
+                                                    setMoveToBreakeven(!moveToBreakeven);
+                                                }
+                                            }}
+                                            className={cn(
+                                                "w-8 h-4 rounded-full transition-all relative px-0.5",
+                                                moveToBreakeven && isSplitTp && tpTargets.length >= 2 ? "bg-rose-500" : "bg-slate-700",
+                                                !(isSplitTp && tpTargets.length >= 2) && "opacity-30 cursor-not-allowed"
+                                            )}
+                                            disabled={!(isSplitTp && tpTargets.length >= 2)}
+                                        >
+                                            <div className={cn(
+                                                "w-3 h-3 bg-white rounded-full transition-all",
+                                                moveToBreakeven && isSplitTp && tpTargets.length >= 2 ? "translate-x-4" : "translate-x-0"
+                                            )} />
+                                        </button>
+                                    </div>
+                                    {!(isSplitTp && tpTargets.length >= 2) && (
+                                        <div className="text-[8px] text-slate-600 pl-1">
+                                            2+ bölünmüş TP hedefi gerekli
+                                        </div>
+                                    )}
+                                    {moveToBreakeven && isSplitTp && tpTargets.length >= 2 && (
+                                        <div className="text-[8px] text-emerald-400/70 bg-emerald-500/5 px-2 py-1 rounded">
+                                            ✓ İlk TP hedefi tetiklenince SL otomatik olarak giriş fiyatına taşınır
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAccountInfo, getPrice } from '@/lib/mexc';
+import { getAccountInfo, getPrice } from '@/lib/mexc-wrapper';
 import { createPortfolioSnapshot } from '@/lib/db';
 import { getSessionUser } from '@/lib/auth-utils';
 
@@ -10,7 +10,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        const accountInfo = await getAccountInfo();
+        const accountInfo = await getAccountInfo(user.id);
 
         let totalValue = 0;
         let assetsCount = 0;
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
         const snapshotId = await createPortfolioSnapshot(totalValue, assetsCount, balances);
 
         return NextResponse.json({ ok: true, snapshotId, totalValue, assetsCount });
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Error creating portfolio snapshot:', error);
         return NextResponse.json({ error: 'Failed to create portfolio snapshot' }, { status: 500 });
     }

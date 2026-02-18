@@ -34,7 +34,8 @@ export async function POST(request: Request) {
             const result = await handleBuySignal({ 
                 pair, 
                 usdt: amountNum,
-                risk: 0.01 // Standard risk
+                risk: 0.01,
+                userId: user.id
             });
 
             if (result.ok === false) {
@@ -68,7 +69,8 @@ export async function POST(request: Request) {
             const result = await handleSellSignal({ 
                 pair,
                 amount: finalAmount,
-                percent: (!finalAmount && !quantity) ? 100 : null
+                percent: (!finalAmount && !quantity) ? 100 : null,
+                userId: user.id
             });
 
             if (result.ok === false) {
@@ -80,17 +82,19 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ error: 'Invalid side' }, { status: 400 });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Quick trade server error:', error);
         
         // Check if it's an axios error with a status code
-        const status = error.response?.status || 500;
-        const message = error.mexcDetail ? JSON.stringify(error.mexcDetail) : (error.message || 'Bilinmeyen hata');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const axiosError = error as any;
+        const status = axiosError.response?.status || 500;
+        const message = axiosError.mexcDetail ? JSON.stringify(axiosError.mexcDetail) : (error instanceof Error ? error.message : 'Bilinmeyen hata');
 
         return NextResponse.json({ 
             error: status === 500 ? 'Sunucu Hatası (Standard Trade)' : 'İşlem Reddedildi', 
             message: message,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            stack: process.env.NODE_ENV === 'development' ? (error instanceof Error ? error.stack : undefined) : undefined
         }, { status: status });
     }
 }

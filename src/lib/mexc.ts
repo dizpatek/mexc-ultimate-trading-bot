@@ -8,10 +8,10 @@ const BASE = 'https://api.mexc.com';
 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
-async function getEnv() {
-    const { apiKey, apiSecret } = await getMexcCredentials();
+async function getEnv(userId: number) {
+    const { apiKey, apiSecret } = await getMexcCredentials(userId, 'production');
     if (!apiKey || !apiSecret) {
-        throw new Error('MEXC API credentials not configured. Please set MEXC_KEY and MEXC_SECRET environment variables.');
+        throw new Error('MEXC API credentials not configured for this user. Please set your keys in Settings.');
     }
     return { apiKey, apiSecret };
 }
@@ -21,11 +21,37 @@ function sign(totalParams: string, secret: string): string {
     return crypto.createHmac('sha256', secret).update(totalParams).digest('hex');
 }
 
-async function publicGet<T>(endpoint: string, params: Record<string, string | number | boolean> = {}): Promise<T> {
+async function fetchWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
+    let lastError: unknown;
+    for (let i = 0; i < retries; i++) {
+        try {
+            return await fn();
+        } catch (err) {
+            lastError = err;
+            if (axios.isAxiosError(err) && (err.code === 'ECONNABORTED' || err.response?.status === 429)) {
+                console.warn(`MEXC API Retry ${i + 1}/${retries} after ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                continue;
+            }
+            throw err;
+        }
+    }
+    throw lastError;
+}
+
+async function publicGet<T>(endpoint: string, params: Record<string, string | number | boolean> = {}, timeout = 10000): Promise<T> {
     const url = `${BASE}${endpoint}`;
-    try {
-        const res = await axios.get(url, { params, timeout: 10000, httpsAgent });
+    const execute = async () => {
+        const res = await axios.get(url, { params, timeout, httpsAgent });
         return res.data;
+    };
+
+    try {
+        // Only retry for Klines or specific public data
+        if (endpoint.includes('klines') || endpoint.includes('ticker')) {
+            return await fetchWithRetry(execute);
+        }
+        return await execute();
     } catch (err) {
         if (axios.isAxiosError(err)) {
             console.error(`Public GET ${endpoint} error:`, err.response?.data || err.message);
@@ -36,8 +62,8 @@ async function publicGet<T>(endpoint: string, params: Record<string, string | nu
     }
 }
 
-async function signedGet<T>(endpoint: string, params: Record<string, string | number | boolean> = {}): Promise<T | null> {
-    const { apiKey, apiSecret } = await getEnv();
+async function signedGet<T>(endpoint: string, userId: number, params: Record<string, string | number | boolean> = {}, timeout = 10000): Promise<T | null> {
+    const { apiKey, apiSecret } = await getEnv(userId);
 
     const timestamp = Date.now();
     const recvWindow = 60000; // Increased to 60s
@@ -49,7 +75,7 @@ async function signedGet<T>(endpoint: string, params: Record<string, string | nu
     try {
         const res = await axios.get(url, {
             headers: { 'X-MEXC-APIKEY': apiKey },
-            timeout: 10000,
+            timeout,
             httpsAgent
         });
         return res.data;
@@ -188,25 +214,25 @@ export interface MexcOrder {
     origQuoteOrderQty: string;
 }
 
-export async function getAccountInfo() {
-    const res = await signedGet<AccountInfo>('/api/v3/account');
+export async function getAccountInfo(userId: number) {
+    const res = await signedGet<AccountInfo>('/api/v3/account', userId);
     return res as AccountInfo;
 }
 
-export async function getBalance(asset: string) {
-    const account = await getAccountInfo();
+export async function getBalance(asset: string, userId: number) {
+    const account = await getAccountInfo(userId);
     if (!account || !account.balances) return { free: 0, locked: 0 };
     const balance = account.balances.find(b => b.asset === asset);
     return balance ? { free: parseFloat(balance.free), locked: parseFloat(balance.locked) } : { free: 0, locked: 0 };
 }
 
-export async function getOpenOrders(symbol: string | null = null) {
+export async function getOpenOrders(userId: number, symbol: string | null = null) {
     const params: Record<string, string | number | boolean> = symbol ? { symbol } : {};
-    return signedGet<MexcOrder[]>('/api/v3/openOrders', params);
+    return signedGet<MexcOrder[]>('/api/v3/openOrders', userId, params);
 }
 
-export async function cancelOrder(symbol: string, orderId: string) {
-    const { apiKey, apiSecret } = await getEnv();
+export async function cancelOrder(symbol: string, orderId: string, userId: number) {
+    const { apiKey, apiSecret } = await getEnv(userId);
 
     const timestamp = Date.now();
     const recvWindow = 60000;
@@ -222,8 +248,8 @@ export async function cancelOrder(symbol: string, orderId: string) {
     return res.data;
 }
 
-export async function cancelAllOrders(symbol: string) {
-    const { apiKey, apiSecret } = await getEnv();
+export async function cancelAllOrders(symbol: string, userId: number) {
+    const { apiKey, apiSecret } = await getEnv(userId);
 
     const timestamp = Date.now();
     const recvWindow = 60000;
@@ -293,8 +319,8 @@ export async function fetchKlines(symbol: string, interval: string = '1h', limit
     }));
 }
 
-export async function postOrder(params: Record<string, string | number | boolean> = {}) {
-    const { apiKey, apiSecret } = await getEnv();
+export async function postOrder(userId: number, params: Record<string, string | number | boolean> = {}) {
+    const { apiKey, apiSecret } = await getEnv(userId);
 
     const timestamp = Date.now();
     const recvWindow = 60000;
@@ -340,8 +366,8 @@ export async function postOrder(params: Record<string, string | number | boolean
     }
 }
 
-export async function marketBuyByQuote(pair: string, quoteAmount: string) {
-    return postOrder({
+export async function marketBuyByQuote(userId: number, pair: string, quoteAmount: string) {
+    return postOrder(userId, {
         symbol: pair,
         side: 'BUY',
         type: 'MARKET',
@@ -349,8 +375,8 @@ export async function marketBuyByQuote(pair: string, quoteAmount: string) {
     });
 }
 
-export async function marketSellByQty(pair: string, quantity: string) {
-    return postOrder({
+export async function marketSellByQty(userId: number, pair: string, quantity: string) {
+    return postOrder(userId, {
         symbol: pair,
         side: 'SELL',
         type: 'MARKET',
@@ -358,8 +384,8 @@ export async function marketSellByQty(pair: string, quantity: string) {
     });
 }
 
-export async function placeStopLimit(pair: string, side: string, stopPrice: string, limitPrice: string, quantity: string) {
-    return postOrder({
+export async function placeStopLimit(userId: number, pair: string, side: string, stopPrice: string, limitPrice: string, quantity: string) {
+    return postOrder(userId, {
         symbol: pair,
         side: side.toUpperCase(),
         type: 'LIMIT',
@@ -369,7 +395,7 @@ export async function placeStopLimit(pair: string, side: string, stopPrice: stri
     });
 }
 
-export async function placeStopMarket(pair: string, side: string, stopPrice: string, quoteOrderQtyOrQty: string) {
+export async function placeStopMarket(userId: number, pair: string, side: string, stopPrice: string, quoteOrderQtyOrQty: string) {
     const p: Record<string, string> = {
         symbol: pair,
         side: side.toUpperCase(),
@@ -381,5 +407,5 @@ export async function placeStopMarket(pair: string, side: string, stopPrice: str
     } else {
         p.quoteOrderQty = String(quoteOrderQtyOrQty);
     }
-    return postOrder(p);
+    return postOrder(userId, p);
 }

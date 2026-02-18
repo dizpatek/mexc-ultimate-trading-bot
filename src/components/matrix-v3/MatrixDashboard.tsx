@@ -13,6 +13,7 @@ import {
   Target,
   Rocket
 } from "lucide-react";
+import { fetchGlobalMarketData } from "@/lib/market-data";
 
 // Types derived from Pine Script
 type TradeMode = "SCALP" | "SWING";
@@ -87,7 +88,21 @@ export const MatrixDashboard = () => {
     const [data, setData] = useState(MOCK_DATA);
 
     useEffect(() => {
+        const updateMarketData = async () => {
+            try {
+                const marketData = await fetchGlobalMarketData();
+                setData(prev => ({
+                    ...prev,
+                    market: marketData
+                }));
+            } catch (err) {
+                console.error("Dashboard market update failed:", err);
+            }
+        };
+
+        updateMarketData();
         const interval = setInterval(() => {
+            updateMarketData();
             setData(prev => ({
                 ...prev,
                 whale: {
@@ -95,7 +110,7 @@ export const MatrixDashboard = () => {
                     aiScore: Math.min(100, Math.max(0, prev.whale.aiScore + (Math.random() > 0.5 ? 1 : -1)))
                 }
             }));
-        }, 3000);
+        }, 15000); // 15s refresh
         return () => clearInterval(interval);
     }, []);
 

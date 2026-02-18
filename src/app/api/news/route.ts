@@ -3,6 +3,16 @@ import axios from 'axios';
 
 export const dynamic = 'force-dynamic';
 
+interface CryptoCompareArticle {
+    id: string;
+    title: string;
+    body: string;
+    source_info: { name: string };
+    published_on: number;
+    url: string;
+    imageurl: string;
+}
+
 async function translateToTurkish(text: string): Promise<string> {
     try {
         // Use a public translation endpoint (Lingva is a good free proxy for Google Translate)
@@ -21,10 +31,10 @@ export async function GET() {
     try {
         const response = await axios.get('https://min-api.cryptocompare.com/data/v2/news/?lang=EN');
 
-        const rawNews = response.data.Data.slice(0, 10);
+        const rawNews: CryptoCompareArticle[] = response.data.Data.slice(0, 10);
         
         // Translate titles in parallel
-        const news = await Promise.all(rawNews.map(async (article: any) => {
+        const news = await Promise.all(rawNews.map(async (article: CryptoCompareArticle) => {
             const translatedTitle = await translateToTurkish(article.title);
             return {
                 id: article.id,

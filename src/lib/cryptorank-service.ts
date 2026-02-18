@@ -14,7 +14,7 @@ interface CacheEntry<T> {
     timestamp: number;
 }
 
-const cache = new Map<string, CacheEntry<any>>();
+const cache = new Map<string, CacheEntry<unknown>>();
 
 function resetRateLimitIfNeeded() {
     const now = Date.now();
@@ -48,7 +48,8 @@ function setCache<T>(key: string, data: T) {
     cache.set(key, { data, timestamp: Date.now() });
 }
 
-async function makeRequest<T>(endpoint: string, params: Record<string, any> = {}): Promise<T> {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function _makeRequest<T>(endpoint: string, params: Record<string, unknown> = {}): Promise<T> {
     const cacheKey = `${endpoint}:${JSON.stringify(params)}`;
 
     // Check cache first
@@ -78,8 +79,9 @@ async function makeRequest<T>(endpoint: string, params: Record<string, any> = {}
 
         setCache(cacheKey, response.data);
         return response.data;
-    } catch (error: any) {
-        console.error('[CryptoRank] API Error:', error.message);
+    } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error('[CryptoRank] API Error:', errorMessage);
         throw error;
     }
 }

@@ -13,7 +13,7 @@ export async function GET(request: Request) {
 
         const config = await getBotConfig();
         return NextResponse.json(config);
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Fetch Bot Config Error:', error);
         return NextResponse.json({ error: 'Failed to fetch bot config' }, { status: 500 });
     }
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
         
         const updatedConfig = await getBotConfig();
         return NextResponse.json({ success: true, config: updatedConfig });
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Update Bot Config Error:', error);
         return NextResponse.json({ error: 'Failed to update bot config' }, { status: 500 });
     }

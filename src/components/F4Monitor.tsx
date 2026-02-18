@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Activity, TrendingUp, TrendingDown, RefreshCw, AlertCircle, Fish, Gauge, Binary, Brain, Shield, Rocket, List, ChevronDown, ChevronUp } from 'lucide-react';
+import { TrendingUp, TrendingDown, RefreshCw, Fish, Binary, ChevronDown, ChevronUp } from 'lucide-react';
 import { useHoldings } from '../hooks/usePortfolio';
 
 interface AiScoreComponents {
@@ -13,6 +13,24 @@ interface AiScoreComponents {
     zScore: number;
     bayesianWinRate: number;
     trapPenalty: number;
+    earlyReversalBonus: number;
+    stoppingVolumePenalty: number;
+    vixBottomBonus: number;
+    deltaDivergence: number;
+}
+
+interface OrderBlock {
+    barHigh: number;
+    barLow: number;
+    bias: 'BULLISH' | 'BEARISH';
+    mitigated: boolean;
+}
+
+interface FairValueGap {
+    top: number;
+    bottom: number;
+    bias: 'BULLISH' | 'BEARISH';
+    mitigated: boolean;
 }
 
 interface F4Data {
@@ -21,28 +39,90 @@ interface F4Data {
     timestamp: number;
     currentPrice: number;
     
-    // Matrix V3 Fields
+    // Matrix V3 Core
     f4Slope: number;
     f4Acceleration: number;
+    f4Value: number;
+    f4FiboValue: number;
     whaleDetected: boolean;
+    whaleStatus: string;
     trend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
     signal: 'BUY' | 'SELL' | null;
     
-    // V3 Advanced
+    // AI Score
     aiScore: number;
     aiComponents: AiScoreComponents;
+    
+    // Market Regime
     marketRegime: 'RISK_ON' | 'RISK_OFF' | 'NEUTRAL';
+    volatilityRegime: string;
     regimePrediction: string;
     systemDecision: 'GO_LONG' | 'GO_SHORT' | 'WAIT';
+    zScoreValue: number;
+    mtfConsensus: string;
+    mtfBullCount: number;
     
-    actionRecommendation: 'LONG' | 'SHORT' | 'WAIT';
+    // Early Reversal
+    earlyReversal: 'UP' | 'DOWN' | null;
+    fastSlope: number;
+    fastAcceleration: number;
+    
+    // SMC Structure
+    internalTrend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+    swingTrend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+    orderBlocks: OrderBlock[];
+    fairValueGaps: FairValueGap[];
+    
+    // Premium/Discount
+    trailingTop: number;
+    trailingBottom: number;
+    inPremium: boolean;
+    inDiscount: boolean;
+    
+    // Vix Fix & QFL
+    vixBottom: boolean;
+    vixValue: number;
+    qflPanicBottom: boolean;
+    
+    // WaveTrend
+    wt1: number;
+    wt2: number;
+    wtDivergence: 'BULLISH' | 'BEARISH' | null;
+    
+    // Market Data
+    btcDominance: number;
+    btcDomChange: number;
+    usdtDominance: number;
+    usdtDomChange: number;
+    othersDominance: number;
+    othersDomChange: number;
+    marketFlow: string;
+    
+    // Capital Engine
+    capitalPhase: string;
+    signalFreshness: number;
+    decayFactor: number;
+    timeValid: boolean;
+    
+    // System Health
+    whaleTrust: number;
+    consecutiveLosses: number;
+    deathRisk: boolean;
+    systemRestMode: boolean;
+    metaAllow: boolean;
+    
+    // Dashboard
+    confluenceText: string;
+    confluenceColor: string;
+    actionRecommendation?: string;
+    
     error?: string;
 }
 
 const DEFAULT_WATCHLIST = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'];
 
 export function F4Monitor() {
-    const { data: holdings, isLoading: isHoldingsLoading } = useHoldings();
+    const { data: holdings } = useHoldings();
     const [signals, setSignals] = useState<Record<string, F4Data>>({});
     const [loading, setLoading] = useState<Record<string, boolean>>({});
     const [selectedInterval, setSelectedInterval] = useState('15m');
@@ -69,25 +149,72 @@ export function F4Monitor() {
             if (data.error) throw new Error(data.message || data.error);
 
             setSignals(prev => ({ ...prev, [symbol]: data }));
-        } catch (err: any) {
+        } catch (err: unknown) {
+            const errorMessage = err instanceof Error ? err.message : String(err);
             console.error(`Error fetching F4 for ${symbol}:`, err);
             setSignals(prev => ({
                 ...prev,
                 [symbol]: {
                     symbol,
-                    error: err.message,
+                    error: errorMessage,
                     interval,
                     timestamp: Date.now(),
                     currentPrice: 0,
-                    f4Slope: 0, f4Acceleration: 0, whaleDetected: false,
-                    trend: 'NEUTRAL', signal: 'NEUTRAL',
+                    f4Slope: 0, f4Acceleration: 0, f4Value: 0, f4FiboValue: 0,
+                    whaleDetected: false,
+                    whaleStatus: 'NEUTRAL',
+                    trend: 'NEUTRAL', signal: null,
                     aiScore: 0,
-                    aiComponents: {} as any,
+                    aiComponents: {
+                        whaleConfirmed: 0, regimeAlignment: 0, volumePower: 0, trendAlignment: 0,
+                        mtfConsensus: 0, momentumAccel: 0, volatilityRegime: 0, zScore: 0,
+                        bayesianWinRate: 0, trapPenalty: 0, earlyReversalBonus: 0,
+                        stoppingVolumePenalty: 0, vixBottomBonus: 0, deltaDivergence: 0
+                    },
                     marketRegime: 'NEUTRAL',
+                    volatilityRegime: 'NORMAL',
                     regimePrediction: 'RANGE',
                     systemDecision: 'WAIT',
+                    zScoreValue: 0,
+                    mtfConsensus: 'NEUTRAL',
+                    mtfBullCount: 0,
+                    earlyReversal: null,
+                    fastSlope: 0,
+                    fastAcceleration: 0,
+                    internalTrend: 'NEUTRAL',
+                    swingTrend: 'NEUTRAL',
+                    orderBlocks: [],
+                    fairValueGaps: [],
+                    trailingTop: 0,
+                    trailingBottom: 0,
+                    inPremium: false,
+                    inDiscount: false,
+                    vixBottom: false,
+                    vixValue: 0,
+                    qflPanicBottom: false,
+                    wt1: 0,
+                    wt2: 0,
+                    wtDivergence: null,
+                    btcDominance: 0,
+                    btcDomChange: 0,
+                    usdtDominance: 0,
+                    usdtDomChange: 0,
+                    othersDominance: 0,
+                    othersDomChange: 0,
+                    marketFlow: 'NEUTRAL',
+                    capitalPhase: 'NEUTRAL',
+                    signalFreshness: 0,
+                    decayFactor: 1,
+                    timeValid: false,
+                    whaleTrust: 0,
+                    consecutiveLosses: 0,
+                    deathRisk: false,
+                    systemRestMode: false,
+                    metaAllow: false,
+                    confluenceText: 'Error',
+                    confluenceColor: '#666666',
                     actionRecommendation: 'WAIT'
-                } as any
+                }
             }));
         } finally {
             setLoading(prev => ({ ...prev, [symbol]: false }));
@@ -241,9 +368,16 @@ export function F4Monitor() {
                                         {/* 5. MOMENTUM */}
                                         <td className="px-4 py-3 border-r border-[#222]">
                                             <div className="flex flex-col">
-                                                <span className={`text-[11px] font-bold ${(data?.f4Acceleration||0) > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                                    {(data?.f4Acceleration||0) > 0 ? 'ACCEL' : 'DECEL'}
-                                                </span>
+                                                <div className="flex items-center gap-1">
+                                                    <span className={`text-[11px] font-bold ${(data?.f4Acceleration||0) > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                                        {(data?.f4Acceleration||0) > 0 ? 'ACCEL' : 'DECEL'}
+                                                    </span>
+                                                    {data?.earlyReversal && (
+                                                        <span className={`px-1 rounded text-[9px] font-black animate-bounce ${data.earlyReversal === 'UP' ? 'bg-green-500 text-black' : 'bg-red-500 text-black'}`}>
+                                                            REV_{data.earlyReversal}
+                                                        </span>
+                                                    )}
+                                                </div>
                                                 <span className="text-[10px] text-gray-600">Vel: {data?.f4Slope?.toFixed(4)}</span>
                                             </div>
                                         </td>

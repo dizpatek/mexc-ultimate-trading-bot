@@ -28,11 +28,12 @@ export async function POST(request: Request) {
             timestamp: Date.now()
         });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Panic sell error:', error);
+        const message = error instanceof Error ? error.message : 'Unknown error';
         return NextResponse.json({
             error: 'Panic sell failed',
-            message: error.message
+            message
         }, { status: 500 });
     }
 }

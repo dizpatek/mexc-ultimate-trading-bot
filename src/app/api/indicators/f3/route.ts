@@ -4,16 +4,16 @@ import axios from 'axios';
 
 export const dynamic = 'force-dynamic';
 
-interface KlineData {
+interface KlineResult {
     timestamp: number;
-    open: string;
-    high: string;
-    low: string;
-    close: string;
-    volume: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
 }
 
-async function fetchKlineData(symbol: string, interval: string = '60m', limit: number = 100): Promise<any[]> {
+async function fetchKlineData(symbol: string, interval: string = '60m', limit: number = 100): Promise<KlineResult[]> {
     try {
         const response = await axios.get(`https://api.mexc.com/api/v3/klines`, {
             params: {
@@ -23,13 +23,13 @@ async function fetchKlineData(symbol: string, interval: string = '60m', limit: n
             }
         });
 
-        return response.data.map((k: any[]) => ({
-            timestamp: k[0],
-            open: parseFloat(k[1]),
-            high: parseFloat(k[2]),
-            low: parseFloat(k[3]),
-            close: parseFloat(k[4]),
-            volume: parseFloat(k[5])
+        return response.data.map((k: unknown[]) => ({
+            timestamp: k[0] as number,
+            open: parseFloat(String(k[1])),
+            high: parseFloat(String(k[2])),
+            low: parseFloat(String(k[3])),
+            close: parseFloat(String(k[4])),
+            volume: parseFloat(String(k[5]))
         }));
     } catch (error) {
         console.error(`Failed to fetch kline data for ${symbol}:`, error);
@@ -84,13 +84,15 @@ export async function GET(request: Request) {
             });
         }
 
-    } catch (error: any) {
-        const errorMsg = error.response?.data?.msg || error.message;
+    } catch (error: unknown) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const axiosError = error as any;
+        const errorMsg = axiosError.response?.data?.msg || (error instanceof Error ? error.message : 'Unknown error');
         console.error(`[F3-API] Error for ${request.url}:`, errorMsg);
         return NextResponse.json({
             error: 'F3 calculation failed',
             message: errorMsg,
-            details: error.response?.data
-        }, { status: error.response?.status || 500 });
+            details: axiosError.response?.data
+        }, { status: axiosError.response?.status || 500 });
     }
 }

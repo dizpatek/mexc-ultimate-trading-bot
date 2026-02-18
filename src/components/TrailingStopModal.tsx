@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { X, TrendingDown, Percent, Info } from 'lucide-react';
 import { api } from '@/services/api';
+import axios from 'axios';
 
 interface TrailingStopModalProps {
     isOpen: boolean;
@@ -38,8 +39,11 @@ export const TrailingStopModal = ({ isOpen, onClose, symbol, quantity, currentPr
                 onClose();
                 setSuccess(false);
             }, 2000);
-        } catch (err: any) {
-            setError(err.response?.data?.error || 'Failed to create trailing stop');
+        } catch (err: unknown) {
+            const errorMessage = axios.isAxiosError(err) 
+                ? err.response?.data?.error || 'Failed to create trailing stop'
+                : 'Failed to create trailing stop';
+            setError(errorMessage);
         } finally {
             setLoading(false);
         }

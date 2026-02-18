@@ -1,4 +1,6 @@
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { sql } = require('@vercel/postgres');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const dotenv = require('dotenv');
 dotenv.config({ path: '.env.local' });
 

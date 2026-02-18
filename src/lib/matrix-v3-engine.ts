@@ -57,10 +57,21 @@ export interface MatrixV3Result {
     systemDecision: SystemDecision;
     zScoreValue: number;
     mtfConsensus: 'STRONG_BULL' | 'STRONG_BEAR' | 'MIXED';
+    
+    // Early Reversal Signals
+    earlyReversal: 'UP' | 'DOWN' | null;
+    fastSlope: number;
+    fastAcceleration: number;
 }
 
 export class MatrixV3Engine {
     private config: MatrixV3Config;
+
+    private bayesianMetrics = {
+        totalSignals: 0,
+        winSignals: 0,
+        currentWinRate: 0.5 // Default 50%
+    };
 
     constructor(config: Partial<MatrixV3Config> = {}) {
         this.config = {
@@ -70,6 +81,12 @@ export class MatrixV3Engine {
             minAiScore: config.minAiScore || 65,
             useWhaleEngine: config.useWhaleEngine ?? true
         };
+    }
+
+    public updateWinRate(isWin: boolean) {
+        this.bayesianMetrics.totalSignals++;
+        if (isWin) this.bayesianMetrics.winSignals++;
+        this.bayesianMetrics.currentWinRate = this.bayesianMetrics.winSignals / this.bayesianMetrics.totalSignals;
     }
 
     // Helper: Linear Regression
@@ -180,6 +197,24 @@ export class MatrixV3Engine {
         const rawSlope = currentLinReg - prevLinReg;
         const prevRawSlope = prevLinReg - prevLinReg2;
         
+        // --- [NEW] FAST MOMENTUM ENGINE (ERKEN UYARI SİSTEMİ) ---
+        const fastLength = 5;
+        const currentFastLinReg = this.calculateLinReg(closes, fastLength, 0);
+        const prevFastLinReg = this.calculateLinReg(closes, fastLength, 1);
+        const prevFastLinReg2 = this.calculateLinReg(closes, fastLength, 2);
+        
+        const fastRawSlope = currentFastLinReg - prevFastLinReg;
+        const prevFastRawSlope = prevFastLinReg - prevFastLinReg2;
+        
+        const fastSlope = (fastRawSlope / currentPrice) * 100;
+        const fastAcceleration = ((fastRawSlope - prevFastRawSlope) / currentPrice) * 100;
+
+        // Erken Dönüş Sinyali: Hızlı İvme pozitifken Yavaş İvme negatif (veya tam tersi)
+        // Threshold relative to price volatility (using 0.01 as in Pine Script)
+        let earlyReversal: 'UP' | 'DOWN' | null = null;
+        if (fastAcceleration > 0.01 && (currentLinReg - prevLinReg) < 0) earlyReversal = 'UP';
+        else if (fastAcceleration < -0.01 && (currentLinReg - prevLinReg) > 0) earlyReversal = 'DOWN';
+
         // Percent slope relative to price
         const slope = (rawSlope / currentPrice) * 100; 
         const acceleration = ((rawSlope - prevRawSlope) / currentPrice) * 100;
@@ -268,7 +303,7 @@ export class MatrixV3Engine {
             momentumAccel: (slope > 0 && acceleration > 0) || (slope < 0 && acceleration < 0) ? 10 : 0,
             volatilityRegime: volatilityRegime === 'SQUEEZE' ? 10 : (volatilityRegime === 'EXPLOSION' ? 5 : 0),
             zScore: zScorePoints,
-            bayesianWinRate: 5, 
+            bayesianWinRate: Math.round(this.bayesianMetrics.currentWinRate * 10), // Scale 0-10
             trapPenalty: (fakeBreakoutUp || fakeBreakoutDown) ? -15 : 0
         };
 
@@ -316,7 +351,10 @@ export class MatrixV3Engine {
             regimePrediction,
             systemDecision,
             zScoreValue: zScore,
-            mtfConsensus: slope > 0 ? 'STRONG_BULL' : 'STRONG_BEAR' 
+            mtfConsensus: slope > 0 ? 'STRONG_BULL' : 'STRONG_BEAR',
+            earlyReversal,
+            fastSlope,
+            fastAcceleration
         };
     }
 }

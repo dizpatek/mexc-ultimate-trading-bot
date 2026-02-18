@@ -33,6 +33,16 @@ export async function GET(req: NextRequest) {
     } catch (error: unknown) {
         console.error('Klines API Error:', error);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        
+        // Check for common timeout or rate limit patterns
+        if (errorMessage.includes('timeout') || errorMessage.includes('429') || errorMessage.includes('ECONNABORTED')) {
+            return NextResponse.json({ 
+                error: 'PROVIDER_TIMEOUT', 
+                message: 'MEXC API is currently slow or rate-limiting. Retrying in background...',
+                details: errorMessage 
+            }, { status: 504 });
+        }
+
         return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
 }

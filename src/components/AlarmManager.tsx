@@ -14,6 +14,16 @@ interface Alarm {
     is_active: boolean;
 }
 
+interface Holding {
+    symbol: string;
+}
+
+interface CreateAlarmData {
+    symbol: string;
+    condition_type: string;
+    action_type: string;
+}
+
 export const AlarmManager = () => {
     const queryClient = useQueryClient();
     const [isAddingMode, setIsAddingMode] = useState(false);
@@ -39,7 +49,7 @@ export const AlarmManager = () => {
     });
 
     const createMutation = useMutation({
-        mutationFn: async (data: any) => {
+        mutationFn: async (data: CreateAlarmData) => {
             if (typeof window === 'undefined') return;
             const token = localStorage.getItem('token');
             return axios.post('/api/alarms', data, {
@@ -94,7 +104,7 @@ export const AlarmManager = () => {
                                 onChange={e => setNewAlarm({ ...newAlarm, symbol: e.target.value })}
                             >
                                 {holdings && holdings.length > 0 ? (
-                                    holdings.map((h: any) => (
+                                    holdings.map((h: Holding) => (
                                         <option key={h.symbol} value={`${h.symbol}USDT`}>
                                             {h.symbol}/USDT
                                         </option>

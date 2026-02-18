@@ -111,24 +111,35 @@ class PortfolioKernel extends Kernel<{ holdings: Holding[]; summary: PortfolioDa
     protected async fetch() {
         console.log('[PortfolioKernel] Fetching portfolio data...');
         try {
-            // Use individual try-catches to prevent one failure from blocking everything
-            const fetchHoldings = async () => {
-                try { return (await api.get('/portfolio/holdings')).data; }
-                catch (e) { console.error('[PortfolioKernel] Holdings Error:', e); return this.data?.holdings || []; }
-            };
-            const fetchSummary = async () => {
-                try { return (await api.get('/portfolio/summary')).data; }
-                catch (e) { console.error('[PortfolioKernel] Summary Error:', e); return this.data?.summary || null; }
-            };
-            const fetchTrades = async () => {
-                try { return (await api.get('/portfolio/trades')).data; }
-                catch (e) { console.error('[PortfolioKernel] Trades Error:', e); return this.data?.trades || []; }
+            // Helper to handle individual fetch errors
+            const safeFetch = async <R>(fn: () => Promise<R>, name: string, fallback: R): Promise<R> => {
+                try {
+                    return await fn();
+                } catch (error: unknown) {
+                    let msg = '';
+                    if (error && typeof error === 'object' && 'response' in error) {
+                        const axiosError = error as { response?: { data?: { error?: string; details?: string }; status?: number } };
+                        msg = axiosError.response?.data?.error || axiosError.response?.data?.details || 'Unknown Error';
+                        if (axiosError.response?.status === 400 || axiosError.response?.status === 401) {
+                            console.warn(`[PortfolioKernel] ${name} Warning:`, msg);
+                        } else {
+                            console.error(`[PortfolioKernel] ${name} Failed (${axiosError.response?.status}):`, msg);
+                        }
+                    } else {
+                        console.error(`[PortfolioKernel] ${name} Error:`, error);
+                    }
+                    return fallback;
+                }
             };
 
+            const fetchHoldings = () => api.get('/portfolio/holdings').then(r => r.data);
+            const fetchSummary = () => api.get('/portfolio/summary').then(r => r.data);
+            const fetchTrades = () => api.get('/portfolio/trades').then(r => r.data);
+
             const [holdings, summary, trades] = await Promise.all([
-                fetchHoldings(),
-                fetchSummary(),
-                fetchTrades()
+                safeFetch(fetchHoldings, 'Holdings', this.data?.holdings || []),
+                safeFetch(fetchSummary, 'Summary', this.data?.summary || null),
+                safeFetch(fetchTrades, 'Trades', this.data?.trades || [])
             ]);
 
             console.log(`[PortfolioKernel] Status: Holdings(${holdings?.length}), Summary(${!!summary}), Trades(${trades?.length})`);

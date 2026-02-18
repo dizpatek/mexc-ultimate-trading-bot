@@ -22,7 +22,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
         const updatedStrategy = await getStrategyById(strategyId);
         return NextResponse.json(updatedStrategy);
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Error updating strategy:', error);
         return NextResponse.json({ error: 'Failed to update strategy' }, { status: 500 });
     }
@@ -45,7 +45,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
 
         await deleteStrategy(strategyId);
         return NextResponse.json({ success: true });
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Error deleting strategy:', error);
         return NextResponse.json({ error: 'Failed to delete strategy' }, { status: 500 });
     }

@@ -8,11 +8,14 @@ export async function GET(req: Request) {
     try {
         // Basic authorization for cron job (check secret)
         const { searchParams } = new URL(req.url);
-        const secret = searchParams.get('secret');
-
-        // Use a CRON_SECRET env var, or just match a hardcoded one for this specific user project if env not set
-        // For simplicity in this context, we'll skip strict auth since it's a personal bot, 
-        // but typically: if (secret !== process.env.CRON_SECRET) return...
+        // Verify cron secret if provided
+        const cronSecret = process.env.CRON_SECRET;
+        if (cronSecret) {
+            const secret = searchParams.get('secret');
+            if (secret !== cronSecret) {
+                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+            }
+        }
 
         // Ensure tables exist before running engine
         await ensureTablesExist();

@@ -19,6 +19,16 @@ interface NewsItem {
     relatedAsset: string;
 }
 
+interface NewsApiResponse {
+    id: string;
+    title: string;
+    translatedTitle?: string;
+    excerpt?: string;
+    source: string;
+    time: string;
+    url: string;
+}
+
 export const IntelligenceHub = () => {
     const { data: holdings } = useHoldings();
     const [intel, setIntel] = useState<NewsItem[]>([]);
@@ -60,7 +70,7 @@ export const IntelligenceHub = () => {
             const data = await res.json();
             
             if (Array.isArray(data)) {
-                const mappedNews = data.map((item: any) => {
+                const mappedNews = data.map((item: NewsApiResponse) => {
                     const analysis = analyzeSentiment(item.title);
                     return {
                         ...item,

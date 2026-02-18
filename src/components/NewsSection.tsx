@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { ExternalLink, Newspaper } from 'lucide-react';
+import Image from 'next/image';
 
 interface NewsArticle {
     id: string;
@@ -11,6 +12,19 @@ interface NewsArticle {
     source: string;
     publishedAt: string;
     imageUrl?: string;
+}
+
+interface CryptoCompareNewsItem {
+    id: string;
+    guid: string;
+    title: string;
+    body: string;
+    description?: string;
+    url: string;
+    source: string;
+    source_info?: { name: string };
+    published_on: number;
+    imageurl?: string;
 }
 
 export const NewsSection = () => {
@@ -35,7 +49,7 @@ export const NewsSection = () => {
             const data = await response.json();
 
             if (data.Data && Array.isArray(data.Data)) {
-                const articles: NewsArticle[] = data.Data.slice(0, 5).map((item: any) => ({
+                const articles: NewsArticle[] = data.Data.slice(0, 5).map((item: CryptoCompareNewsItem) => ({
                     id: item.id || item.guid,
                     title: item.title,
                     description: item.body || item.description || '',
@@ -49,9 +63,10 @@ export const NewsSection = () => {
             } else {
                 throw new Error('Invalid news data format');
             }
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error('Error fetching crypto news:', err);
-            setError(err.message || 'Failed to load news');
+            const errorMessage = err instanceof Error ? err.message : 'Failed to load news';
+            setError(errorMessage);
             setNews([]);
         } finally {
             setLoading(false);
@@ -123,10 +138,12 @@ export const NewsSection = () => {
                     >
                         <div className="flex items-start gap-3">
                             {article.imageUrl && (
-                                <img
+                                <Image
                                     src={article.imageUrl}
                                     alt={article.title}
                                     className="w-16 h-16 rounded object-cover flex-shrink-0"
+                                    width={64}
+                                    height={64}
                                     onError={(e) => {
                                         e.currentTarget.style.display = 'none';
                                     }}

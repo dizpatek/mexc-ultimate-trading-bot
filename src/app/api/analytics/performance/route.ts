@@ -14,7 +14,7 @@ export async function GET(request: Request) {
 
         const metrics = await getPerformanceMetrics(days);
         return NextResponse.json(metrics);
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Error fetching performance metrics:', error);
         return NextResponse.json({ error: 'Failed to fetch performance metrics' }, { status: 500 });
     }

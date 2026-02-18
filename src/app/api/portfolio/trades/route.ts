@@ -14,8 +14,8 @@ export async function GET(request: Request) {
 
         const tradeHistory = await getTradeHistory(limit);
 
-        const safeDate = (dateVal: any) => {
-            const d = new Date(dateVal);
+        const safeDate = (dateVal: unknown) => {
+            const d = new Date(dateVal as string | number | Date);
             return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
         };
 
@@ -33,7 +33,7 @@ export async function GET(request: Request) {
         }));
 
         return NextResponse.json(trades);
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Error fetching trades:', error);
         return NextResponse.json({ error: 'Failed to fetch trades' }, { status: 500 });
     }

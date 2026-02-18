@@ -115,9 +115,14 @@ export async function ensureTablesExist() {
                 status TEXT DEFAULT 'ACTIVE',
                 last_run_at BIGINT DEFAULT 0,
                 created_at BIGINT NOT NULL,
-                updated_at BIGINT NOT NULL
+                updated_at BIGINT NOT NULL,
+                meta TEXT
             );
         `;
+
+        try {
+            await sql`ALTER TABLE dca_bots ADD COLUMN IF NOT EXISTS meta TEXT`;
+        } catch { /* ignore */ }
 
         // 8. Strategies
         await sql`
@@ -198,26 +203,57 @@ export async function ensureTablesExist() {
         `;
 
         // 14. Bot Config (Global)
-        await sql`
-            CREATE TABLE IF NOT EXISTS bot_configs (
-                id INTEGER PRIMARY KEY,
-                f4_length INTEGER DEFAULT 10,
-                whale_multiplier NUMERIC DEFAULT 1.8,
-                ai_threshold INTEGER DEFAULT 65,
-                auto_trade BOOLEAN DEFAULT FALSE,
-                defense_mode BOOLEAN DEFAULT FALSE,
-                timeframe VARCHAR(10) DEFAULT '1h',
-                updated_at BIGINT NOT NULL
-            );
-        `;
+        try {
+            await sql`
+                CREATE TABLE IF NOT EXISTS bot_configs (
+                    id INTEGER PRIMARY KEY,
+                    f4_length INTEGER DEFAULT 10,
+                    whale_multiplier NUMERIC DEFAULT 1.8,
+                    ai_threshold INTEGER DEFAULT 65,
+                    auto_trade BOOLEAN DEFAULT FALSE,
+                    defense_mode BOOLEAN DEFAULT FALSE,
+                    timeframe VARCHAR(10) DEFAULT '4h',
+                    updated_at BIGINT NOT NULL
+                );
+            `;
+            console.log('[DB-Init] bot_configs table verified.');
+        } catch (e) {
+            console.warn('[DB-Init] bot_configs table creation warning:', e);
+        }
+
+        // Migration: Ensure all modern columns exist for older installations
+        // We use individual try-catch blocks with explicit template literals to ensure compatibility
+        try {
+            await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS auto_trade BOOLEAN DEFAULT FALSE`;
+        } catch { /* ignore */ }
+
+        try {
+            await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS defense_mode BOOLEAN DEFAULT FALSE`;
+        } catch { /* ignore */ }
+
+        try {
+            await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS timeframe VARCHAR(10) DEFAULT '4h'`;
+        } catch { /* ignore */ }
+
+        // Force '4h' if currently '1h' or NULL
+        try {
+            await sql`UPDATE bot_configs SET timeframe = '4h' WHERE id = 1 AND (timeframe = '1h' OR timeframe IS NULL)`;
+        } catch (err) {
+            console.warn('[DB-Init] timeframe upgrade warning:', err);
+        }
 
         // Insert default config if table is empty
-        const { rowCount } = await sql`SELECT 1 FROM bot_configs WHERE id = 1`;
-        if (rowCount === 0) {
-            await sql`
-                INSERT INTO bot_configs (id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, timeframe, updated_at)
-                VALUES (1, 10, 1.8, 65, false, false, '1h', ${Date.now()})
-            `;
+        try {
+            const { rowCount } = await sql`SELECT 1 FROM bot_configs WHERE id = 1`;
+            if (rowCount === 0) {
+                await sql`
+                    INSERT INTO bot_configs (id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, timeframe, updated_at)
+                    VALUES (1, 10, 1.8, 65, false, false, '4h', ${Date.now()})
+                `;
+                console.log('[DB-Init] Default bot config inserted.');
+            }
+        } catch (e) {
+            console.error('[DB-Init] default config check/insert error:', e);
         }
 
         console.log('[DB-Init] All tables verified successfully.');

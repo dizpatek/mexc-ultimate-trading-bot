@@ -70,16 +70,12 @@ export const CommandDeck = () => {
 
     // 3. Emergency Actions
     const handlePanicSell = async () => {
-        if (!confirm('TÜM VARLIKLARI USDT\'YE ÇEVİRMEK İSTEDİĞİNİZDEN EMİN MİSİNİZ?')) return;
         setIsActionLoading(true);
         try {
-            const res = await fetch('/api/bot/emergency/panic', { method: 'POST' });
-            const data = await res.json();
-            alert(data.message || 'Panic sell işlemi tamamlandı');
+            await fetch('/api/bot/emergency/panic', { method: 'POST' });
             refetchHoldings();
         } catch (err) {
             console.error('Panic sell failed:', err);
-            alert('Panic sell başarısız oldu');
         } finally {
             setIsActionLoading(false);
         }
@@ -263,50 +259,68 @@ export const CommandDeck = () => {
                         ) : activeBots.map((bot) => (
                             <div 
                                 key={bot.id} 
-                                className="group/bot flex items-center justify-between p-3 bg-slate-900/30 border border-white/5 rounded-xl hover:bg-slate-800/40 hover:border-white/10 transition-all relative overflow-hidden"
+                                className="group/bot flex items-center justify-between p-3.5 bg-slate-900/30 border border-white/5 rounded-2xl hover:bg-slate-800/60 hover:border-cyan-500/30 transition-all duration-300 relative overflow-hidden"
                             >
-                                <div className="flex items-center gap-4">
-                                    <div className="relative">
+                                {/* Glowing Active State Background */}
+                                {bot.state === 'POSITION_ACTIVE' && (
+                                    <div className="absolute inset-0 bg-emerald-500/5 transition-opacity" />
+                                )}
+                                
+                                <div className="flex items-center gap-4 relative z-10">
+                                    <div className={cn(
+                                        "w-12 h-12 rounded-xl flex items-center justify-center border transition-all duration-500 shadow-lg relative shrink-0",
+                                        bot.state === 'SCANNING' ? 'bg-amber-500/10 border-amber-500/30 text-amber-500 shadow-amber-500/10' :
+                                        bot.state === 'POSITION_ACTIVE' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500 shadow-emerald-500/20' :
+                                        'bg-slate-800/50 border-slate-700 text-slate-500'
+                                    )}>
+                                        {bot.state === 'SCANNING' ? <Waves className="w-6 h-6 animate-pulse" /> :
+                                         bot.state === 'POSITION_ACTIVE' ? <Activity className="w-6 h-6 animate-pulse" /> :
+                                         <Crosshair className="w-6 h-6" />}
+                                        
+                                        {/* Status Dot */}
                                         <div className={cn(
-                                            "w-10 h-10 rounded-lg flex items-center justify-center border transition-all",
-                                            bot.state === 'SCANNING' ? 'bg-amber-500/10 border-amber-500/30 text-amber-500' :
-                                            bot.state === 'POSITION_ACTIVE' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' :
-                                            'bg-slate-800/50 border-slate-700 text-slate-500'
-                                        )}>
-                                            {bot.state === 'SCANNING' ? <Waves className="w-5 h-5 animate-pulse" /> :
-                                             bot.state === 'POSITION_ACTIVE' ? <Activity className="w-5 h-5" /> :
-                                             <Crosshair className="w-5 h-5" />}
-                                        </div>
+                                            "absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-slate-900 shadow-xl",
+                                            bot.state === 'SCANNING' ? 'bg-amber-500 animate-pulse' :
+                                            bot.state === 'POSITION_ACTIVE' ? 'bg-emerald-500 animate-pulse' :
+                                            'bg-slate-700'
+                                        )} />
                                     </div>
-                                    <div>
+                                    
+                                    <div className="flex flex-col gap-1 min-w-0">
                                         <div className="flex items-center gap-2">
-                                            <span className="text-xs font-black text-white">{bot.pair}</span>
-                                            <span className="text-[9px] font-mono text-slate-600 font-bold">{bot.id}</span>
+                                            <span className="text-sm font-black text-white tracking-tight truncate">{bot.pair}</span>
+                                            <span className="text-[7px] font-black text-slate-600 uppercase tracking-widest px-1.5 py-0.5 bg-white/5 rounded">ID: {bot.id.split('-')[1]}</span>
                                         </div>
-                                        <div className="flex items-center gap-2 mt-1">
-                                            <span className={cn(
-                                                "text-[9px] font-black uppercase px-2 py-0.5 rounded-full",
-                                                bot.state === 'SCANNING' ? 'bg-amber-500/20 text-amber-500' :
-                                                bot.state === 'POSITION_ACTIVE' ? 'bg-emerald-500/20 text-emerald-500' :
-                                                'bg-slate-800 text-slate-500'
+                                        <div className="flex items-center gap-2">
+                                            <div className={cn(
+                                                "text-[8px] font-black uppercase px-2 py-0.5 rounded-md border tracking-wider",
+                                                bot.state === 'SCANNING' ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' :
+                                                bot.state === 'POSITION_ACTIVE' ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400' :
+                                                'bg-slate-800 border-slate-700 text-slate-500'
                                             )}>
                                                 {bot.state === 'SCANNING' ? 'TARANIYOR' : 
-                                                 bot.state === 'POSITION_ACTIVE' ? 'POZİSYONDA' : 
-                                                 'BEKLEMEDE'}
-                                            </span>
-                                            <span className="text-[9px] font-mono text-slate-500">{bot.runtime}</span>
+                                                 bot.state === 'POSITION_ACTIVE' ? 'AKTiF' : 
+                                                 'IDLE'}
+                                            </div>
+                                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-950/50 border border-white/5 shadow-inner">
+                                                <div className={cn("w-1.5 h-1.5 rounded-full", bot.state === 'POSITION_ACTIVE' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-600')} />
+                                                <span className="text-[7px] font-bold text-slate-500 uppercase whitespace-nowrap">{bot.runtime}</span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                                 
-                                <div className="text-right">
+                                <div className="text-right relative z-10 flex flex-col items-end">
                                     <div className={cn(
-                                        "text-sm font-black font-mono tracking-tighter",
+                                        "text-base font-black font-mono leading-none tracking-tighter mb-1",
                                         bot.profit.startsWith('+') ? 'text-emerald-400' : bot.profit === '0.0%' ? 'text-slate-500' : 'text-rose-400'
                                     )}>
                                         {bot.profit}
                                     </div>
-                                    <div className="text-[9px] font-bold text-slate-600 uppercase">GÜNCEL PNL</div>
+                                    <div className="flex items-center gap-1.5 overflow-hidden">
+                                        <div className="w-8 h-[2px] bg-slate-800 rounded-full" />
+                                        <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest whitespace-nowrap">GÜNCEL PNL</span>
+                                    </div>
                                 </div>
                             </div>
                         ))}

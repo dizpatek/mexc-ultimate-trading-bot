@@ -20,6 +20,22 @@ interface CryptoRankAsset {
     circulatingSupplyPercent: number;
 }
 
+interface MarketOverviewCoin {
+    symbol: string;
+    name?: string;
+    price: number;
+    change24h?: number;
+    change7d?: number;
+    change30d?: number;
+    change90d?: number;
+    volume: number;
+    rank?: number;
+    marketCap?: number;
+    circulatingSupply?: number;
+    totalSupply?: number;
+    circulatingSupplyPercent?: number;
+}
+
 const CryptoRankWidget = () => {
     const [data, setData] = useState<CryptoRankAsset[]>([]);
     const [loading, setLoading] = useState(true);
@@ -32,7 +48,7 @@ const CryptoRankWidget = () => {
             const response = await axios.get('/api/market/overview');
             
             if (response.data && Array.isArray(response.data)) {
-                const mappedData = response.data.map((coin: any, index: number) => ({
+                const mappedData = response.data.map((coin: MarketOverviewCoin, index: number) => ({
                     symbol: coin.symbol,
                     name: coin.name || coin.symbol,
                     price: coin.price,

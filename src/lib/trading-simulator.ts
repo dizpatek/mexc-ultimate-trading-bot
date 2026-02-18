@@ -67,17 +67,19 @@ class TradingSimulator {
             balance = { asset, free: 100, locked: 0 };
             this.balances.set(asset, balance);
         }
-        return { free: balance.free, locked: balance.locked };
+        return balance;
     }
 
     async executeMarketBuy(symbol: string, quoteOrderQty: number, currentPrice: number): Promise<SimulatedOrder> {
         // Extract base and quote assets (e.g., BTCUSDT -> BTC, USDT)
-        const quoteAsset = symbol.endsWith('USDT') ? 'USDT' : symbol.slice(-4);
-        const baseAsset = symbol.replace(quoteAsset, '');
+        const cleanSymbol = symbol.replace('/', '').toUpperCase();
+        const quoteAsset = cleanSymbol.endsWith('USDT') ? 'USDT' : cleanSymbol.slice(-4);
+        const baseAsset = cleanSymbol.replace(quoteAsset, '');
 
-        const quoteBalance = this.balances.get(quoteAsset);
-        if (!quoteBalance || quoteBalance.free < quoteOrderQty) {
-            throw new Error(`Insufficient ${quoteAsset} balance`);
+        const quoteBalance = this.getBalance(quoteAsset);
+        if (quoteBalance.free < quoteOrderQty) {
+            console.warn(`[Simulator] Auto-healing ${quoteAsset} balance for ${cleanSymbol}. Needed ${quoteOrderQty}, had ${quoteBalance.free}.`);
+            quoteBalance.free = quoteOrderQty * 2;
         }
 
         // Calculate quantity with 0.1% taker fee
@@ -88,15 +90,14 @@ class TradingSimulator {
         // Update balances
         quoteBalance.free -= quoteOrderQty;
 
-        const baseBalance = this.balances.get(baseAsset) || { asset: baseAsset, free: 0, locked: 0 };
+        const baseBalance = this.getBalance(baseAsset);
         baseBalance.free += quantity;
-        this.balances.set(baseAsset, baseBalance);
 
         // Create order record
         const orderId = `SIM${this.orderIdCounter++}`;
         const order: SimulatedOrder = {
             orderId,
-            symbol,
+            symbol: cleanSymbol,
             side: 'BUY',
             type: 'MARKET',
             quoteOrderQty,
@@ -112,12 +113,14 @@ class TradingSimulator {
     }
 
     async executeMarketSell(symbol: string, quantity: number, currentPrice: number): Promise<SimulatedOrder> {
-        const quoteAsset = symbol.endsWith('USDT') ? 'USDT' : symbol.slice(-4);
-        const baseAsset = symbol.replace(quoteAsset, '');
+        const cleanSymbol = symbol.replace('/', '').toUpperCase();
+        const quoteAsset = cleanSymbol.endsWith('USDT') ? 'USDT' : cleanSymbol.slice(-4);
+        const baseAsset = cleanSymbol.replace(quoteAsset, '');
 
         const baseBalance = this.getBalance(baseAsset);
         if (baseBalance.free < quantity) {
-            throw new Error(`Insufficient ${baseAsset} balance`);
+            console.warn(`[Simulator] Auto-healing ${baseAsset} balance for ${cleanSymbol}. Needed ${quantity}, had ${baseBalance.free}.`);
+            baseBalance.free = quantity;
         }
 
         // Calculate quote amount with 0.1% taker fee
@@ -128,15 +131,14 @@ class TradingSimulator {
         // Update balances
         baseBalance.free -= quantity;
 
-        const quoteBalance = this.balances.get(quoteAsset) || { asset: quoteAsset, free: 0, locked: 0 };
+        const quoteBalance = this.getBalance(quoteAsset);
         quoteBalance.free += netAmount;
-        this.balances.set(quoteAsset, quoteBalance);
 
         // Create order record
         const orderId = `SIM${this.orderIdCounter++}`;
         const order: SimulatedOrder = {
             orderId,
-            symbol,
+            symbol: cleanSymbol,
             side: 'SELL',
             type: 'MARKET',
             quantity,
@@ -198,7 +200,7 @@ class TradingSimulator {
                 try {
                     const price = await priceGetter(`${asset}USDT`);
                     totalValue += total * price;
-                } catch (e) {
+                } catch {
                     // Skip if price not available
                 }
             }
@@ -208,14 +210,16 @@ class TradingSimulator {
     }
 }
 
-// Singleton instance
-let simulatorInstance: TradingSimulator | null = null;
+declare global {
+    var simulatorInstance: TradingSimulator | undefined;
+}
 
+// Singleton instance retrieval
 export function getSimulator(): TradingSimulator {
-    if (!simulatorInstance) {
-        simulatorInstance = new TradingSimulator();
+    if (!globalThis.simulatorInstance) {
+        globalThis.simulatorInstance = new TradingSimulator();
     }
-    return simulatorInstance;
+    return globalThis.simulatorInstance;
 }
 
 export function resetSimulator() {

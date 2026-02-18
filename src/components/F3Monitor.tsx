@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Activity, TrendingUp, TrendingDown, RefreshCw, AlertCircle, Zap } from 'lucide-react';
 import { api } from '@/services/api';
 
@@ -26,12 +26,12 @@ export const F3Monitor = () => {
     const [signals, setSignals] = useState<Record<string, F3Signal>>(mockSignals);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(false);
-    const [selectedSymbols, setSelectedSymbols] = useState<string[]>(DEFAULT_SYMBOLS);
+    const [selectedSymbols] = useState<string[]>(DEFAULT_SYMBOLS);
 
-    const fetchF3Signals = async (showLoading = true) => {
+    const fetchF3Signals = useCallback(async (showLoading = true) => {
         if (showLoading) setLoading(true);
         try {
-            const results: Record<string, F3Signal> = { ...signals };
+            const results: Record<string, F3Signal> = {};
 
             await Promise.all(
                 selectedSymbols.map(async (symbol) => {
@@ -52,13 +52,13 @@ export const F3Monitor = () => {
         } finally {
             if (showLoading) setLoading(false);
         }
-    };
+    }, [selectedSymbols]);
 
     useEffect(() => {
         fetchF3Signals(true);
         const interval = setInterval(() => fetchF3Signals(false), 60000);
         return () => clearInterval(interval);
-    }, [selectedSymbols]);
+    }, [fetchF3Signals]);
 
     return (
         <div className="portfolio-container p-6">

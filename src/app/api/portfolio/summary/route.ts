@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAccountInfo, getPrice, get24hrTicker, type TradingMode } from '@/lib/mexc-wrapper';
+import { getMexcCredentials } from '@/lib/settings';
 import { getSessionUser } from '@/lib/auth-utils';
 import { cookies } from 'next/headers';
 
@@ -10,11 +11,22 @@ export async function GET(request: Request) {
         const user = await getSessionUser(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        // Force reading from cookie
-        const cookieStore = cookies();
-        const mode = (await cookieStore).get('TRADING_MODE')?.value as TradingMode || 'test';
+        // Force reading from cookie (Next.js 15+)
+        const cookieStore = await cookies();
+        const mode = cookieStore.get('TRADING_MODE')?.value as TradingMode || 'test';
 
-        const accountInfo = await getAccountInfo(mode);
+        if (mode === 'production') {
+            const { apiKey, apiSecret } = await getMexcCredentials(user.id, mode);
+            if (!apiKey || !apiSecret) {
+                return NextResponse.json({ 
+                    error: 'Production mode requires API keys. Please configure them in Settings.' 
+                }, { status: 400 });
+            }
+        }
+
+        console.log(`[PortfolioSummary] Fetching for user ${user.id} in ${mode} mode`);
+
+        const accountInfo = await getAccountInfo(user.id, mode);
         const activeBalances = accountInfo.balances.filter(
             b => parseFloat(b.free) + parseFloat(b.locked) > 0
         );
@@ -64,6 +76,10 @@ export async function GET(request: Request) {
         });
     } catch (error) {
         const err = error as Error;
-        return NextResponse.json({ error: err.message }, { status: 500 });
+        console.error('[PortfolioSummary] 500 Error:', err);
+        return NextResponse.json({ 
+            error: err.message, 
+            stack: err.stack 
+        }, { status: 500 });
     }
 }

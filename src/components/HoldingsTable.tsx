@@ -8,12 +8,22 @@ import { TrailingStopModal } from './TrailingStopModal';
 import { AssetDetailModal } from './AssetDetailModal';
 import { AssetIcon } from './AssetIcon';
 
+interface Holding {
+    id: string;
+    symbol: string;
+    name: string;
+    price: number;
+    change24h: number;
+    holding: number;
+    value: number;
+    allocation: number;
+}
 
 export const HoldingsTable = () => {
-    const { data: holdings, isLoading, isError } = useHoldings();
+    const { data: holdings, isLoading } = useHoldings();
 
     // States
-    const [selectedHolding, setSelectedHolding] = React.useState<any>(null); // For Trailing Stop
+    const [selectedHolding, setSelectedHolding] = React.useState<Holding | null>(null); // For Trailing Stop
     const [viewAsset, setViewAsset] = React.useState<string | null>(null);   // For Chart/Detail Modal
 
     // Subscribe to real-time prices
@@ -63,9 +73,9 @@ export const HoldingsTable = () => {
     };
 
     const sortedHoldings = [...displayHoldings].sort((a, b) => {
-        const key = fieldMap[sortField] || sortField;
-        const aValue = (a as any)[key];
-        const bValue = (b as any)[key];
+        const key = fieldMap[sortField] || sortField as keyof Holding;
+        const aValue = a[key as keyof Holding];
+        const bValue = b[key as keyof Holding];
 
         if (typeof aValue === 'string' && typeof bValue === 'string') {
             return sortDirection === 'asc'

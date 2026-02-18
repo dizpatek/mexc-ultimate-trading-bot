@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from 'react';
-import { createChart, ColorType, CrosshairMode, IChartApi, Time } from 'lightweight-charts';
-import { RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { createChart, ColorType, CrosshairMode, IChartApi, Time, CandlestickSeries } from 'lightweight-charts';
 import axios from 'axios';
 
 interface ChartData {
@@ -16,38 +15,20 @@ interface ChartData {
 export const TradingViewChart = () => {
     const chartContainerRef = useRef<HTMLDivElement>(null);
     const chartInstanceRef = useRef<IChartApi | null>(null);
-    const seriesInstanceRef = useRef<any>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [timeframe, setTimeframe] = useState('1d');
-    const [marketStats, setMarketStats] = useState({
-        marketCap: 0,
-        change24h: 0
-    });
 
-    const handleTimeframeChange = (tf: string) => {
-        setTimeframe(tf);
-        localStorage.setItem('chart_timeframe', tf);
-    };
-
-    const fetchMarketData = async () => {
+    const fetchMarketData = useCallback(async () => {
         try {
             const response = await axios.get('/api/market/overview');
             if (response.data && response.data.length > 0 && !response.data.error) {
-                const topCoins = response.data.slice(0, 20);
-                const totalMarketCap = topCoins.reduce((sum: number, coin: any) => sum + (coin.marketCap || 0), 0);
-                const avgChange = topCoins.reduce((sum: number, coin: any) => sum + (coin.change24h || 0), 0) / topCoins.length;
-
-                setMarketStats({
-                    marketCap: totalMarketCap,
-                    change24h: avgChange
-                });
+                // Data fetched successfully
             }
         } catch (error) {
             console.error('Failed to fetch market data:', error);
         }
-    };
+    }, []);
 
-    const generateData = () => {
+    const generateData = useCallback(() => {
         const data: ChartData[] = [];
         let time = Math.floor(new Date('2024-01-01').getTime() / 1000);
         let value = 500000000000;
@@ -70,13 +51,13 @@ export const TradingViewChart = () => {
             time += 86400;
         }
         return data;
-    };
+    }, []);
 
     useEffect(() => {
         fetchMarketData();
         const interval = setInterval(fetchMarketData, 60000);
         return () => clearInterval(interval);
-    }, []);
+    }, [fetchMarketData]);
 
     useEffect(() => {
         const container = chartContainerRef.current;
@@ -103,7 +84,7 @@ export const TradingViewChart = () => {
                     },
                 });
 
-                const series = (chart as any).addCandlestickSeries({
+                const series = chart.addSeries(CandlestickSeries, {
                     upColor: '#22c55e',
                     downColor: '#ef4444',
                     borderVisible: false,
@@ -115,7 +96,6 @@ export const TradingViewChart = () => {
                 series.setData(data);
 
                 chartInstanceRef.current = chart;
-                seriesInstanceRef.current = series;
                 setIsLoading(false);
 
                 const handleResize = () => {
@@ -140,7 +120,7 @@ export const TradingViewChart = () => {
         }, 100);
 
         return () => clearTimeout(timeoutId);
-    }, []);
+    }, [generateData]);
 
     return (
         <div className="portfolio-container p-6">

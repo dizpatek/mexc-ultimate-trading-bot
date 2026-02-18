@@ -32,6 +32,7 @@ export interface BuySignalOptions {
     sl?: number | null;
     usdt?: number | null;
     balancePercent?: number | null;
+    userId?: number;
 }
 
 export async function getSymbolPrecision(symbol: string) {
@@ -56,7 +57,8 @@ export async function handleBuySignal({
     tp = null,
     sl = null,
     usdt = null,
-    balancePercent = null
+    balancePercent = null,
+    userId = 1
 }: BuySignalOptions) {
     try {
         console.log('Buy signal received', { pair, risk, tp, sl, usdt, balancePercent });
@@ -79,7 +81,7 @@ export async function handleBuySignal({
 
         if (risk <= 0 || risk > 0.2) risk = Math.min(Math.max(risk, 0.001), 0.05);
 
-        const usdtBalance = await getBalance('USDT');
+        const usdtBalance = await getBalance('USDT', userId);
         const availableUsdt = usdtBalance.free;
         const minBalance = Number(process.env.MIN_USDT_BALANCE) || 10;
 
@@ -118,7 +120,7 @@ export async function handleBuySignal({
         const finalQuote = parseFloat(quoteToSpend.toFixed(precision.quote));
 
         // Place market buy using quoteOrderQty
-        const res = await marketBuyByQuote(pair, String(finalQuote)) as { orderId: string; executedQty: string; cummulativeQuoteQty: string; fills?: { price: string; qty: string; commission?: string; commissionAsset?: string }[] };
+        const res = await marketBuyByQuote(userId, pair, String(finalQuote)) as { orderId: string; executedQty: string; cummulativeQuoteQty: string; fills?: { price: string; qty: string; commission?: string; commissionAsset?: string }[] };
         notify(`BUY executed ${pair} => ${JSON.stringify(res)}`);
 
         // Calculate average price from fills or cumulative fields
@@ -164,11 +166,11 @@ export async function handleBuySignal({
         if (executedQty > 0) {
             try {
                 if (sl) {
-                    await placeStopMarket(pair, 'SELL', String(sl), String(executedQty));
+                    await placeStopMarket(userId, pair, 'SELL', String(sl), String(executedQty));
                     notify(`Placed stop market SELL @ trigger ${sl}`);
                 }
                 if (tp) {
-                    await placeStopMarket(pair, 'SELL', String(tp), String(executedQty));
+                    await placeStopMarket(userId, pair, 'SELL', String(tp), String(executedQty));
                     notify(`Placed take-profit SELL @ trigger ${tp}`);
                 }
             } catch (e: unknown) {
@@ -187,9 +189,10 @@ export interface SellSignalOptions {
     pair: string;
     amount?: number | null;
     percent?: number | null;
+    userId?: number;
 }
 
-export async function handleSellSignal({ pair, amount = null, percent = null }: SellSignalOptions) {
+export async function handleSellSignal({ pair, amount = null, percent = null, userId = 1 }: SellSignalOptions) {
     try {
         console.log('Sell signal received', { pair, amount, percent });
 
@@ -205,7 +208,7 @@ export async function handleSellSignal({ pair, amount = null, percent = null }: 
 
         let sellAmount = amount;
         const baseAsset = pair.replace(/USDT|USDC|BTC$/, '');
-        const balance = await getBalance(baseAsset);
+        const balance = await getBalance(baseAsset, userId);
 
         if (!sellAmount) {
             if (balance.free <= 0) {
@@ -234,7 +237,7 @@ export async function handleSellSignal({ pair, amount = null, percent = null }: 
         const currentPrice = await getPrice(pair);
         notify(`${pair} satış: ${finalQty} adet @ ${currentPrice} USDT`);
 
-        const res = await marketSellByQty(pair, String(finalQty)) as { orderId: string; executedQty: string; cummulativeQuoteQty: string; fills?: { price: string; qty: string; commission?: string; commissionAsset?: string }[] };
+        const res = await marketSellByQty(userId, pair, String(finalQty)) as { orderId: string; executedQty: string; cummulativeQuoteQty: string; fills?: { price: string; qty: string; commission?: string; commissionAsset?: string }[] };
         notify(`SELL executed ${pair} => ${JSON.stringify(res)}`);
 
         let avgPrice = currentPrice;

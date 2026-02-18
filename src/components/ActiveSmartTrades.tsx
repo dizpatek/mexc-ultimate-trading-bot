@@ -64,6 +64,7 @@ export interface SmartTradeOrder {
                 trailing?: boolean;
                 deviation?: number;
                 timeout?: boolean;
+                timeoutSeconds?: number;
                 breakeven?: boolean;
             } | null;
         }
@@ -90,9 +91,29 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
             setLastFetchTime(Date.now());
             setError(null);
         } catch (err: unknown) {
-            console.error('Failed to fetch smart trades:', err);
-            const axiosError = err as { response?: { data?: { details?: string; error?: string } }; message: string };
-            const msg = axiosError.response?.data?.details || axiosError.response?.data?.error || axiosError.message;
+            let msg = 'Unknown error occurred';
+            let status = 500;
+            
+            if (err && typeof err === 'object' && 'response' in err) {
+                // Axios error
+                const axiosError = err as { response?: { status?: number; data?: { details?: string; error?: string; message?: string; stack?: string } }; message: string };
+                status = axiosError.response?.status || 500;
+                
+                // Prefer 'details', then 'error', then 'message', then generic.
+                const start = axiosError.response?.data?.details || axiosError.response?.data?.error || axiosError.response?.data?.message || axiosError.message;
+                const stack = axiosError.response?.data?.stack;
+                msg = stack ? `${start} \n\nServer Stack:\n${stack}` : start;
+
+                if (status === 400 || status === 401) {
+                    console.warn('[SmartTrade] Config Warning:', start);
+                } else {
+                    console.error('Failed to fetch smart trades:', err);
+                }
+            } else if (err instanceof Error) {
+                msg = err.message;
+                console.error('Failed to fetch smart trades:', err);
+            }
+            
             setError(msg);
         } finally {
             setIsLoading(false);
@@ -101,10 +122,8 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
 
     const handlePanicClose = async (e: React.MouseEvent, trade: SmartTradeOrder) => {
         e.stopPropagation();
-        if (!confirm(`${trade.symbol} işlemini PİYASA fiyatından kapatmak üzeresiniz. Onaylıyor musunuz?`)) return;
         try {
             await api.delete(`/trade/smart?id=${trade.id}`);
-            alert('PANIC SELL: İşlem başarıyla sonlandırıldı.');
             fetchTrades();
         } catch (error) {
             console.error('Panic close failed:', error);
@@ -113,10 +132,8 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
 
     const handleSilentClose = async (e: React.MouseEvent, trade: SmartTradeOrder) => {
         e.stopPropagation();
-        if (!confirm(`${trade.symbol} işlemini ARŞİVE taşımak üzeresiniz. \n\n⚠️ DİKKAT: BORSADA HERHANGİ BİR SATIŞ YAPILMAZ! Sadece takip listesinden kaldırılır.`)) return;
         try {
             await api.delete(`/trade/smart?id=${trade.id}&silent=true`);
-            alert('SILENT CLOSE: İşlem arşive taşındı.');
             fetchTrades();
         } catch (error) {
             console.error('Silent close failed:', error);
@@ -124,7 +141,6 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
     };
 
     const handleClearAll = async () => {
-        if (!confirm('TÜM akıllı işlemleri temizlemek istediğinizden emin misiniz?')) return;
         try {
             await api.delete('/trade/smart?all=true');
             fetchTrades();
@@ -161,7 +177,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
                     </div>
                     <div>
                         <h2 className="text-sm font-black text-white uppercase tracking-[0.3em] flex items-center gap-2">
-                            SMART OPERATIONS CENTER 
+                            ACTIVE SMART TRADES 
                             <span className="text-[9px] bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded border border-cyan-500/20 ml-2">LIVE MONITORING</span>
                         </h2>
                         <div className="flex items-center gap-2 mt-0.5">
@@ -175,10 +191,20 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
 
                 <div className="flex items-center gap-3">
                     {error && (
-                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[9px] font-bold animate-pulse">
-                            <AlertCircle className="w-3 h-3" />
-                            API ERROR: {error.toUpperCase()}
-                        </div>
+                        error.includes('API keys') ? (
+                            <div 
+                                onClick={() => window.location.href = '/settings'}
+                                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-[9px] font-bold animate-pulse cursor-pointer hover:bg-yellow-500/20 transition-colors"
+                            >
+                                <ShieldAlert className="w-3 h-3" />
+                                CONFIGURATION REQUIRED: CLICK TO FIX KEYS
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[9px] font-bold animate-pulse">
+                                <AlertCircle className="w-3 h-3" />
+                                API ERROR: {error.toUpperCase()}
+                            </div>
+                        )
                     )}
                     <div className="flex bg-slate-950/50 border border-slate-800 rounded-lg overflow-hidden p-0.5">
                         <button 
@@ -401,47 +427,150 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
                                         </div>
 
                                         {/* SMART TARGETS BAR */}
-                                        <div className="px-2">
-                                            <div className="flex justify-between text-[8px] font-black mb-1.5 uppercase tracking-tighter">
-                                                <span className="text-rose-500">SL: {sl || 'UNSET'}</span>
-                                                <span className="text-emerald-500">TP: {tp || 'UNSET'}</span>
+                                        <div className="px-5">
+                                            <div className="flex justify-between text-[10px] font-black mb-5 -mt-1.5 uppercase tracking-tighter">
+                                                <span className="text-rose-500">
+                                                    SL: {sl ? (sl < 1 ? sl.toFixed(4) : sl.toFixed(2)) : 'UNSET'} 
+                                                    {sl > 0 && (
+                                                        <span className="ml-1 opacity-80">
+                                                            ({(trade.side === 'BUY' ? (sl - entry) * trade.qty : (entry - sl) * trade.qty).toLocaleString(undefined, { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 2 })})
+                                                        </span>
+                                                    )}
+                                                </span>
+                                                <span className="text-emerald-500">
+                                                    TP: {tp ? (tp < 1 ? tp.toFixed(4) : tp.toFixed(2)) : 'UNSET'}
+                                                    {tp > 0 && (
+                                                        <span className="ml-1 opacity-80">
+                                                            (+{(trade.side === 'BUY' ? (tp - entry) * trade.qty : (entry - tp) * trade.qty).toLocaleString(undefined, { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 2 })})
+                                                        </span>
+                                                    )}
+                                                </span>
                                             </div>
                                             <div className="h-1.5 w-full bg-slate-800/40 rounded-full relative backdrop-blur-sm border border-white/5">
                                                 {/* Scale: SL (0%) to TP (100%) */}
-                                                {sl > 0 && tp > 0 ? (
-                                                    <>
-                                                        {/* Entry Mark */}
-                                                        <div 
-                                                            style={{ 
-                                                                left: `${((entry - Math.min(sl, tp)) / Math.abs(tp - sl)) * 100}%` 
-                                                            }} 
-                                                            className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3 bg-white/20 z-0"
-                                                        />
-                                                        {/* Current Price Mark */}
-                                                        <div 
-                                                            style={{ 
-                                                                left: `${Math.min(99, Math.max(1, ((currentPrice - Math.min(sl, tp)) / Math.abs(tp - sl)) * 100))}%` 
-                                                            }} 
-                                                            className={cn(
-                                                                "absolute top-0 bottom-0 w-1 z-10 transition-all duration-700 shadow-[0_0_10px_white]",
-                                                                pnlPercent >= 0 ? "bg-emerald-400 shadow-emerald-500/50" : "bg-rose-400 shadow-rose-500/50"
-                                                            )}
-                                                        />
-                                                    </>
-                                                ) : (
-                                                    // Fallback to PNL centered (entry is 50%)
-                                                    <>
-                                                        <div className="absolute left-1/2 top-1/2 -translate-y-1/2 w-0.5 h-3 bg-white/20 z-0" />
-                                                        <div 
-                                                            style={{ 
-                                                                left: `${Math.min(98, Math.max(2, 50 + (pnlPercent * 2)))}%` 
-                                                            }} 
-                                                            className={cn(
-                                                                "absolute top-0 bottom-0 w-1 z-10 transition-all duration-700 shadow-[0_0_10px_white]",
-                                                                pnlPercent >= 0 ? "bg-emerald-400 shadow-emerald-500/50" : "bg-rose-400 shadow-rose-500/50"
-                                                            )}
-                                                        />
-                                                    </>
+                                                {sl > 0 && tp > 0 ? (() => {
+                                                    const minP = Math.min(sl, tp);
+                                                    const maxP = Math.max(sl, tp);
+                                                    const range = maxP - minP;
+                                                    const getPos = (p: number) => Math.min(100, Math.max(0, ((p - minP) / range) * 100));
+                                                    
+                                                    const entryPos = getPos(entry);
+                                                    const currentPos = getPos(currentPrice);
+                                                    const slPos = getPos(sl);
+                                                    const tpPos = getPos(tp);
+                                                    
+                                                    // String Logic
+                                                    const stringStart = Math.min(entryPos, currentPos);
+                                                    const stringWidth = Math.abs(currentPos - entryPos);
+                                                    const isProfit = pnlPercent >= 0;
+
+                                                    return (
+                                                        <>
+                                                            {/* SL Mark */}
+                                                            <div 
+                                                                style={{ left: `${slPos}%` }} 
+                                                                className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3 bg-rose-500/50 z-10 shadow-[0_0_8px_rgba(244,63,94,0.4)]"
+                                                            />
+
+                                                            {/* TP Mark */}
+                                                            <div 
+                                                                style={{ left: `${tpPos}%` }} 
+                                                                className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3 bg-emerald-500/50 z-10 shadow-[0_0_8px_rgba(16,185,129,0.4)]"
+                                                            />
+
+                                                            {/* Entry Mark (Fixed) */}
+                                                            <div 
+                                                                style={{ left: `${entryPos}%` }} 
+                                                                className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3 bg-white/40 z-10"
+                                                            >
+                                                                {/* Floating Entry Label */}
+                                                                <div className="absolute -bottom-[23px] left-1/2 -translate-x-1/2 text-[9px] font-black tracking-tighter whitespace-nowrap opacity-100 bg-black/40 px-1 rounded shadow-sm text-amber-400">
+                                                                    GİRİŞ: ${entry < 1 ? entry.toFixed(4) : entry.toFixed(2)}
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            {/* The "String" / Connection Line */}
+                                                            <div 
+                                                                style={{ 
+                                                                    left: `${stringStart}%`,
+                                                                    width: `${stringWidth}%`
+                                                                }}
+                                                                className={cn(
+                                                                    "absolute top-1/2 -translate-y-1/2 h-0.5 transition-all duration-700 z-0 opacity-60",
+                                                                    isProfit ? "bg-emerald-500 shadow-[0_0_8px_#10b981]" : "bg-rose-500 shadow-[0_0_8px_#f43f5e]"
+                                                                )}
+                                                            />
+
+                                                            {/* Current Price Mark & Floating Label */}
+                                                            <div 
+                                                                style={{ left: `${currentPos}%` }} 
+                                                                className={cn(
+                                                                    "absolute top-0 bottom-0 w-1 z-20 transition-all duration-700 shadow-[0_0_10px_white] cursor-help group/thumb",
+                                                                    isProfit ? "bg-emerald-400 shadow-emerald-500/50" : "bg-rose-400 shadow-rose-500/50"
+                                                                )}
+                                                            >
+                                                                {/* Floating Price Label */}
+                                                                <div className={cn(
+                                                                    "absolute -top-10 left-1/2 -translate-x-1/2 px-2 py-1 rounded text-[8px] font-black tracking-tighter whitespace-nowrap transition-all opacity-0 group-hover/thumb:opacity-100 scale-90 group-hover/thumb:scale-100 shadow-xl z-50",
+                                                                    isProfit ? "bg-emerald-500 text-white" : "bg-rose-500 text-white"
+                                                                )}>
+                                                                    ${currentPrice.toLocaleString()} | ${(currentPrice * trade.qty).toLocaleString(undefined, { style: 'currency', currency: 'USD' })}
+                                                                    <div className="text-[7px] border-t border-white/20 mt-0.5 pt-0.5 opacity-90 text-center">
+                                                                        {isProfit ? '+' : ''}{pnlUsdt.toLocaleString(undefined, { style: 'currency', currency: 'USD' })} ({pnlPercent.toFixed(2)}%)
+                                                                    </div>
+                                                                </div>
+                                                                {/* Visible Label (Always On) - Simplified Version requested */}
+                                                                <div className={cn(
+                                                                    "absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] font-black tracking-tighter whitespace-nowrap opacity-100 bg-black/40 px-1 rounded shadow-sm",
+                                                                    isProfit ? "text-emerald-400" : "text-rose-400"
+                                                                )}>
+                                                                    ${currentPrice < 10 ? currentPrice.toFixed(4) : currentPrice.toFixed(2)}
+                                                                </div>
+                                                            </div>
+                                                        </>
+                                                    );
+                                                })() : (
+                                                    // Fallback (Logic kept simple for now, can be enhanced relative to entry similarly)
+                                                    (() => {
+                                                        const entryPos = 50;
+                                                        const currentPos = Math.min(98, Math.max(2, 50 + (pnlPercent * 2)));
+                                                        const isProfit = pnlPercent >= 0;
+                                                        const stringStart = Math.min(entryPos, currentPos);
+                                                        const stringWidth = Math.abs(currentPos - entryPos);
+                                                        
+                                                        return (
+                                                            <>
+                                                                <div className="absolute left-1/2 top-1/2 -translate-y-1/2 w-0.5 h-3 bg-white/40 z-10" />
+                                                                
+                                                                {/* Connecting String Fallback */}
+                                                                <div 
+                                                                    style={{ 
+                                                                        left: `${stringStart}%`,
+                                                                        width: `${stringWidth}%`
+                                                                    }}
+                                                                    className={cn(
+                                                                        "absolute top-1/2 -translate-y-1/2 h-0.5 transition-all duration-700 z-0 opacity-60",
+                                                                        isProfit ? "bg-emerald-500 shadow-[0_0_8px_#10b981]" : "bg-rose-500 shadow-[0_0_8px_#f43f5e]"
+                                                                    )}
+                                                                />
+
+                                                                <div 
+                                                                    style={{ left: `${currentPos}%` }} 
+                                                                    className={cn(
+                                                                        "absolute top-0 bottom-0 w-1 z-20 transition-all duration-700 shadow-[0_0_10px_white] group/thumb-fb",
+                                                                        isProfit ? "bg-emerald-400 shadow-emerald-500/50" : "bg-rose-400 shadow-rose-500/50"
+                                                                    )}
+                                                                >
+                                                                    <div className={cn(
+                                                                        "absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] font-black tracking-tighter whitespace-nowrap opacity-100 bg-black/40 px-1 rounded shadow-sm",
+                                                                        isProfit ? "text-emerald-400" : "text-rose-400"
+                                                                    )}>
+                                                                        ${currentPrice < 10 ? currentPrice.toFixed(4) : currentPrice.toFixed(2)}
+                                                                    </div>
+                                                                </div>
+                                                            </>
+                                                        );
+                                                    })()
                                                 )}
                                             </div>
                                             <div className="flex justify-between mt-1 text-[8px] font-bold text-slate-600 uppercase tracking-widest">
@@ -449,14 +578,44 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit }) 
                                                     {payload.stopLoss?.trailing && <Radar className={cn("w-2 h-2 text-cyan-500", !isClosed && "animate-spin")} />}
                                                     {payload.stopLoss?.trailing ? `-${payload.stopLoss.deviation}% TR` : ''}
                                                 </span>
-                                                <span className={cn("text-cyan-400/60 font-black", !isClosed && "animate-pulse")}>
-                                                    GİRİŞ: ${entry.toLocaleString()}
+                                                <span className="text-cyan-400/20 font-black">
+                                                    {/* Entry moved to slider label */}
                                                 </span>
                                                 <span className="flex items-center gap-1">
                                                     {payload.takeProfit?.trailing ? `+${payload.takeProfit.deviation}% TR` : ''}
                                                     {payload.takeProfit?.trailing && <Radar className={cn("w-2 h-2 text-cyan-500", !isClosed && "animate-spin")} />}
                                                 </span>
                                             </div>
+                                            {/* Trailing Feature Badges */}
+                                            {!isClosed && (payload.trailingBuy || payload.takeProfit?.trailing || payload.stopLoss?.trailing || payload.stopLoss?.timeout || payload.stopLoss?.breakeven) && (
+                                                <div className="flex items-center gap-1 mt-1 flex-wrap">
+                                                    {payload.trailingBuy && (
+                                                        <span className="px-1.5 py-0.5 rounded text-[7px] font-black bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                                                            TB
+                                                        </span>
+                                                    )}
+                                                    {payload.takeProfit?.trailing && (
+                                                        <span className="px-1.5 py-0.5 rounded text-[7px] font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                                            TTP {payload.takeProfit.deviation}%
+                                                        </span>
+                                                    )}
+                                                    {payload.stopLoss?.trailing && (
+                                                        <span className="px-1.5 py-0.5 rounded text-[7px] font-black bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                                                            TSL {payload.stopLoss.deviation}%
+                                                        </span>
+                                                    )}
+                                                    {payload.stopLoss?.timeout && (
+                                                        <span className="px-1.5 py-0.5 rounded text-[7px] font-black bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                                            ⏱ {payload.stopLoss.timeoutSeconds || 10}s
+                                                        </span>
+                                                    )}
+                                                    {payload.stopLoss?.breakeven && (
+                                                        <span className="px-1.5 py-0.5 rounded text-[7px] font-black bg-violet-500/10 text-violet-400 border border-violet-500/20">
+                                                            BE ✓
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
 
                                         {/* PNL REAL */}

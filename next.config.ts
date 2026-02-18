@@ -11,6 +11,16 @@ const nextConfig: NextConfig = {
         hostname: 'api.iconify.design',
         pathname: '/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'images.cryptocompare.com',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.cryptocompare.com',
+        pathname: '/**',
+      },
     ],
   },
 };

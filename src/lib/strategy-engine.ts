@@ -1,6 +1,7 @@
-import { getStrategiesByUser, createStrategySignal, Strategy } from './db';
-import { createStrategy, StrategyParameters } from './strategies';
+import { getStrategiesByUser, createStrategySignal, Strategy, getBotConfig, BotConfig } from './db';
+import { createStrategy, StrategyParameters, MatrixV5Strategy } from './strategies';
 import { handleBuySignal, handleSellSignal } from './trade';
+import { getHoldings } from './mexc-wrapper';
 
 const DEFAULT_USER_ID = 1; // Assuming single user mode for now or iterate all users in future
 
@@ -12,7 +13,7 @@ export async function runActiveStrategies() {
         // In a multi-user system, we'd fetch all active strategies across all users.
         // For now, we'll just fetch for the default user.
         const strategies = await getStrategiesByUser(DEFAULT_USER_ID);
-        const activeStrategies = strategies.filter(s => s.active);
+        const activeStrategies = strategies.filter((s: Strategy) => s.active);
 
         if (activeStrategies.length === 0) {
             console.log('[StrategyEngine] No active strategies found.');
@@ -21,9 +22,18 @@ export async function runActiveStrategies() {
 
         console.log(`[StrategyEngine] Processing ${activeStrategies.length} active strategies...`);
 
+        // 1.5. Check Global Bot Config for execution rights
+        const botConfig = await getBotConfig();
+
+        // 1.8. RUN MASTER PILOT (Standardized monitoring for all holdings/assets)
+        if (botConfig.auto_trade) {
+            console.log(`[StrategyEngine] ✈️ OTOMATİK PİLOT AKTİF. İzlenen varlıklar taranıyor... (TF: ${botConfig.timeframe})`);
+            await runPilotCycle(botConfig);
+        }
+
         // 2. Process each strategy
         for (const strategy of activeStrategies) {
-            await processStrategy(strategy);
+            await processStrategy(strategy, botConfig);
         }
 
     } catch (error) {
@@ -31,7 +41,7 @@ export async function runActiveStrategies() {
     }
 }
 
-async function processStrategy(strategy: Strategy) {
+async function processStrategy(strategy: Strategy, botConfig: BotConfig) {
     try {
         const symbol = strategy.symbol;
         console.log(`[StrategyEngine] Analyzing ${strategy.name} (${symbol})...`);
@@ -48,15 +58,38 @@ async function processStrategy(strategy: Strategy) {
             return;
         }
 
-        console.log(`[StrategyEngine] 🚨 SIGNAL DETECTED for ${strategy.name}: ${signal.signal}`);
-
-        // Execute Trade
+        // Determine trade parameters
+        const riskPerTrade = 0.01; 
         let executionResult: Record<string, unknown> = { executed: false, reason: 'Simulation mode or error' };
         let executed = false;
 
-        // Determine trade parameters (could be part of strategy config in future)
-        // Defaulting to 1% risk for now
-        const riskPerTrade = 0.01; 
+        // Check Otomatik Pilot
+        if (!botConfig.auto_trade) {
+            console.log(`[StrategyEngine] ⏸ Auto-Pilot is OFF. Signal for ${strategy.name} logged but NOT executed.`);
+            await createStrategySignal({
+                strategy_id: strategy.id,
+                signal_type: signal.signal,
+                price: signal.indicators.f4Slope !== undefined ? Number(signal.indicators.f4Slope) : undefined,
+                timestamp: Date.now(),
+                executed: false,
+                execution_result: { message: 'Otomatik Pilot Kapalı (Pilot OFF)' }
+            });
+            return;
+        }
+
+        // Check Savunma Modu for BUY signals
+        if (signal.signal === 'BUY' && botConfig.defense_mode) {
+            console.log(`[StrategyEngine] 🛡 Defense Mode is ON. BUY signal for ${strategy.name} blocked.`);
+            await createStrategySignal({
+                strategy_id: strategy.id,
+                signal_type: signal.signal,
+                price: signal.indicators.f4Slope !== undefined ? Number(signal.indicators.f4Slope) : undefined,
+                timestamp: Date.now(),
+                executed: false,
+                execution_result: { message: 'Savunma Modu Aktif (Defense ON)' }
+            });
+            return;
+        }
 
         try {
             if (signal.signal === 'BUY') {
@@ -92,5 +125,50 @@ async function processStrategy(strategy: Strategy) {
 
     } catch (error: unknown) {
         console.error(`[StrategyEngine] Error processing strategy ${strategy.id}:`, error instanceof Error ? error.message : String(error));
+    }
+}
+
+async function runPilotCycle(botConfig: BotConfig) {
+    try {
+        const holdings = await getHoldings(DEFAULT_USER_ID);
+        // Add some major pairs to monitor if holding is low, or just monitor holdings
+        const coinsToMonitor = Array.from(new Set([
+            ...(holdings as any[]).map((h: any) => h.asset ? `${h.asset}USDT` : String(h.symbol || '').replace('/', '')),
+            'BTCUSDT', 'ETHUSDT', 'SOLUSDT' // Default core pairs
+        ])).filter(s => s !== 'USDTUSDT' && s !== 'USDT');
+
+        console.log(`[PilotEngine] Monitoring ${coinsToMonitor.length} assets on ${botConfig.timeframe}...`);
+
+        for (const symbol of coinsToMonitor) {
+            try {
+                const strategy = new MatrixV5Strategy(symbol, {
+                    timeframe: botConfig.timeframe,
+                    minAiScore: botConfig.ai_threshold || 65
+                });
+
+                const signal = await strategy.analyze();
+                if (!signal || !signal.signal) continue;
+
+                console.log(`[PilotEngine] 🚨 PILOT SIGNAL for ${symbol}: ${signal.signal} (AI: ${signal.indicators.aiScore})`);
+
+                if (signal.signal === 'BUY') {
+                    await handleBuySignal({
+                        pair: symbol,
+                        userId: DEFAULT_USER_ID
+                        // Extra params like TP/SL are handled by handleBuySignal redirection to Smart Trade
+                    });
+                } else if (signal.signal === 'SELL') {
+                    // Only sell if we have it? handleSellSignal handles that
+                    await handleSellSignal({
+                        pair: symbol,
+                        userId: DEFAULT_USER_ID
+                    });
+                }
+            } catch (err) {
+                console.error(`[PilotEngine] Failed to analyze ${symbol}:`, err);
+            }
+        }
+    } catch (error) {
+        console.error('[PilotEngine] Critical error:', error);
     }
 }

@@ -1,0 +1,52 @@
+[
+  {
+    "id": "TC001",
+    "title": "verify_f4_indicator_api_with_valid_symbol",
+    "description": "Test the GET /api/indicators/f4 endpoint with a valid symbol like BTCUSDT to ensure it returns a 200 status and the payload contains f4Series, f4Fibo, aiScore, whaleSignal, and regimePrediction."
+  },
+  {
+    "id": "TC002",
+    "title": "verify_f4_indicator_api_with_invalid_symbol",
+    "description": "Test the GET /api/indicators/f4 endpoint with an invalid symbol to verify the API returns a 400 status with an appropriate validation error message."
+  },
+  {
+    "id": "TC003",
+    "title": "verify_market_scan_api_with_valid_type",
+    "description": "Test the GET /api/market/scan endpoint with valid types such as gainers, losers, and squeezes to ensure it returns a 200 status with the expected market scan data."
+  },
+  {
+    "id": "TC004",
+    "title": "verify_market_scan_api_when_external_scanner_fails",
+    "description": "Test the GET /api/market/scan endpoint when the external TradingView scanner API fails or cache is empty to verify the API returns a 503 status with a 'scanner unavailable' message."
+  },
+  {
+    "id": "TC005",
+    "title": "verify_matrix_portfolio_ui_loads_with_valid_data",
+    "description": "Test loading the /matrix-portfolio dashboard to ensure it requests the F4 Indicator API and displays portfolio health, AI signals, and predicted targets correctly when the API returns valid data."
+  },
+  {
+    "id": "TC006",
+    "title": "verify_matrix_portfolio_ui_handles_api_failure",
+    "description": "Test loading the /matrix-portfolio dashboard when the F4 Indicator API returns a 500 error or times out to verify the UI displays 'Signal unavailable' and shows last-known snapshot or placeholder."
+  },
+  {
+    "id": "TC007",
+    "title": "verify_command_deck_kill_switch_enable_success",
+    "description": "Test enabling the kill switch from the /command-deck UI to ensure the backend updates the system state, returns 200, and the dashboard shows 'Trading paused - Kill Switch ON'."
+  },
+  {
+    "id": "TC008",
+    "title": "verify_command_deck_kill_switch_enable_failure",
+    "description": "Test enabling the kill switch from the /command-deck UI when the backend returns a 403 or network error to verify the UI shows 'Failed to change system state' and retains the previous setting."
+  },
+  {
+    "id": "TC009",
+    "title": "verify_price_prediction_widget_with_high_confidence",
+    "description": "Test the /price-prediction widget by entering a valid symbol like ETHUSDT and verifying that the API returns predictedTargets and confidence, which are displayed correctly in the widget."
+  },
+  {
+    "id": "TC010",
+    "title": "verify_price_prediction_widget_with_low_confidence",
+    "description": "Test the /price-prediction widget when the prediction model returns low confidence or an error to verify the widget shows a 'Low confidence' advisory and recommends waiting or manual review."
+  }
+]

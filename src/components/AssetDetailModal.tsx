@@ -14,6 +14,21 @@ interface AssetDetailModalProps {
     f4Decision?: string;
     f4Prediction?: string;
     trapWarning?: boolean;
+    
+    // Matrix V5 Professional Data
+    smc?: {
+        swingTrend: string;
+        internalTrend: string;
+        bos: boolean;
+        choch: boolean;
+        orderBlocks: Array<{ high: number; low: number; type: string }>;
+        fvgs: Array<{ top: number; bottom: number; type: string }>;
+    };
+    vpa?: { netPressure?: number; state: string; };
+    adm?: { bias: string; classification?: number; evidence?: string; };
+    liquidity?: { eqHighs: boolean; eqLows: boolean };
+    whaleTrust?: number;
+    v5Indicators?: Array<{ name: string; value: string; state: string; color: 'green' | 'red' | 'gray' | 'orange'; }>;
 }
 
 export const AssetDetailModal = ({ 
@@ -24,7 +39,11 @@ export const AssetDetailModal = ({
     f4Score = 0,
     f4Decision = "WAIT",
     f4Prediction = "NEUTRAL",
-    trapWarning = false
+    trapWarning = false,
+    smc,
+    vpa,
+    adm,
+    v5Indicators = []
 }: AssetDetailModalProps) => {
     if (!isOpen) return null;
 
@@ -32,10 +51,9 @@ export const AssetDetailModal = ({
     const assetName = symbol.endsWith('USDT') ? symbol.replace('USDT', '') : symbol;
 
     const getScoreColor = (score: number) => {
-        if (score >= 70) return 'text-emerald-400';
-        if (score >= 50) return 'text-cyan-400';
-        if (score <= 30) return 'text-rose-400';
-        return 'text-amber-400';
+        if (score >= 65) return 'text-emerald-400';
+        if (score >= 50) return 'text-amber-400';
+        return 'text-rose-400';
     };
 
     const getDecisionStyle = (decision: string) => {
@@ -144,25 +162,57 @@ export const AssetDetailModal = ({
                                 </div>
                             )}
 
+                            {/* SMC & STRUCTURE (V5 PRO) */}
+                            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 space-y-3">
+                                <div className="flex justify-between items-center transition-all">
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase">SMC Yapı</span>
+                                    <span className={cn("text-[10px] font-black uppercase", smc?.swingTrend === "BULLISH" ? "text-emerald-400" : smc?.swingTrend === "BEARISH" ? "text-rose-400" : "text-slate-400")}>
+                                        {smc?.swingTrend || 'NEUTRAL'}
+                                    </span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div className={cn("text-[8px] p-1.5 rounded border text-center font-black", smc?.bos ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" : "bg-slate-800/20 border-slate-800/50 text-slate-600")}>BOS</div>
+                                    <div className={cn("text-[8px] p-1.5 rounded border text-center font-black", smc?.choch ? "bg-amber-500/10 border-amber-500/30 text-amber-400" : "bg-slate-800/20 border-slate-800/50 text-slate-600")}>CHoCH</div>
+                                </div>
+                                <div className="pt-2 border-t border-white/5 space-y-2">
+                                     <div className="flex justify-between text-[9px]">
+                                        <span className="text-slate-500">Volüm Baskısı</span>
+                                        <span className="text-slate-300 font-mono italic">{vpa?.state || '---'}</span>
+                                    </div>
+                                    <div className="flex justify-between text-[9px]">
+                                        <span className="text-slate-500">Drift Bias</span>
+                                        <span className="text-slate-300 font-bold">{adm?.bias || '---'}</span>
+                                    </div>
+                                </div>
+                            </div>
+
                             {/* INDICATORS GRID */}
-                            <div className="space-y-4 pt-2">
+                            <div className="space-y-3 pt-2">
                                 <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] flex items-center gap-2">
-                                    <BarChart3 className="w-3 h-3 text-indigo-400" /> Technical Vitals
+                                    <BarChart3 className="w-3 h-3 text-indigo-400" /> V5 Technical Vitals
                                 </h3>
                                 
-                                <div className="space-y-2">
-                                    <div className="flex justify-between items-center p-2.5 bg-slate-900/40 rounded-lg border border-slate-800/50">
-                                        <span className="text-xs text-slate-400">Market Regime</span>
-                                        <span className="text-xs font-mono font-bold text-indigo-400 px-2 py-0.5 bg-indigo-500/10 rounded">BULLISH VOL</span>
-                                    </div>
-                                    <div className="flex justify-between items-center p-2.5 bg-slate-900/40 rounded-lg border border-slate-800/50">
-                                        <span className="text-xs text-slate-400">Momentum Flow</span>
-                                        <span className="text-xs font-mono font-bold text-emerald-400 px-2 py-0.5 bg-emerald-500/10 rounded">ACCELERATING</span>
-                                    </div>
-                                    <div className="flex justify-between items-center p-2.5 bg-slate-900/40 rounded-lg border border-slate-800/50">
-                                        <span className="text-xs text-slate-400">Whale Activity</span>
-                                        <span className="text-xs font-mono font-bold text-amber-400 px-2 py-0.5 bg-amber-500/10 rounded">DISTRIBUTION</span>
-                                    </div>
+                                <div className="grid grid-cols-1 gap-2">
+                                    {v5Indicators.length > 0 ? v5Indicators.map((ind, i) => (
+                                        <div key={i} className="flex justify-between items-center p-2.5 bg-slate-900/40 rounded-lg border border-slate-800/50 hover:bg-slate-800/40 transition-colors">
+                                            <span className="text-[10px] text-slate-400 font-bold uppercase">{ind.name}</span>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px] font-mono text-slate-500">{ind.value}</span>
+                                                <span className={cn(
+                                                    "text-[9px] font-black px-2 py-0.5 rounded leading-none",
+                                                    ind.color === 'green' ? 'bg-emerald-500/20 text-emerald-400' : 
+                                                    ind.color === 'red' ? 'bg-rose-500/20 text-rose-400' : 
+                                                    ind.color === 'orange' ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-700/20 text-slate-400'
+                                                )}>
+                                                    {ind.state}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )) : (
+                                        <div className="text-center py-4 text-slate-600 text-[10px] italic">
+                                            V5 verisi senkronize ediliyor...
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
@@ -179,7 +229,7 @@ export const AssetDetailModal = ({
                                 <span>FAST TRADE ON MEXC</span>
                             </a>
                             <p className="text-[9px] text-slate-500 text-center mt-3 font-mono opacity-50">
-                                SYNC_ID: {symbol.toUpperCase()}_PRO_MATRIX_V3 // SESSION_ENCRYPTED
+                                SYNC_ID: {symbol.toUpperCase()}_PRO_MATRIX_V5 // SESSION_ENCRYPTED
                             </p>
                         </div>
 

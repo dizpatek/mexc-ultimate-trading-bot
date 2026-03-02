@@ -20,6 +20,7 @@ export default function SettingsPage() {
     const [apiSecret, setApiSecret] = useState('');
     const [saving, setSaving] = useState(false);
     const [resetting, setResetting] = useState(false);
+    const [pendingReset, setPendingReset] = useState(false);
 
     // Admin States
     const [users, setUsers] = useState<User[]>([]);
@@ -123,19 +124,19 @@ export default function SettingsPage() {
     };
 
     const handleReset = async () => {
-        if (!confirm('DANGER: This will wipe all test data and reset balance to $100,000. Continue?')) return;
         setResetting(true);
+        setPendingReset(false);
         try {
             const res = await api.post('/portfolio/reset-simulator');
             if (res.data.success) {
-                alert('✅ Simulator reset successful!');
+                alert('✅ Simülatör başarıyla sıfırlandı!');
                 window.location.href = '/';
             } else {
-                throw new Error(res.data.error || 'Server error');
+                throw new Error(res.data.error || 'Sunucu hatası');
             }
         } catch (e: unknown) {
-            const message = e instanceof Error ? e.message : 'Unknown error';
-            alert('❌ Reset failed: ' + message);
+            const message = e instanceof Error ? e.message : 'Bilinmeyen hata';
+            alert('❌ Sıfırlama başarısız: ' + message);
         } finally {
             setResetting(false);
         }
@@ -200,18 +201,42 @@ export default function SettingsPage() {
                     </div>
 
                     {/* Module 3: Danger Zone */}
-                    <div className="stat-card bg-red-500/[0.03] border-red-500/20 h-full">
+                    <div className="stat-card bg-red-500/[0.03] border-red-500/20 h-full relative overflow-visible">
                         <div className="flex items-center justify-between mb-2">
                             <h3 className="font-extrabold text-red-500 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> DANGER ZONE</h3>
                         </div>
                         <p className="text-xs text-muted-foreground italic mb-4">Restores $100,000 USDT balance and deletes all simulation history.</p>
-                        <button
-                            onClick={handleReset}
-                            disabled={resetting}
-                            className="w-full bg-red-500 hover:bg-red-600 px-6 py-3 rounded-xl font-bold text-xs uppercase transition-all shadow-lg shadow-red-500/10"
-                        >
-                            {resetting ? 'Resetting...' : 'Reset Simulator'}
-                        </button>
+                        
+                        {!pendingReset ? (
+                            <button
+                                onClick={() => setPendingReset(true)}
+                                disabled={resetting}
+                                className="w-full bg-red-500 hover:bg-red-600 px-6 py-3 rounded-xl font-bold text-xs uppercase transition-all shadow-lg shadow-red-500/10 flex items-center justify-center gap-2"
+                            >
+                                {resetting ? <RefreshCw className="w-4 h-4 animate-spin" /> : null}
+                                {resetting ? 'Resetting...' : 'Reset Simulator'}
+                            </button>
+                        ) : (
+                            <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-center">
+                                    <p className="text-[10px] font-black text-red-400 uppercase tracking-widest mb-3">TÜM VERİLER SİLİNECEK. EMİN MİSİNİZ?</p>
+                                    <div className="flex gap-2">
+                                        <button 
+                                            onClick={handleReset}
+                                            className="flex-1 bg-red-500 hover:bg-red-600 text-white py-2 rounded-lg text-[10px] font-black uppercase transition-all shadow-lg"
+                                        >
+                                            SIFIRLA ✓
+                                        </button>
+                                        <button 
+                                            onClick={() => setPendingReset(false)}
+                                            className="flex-1 bg-white/5 hover:bg-white/10 text-white py-2 rounded-lg text-[10px] font-black uppercase transition-all border border-white/10"
+                                        >
+                                            İPTAL ✕
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* Admin Modules */}

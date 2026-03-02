@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { marketBuyByQuote, getTradingMode } from '@/lib/mexc-wrapper';
+import { cookies } from 'next/headers';
+import { marketBuyByQuote, type TradingMode } from '@/lib/mexc-wrapper';
 import { getSessionUser } from '@/lib/auth-utils';
 import { sql } from '@vercel/postgres';
 
@@ -12,8 +13,10 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        const tradingMode = await getTradingMode(user.id);
-        console.log(`[BuyBack] Initiating buy-back for user ${user.id} in ${tradingMode.toUpperCase()} mode`);
+        const cookieStore = await cookies();
+        const mode = cookieStore.get('TRADING_MODE')?.value as TradingMode || 'test';
+
+        console.log(`[BuyBack] Initiating buy-back for user ${user.id} in ${mode.toUpperCase()} mode`);
 
         // Get the most recent panic snapshot
         const result = await sql`
@@ -42,7 +45,7 @@ export async function POST(request: Request) {
                 const { asset, usdtValue, symbol } = item;
 
                 // Use the USDT value from the snapshot to buy back
-                const buyResult = await marketBuyByQuote(user.id, symbol, String(usdtValue));
+                const buyResult = await marketBuyByQuote(user.id, symbol, String(usdtValue), mode);
 
                 const quantityReceived = parseFloat(buyResult.executedQty || '0');
                 const spent = parseFloat(buyResult.cummulativeQuoteQty || '0');
@@ -73,7 +76,7 @@ export async function POST(request: Request) {
             totalSpent,
             results: buyResults,
             snapshotTimestamp: snapshot.created_at,
-            mode: tradingMode
+            mode
         });
 
     } catch (error: unknown) {

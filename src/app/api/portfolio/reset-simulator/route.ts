@@ -54,7 +54,7 @@ export async function POST(request: Request) {
         `;
 
         // 3. Clear in-memory simulator instance (singleton)
-        resetSimulator();
+        resetSimulator(user.id);
 
         console.log(`[Reset] Wipe complete. User ${user.id} has $100k USDT reset.`);
 

@@ -1,193 +1,203 @@
 /**
- * MEXC API Wrapper with Test/Production Mode Support
- * This file is safely shared between Client and Server.
+ * TODO (P4.4): Refactor this God Module. Split simulator persistence, 
+ * trading mode management, and API proxying into distinct modules.
  */
-import * as realMexc from './mexc';
-import { getSimulator } from './trading-simulator';
-import { getSetting } from './settings';
+/* cSpell:disable */
+import { getSetting, setSetting } from './settings';
+import { TradingSimulator, getSimulator } from './trading-simulator';
+import { fetchKlines } from './mexc';
+
+const _lastSavePromises = new Map<number, Promise<void>>();
 
 export type TradingMode = 'test' | 'production';
 
-/**
- * Gets the trading mode for a user.
- * On client: uses localStorage.
- * On server: uses DB if userId provided, otherwise env fallback.
- */
-export async function getTradingMode(userId?: number): Promise<TradingMode> {
+export function getTradingMode(_userId?: number): TradingMode {
+    void _userId; // P4.1 TODO: Use this for per-user settings in the future.
+    // TODO (P4.1): Implement per-user trading mode resolution from database settings.
+    // Currently defaults to global/client-side mode.
     if (typeof window !== 'undefined') {
-        return (localStorage.getItem('TRADING_MODE') as TradingMode) || 'test';
+        const stored = localStorage.getItem('TRADING_MODE');
+        if (stored === 'production' || stored === 'test') return stored as TradingMode;
     }
-
-    if (userId) {
-        const dbMode = await getSetting('TRADING_MODE', userId);
-        if (dbMode === 'test' || dbMode === 'production') return dbMode;
-    }
-
-    // Server side fallback (Admin only or global env)
-    const mode = (process.env.TRADING_MODE as TradingMode) || 'test';
-    return mode;
+    return (process.env.TRADING_MODE as TradingMode) || (process.env.NEXT_PUBLIC_TRADING_MODE as TradingMode) || 'test';
 }
 
-/**
- * Synchronous version for client side components
- */
-export function getTradingModeSync(): TradingMode {
-    if (typeof window !== 'undefined') {
-        return (localStorage.getItem('TRADING_MODE') as TradingMode) || 'test';
-    }
-    return 'test';
+export function getTradingModeSync(_userId?: number): TradingMode {
+    return getTradingMode(_userId);
 }
 
 export function setTradingModeClient(mode: TradingMode) {
     if (typeof window !== 'undefined') {
         localStorage.setItem('TRADING_MODE', mode);
+        // Sync to cookie for server-side awareness
         document.cookie = `TRADING_MODE=${mode}; path=/; max-age=31536000; SameSite=Lax`;
         window.dispatchEvent(new Event('tradingModeChanged'));
     }
 }
 
-export async function getAccountInfo(userId?: number, forcedMode?: TradingMode) {
-    const mode = forcedMode || await getTradingMode(userId);
-    if (mode === 'production' && userId) return realMexc.getAccountInfo(userId);
-    return getSimulator().getAccountInfo();
+export async function syncSimulator(userId: number, simulator: TradingSimulator) {
+    if (typeof window !== 'undefined') return;
+    try {
+        const saved = await getSetting('SIMULATED_BALANCES', userId);
+        if (saved) {
+            const balances = JSON.parse(saved);
+            const usdt = balances.find((b: { asset: string; free: number }) => b.asset === 'USDT');
+            if (usdt && parseFloat(String(usdt.free)) > 200000) {
+                 console.warn(`[Simulator] Corruption detected for user ${userId} (${usdt.free} USDT). Resetting.`);
+                 simulator.reset();
+                 simulator.setBalance('USDT', 80000);
+                 queueBalancePersistence(userId, simulator);
+            } else {
+                 simulator.loadBalances(balances);
+            }
+        } else {
+            simulator.reset();
+            simulator.setBalance('USDT', 80000);
+            await setSetting('SIMULATED_BALANCES', JSON.stringify(simulator.getAllBalances()), userId);
+        }
+    } catch (err) {
+        console.error(`[Simulator] Sync failed for user ${userId}:`, err);
+    }
 }
 
-export async function getBalance(asset: string, userId?: number, forcedMode?: TradingMode) {
-    const mode = forcedMode || await getTradingMode(userId);
-    if (mode === 'production' && userId) return realMexc.getBalance(asset, userId);
-    return getSimulator().getBalance(asset);
+function queueBalancePersistence(userId: number, simulator: TradingSimulator) {
+    if (typeof window !== 'undefined') return;
+    // P4.1: Need a deep snapshot because simulator.balances mutation would affect the background task
+    const balancesSnapshot = structuredClone(simulator.getAllBalances()); 
+    const prevTask = _lastSavePromises.get(userId) || Promise.resolve();
+    
+    const nextTask = prevTask.then(async () => {
+        try {
+            await setSetting('SIMULATED_BALANCES', JSON.stringify(balancesSnapshot), userId);
+        } catch (err) {
+            console.error(`[Simulator] Background persistence failed for user ${userId}:`, err);
+        }
+    }).finally(() => {
+        // P4.2: Prevent memory leak by cleaning up resolved promises
+        if (_lastSavePromises.get(userId) === nextTask) {
+            _lastSavePromises.delete(userId);
+        }
+    });
+    
+    _lastSavePromises.set(userId, nextTask);
+}
+
+import { OrderResult } from './mexc';
+
+let _mexcModule: typeof import('./mexc') | null = null;
+async function getMexcModule() {
+    if (!_mexcModule) _mexcModule = await import('./mexc');
+    return _mexcModule;
 }
 
 export async function getPrice(symbol: string): Promise<number> {
-    return realMexc.getPrice(symbol);
-}
-
-export async function getOpenOrders(userId?: number, symbol: string | null = null, forcedMode?: TradingMode) {
-    const mode = forcedMode || await getTradingMode(userId);
-    if (mode === 'production' && userId) return realMexc.getOpenOrders(userId, symbol);
-    return getSimulator().getOpenOrders(symbol || undefined);
-}
-
-export async function postOrder(userId: number, params: Record<string, string | number | boolean>, forcedMode?: TradingMode) {
-    const mode = forcedMode || await getTradingMode(userId);
-    if (mode === 'production') return realMexc.postOrder(userId, params);
-
-    const symbol = params.symbol as string;
-    const side = params.side as string;
-    const quoteOrderQty = params.quoteOrderQty;
-    const quantity = params.quantity;
-
-    const currentPrice = await getPrice(symbol);
-    const simulator = getSimulator();
-
-    if (side === 'BUY') {
-        const amount = quoteOrderQty || (Number(quantity) * currentPrice);
-        return simulator.executeMarketBuy(symbol, Number(amount), currentPrice);
-    } else {
-        const qty = quantity || (Number(quoteOrderQty) / currentPrice);
-        return simulator.executeMarketSell(symbol, Number(qty), currentPrice);
+    const mode = getTradingMode();
+    if (mode === 'test') {
+        const klines = await fetchKlines(symbol, '1m', 1);
+        return klines.length > 0 ? klines[0].close : 0;
     }
+    // Production call with cached module
+    const { getPrice: getMexcPrice } = await getMexcModule();
+    return getMexcPrice(symbol);
 }
 
-export async function marketBuyByQuote(userId: number, pair: string, quoteAmount: string, forcedMode?: TradingMode) {
-    const mode = forcedMode || await getTradingMode(userId);
-    if (mode === 'production') {
-        return realMexc.marketBuyByQuote(userId, pair, quoteAmount);
+export async function get24hrTicker(symbol: string) {
+    const { get24hrTicker: getMexcTicker } = await getMexcModule();
+    return getMexcTicker(symbol);
+}
+
+export async function getKlines(symbol: string, interval: string = '1h', limit: number = 500) {
+    const { getKlines: getMexcKlines } = await getMexcModule();
+    return getMexcKlines(symbol, interval, limit);
+}
+
+export async function getAccountInfo(userId: number, mode: TradingMode = 'test') {
+    if (mode === 'test') {
+        const simulator = getSimulator(userId);
+        await syncSimulator(userId, simulator);
+        return simulator.getAccountInfo();
     }
-    return getSimulator().executeMarketBuy(pair, parseFloat(quoteAmount), await getPrice(pair));
+    const { getAccountInfo: getMexcAccount } = await getMexcModule();
+    return getMexcAccount(userId);
 }
 
-export async function marketSellByQty(userId: number, pair: string, quantity: string, forcedMode?: TradingMode) {
-    const mode = forcedMode || await getTradingMode(userId);
-    if (mode === 'production') {
-        return realMexc.marketSellByQty(userId, pair, quantity);
+export async function getHoldings(userId: number, mode: TradingMode = 'test') {
+    const account = await getAccountInfo(userId, mode);
+    return account.balances || [];
+}
+
+export async function getOpenOrders(userId: number, symbol: string | null = null, mode: TradingMode = 'test') {
+    if (mode === 'test') return []; // Simulator hasn't implemented open orders yet
+    const { getOpenOrders: getMexcOpenOrders } = await getMexcModule();
+    return getMexcOpenOrders(userId, symbol);
+}
+
+export async function marketBuyByQuote(userId: number, symbol: string, quoteQty: string, modeOverride?: TradingMode): Promise<OrderResult> {
+    const mode = modeOverride || getTradingMode();
+    if (mode === 'test') {
+        const simulator = getSimulator(userId);
+        await syncSimulator(userId, simulator);
+        const currentPrice = await getPrice(symbol);
+        const res = await simulator.executeMarketBuy(symbol, parseFloat(quoteQty), currentPrice);
+        queueBalancePersistence(userId, simulator);
+        return res as unknown as OrderResult;
     }
-    return getSimulator().executeMarketSell(pair, parseFloat(quantity), await getPrice(pair));
+    const { marketBuyByQuote: mexcBuy } = await getMexcModule();
+    return mexcBuy(userId, symbol, quoteQty);
 }
 
-export async function placeStopMarket(userId: number, pair: string, side: string, stopPrice: string, qty: string, forcedMode?: TradingMode) {
-    const mode = forcedMode || await getTradingMode(userId);
-    if (mode === 'production') return realMexc.placeStopMarket(userId, pair, side, stopPrice, qty);
-    return { orderId: 'SIM_STOP_' + Date.now(), status: 'NEW' };
-}
-
-export { get24hrTicker, getTopAssets, getExchangeInfo, getKlines, cancelOrder, testConnection, getServerTime } from './mexc';
-export type { TickerData } from './mexc';
-
-// Get holdings (balances with value calculation)
-export interface HoldingItem {
-    symbol: string;
-    name: string;
-    price: number;
-    change24h: number;
-    holding: number;
-    value: number;
-    allocation: number;
-    id: string;
-}
-
-export async function getHoldings(userId?: number, forcedMode?: TradingMode): Promise<HoldingItem[]> {
-    const mode = forcedMode || await getTradingMode(userId);
-    const accountInfo = await getAccountInfo(userId, mode);
-    
-    if (!accountInfo || !accountInfo.balances) {
-        return [];
+export async function marketSellByQty(userId: number, symbol: string, qty: string, modeOverride?: TradingMode): Promise<OrderResult> {
+    const mode = modeOverride || getTradingMode();
+    if (mode === 'test') {
+        const simulator = getSimulator(userId);
+        await syncSimulator(userId, simulator);
+        const currentPrice = await getPrice(symbol);
+        const res = await simulator.executeMarketSell(symbol, parseFloat(qty), currentPrice);
+        queueBalancePersistence(userId, simulator);
+        return res as unknown as OrderResult;
     }
-    
-    // Filter non-zero balances
-    const nonZeroBalances = accountInfo.balances.filter(
-        (b: { asset: string; free: string; locked: string }) => 
-            parseFloat(b.free) > 0 || parseFloat(b.locked) > 0
-    );
-    
-    // Get prices for all assets
-    const holdings: HoldingItem[] = [];
-    let totalValue = 0;
-    
-    for (const balance of nonZeroBalances) {
-        const symbol = balance.asset;
-        const holding = parseFloat(balance.free) + parseFloat(balance.locked);
+    const { marketSellByQty: mexcSell } = await getMexcModule();
+    return mexcSell(userId, symbol, qty);
+}
+
+export async function getBalance(asset: string, userId: number, mode: TradingMode = 'test') {
+    if (mode === 'test') {
+        const simulator = getSimulator(userId);
+        await syncSimulator(userId, simulator);
+        return simulator.getBalance(asset);
+    }
+    const { getBalance: getMexcBalance } = await getMexcModule();
+    return getMexcBalance(asset, userId);
+}
+
+export async function placeStopMarket(userId: number, pair: string, side: string, stopPrice: string, qty: string) {
+    const mode = getTradingMode();
+    if (mode === 'test') {
+        // Simple simulator market entry for now
+        return postOrder(userId, pair, side, qty, stopPrice);
+    }
+    const { placeStopMarket: mexcStop } = await getMexcModule();
+    return mexcStop(userId, pair, side, stopPrice, qty);
+}
+
+export async function postOrder(userId: number, symbol: string, side: string, qty: string, _price: string, type: string = 'MARKET') {
+    const mode = getTradingMode();
+    if (mode === 'test') {
+        const simulator = getSimulator(userId);
+        await syncSimulator(userId, simulator);
+        const currentPrice = await getPrice(symbol);
         
-        // Get price (USDT pairs)
-        let price = 0;
-        if (symbol === 'USDT') {
-            price = 1;
+        if (side.toUpperCase() === 'BUY') {
+            const totalQuote = parseFloat(qty) * currentPrice;
+            const res = await simulator.executeMarketBuy(symbol, totalQuote, currentPrice);
+            queueBalancePersistence(userId, simulator);
+            return res;
         } else {
-            try {
-                price = await getPrice(`${symbol}USDT`);
-            } catch {
-                // Try with USDC if USDT fails
-                try {
-                    price = await getPrice(`${symbol}USDC`);
-                } catch {
-                    price = 0;
-                }
-            }
-        }
-        
-        const value = holding * price;
-        if (value > 0.01) { // Filter dust
-            totalValue += value;
-            holdings.push({
-                id: symbol,
-                symbol: `${symbol}/USDT`,
-                name: symbol,
-                price,
-                change24h: 0, // Would need separate API call
-                holding,
-                value,
-                allocation: 0, // Calculate after total
-            });
+            const res = await simulator.executeMarketSell(symbol, parseFloat(qty), currentPrice);
+            queueBalancePersistence(userId, simulator);
+            return res;
         }
     }
-    
-    // Calculate allocations
-    holdings.forEach(h => {
-        h.allocation = totalValue > 0 ? (h.value / totalValue) * 100 : 0;
-    });
-    
-    // Sort by value descending
-    holdings.sort((a, b) => b.value - a.value);
-    
-    return holdings;
+    const { postOrder: mexcPost } = await getMexcModule();
+    return mexcPost(userId, { symbol, side, qty, price: _price, type });
 }

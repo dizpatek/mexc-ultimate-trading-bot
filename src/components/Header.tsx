@@ -14,6 +14,111 @@ import { MatrixLogo } from './MatrixLogo';
 import { useAuth } from '@/hooks/useAuth';
 import { getTradingModeSync } from '@/lib/mexc-wrapper';
 import { cn } from '@/lib/utils';
+import { useTimeframe, TIMEFRAME_LABELS, type Timeframe } from '@/context/TimeframeContext';
+
+const TF_ITEMS: { id: Timeframe; short: string }[] = [
+    { id: '1m',  short: '1D' },
+    { id: '15m', short: '15D' },
+    { id: '1h',  short: '1S' },
+    { id: '4h',  short: '4S' },
+    { id: '1d',  short: '1G' },
+    { id: '1w',  short: '1H' },
+    { id: '1M',  short: '1A' },
+];
+
+const TimeframeBar = () => {
+    const { timeframe, setTimeframe, locked, toggleLock } = useTimeframe();
+    return (
+        <div className="flex flex-col items-center gap-1 py-3 px-1.5 mt-auto">
+            {/* Lock Switch */}
+            <button
+                onClick={toggleLock}
+                title={locked ? "Kiliti Aç — Modüller bağımsız TF seçebilir" : "Kilitle — Tüm modüller bu TF'ye kilitlenir"}
+                className={cn(
+                    "w-11 h-6 rounded-full relative transition-all duration-500 mb-1 flex items-center border",
+                    locked 
+                        ? "bg-cyan-500/20 border-cyan-500/40 shadow-[0_0_12px_rgba(6,182,212,0.2)]"
+                        : "bg-slate-800/60 border-slate-700/50"
+                )}
+            >
+                <div className={cn(
+                    "absolute w-4 h-4 rounded-full transition-all duration-300 flex items-center justify-center",
+                    locked 
+                        ? "left-[calc(100%-20px)] bg-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.6)]"
+                        : "left-[2px] bg-slate-600"
+                )}>
+                    <span className="text-[7px]">{locked ? '🔒' : '🔓'}</span>
+                </div>
+            </button>
+            <span className={cn(
+                "text-[6px] font-black uppercase tracking-[0.2em] mb-1.5 transition-colors",
+                locked ? "text-cyan-500/80" : "text-slate-600"
+            )}>
+                {locked ? "⏱ LOCK" : "⏱ FREE"}
+            </span>
+            {TF_ITEMS.map((tf) => {
+                const isActive = timeframe === tf.id;
+                return (
+                    <button
+                        key={tf.id}
+                        onClick={() => setTimeframe(tf.id)}
+                        title={TIMEFRAME_LABELS[tf.id]}
+                        className={cn(
+                            "w-11 h-8 flex items-center justify-center transition-all duration-300 relative group/tf",
+                            "clip-hexagon",
+                            isActive
+                                ? "bg-gradient-to-br from-cyan-500/30 to-cyan-600/10 text-cyan-300 shadow-[0_0_18px_rgba(6,182,212,0.3),inset_0_0_8px_rgba(6,182,212,0.1)] scale-110"
+                                : "bg-slate-800/40 text-slate-600 hover:text-cyan-400 hover:bg-slate-800/80 hover:scale-105"
+                        )}
+                    >
+                        {/* Corner accents */}
+                        <div className={cn(
+                            "absolute top-0 left-0 w-1.5 h-[1px] transition-colors",
+                            isActive ? "bg-cyan-400" : "bg-slate-700"
+                        )} />
+                        <div className={cn(
+                            "absolute top-0 left-0 w-[1px] h-1.5 transition-colors",
+                            isActive ? "bg-cyan-400" : "bg-slate-700"
+                        )} />
+                        <div className={cn(
+                            "absolute bottom-0 right-0 w-1.5 h-[1px] transition-colors",
+                            isActive ? "bg-cyan-400" : "bg-slate-700"
+                        )} />
+                        <div className={cn(
+                            "absolute bottom-0 right-0 w-[1px] h-1.5 transition-colors",
+                            isActive ? "bg-cyan-400" : "bg-slate-700"
+                        )} />
+
+                        <span className={cn(
+                            "text-[9px] font-black font-mono tracking-tight relative z-10",
+                            isActive && "drop-shadow-[0_0_6px_rgba(6,182,212,0.8)]"
+                        )}>
+                            {tf.short}
+                        </span>
+
+                        {/* Active scan line */}
+                        {isActive && (
+                            <div className="absolute inset-0 overflow-hidden rounded-sm">
+                                <div className="absolute inset-x-0 h-[1px] bg-gradient-to-r from-transparent via-cyan-400/60 to-transparent animate-pulse" style={{ top: '50%' }} />
+                            </div>
+                        )}
+
+                        {/* Right edge glow */}
+                        {isActive && (
+                            <div className="absolute inset-y-0.5 -right-[2px] w-[2px] bg-cyan-400 rounded-l-full shadow-[0_0_8px_#22d3ee]" />
+                        )}
+
+                        {/* Tooltip */}
+                        <div className="absolute left-full ml-3 px-2.5 py-1 bg-slate-900/95 border border-cyan-500/20 rounded-lg whitespace-nowrap pointer-events-none opacity-0 group-hover/tf:opacity-100 translate-x-2 group-hover/tf:translate-x-0 transition-all duration-200 z-50 backdrop-blur-sm">
+                            <span className="text-[9px] font-bold text-cyan-300">{TIMEFRAME_LABELS[tf.id]}</span>
+                        </div>
+                    </button>
+                );
+            })}
+        </div>
+    );
+
+};
 
 interface HeaderProps {
     onOpenGuide?: () => void;
@@ -91,6 +196,9 @@ export const Header = ({ }: HeaderProps) => {
                     )}
                 </Link>
             </nav>
+
+            {/* TIMEFRAME SELECTOR */}
+            <TimeframeBar />
 
             {/* USER & STATUS SECTION (BOTTOM) */}
             <div className="py-6 border-t border-slate-800/50 space-y-6 flex flex-col items-center">

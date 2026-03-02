@@ -1,0 +1,94 @@
+
+Smart Cover ve Trailing Algoritmaları Teknik Uygulama Rehberi
+
+Bu teknik rehber, 3Commas ekosistemindeki Smart Cover ve Trailing mekanizmalarının sistem mimarisini, operasyonel mantığını ve algoritmik tetiklenme koşullarını incelemektedir. Bir sistem mimarı perspektifiyle, bu araçların veri akışı ve state (durum) yönetimindeki rolleri optimize edilmiş bir ticaret stratejisi için kritik öneme sahiptir.
+
+1. Smart Cover: Kavramsal Mimari ve Kullanım Durumları
+
+Smart Cover, temel olarak "Şimdi Sat, Sonra Geri Al" (Sell Now, Buy Back Later) operasyonel mantığı üzerine kurgulanmış bir stratejik araçtır.
+
+* UI/UX Entegrasyon Yolu: Platform üzerinde SmartTrade sayfası altındaki Smart Cover sekmesi aracılığıyla konfigüre edilir.
+* Sistem Tanımı: Mevcut varlıkların (veya önceden satılmış pozisyonların) kâr al (TP), zarar durdur (SL) ve sürükleme (trailing) algoritmalarıyla yönetilmesini sağlayan gelişmiş bir yürütme katmanıdır.
+* Kullanım Senaryoları:
+  * Varlık Miktarı Artırımı: Eldeki coin'leri yüksekten satıp düşükten geri alarak adet artırmak.
+  * Veritabanı Senkronizasyonu: Manuel satışlar veya bot silinmesi sonucu oluşan "Yetim kalmış Short pozisyonları" (orphaned Short positions) tekrar yönetilebilir bir framework'e dahil etmek.
+  * Ayı Piyasası Adaptasyonu: Düşüş trendlerinde varlıkları korurken maliyet düşürme (re-entry) operasyonlarını otomatize etmek.
+
+2. Smart Cover ve Smart Short Ayrımı
+
+Sistem, işlem yapılan piyasa türüne (Spot vs. Futures) göre farklı modüller kullanır. Her iki modülde de "Mevcut Varlıkları Kullan" (Use Existing Assets) anahtarı, sistemin borçlanma/kaldıraç yerine reel bakiyeyi kullanmasını sağlar.
+
+Özellik	Spot (Smart Cover)	Futures (Smart Short)
+Operasyonel Katman	Spot Piyasalar (Mülkiyet bazlı)	Vadeli İşlemler (Kontrat bazlı)
+Varlık Kaynağı	Reel Bakiye / Cüzdan Varlığı	Margin / Borrowing (veya Mevcut Varlık)
+Hukuki Statü	Varlık Satışı ve Geri Alımı	Short Pozisyon Açılışı ve Kapanışı
+Yetim Pozisyon Yönetimi	Kesilen bot bağlantılarını onarma	Likidasyon riskli "orphan" kontratları yönetme
+
+Teknik Not: Smart Short, Smart Cover mantığının kaldıraçlı piyasalara uyarlanmış halidir; her iki araç da presets (ön ayarlar) üzerinden Webhook entegrasyonu ile tetiklenebilir.
+
+3. Trailing Algoritmaları: Matematiksel Tetiklenme Koşulları ve Mantık
+
+Trailing algoritmaları, statik limit emirlerinin aksine, fiyat hareketlerini dinamik bir mikro-pencerede takip eder.
+
+3.1. Trailing Buy
+
+* [Matematiksel Formül / Mantık]: P_{tetik} = P_{min} \times (1 + d)
+  * P_{min}: Aktivasyon sonrası görülen en düşük fiyat.
+  * d: Trailing Deviation (Sürükleme Sapması).
+* [Semantik Açıklama]: Düşen fiyat trendini takip eder. Fiyat her yeni dip yaptığında alım seviyesi aşağı güncellenir. Fiyat, ulaşılan en alt noktadan belirlenen sapma yüzdesi kadar yukarı döndüğü anda yürütme gerçekleşir.
+
+3.2. Trailing Take Profit (TTP)
+
+* [Matematiksel Formül / Mantık]: P_{tetik} = P_{max} \times (1 - d)
+  * P_{max}: Hedef fiyata ulaşıldıktan sonra kaydedilen zirve fiyat.
+* [Semantik Açıklama]: Fiyat aktivasyon seviyesine ulaştığında "Pending" durumundan "Active" durumuna geçer. Sistem emri hemen kapatmaz; P_{max} değerini izler. Fiyat zirveden d kadar saptığında (Örn: %2), kârı maksimize ederek pozisyonu kapatır.
+
+3.3. Trailing Sell
+
+* [Matematiksel Formül / Mantık]: P_{tetik} = P_{max} \times (1 - d)
+* [Semantik Açıklama]: Trailing Buy'ın ayna görüntüsüdür. Yükselen trendde en tepeden satış yapmayı hedefler. Fiyat yükseldikçe satış tetikleyicisi yukarı taşınır ve zirveden sapma anında emir gönderilir.
+
+3.4. Trailing Stop Loss (TSL)
+
+* [Matematiksel Formül / Mantık]: SL_{yeni} = P_{mevcut} - Mesafe (Koşul: SL_{yeni} > SL_{eski})
+* [Semantik Açıklama]: Ortalama Giriş Fiyatı (AEP) bazlı bir algoritmadır. Fiyat lehte hareket ettikçe Stop Loss seviyesini yukarı taşır. "Breakeven" (Başabaş) özelliği ile entegre edildiğinde, fiyat AEP'yi geçtiğinde zarar riskini sıfırlar ve kârı kilitlemeye başlar.
+
+4. Bot Optimizasyonu ve Gelişmiş Ayarlar
+
+4.1. DCA Bot Optimizasyonu
+
+"Averaging Order Settings" (Ortalama Emir Ayarları), geniş fiyat salınımlarını daha az emirle kapsayarak sermaye verimliliğini artırır. Bu, "Available Balance" (Kullanılabilir Bakiye) miktarını koruyarak sistemin diğer fırsatlara likidite ayırmasını sağlayan bir mimari tercihtir.
+
+4.2. Grid Bot Optimizasyonu
+
+Piyasa adaptasyonu için "Trailing Up" ve "Expansion Down" özelliklerinin aktif tutulması zorunludur. Bu fonksiyonlar, botun tanımlı grid aralığını fiyatla birlikte yukarı taşımasını veya aşağı yönlü genişletmesini sağlayarak botun "Out of Range" (Aralık Dışı) kalmasını önler.
+
+4.3. Rezerv ve Yuvarlama Mantığı
+
+* %5 Rezerv: Grid botlarda borsa komisyonlarını ve matematiksel yuvarlama farklarını karşılamak için sermayenin %5'i sistem tarafından rezerve edilir.
+* %2 Baz Döviz Alımı: Yuvarlama hassasiyeti ve emir bütünlüğü için bot, hedeflenen miktardan %2 daha fazla baz döviz alarak operasyona başlar.
+
+5. Semantik İşleyiş ve Emir Türleri
+
+Trailing mekanizması devreye girdiğinde sistem aşağıdaki state transition (durum geçişi) modelini izler:
+
+1. Aktivasyon: Fiyat hedef seviyeye ulaştığında trailing durumu Pending -> Active olur.
+2. Doğrulama (Validation): Fiyatın sapma koşulunu sağladığına dair mikro-saniyelik bir kontrol penceresidir. Eğer fiyat bu aşamada aktivasyon noktasının altına/gerisine hızla sarkarsa, trailing devre dışı kalır ve sistem "Initial Status" (İlk Durum) fazına geri döner.
+3. Yürütme (Execution): Sapma kesinleştiğinde sistem bir Market Order (Piyasa Emri) gönderir. Limit emir yerine Market Order kullanılmasının sebebi, trailing koşulunun gerçekleştiği anki fiyattan işlemin infaz edilmesini garanti altına almaktır.
+
+6. Hata Giderme (Troubleshooting) ve Risk Yönetimi
+
+* Sorun: Trailing Devre Dışı Kaldı | Neden: Doğrulama (validation) sırasında fiyatın aktivasyon noktasından uzaklaşması veya volatilitenin kârlı bölgeyi aniden terk etmesi. | Çözüm: Sistem işlemi "Initial Status" konumuna çeker. Kullanıcı "Timeout" ayarlarını artırarak veya sapma yüzdesini genişleterek gürültüyü filtrelemelidir.
+* Sorun: Yetim (Orphaned) Pozisyonlar | Neden: DCA botunun manuel silinmesi veya borsa tarafındaki iptaller. | Çözüm: Smart Cover aracı üzerinden "Recreate" (Yeniden Oluştur) fonksiyonu kullanılmalı ve "Lost Positions" (Kayıp Pozisyonlar) tekrar algoritmik yönetim altına alınmalıdır.
+* Sorun: TTP Tetiklenmemesi | Neden: Fiyatın aktivasyon seviyesine ulaşıp sapma (deviation) miktarını tamamlamadan ters yöne dönmesi. | Çözüm: Piyasa volatilitesine göre sapma yüzdesi optimize edilmelidir.
+
+7. Operasyonel Kontrol Listesi
+
+Trailing parametrelerini yayına almadan önce aşağıdaki teknik kontrolleri yapın:
+
+* [ ] Trailing Deviation (Sapma %): Mevcut volatilite (ATR) ile uyumlu mu?
+* [ ] Validation Check: Fiyatın aktivasyon noktasından mikro-sapmalarında botun "Initial Status"a dönme riski hesaplandı mı?
+* [ ] Breakeven Entegrasyonu: TSL, giriş fiyatını (AEP) koruyacak şekilde ayarlandı mı?
+* [ ] Timeout Konfigürasyonu: Ani iğne (wick) hareketlerinde erken tetiklenmeyi önlemek için gecikme tanımlandı mı?
+* [ ] Sermaye Rezervi: Grid botlar için %5 komisyon/yuvarlama rezervi mevcut mu?
+* [ ] Market Order Farkındalığı: Tetiklenme anında oluşabilecek "slippage" (fiyat kayması) riskleri kabul edildi mi?

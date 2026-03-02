@@ -12,6 +12,7 @@ import {
     calculateDailyPerformance
 } from './db';
 import { getExchangeInfo } from './mexc';
+import { handleSmartTrade } from './smart-trade';
 import TelegramBot from 'node-telegram-bot-api';
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
@@ -68,7 +69,8 @@ export async function handleBuySignal({
         const botConfig = await getBotConfig();
         
         // Only enforce auto_trade if it's not a manual trade (usdt or balancePercent provided)
-        if (!usdt && !balancePercent) {
+        const isAutomated = !usdt && !balancePercent;
+        if (isAutomated) {
             if (!botConfig.auto_trade) {
                 console.log('System: Auto-Pilot is OFF. Ignoring automated signal.');
                 return { ok: false, message: 'Bot pasif (Otomatik Pilot Kapalı)' };
@@ -76,6 +78,43 @@ export async function handleBuySignal({
             if (botConfig.defense_mode) {
                 console.log('System: Defense Mode is ON. Blocking new buy signal.');
                 return { ok: false, message: 'Savunma Modu Aktif (Yeni Alım Engellendi)' };
+            }
+
+            // --- STANDARDIZED SMART TRADE REDIRECTION ---
+            console.log(`[Pilot] Routing ${pair} to Standardized Smart Trade...`);
+            
+            const currentPrice = await getPrice(pair);
+            const defaultTp = currentPrice * 1.03; // +3%
+            const defaultSl = currentPrice * 0.985; // -1.5%
+
+            try {
+                const smartResult = await handleSmartTrade({
+                    user_id: userId,
+                    symbol: pair,
+                    mode: 'TRADE',
+                    amount: '20', // Default quote amount if not specified
+                    buyPrice: currentPrice.toString(),
+                    buyType: 'MARKET',
+                    trailingBuy: true,
+                    trailingBuyDev: 0.3,
+                    takeProfit: {
+                        price: defaultTp.toString(),
+                        trailing: true,
+                        deviation: 0.5
+                    },
+                    stopLoss: {
+                        price: defaultSl.toString(),
+                        trailing: true,
+                        deviation: 0.5
+                    }
+                });
+                
+                notify(`[Smart Pilot] 🚀 ${pair} için Trailing Buy & SL/TP ile Smart Trade başlatıldı.`);
+                return { ok: true, ...smartResult };
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                notify(`[Smart Pilot] ❌ Smart Trade başlatılamadı: ${msg}`);
+                return { ok: false, message: msg };
             }
         }
 
@@ -201,9 +240,44 @@ export async function handleSellSignal({ pair, amount = null, percent = null, us
         const botConfig = await getBotConfig();
         
         // Only enforce auto_trade if it's not a manual trade (amount provided) or panic sell (percent: 100 with purpose)
-        if (!amount && !percent && !botConfig.auto_trade) {
-            console.log('System: Auto-Pilot is OFF. Ignoring automated sell signal.');
-            return { ok: false, message: 'Bot pasif (Otomatik Pilot Kapalı)' };
+        const isAutomated = !amount && !percent;
+        if (isAutomated) {
+            if (!botConfig.auto_trade) {
+                console.log('System: Auto-Pilot is OFF. Ignoring automated sell signal.');
+                return { ok: false, message: 'Bot pasif (Otomatik Pilot Kapalı)' };
+            }
+
+            // Check if we already have an active Smart Trade for this pair to close it 
+            // Or just initiate a Trailing Sell if it's a generic sell signal
+            console.log(`[Pilot] Routing ${pair} to Standardized Trailing Sell/Exit...`);
+            
+            try {
+                // Determine current held qty
+                const baseAsset = pair.replace(/USDT|USDC|BTC$/, '');
+                const balance = await getBalance(baseAsset, userId);
+                
+                if (balance.free > 0) {
+                    const smartResult = await handleSmartTrade({
+                        user_id: userId,
+                        symbol: pair,
+                        mode: 'COVER', // Sell to close
+                        amount: balance.free.toString(),
+                        buyPrice: (await getPrice(pair)).toString(),
+                        buyType: 'MARKET',
+                        takeProfit: {
+                            price: (await getPrice(pair) * 0.995).toString(), // TP for Sell is lower price, but here we mean Exit
+                            trailing: true,
+                            deviation: 0.5
+                        },
+                        stopLoss: null // No SL for sell exit usually or set a protective one
+                    });
+                    notify(`[Smart Pilot] 🔻 ${pair} için Trailing Sell ile kapatma işlemi başlatıldı.`);
+                    return { ok: true, ...smartResult };
+                }
+            } catch (err) {
+                console.error('[Pilot] Smart Sell redirection failed:', err);
+                // Fallback to direct sell if smart fails
+            }
         }
 
         let sellAmount = amount;

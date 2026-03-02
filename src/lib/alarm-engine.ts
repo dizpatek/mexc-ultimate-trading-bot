@@ -1,7 +1,9 @@
-import { calculateF4, F4Result } from './indicators/f4';
+import { MatrixV5Engine, MatrixV5Result } from './matrix-v5-engine';
 import { getKlines } from './mexc-wrapper'; // Use wrapper!
 import { sql } from '@vercel/postgres';
 import { executePanicSell } from './panic-service';
+
+// ─── TYPES ───────────────────────────────────────────────────────────────────
 
 interface Alarm {
     id: number;
@@ -19,7 +21,7 @@ interface KlineData {
     volume: number[];
 }
 
-// Helper to map raw MEXC klines to arrays required by F4
+// Helper to map raw MEXC klines to arrays required by Matrix V5
 function mapToArrays(rawKlines: unknown[][]): KlineData {
     // MEXC kline structure: [time, open, high, low, close, vol, ...]
     const high = rawKlines.map(k => parseFloat(String(k[2])));
@@ -30,8 +32,13 @@ function mapToArrays(rawKlines: unknown[][]): KlineData {
     return { high, low, close, volume };
 }
 
+// ─── CORE ENGINE ─────────────────────────────────────────────────────────────
+
 export async function checkAlarms() {
     console.log('[AlarmEngine] Starting alarm check cycle...');
+    
+    // Instantiate a fresh engine per cycle (V5 Migration)
+    const engine = new MatrixV5Engine({ f4Length: 7 });
 
     // 1. Fetch active alarms
     try {
@@ -45,12 +52,16 @@ export async function checkAlarms() {
         }
 
         console.log(`[AlarmEngine] Checking ${alarms.length} active alarms`);
+        
+        // P4.3: O(A) Grouping (Map symbols to alarm lists)
+        const alarmsBySymbol = alarms.reduce((acc, a) => {
+            if (!acc.has(a.symbol)) acc.set(a.symbol, []);
+            acc.get(a.symbol)!.push(a);
+            return acc;
+        }, new Map<string, Alarm[]>());
 
-        // Group by symbol to minimize API calls
-        const symbols = [...new Set(alarms.map(a => a.symbol))];
-
-        for (const symbol of symbols) {
-            await processSymbolAlarms(symbol, alarms.filter(a => a.symbol === symbol));
+        for (const [symbol, symbolAlarms] of alarmsBySymbol.entries()) {
+            await processSymbolAlarms(symbol, symbolAlarms, engine);
         }
 
     } catch (error) {
@@ -58,7 +69,7 @@ export async function checkAlarms() {
     }
 }
 
-async function processSymbolAlarms(symbol: string, alarms: Alarm[]) {
+async function processSymbolAlarms(symbol: string, alarms: Alarm[], engine: MatrixV5Engine) {
     try {
         // 2. Fetch OHLC Data
         // Default to 1h interval for now as per F4 standard
@@ -70,18 +81,10 @@ async function processSymbolAlarms(symbol: string, alarms: Alarm[]) {
 
         const { high, low, close, volume } = mapToArrays(rawKlines);
 
-        // 3. Calculate Indicator (F4)
-        const f4Result = calculateF4({
-            high, low, close, volume,
-            length1: 7,
-            a1: 3.7,
-            length12: 5,
-            a12: 0.618,
-            wtLength: 10,
-            wtAvgLength: 21,
-        });
+        // 3. Calculate Indicator (V5)
+        const v5Result = engine.analyze(close, high, low, volume, '1h', 'normal');
 
-        const { f4Signal } = f4Result;
+        const f4Signal = v5Result.signal;
 
         // Log latest values
         const latestPrice = close[close.length - 1];
@@ -91,7 +94,8 @@ async function processSymbolAlarms(symbol: string, alarms: Alarm[]) {
         for (const alarm of alarms) {
             let triggered = false;
 
-            // Updated condition checks for F4
+            // V5 Migration: "F4" signal types are now processed by the more intelligent V5 engine.
+            // We maintain the F4 naming convention for database row compatibility.
             if ((alarm.condition_type === 'BUY_SIGNAL' || alarm.condition_type === 'F4_BUY_SIGNAL') && f4Signal === 'BUY') {
                 triggered = true;
             } else if ((alarm.condition_type === 'SELL_SIGNAL' || alarm.condition_type === 'F4_SELL_SIGNAL') && f4Signal === 'SELL') {
@@ -99,7 +103,7 @@ async function processSymbolAlarms(symbol: string, alarms: Alarm[]) {
             }
 
             if (triggered) {
-                await executeAlarmAction(alarm, latestPrice, f4Result);
+                await executeAlarmAction(alarm, latestPrice, v5Result);
             }
         }
 
@@ -108,11 +112,11 @@ async function processSymbolAlarms(symbol: string, alarms: Alarm[]) {
     }
 }
 
-async function executeAlarmAction(alarm: Alarm, price: number, f4Result: F4Result) {
+async function executeAlarmAction(alarm: Alarm, price: number, v5Result: MatrixV5Result) {
     console.log(`[AlarmEngine] ALARM TRIGGERED: ${alarm.symbol} ${alarm.condition_type}`);
 
     try {
-        let actionResult: Record<string, unknown> = { status: 'triggered', f4Data: f4Result };
+        let actionResult: Record<string, unknown> = { status: 'triggered', v5Data: v5Result };
 
         // Execute Action
         if (alarm.action_type === 'PANIC_SELL') {

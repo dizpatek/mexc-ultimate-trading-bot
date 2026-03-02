@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth-utils';
+import { monitorSmartTrades } from '@/lib/smart-trade-monitor';
 import { handleSmartTrade } from '@/lib/smart-trade';
 import { sql } from '@vercel/postgres';
 import axios from 'axios';
@@ -11,6 +12,10 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
     try {
+        // Trigger monitoring in the background whenever trades are fetched
+        // This ensures prices are checked even if the cron job is pending
+        void monitorSmartTrades();
+        
         const user = await getSessionUser(request);
         if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -113,6 +118,27 @@ export async function GET(request: Request) {
     }
 }
 
+async function fetchCurrentPrice(symbol: string): Promise<number | undefined> {
+    try {
+        const cleanSymbol = symbol.replace('/', '').toUpperCase();
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000); // 2s timeout
+        
+        const res = await fetch(`https://api.mexc.com/api/v3/ticker/price?symbol=${cleanSymbol}`, {
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
+        if (!res.ok) return undefined;
+        const data = await res.json();
+        const p = parseFloat(data.price);
+        return isNaN(p) || p <= 0 ? undefined : p;
+    } catch (e) {
+        console.error(`Failed to fetch current price for ${symbol}`, e);
+        return undefined;
+    }
+}
+
 export async function DELETE(request: Request) {
     try {
         const user = await getSessionUser(request);
@@ -125,9 +151,9 @@ export async function DELETE(request: Request) {
         const now = Date.now();
 
         if (clearAll) {
-            // meta is TEXT column — we must read, parse, merge in JS, write back
+            // Fetch all in-progress smart trades with full details for execution
             const { rows } = await sql`
-                SELECT id, meta FROM orders 
+                SELECT id, symbol, side, qty, status, meta FROM orders 
                 WHERE user_id = ${user.id} AND status IN ('FILLED', 'PENDING')
             `;
             
@@ -138,69 +164,88 @@ export async function DELETE(request: Request) {
                 } catch { return false; }
             });
 
-            for (const row of smartRows) {
-                const existingMeta = typeof row.meta === 'string' ? JSON.parse(row.meta) : (row.meta || {});
-                const updatedMeta = JSON.stringify({
-                    ...existingMeta,
-                    closedAt: now,
-                    exitReason: silent ? 'MANUAL_SILENT_FLUSH_ALL' : 'MANUAL_FLUSH_ALL'
-                });
-                await sql`
-                    UPDATE orders 
-                    SET status = 'CLOSED', updated_at = ${now}, meta = ${updatedMeta}
-                    WHERE id = ${row.id}
-                `;
+            if (smartRows.length === 0) {
+                return NextResponse.json({ success: true, message: 'No smart trades to clear' });
             }
-            return NextResponse.json({ success: true, message: `${smartRows.length} smart trades moved to history` });
+
+            // Fetch all prices in parallel with a local cache to avoid duplicates
+            const symbolCache = new Map<string, Promise<number | undefined>>();
+            const priceResults = await Promise.all(smartRows.map(async (row) => {
+                if (!symbolCache.has(row.symbol)) {
+                    symbolCache.set(row.symbol, fetchCurrentPrice(row.symbol));
+                }
+                const price = await symbolCache.get(row.symbol);
+                return { 
+                    id: row.id, 
+                    price, 
+                    meta: row.meta,
+                    side: row.side,
+                    qty: row.qty,
+                    symbol: row.symbol
+                };
+            }));
+
+            // Process in chunks of 5 to avoid overwhelming DB/API (P4.2 fix)
+            const CHUNK_SIZE = 5;
+            const outcomes: { id: number | string; success: boolean; error?: string }[] = [];
+            
+            for (let i = 0; i < priceResults.length; i += CHUNK_SIZE) {
+                const chunk = priceResults.slice(i, i + CHUNK_SIZE);
+                const chunkOutcomes = await Promise.all(chunk.map(async (res) => {
+                    return closeSingleSmartTrade(user.id, res, now, silent);
+                }));
+                outcomes.push(...chunkOutcomes);
+            }
+
+            const successCount = outcomes.filter(o => o.success).length;
+            
+            return NextResponse.json({ 
+                success: true, 
+                message: `${successCount}/${smartRows.length} smart trades processed`,
+                details: outcomes
+            });
+        }
+
+        const clearHistory = searchParams.get('clearHistory') === 'true';
+        if (clearHistory) {
+            // Only delete CLOSED orders that are smart trades (matching GET filter)
+            await sql`
+                DELETE FROM orders 
+                WHERE user_id = ${user.id} AND status = 'CLOSED' 
+                AND (meta::jsonb->>'smartTrade')::boolean = true
+            `;
+            return NextResponse.json({ success: true, message: 'Smart trade history cleared' });
         }
 
         if (!id && !clearAll) return NextResponse.json({ error: 'Missing ID' }, { status: 400 });
         
-        // --- REAL EXECUTION PANIC EXIT (Skip if silent) ---
-        if (id && !silent) {
-            const { rows: tradeRows } = await sql`SELECT user_id, symbol, side, qty, status, meta FROM orders WHERE id = ${id} AND user_id = ${user.id}`;
-            if (tradeRows.length > 0) {
-                const trade = tradeRows[0];
-                if (trade.status === 'FILLED' || (trade.status === 'PENDING' && trade.side === 'SELL')) {
-                    console.log(`[PanicExit] Executing real exchange close for trade ${id} (${trade.symbol})`);
-                    try {
-                        if (trade.side === 'BUY') {
-                            const sellQty = parseFloat(String(trade.qty)).toFixed(8).replace(/\.?0+$/, '');
-                            await marketSellByQty(user.id, trade.symbol, sellQty);
-                        } else {
-                            const currentP = await getPrice(trade.symbol);
-                            const cost = parseFloat(String(trade.qty)) * currentP;
-                            await marketBuyByQuote(user.id, trade.symbol, cost.toFixed(6));
-                        }
-                    } catch (execError) {
-                        console.error(`[PanicExit] Exchange execution failed for ${id}:`, execError);
-                    }
-                }
-            }
-        }
+        // SearchParams handling done above
         
         if (id) {
-            // Update meta as TEXT (parse → merge → stringify)
-            const { rows: currentRows } = await sql`SELECT meta FROM orders WHERE id = ${id}`;
-            let existingMeta = {};
-            if (currentRows.length > 0) {
-                try {
-                    existingMeta = typeof currentRows[0].meta === 'string' ? JSON.parse(currentRows[0].meta) : (currentRows[0].meta || {});
-                } catch { existingMeta = {}; }
-            }
-            const updatedMeta = JSON.stringify({
-                ...existingMeta,
-                closedAt: now,
-                exitReason: silent ? 'MANUAL_SILENT_CLOSE' : 'MANUAL_PANIC_EXIT'
-            });
-
-            await sql`
-                UPDATE orders 
-                SET status = 'CLOSED', updated_at = ${now}, meta = ${updatedMeta}
-                WHERE id = ${id} AND user_id = ${user.id}
-            `;
+            const { rows: tradeRows } = await sql`SELECT id, symbol, side, qty, status, meta FROM orders WHERE id = ${id} AND user_id = ${user.id}`;
+            if (tradeRows.length === 0) return NextResponse.json({ error: 'Trade not found' }, { status: 404 });
             
-            return NextResponse.json({ success: true, message: silent ? 'Order archived silently' : 'Order closed and position exited' });
+            const trade = tradeRows[0];
+            const currentPrice = await fetchCurrentPrice(trade.symbol);
+            
+            const result = await closeSingleSmartTrade(user.id, {
+                id: trade.id,
+                symbol: trade.symbol,
+                side: trade.side,
+                qty: trade.qty,
+                price: currentPrice,
+                meta: trade.meta
+            }, now, silent);
+
+            if (!result.success) {
+                return NextResponse.json({ error: result.error || 'Failed' }, { status: 500 });
+            }
+
+            return NextResponse.json({ 
+                success: true, 
+                message: silent ? 'Order archived silently' : 'Order closed and position exited',
+                exitPrice: currentPrice 
+            });
         }
     } catch (error: unknown) {
         console.error('SmartTrade DELETE Error:', error);
@@ -222,12 +267,69 @@ export async function PUT(req: Request) {
         }
 
         // Fetch existing trade to get current meta
-        const { rows } = await sql`SELECT meta FROM orders WHERE id = ${id}`;
+        const { rows } = await sql`SELECT * FROM orders WHERE id = ${id}`;
         if (rows.length === 0) {
             return NextResponse.json({ error: 'Trade not found' }, { status: 404 });
         }
 
-        const existingMeta = typeof rows[0].meta === 'string' ? JSON.parse(rows[0].meta) : rows[0].meta;
+        const trade = rows[0];
+        const existingMeta = typeof trade.meta === 'string' ? JSON.parse(trade.meta) : trade.meta;
+        
+        // Handle Flash Open - force immediate execution at market price
+        if (payload.forceExecute === true) {
+            const currentPrice = await fetchCurrentPrice(trade.symbol);
+            if (!currentPrice) {
+                return NextResponse.json({ error: 'Could not fetch current price' }, { status: 400 });
+            }
+            
+            // Get user info
+            const user = await getSessionUser(req);
+            if (!user) {
+                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+            }
+
+            // Disable trailingBuy and update payload
+            const updatedPayload = {
+                ...existingMeta.payload,
+                trailingBuy: false,
+                buyPrice: currentPrice.toString()
+            };
+            
+            const newMeta = {
+                ...existingMeta,
+                payload: updatedPayload,
+                lastEditedAt: Date.now()
+            };
+
+            // Execute the trade immediately at market price
+            try {
+                if (trade.side === 'BUY') {
+                    const qty = parseFloat(String(trade.qty));
+                    const cost = qty * currentPrice;
+                    await marketBuyByQuote(Number(user.id), trade.symbol, cost.toFixed(2));
+                } else {
+                    const qty = parseFloat(String(trade.qty)).toFixed(8).replace(/\.?0+$/, '');
+                    await marketSellByQty(Number(user.id), trade.symbol, qty);
+                }
+            } catch (execError: unknown) {
+                console.error('[FlashOpen] Execution failed:', execError);
+                return NextResponse.json({ 
+                    error: 'Flash open execution failed', 
+                    details: execError instanceof Error ? execError.message : String(execError)
+                }, { status: 500 });
+            }
+
+            // Update order status to FILLED
+            await sql`
+                UPDATE orders 
+                SET status = 'FILLED', price = ${currentPrice}, meta = ${JSON.stringify(newMeta)}, updated_at = ${Date.now()}
+                WHERE id = ${id}
+            `;
+
+            return NextResponse.json({ success: true, message: 'Flash open executed', price: currentPrice });
+        }
+
+        // Normal PUT - just update metadata
         const newMeta = {
             ...existingMeta,
             payload: {
@@ -310,11 +412,81 @@ export async function POST(request: Request) {
             console.error('[API] MEXC API Rejection Details:', details);
         }
 
+        let status = 500;
+        if (message.includes('Insufficient') || 
+            message.includes('configured') || 
+            message.includes('credentials') ||
+            message.includes('Invalid') ||
+            message.includes('Limit') ||
+            message.includes('determined')) {
+            status = 400;
+        }
+
         return NextResponse.json({ 
-            error: 'Internal Server Error', 
+            error: status === 400 ? 'Bad Request' : 'Internal Server Error', 
             message,
             details,
             stack: process.env.NODE_ENV === 'development' ? (error instanceof Error ? error.stack : undefined) : undefined
-        }, { status: 500 });
+        }, { status });
+    }
+}
+
+interface CloseParams {
+    id: number | string;
+    symbol: string;
+    side: string;
+    qty: number | string;
+    price?: number;
+    meta: unknown;
+}
+
+/**
+ * Helper to close a single smart trade: executing market order + DB update
+ */
+async function closeSingleSmartTrade(userId: string | number, res: CloseParams, now: number, silent: boolean) {
+    try {
+        const id = Number(res.id);
+        const uid = Number(userId);
+
+        // --- REAL EXECUTION (Skip if silent) ---
+        if (!silent) {
+            try {
+                if (res.side === 'BUY') {
+                    const sellQty = parseFloat(String(res.qty)).toFixed(8).replace(/\.?0+$/, '');
+                    await marketSellByQty(uid, res.symbol, sellQty);
+                } else if (res.side === 'SELL') {
+                    const p = res.price || await getPrice(res.symbol);
+                    if (p) {
+                        const cost = parseFloat(String(res.qty)) * p;
+                        await marketBuyByQuote(uid, res.symbol, cost.toFixed(6));
+                    }
+                }
+            } catch (execError: unknown) {
+                const msg = execError instanceof Error ? execError.message : String(execError);
+                console.error(`[CloseTrade] Exchange execution failed for ${id} (${res.symbol}):`, msg);
+            }
+        }
+
+        let existingMeta: Record<string, unknown> = {};
+        try {
+            existingMeta = typeof res.meta === 'string' ? JSON.parse(res.meta) : (res.meta || {});
+        } catch { existingMeta = {}; }
+
+        const updatedMeta = JSON.stringify({
+            ...existingMeta,
+            closedAt: now,
+            exitPrice: res.price || undefined,
+            exitReason: silent ? 'MANUAL_SILENT_EXIT' : 'MANUAL_PANIC_EXIT'
+        });
+
+        await sql`
+            UPDATE orders 
+            SET status = 'CLOSED', updated_at = ${now}, meta = ${updatedMeta}
+            WHERE id = ${id} AND user_id = ${uid}
+        `;
+        return { id, success: true };
+    } catch (err) {
+        console.error(`[CloseTrade] DB update failed for ${res.id}:`, err);
+        return { id: res.id, success: false, error: String(err) };
     }
 }

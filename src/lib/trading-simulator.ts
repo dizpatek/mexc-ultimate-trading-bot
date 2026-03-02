@@ -2,6 +2,7 @@
  * Trading Simulator - Test Mode Trading Engine
  * Provides simulated trading functionality for testing without risking real assets
  */
+import { normalizeSymbol, extractBaseAsset } from '@/lib/symbol-utils';
 
 interface SimulatedBalance {
     asset: string;
@@ -16,29 +17,45 @@ interface SimulatedOrder {
     type: 'MARKET' | 'LIMIT';
     quantity?: number;
     quoteOrderQty?: number;
-    price?: number;
+    price?: string;
     status: 'NEW' | 'FILLED' | 'PARTIALLY_FILLED' | 'CANCELED';
-    executedQty: number;
-    executedQuote: number;
+    executedQty: string;
+    cummulativeQuoteQty: string;
     timestamp: number;
 }
 
-class TradingSimulator {
+export class TradingSimulator {
     private balances: Map<string, SimulatedBalance> = new Map();
     private orders: Map<string, SimulatedOrder> = new Map();
     private orderIdCounter: number = 1000;
+    private userId: number;
 
-    constructor() {
-        // Initialize with default test balance
+    constructor(userId: number = 1) {
+        this.userId = userId;
         this.initializeTestBalance();
     }
 
-    private initializeTestBalance() {
-        // Start with $100,000 USDT and some test crypto
+    public initializeTestBalance() {
+        // Start with $100,000 USDT and ample test crypto for large trades
         this.balances.set('USDT', { asset: 'USDT', free: 100000, locked: 0 });
-        this.balances.set('BTC', { asset: 'BTC', free: 0.5, locked: 0 });
-        this.balances.set('ETH', { asset: 'ETH', free: 5, locked: 0 });
-        this.balances.set('SOL', { asset: 'SOL', free: 50, locked: 0 });
+        this.balances.set('BTC', { asset: 'BTC', free: 10, locked: 0 });
+        this.balances.set('ETH', { asset: 'ETH', free: 100, locked: 0 });
+        this.balances.set('SOL', { asset: 'SOL', free: 1000, locked: 0 });
+    }
+
+    public loadBalances(balances: SimulatedBalance[]) {
+        this.balances.clear();
+        balances.forEach(b => {
+            this.balances.set(b.asset, b);
+        });
+    }
+
+    public setBalance(asset: string, free: number, locked: number = 0) {
+        this.balances.set(asset, { asset, free, locked });
+    }
+
+    public getAllBalances(): SimulatedBalance[] {
+        return Array.from(this.balances.values());
     }
 
     getAccountInfo() {
@@ -61,25 +78,24 @@ class TradingSimulator {
     }
 
     getBalance(asset: string) {
-        let balance = this.balances.get(asset);
+        const balance = this.balances.get(asset);
         if (!balance) {
-            // Seed a small amount for any requested asset to allow testing
-            balance = { asset, free: 100, locked: 0 };
-            this.balances.set(asset, balance);
+            // DO NOT auto-seed. If it doesn't exist, it's 0.
+            return { asset, free: 0, locked: 0 };
         }
         return balance;
     }
 
     async executeMarketBuy(symbol: string, quoteOrderQty: number, currentPrice: number): Promise<SimulatedOrder> {
-        // Extract base and quote assets (e.g., BTCUSDT -> BTC, USDT)
-        const cleanSymbol = symbol.replace('/', '').toUpperCase();
-        const quoteAsset = cleanSymbol.endsWith('USDT') ? 'USDT' : cleanSymbol.slice(-4);
-        const baseAsset = cleanSymbol.replace(quoteAsset, '');
+        // Extract base and quote assets robustly
+        const cleanSymbol = normalizeSymbol(symbol);
+        const quoteAsset = cleanSymbol.endsWith('USDT') ? 'USDT' : 'USDC';
+        const baseAsset = extractBaseAsset(cleanSymbol);
 
         const quoteBalance = this.getBalance(quoteAsset);
-        if (quoteBalance.free < quoteOrderQty) {
-            console.warn(`[Simulator] Auto-healing ${quoteAsset} balance for ${cleanSymbol}. Needed ${quoteOrderQty}, had ${quoteBalance.free}.`);
-            quoteBalance.free = quoteOrderQty * 2;
+        if ((quoteBalance.free + 0.01) < quoteOrderQty) {
+            console.error(`[Simulator] REJECTED BUY: Insufficient ${quoteAsset}. Need: ${quoteOrderQty}, Have: ${quoteBalance.free}`);
+            throw new Error(`Insufficient ${quoteAsset} balance. Need: ${quoteOrderQty.toFixed(2)}, Have: ${quoteBalance.free.toFixed(2)}`);
         }
 
         // Calculate quantity with 0.1% taker fee
@@ -92,6 +108,7 @@ class TradingSimulator {
 
         const baseBalance = this.getBalance(baseAsset);
         baseBalance.free += quantity;
+        this.balances.set(baseAsset, baseBalance);
 
         // Create order record
         const orderId = `SIM${this.orderIdCounter++}`;
@@ -101,10 +118,10 @@ class TradingSimulator {
             side: 'BUY',
             type: 'MARKET',
             quoteOrderQty,
-            price: currentPrice,
+            price: currentPrice.toString(),
             status: 'FILLED',
-            executedQty: quantity,
-            executedQuote: quoteOrderQty,
+            executedQty: quantity.toString(),
+            cummulativeQuoteQty: quoteOrderQty.toString(),
             timestamp: Date.now(),
         };
 
@@ -113,15 +130,27 @@ class TradingSimulator {
     }
 
     async executeMarketSell(symbol: string, quantity: number, currentPrice: number): Promise<SimulatedOrder> {
-        const cleanSymbol = symbol.replace('/', '').toUpperCase();
-        const quoteAsset = cleanSymbol.endsWith('USDT') ? 'USDT' : cleanSymbol.slice(-4);
-        const baseAsset = cleanSymbol.replace(quoteAsset, '');
+        const cleanSymbol = normalizeSymbol(symbol);
+        console.log(`[Simulator] Executing Market Sell: ${quantity} ${cleanSymbol} @ ${currentPrice}`);
+        
+        const quoteAsset = cleanSymbol.endsWith('USDT') ? 'USDT' : 'USDC';
+        const baseAsset = extractBaseAsset(cleanSymbol);
 
         const baseBalance = this.getBalance(baseAsset);
+        console.log(`[Simulator] Selling ${baseAsset}. Current balance: ${baseBalance.free}, Requested: ${quantity}`);
+
         if (baseBalance.free < quantity) {
-            console.warn(`[Simulator] Auto-healing ${baseAsset} balance for ${cleanSymbol}. Needed ${quantity}, had ${baseBalance.free}.`);
-            baseBalance.free = quantity;
+            const diff = quantity - baseBalance.free;
+            const diffPercent = diff / quantity;
+            
+            // In TEST mode, if requested quantity is higher than balance, 
+            // we ALWAYS sell what we have instead of rejecting (P1.1 - Force Close).
+            // This prevents trades from getting stuck in open state due to minor balance discrepancies.
+            console.log(`[Simulator] Sell Requested: ${quantity}, Available: ${baseBalance.free}. Difference: ${diffPercent.toFixed(4)}%`);
+            console.log(`[Simulator] P1.1 Force: Selling all available ${baseAsset} balance (${baseBalance.free}) to close trade in TEST mode.`);
+            quantity = baseBalance.free;
         }
+
 
         // Calculate quote amount with 0.1% taker fee
         const quoteAmount = quantity * currentPrice;
@@ -133,6 +162,8 @@ class TradingSimulator {
 
         const quoteBalance = this.getBalance(quoteAsset);
         quoteBalance.free += netAmount;
+        
+        console.log(`[Simulator] After Sell - ${baseAsset}: ${baseBalance.free}, ${quoteAsset}: ${quoteBalance.free}`);
 
         // Create order record
         const orderId = `SIM${this.orderIdCounter++}`;
@@ -142,10 +173,10 @@ class TradingSimulator {
             side: 'SELL',
             type: 'MARKET',
             quantity,
-            price: currentPrice,
+            price: currentPrice.toString(),
             status: 'FILLED',
-            executedQty: quantity,
-            executedQuote: quoteAmount,
+            executedQty: quantity.toString(),
+            cummulativeQuoteQty: quoteAmount.toString(),
             timestamp: Date.now(),
         };
 
@@ -211,21 +242,34 @@ class TradingSimulator {
 }
 
 declare global {
-    var simulatorInstance: TradingSimulator | undefined;
+    var simulatorInstances: Map<number, TradingSimulator> | undefined;
 }
 
-// Singleton instance retrieval
-export function getSimulator(): TradingSimulator {
-    if (!globalThis.simulatorInstance) {
-        globalThis.simulatorInstance = new TradingSimulator();
+// Singleton instances retrieval per user
+export function getSimulator(userId: number = 1): TradingSimulator {
+    if (!globalThis.simulatorInstances) {
+        globalThis.simulatorInstances = new Map();
     }
-    return globalThis.simulatorInstance;
+    
+    let instance = globalThis.simulatorInstances.get(userId);
+    if (!instance) {
+        instance = new TradingSimulator(userId);
+        globalThis.simulatorInstances.set(userId, instance);
+    }
+    return instance;
 }
 
-export function resetSimulator() {
-    if (simulatorInstance) {
-        simulatorInstance.reset();
+export function resetSimulator(userId: number = 1) {
+    if (!globalThis.simulatorInstances) {
+        globalThis.simulatorInstances = new Map();
     }
+    
+    let instance = globalThis.simulatorInstances.get(userId);
+    if (!instance) {
+        instance = new TradingSimulator(userId);
+        globalThis.simulatorInstances.set(userId, instance);
+    }
+    instance.reset();
 }
 
 export type { SimulatedBalance, SimulatedOrder };

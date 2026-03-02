@@ -4,9 +4,12 @@ export async function GET(req: NextRequest) {
     try {
         const { searchParams } = new URL(req.url);
         const symbols = searchParams.get('symbols');
+        const symbol = searchParams.get('symbol');
         
         let url = 'https://api.mexc.com/api/v3/ticker/price';
-        if (symbols) {
+        if (symbol) {
+            url += `?symbol=${encodeURIComponent(symbol)}`;
+        } else if (symbols) {
             url += `?symbols=${encodeURIComponent(symbols)}`;
         }
 

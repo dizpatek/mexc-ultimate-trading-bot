@@ -121,8 +121,9 @@ export async function getCurrentUser(token: string) {
 export async function getSessionUser(request: Request) {
     try {
         const authHeader = request.headers.get('authorization');
+        
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return null;
+            return null; // Return null to enforce proper auth
         }
 
         const token = authHeader.split(' ')[1];
@@ -135,6 +136,6 @@ export async function getSessionUser(request: Request) {
         return null;
     } catch (error) {
         console.error('[Auth] getSessionUser Error:', error);
-        return null; // Return null on error to treat as unauthorized instead of crashing
+        return null;
     }
 }

@@ -1,5 +1,3 @@
-"use client";
-
 import React from 'react';
 import { cn } from '@/lib/utils';
 
@@ -34,7 +32,7 @@ export const MatrixLogo: React.FC<MatrixLogoProps> = ({ className, size = 32, gl
                     fill="none" 
                     stroke="currentColor" 
                     strokeWidth="2" 
-                    className="text-cyan-400 animate-dash"
+                    className="text-cyan-400 animate-matrix-dash"
                 />
 
                 {/* Stylized 'M' inside */}
@@ -56,7 +54,7 @@ export const MatrixLogo: React.FC<MatrixLogoProps> = ({ className, size = 32, gl
                     x1="15" y1="20" x2="85" y2="20" 
                     stroke="white" 
                     strokeWidth="1" 
-                    className="opacity-40 animate-scan"
+                    className="opacity-40 animate-matrix-scan"
                 >
                     <animateTransform 
                         attributeName="transform" 
@@ -78,26 +76,6 @@ export const MatrixLogo: React.FC<MatrixLogoProps> = ({ className, size = 32, gl
                     </filter>
                 </defs>
             </svg>
-
-            <style jsx>{`
-                @keyframes dash {
-                    to { stroke-dashoffset: 200; }
-                }
-                .animate-dash {
-                    stroke-dasharray: 20;
-                    stroke-dashoffset: 0;
-                    animation: dash 10s linear infinite;
-                }
-                @keyframes scan {
-                    0% { transform: translateY(0); opacity: 0; }
-                    20% { opacity: 0.5; }
-                    80% { opacity: 0.5; }
-                    100% { transform: translateY(80px); opacity: 0; }
-                }
-                .animate-scan {
-                    animation: scan 3s ease-in-out infinite;
-                }
-            `}</style>
         </div>
     );
 };

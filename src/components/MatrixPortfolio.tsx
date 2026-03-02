@@ -13,161 +13,70 @@ import { useHoldings } from '../hooks/usePortfolio';
 import { useMexcWebSocket } from '../hooks/useMexcWebSocket';
 import { cn } from '@/lib/utils';
 import { AssetIcon } from './AssetIcon';
+import { normalizeSymbol } from '@/lib/symbol-utils';
+import { useTradingSignals } from '@/hooks/useTradingSignals';
+import { calculateSmartPrediction } from '@/lib/trading-logic';
+import { useModuleTimeframe } from '@/context/TimeframeContext';
 
 
-interface AiScoreComponents {
-    whaleConfirmed: number;
-    regimeAlignment: number;
-    volumePower: number;
-    trendAlignment: number;
-    mtfConsensus: number;
-    momentumAccel: number;
-    volatilityRegime: number;
-    zScore: number;
-    bayesianWinRate: number;
-    trapPenalty: number;
-}
 
-interface F4Data {
-    symbol: string;
-    interval: string;
-    currentPrice?: number;
-    
-    // Matrix V3 Data
-    f4Slope: number;
-    f4Acceleration: number;
-    whaleDetected: boolean;
-    whaleStatus: 'RALLY_PREP' | 'DISTRIBUTION' | 'TRAP' | 'BUY_ACTIVE' | 'SELL_ACTIVE' | 'NEUTRAL';
-    trend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
-    signal: 'BUY' | 'SELL' | null;
-    
-    // Advanced V3
-    aiScore: number;
-    aiComponents: AiScoreComponents;
-    marketRegime: 'RISK_ON' | 'RISK_OFF' | 'NEUTRAL';
-    volatilityRegime: 'SQUEEZE' | 'EXPLOSION' | 'HIGH_VOL' | 'NORMAL';
-    regimePrediction: string;
-    systemDecision: 'GO_LONG' | 'GO_SHORT' | 'WAIT';
-    mtfConsensus: 'STRONG_BULL' | 'STRONG_BEAR' | 'MIXED';
-    zScoreValue: number;
-    
-    error?: string;
-}
+import { F4Data } from '@/lib/trading-logic';
 
 export function MatrixPortfolio() {
     // 1. Portfolio Data
     const { data: holdings, isLoading: isHoldingsLoading } = useHoldings();
+    const [viewDetailAsset, setViewDetailAsset] = useState<{
+        symbol: string;
+        price: number;
+        score: number;
+        decision: string;
+        prediction: string;
+        trap: boolean;
+        smc?: F4Data['smc'];
+        vpa?: F4Data['vpa'];
+        adm?: F4Data['adm'];
+        liquidity?: F4Data['liquidity'];
+        whaleTrust?: number;
+    } | null>(null);
     
     // 2. Real-time Price Data (WebSocket)
     const activeSymbols = useMemo(() => {
         return holdings
             ?.filter(h => h.symbol !== 'USDT' && h.symbol !== 'USDC')
-            ?.map(h => `${h.symbol}USDT`) || [];
+            ?.map(h => normalizeSymbol(h.symbol)) || [];
     }, [holdings]);
     
-    const activeSymbolsString = useMemo(() => [...activeSymbols].sort().join(','), [activeSymbols]);
 
     const { tickerData, isConnected } = useMexcWebSocket(activeSymbols);
     
     // 3. Interval Selection
-    const [interval, setIntervalState] = useState('4h');
+    const [interval, setIntervalState] = useModuleTimeframe('4h');
     const intervals = [
+        { id: '15m', label: '15D' },
         { id: '1h', label: '1S' },
         { id: '4h', label: '4S' },
-        { id: '1d', label: 'GÜN' },
-        { id: '1w', label: 'HAF' },
-        { id: '1M', label: 'AY' }
+        { id: '1d', label: '1G' },
+        { id: '1w', label: '1H' }
     ];
 
     // 4. AI Signal Data
-    const [signalDataMap, setSignalDataMap] = useState<Record<string, F4Data>>({});
-    const [isLoadingSignals, setIsLoadingSignals] = useState(true);
-    const [errorSignals, setErrorSignals] = useState<string | null>(null);
+    const { 
+        signalDataMap, 
+        isLoadingSignals,
+        fetchIntervalForSymbols
+    } = useTradingSignals();
     const [tradeAmounts, setTradeAmounts] = useState<Record<string, string>>({});
     const [isTrading, setIsTrading] = useState<Record<string, boolean>>({});
     const [tradeStatus, setTradeStatus] = useState<Record<string, { type: 'success' | 'error', msg: string } | null>>({});
     const [selectedChartSymbol, setSelectedChartSymbol] = useState<string | null>(null);
-    const [viewDetailAsset, setViewDetailAsset] = useState<{ symbol: string; price: number; score: number; decision: string; prediction: string; trap: boolean } | null>(null);
+    const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
-    // Fetch AI signals
+    // Fetch AI signals — Hook tarafından yönetiliyor
     useEffect(() => {
-        let isMounted = true;
-        
-        async function loadSignals() {
-             if (!activeSymbols || activeSymbols.length === 0) {
-                if (isMounted) {
-                    setSignalDataMap({});
-                    setIsLoadingSignals(false);
-                }
-                return;
-            }
-
-            if (isMounted) {
-                setIsLoadingSignals(true);
-                setErrorSignals(null);
-            }
-
-            try {
-                // Fetch each symbol in parallel
-                const results = await Promise.all(activeSymbols.map(async (symbol) => {
-                    try {
-                        const response = await fetch(`/api/indicators/f4?symbol=${symbol}&interval=${interval}`);
-                        if (!response.ok) return null;
-                        const data = await response.json();
-                        if (data.error) return null;
-                        return { symbol, data };
-                    } catch (error) {
-                        console.error(`Failed to fetch F4 data for ${symbol}`, error);
-                        return null;
-                    }
-                }));
-
-                const newSignals: Record<string, F4Data> = {};
-                
-                results.forEach((res) => {
-                    if (res && res.data) {
-                        // Map API response to F4Data
-                        const d = res.data;
-                         newSignals[res.symbol] = {
-                            symbol: res.symbol.replace('USDT', ''),
-                            interval: interval,
-                            currentPrice: d.currentPrice,
-                            f4Slope: d.f4Slope,
-                            f4Acceleration: d.f4Acceleration,
-                            whaleDetected: d.whaleDetected,
-                            whaleStatus: d.whaleStatus,
-                            trend: d.trend,
-                            signal: d.f4Signal, // or d.signal
-                            aiScore: d.aiScore,
-                            aiComponents: d.aiComponents,
-                            marketRegime: d.marketRegime,
-                            volatilityRegime: d.volatilityRegime,
-                            regimePrediction: d.regimePrediction,
-                            systemDecision: d.systemDecision,
-                            mtfConsensus: d.mtfConsensus,
-                            zScoreValue: d.zScoreValue
-                        };
-                    }
-                });
-
-                if (isMounted) {
-                    setSignalDataMap(prev => ({ ...prev, ...newSignals }));
-                    setIsLoadingSignals(false);
-                }
-            } catch (err: unknown) {
-                if (isMounted) {
-                     const message = err instanceof Error ? err.message : String(err);
-                     console.error('Master F4 fetch error', err);
-                     setErrorSignals(message || "Failed to sync Matrix data");
-                     setIsLoadingSignals(false);
-                }
-            }
+        if (activeSymbols.length > 0) {
+            fetchIntervalForSymbols(activeSymbols, interval);
         }
-
-        loadSignals();
-
-        return () => { isMounted = false; };
-    }, [activeSymbolsString, activeSymbols, interval]);
+    }, [activeSymbols.length, interval, fetchIntervalForSymbols, activeSymbols]);
 
     const setTradeAmountToMax = useCallback((symbol: string, side: 'BUY' | 'SELL') => {
         if (!holdings) return;
@@ -194,8 +103,9 @@ export function MatrixPortfolio() {
         setTradeStatus(prev => ({ ...prev, [symbol]: null }));
 
         try {
+            const normalizedSymbol = normalizeSymbol(symbol); // Ensure symbol is normalized for the API call
             const response = await api.post('/trade/execute', { 
-                symbol, 
+                symbol: normalizedSymbol, 
                 side, 
                 usdtAmount: amount 
             });
@@ -224,7 +134,7 @@ export function MatrixPortfolio() {
         return 'text-rose-500';
     }, []);
 
-    const getDecisionStyle = useCallback((decision: 'GO_LONG' | 'GO_SHORT' | 'WAIT') => {
+    const getDecisionStyle = useCallback((decision: string) => {
         switch (decision) {
             case 'GO_LONG': return 'bg-emerald-900/40 text-emerald-400 border-emerald-700/50 shadow-[0_0_10px_rgba(16,185,129,0.2)]';
             case 'GO_SHORT': return 'bg-rose-900/40 text-rose-400 border-rose-700/50 shadow-[0_0_10px_rgba(244,63,94,0.2)]';
@@ -233,34 +143,12 @@ export function MatrixPortfolio() {
         }
     }, []);
 
-    const getPredictionColor = useCallback((pred: string) => {
-        const positive = ['RALLY_PREP', 'BUY_ACTIVE', 'PRE_EXPLOSION', 'ACCELERATING_TREND', 'BOTTOM_FINDING'];
-        const negative = ['DISTRIBUTION', 'TRAP', 'SELL_ACTIVE', 'ACCELERATING_DROP', 'DECELERATING_TREND'];
-        
-        if (positive.includes(pred)) return 'text-emerald-400';
-        if (negative.includes(pred)) return 'text-rose-400';
-        return 'text-cyan-300';
-    }, []);
+    // getPredictionColor/Label removed — buildSmartPrediction handles all label/color logic now
 
-    const getPredictionLabel = useCallback((pred: string) => {
-        const map: Record<string, string> = {
-            'RALLY_PREP': 'RALLİ HAZIRLIĞI 🚀',
-            'DISTRIBUTION': 'DAĞITIM ⚠️',
-            'TRAP': 'TUZAK ! 💀',
-            'BUY_ACTIVE': 'ALICI BASKIN 🟢',
-            'SELL_ACTIVE': 'SATICI BASKIN 🔴',
-            'NEUTRAL': 'NÖTR ⚪',
-            // Future Predictions
-            'STOPPING_VOLUME': 'DURDURMA HACMİ 🛑',
-            'PRE_EXPLOSION': 'PATLAMA ÖNCESİ 💣',
-            'ACCELERATING_TREND': 'HIZLANAN TREND 🚀',
-            'DECELERATING_TREND': 'GÜÇ KAYBI ⚠️',
-            'ACCELERATING_DROP': 'HIZLI DÜŞÜŞ 🩸',
-            'BOTTOM_FINDING': 'DİP ARAYIŞI 🎣',
-            'RANGE': 'YATAY ↔️'
-        };
-        return map[pred] || pred?.replace(/_/g, ' ') || '-';
-    }, []);
+    // ============================================================
+    // AKILLI TAHMİN ÜRETECİ — ~50 formül çıktısı + açıklama
+    // ============================================================
+    // buildSmartPrediction — Shared Lib calculateSmartPrediction kullanılıyor
 
     if (isHoldingsLoading) {
          return (
@@ -304,17 +192,11 @@ export function MatrixPortfolio() {
                         ))}
                     </div>
                     <div className="text-[10px] font-bold text-slate-500 tracking-widest px-2 py-1 bg-slate-950 rounded border border-slate-800">
-                        MATRIX F4 ULTIMATE V3.0
+                        MatrixPortfolio
                     </div>
                 </div>
             </div>
             
-            {errorSignals && (
-                <div className="bg-rose-500/10 border-b border-rose-500/20 px-4 py-2 text-[10px] text-rose-400 flex items-center gap-2">
-                    <AlertCircle className="w-3 h-3" />
-                    <span>VERİ HATASI: {errorSignals}</span>
-                </div>
-            )}
 
             <div className="overflow-x-auto flex-1 custom-scrollbar">
                 <table className="min-w-full divide-y divide-slate-800/40">
@@ -332,7 +214,7 @@ export function MatrixPortfolio() {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/30">
-                        {activeSymbols.length === 0 ? (
+                        {!holdings || holdings.length === 0 ? (
                             <tr>
                                 <td colSpan={10} className="px-4 py-12 text-center text-slate-500">
                                     <div className="flex flex-col items-center gap-3">
@@ -344,24 +226,18 @@ export function MatrixPortfolio() {
                         ) : (
                             holdings?.map((holding) => {
                                 const assetName = holding.symbol;
-                                const fullSymbol = `${assetName}USDT`;
-                                const signalData = signalDataMap[fullSymbol];
-                                const ticker = tickerData[fullSymbol];
-                                const currentPrice = ticker ? parseFloat(ticker.p) : (signalData?.currentPrice || 0);
+                                const isStablecoin = assetName === 'USDT' || assetName === 'USDC';
+                                const fullSymbol = isStablecoin ? assetName : `${assetName}USDT`;
+                                const signalData = isStablecoin ? null : signalDataMap[fullSymbol];
+                                const ticker = isStablecoin ? null : tickerData[fullSymbol];
+                                const currentPrice = isStablecoin ? 1 : (ticker ? parseFloat(ticker.p) : (signalData?.currentPrice || 0));
                                 const holdingValue = holding.holding * currentPrice;
 
                                 return (
+                                    <React.Fragment key={fullSymbol}>
                                     <tr 
-                                        key={fullSymbol}
-                                        className="hover:bg-cyan-950/20 transition-all duration-200 group relative cursor-pointer"
-                                        onClick={() => setViewDetailAsset({
-                                            symbol: assetName,
-                                            price: currentPrice,
-                                            score: signalData?.aiScore || 0,
-                                            decision: signalData?.systemDecision || 'WAIT',
-                                            prediction: signalData?.regimePrediction || 'NEUTRAL',
-                                            trap: signalData?.whaleStatus === 'TRAP'
-                                        })}
+                                        className={`hover:bg-cyan-950/20 transition-all duration-200 group relative cursor-pointer ${expandedRow === fullSymbol ? 'bg-cyan-950/10' : ''}`}
+                                        onClick={() => setExpandedRow(expandedRow === fullSymbol ? null : fullSymbol)}
                                     >
                                         {/* 1. ASSET */}
                                         <td className="px-3 py-2.5 border-r border-slate-800/30">
@@ -412,14 +288,19 @@ export function MatrixPortfolio() {
                                             </div>
                                         </td>
 
-                                        {/* 4. AI SCORE */}
+                                         {/* 4. AI SCORE + V5 SPARK INDICATORS */}
                                         <td className="px-3 py-2.5 border-r border-slate-800/30">
                                              <div className="flex flex-col gap-1.5">
                                                 <div className="flex items-center justify-between">
-                                                    <span className="text-[9px] font-bold text-slate-500">AI CONFIDENCE</span>
-                                                    <span className={`font-mono text-[10px] font-bold ${getScoreColor(signalData?.aiScore || 0)}`}>
-                                                        {signalData?.aiScore || 0}/100
-                                                    </span>
+                                                     <span className="text-[9px] font-bold text-slate-500 uppercase">AI SCORE (V5)</span>
+                                                     <div className={cn(
+                                                         "px-1.5 py-0.5 rounded text-[10px] font-black font-mono transition-all border",
+                                                         (signalData?.aiScore || 0) >= 50 
+                                                             ? "bg-emerald-500 border-emerald-400 text-white" 
+                                                             : "bg-rose-500 border-rose-400 text-black shadow-[0_0_10px_rgba(244,63,94,0.2)]"
+                                                     )}>
+                                                         {signalData?.aiScore || 0}/100
+                                                     </div>
                                                 </div>
                                                 <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
                                                     <div 
@@ -427,84 +308,156 @@ export function MatrixPortfolio() {
                                                         style={{ width: `${signalData?.aiScore || 0}%` }}
                                                     />
                                                 </div>
-                                                <div className="flex gap-1">
-                                                    {signalData?.mtfConsensus === 'STRONG_BULL' && <span className="text-[8px] bg-emerald-500/10 text-emerald-400 px-1 rounded border border-emerald-500/20">MTF++</span>}
-                                                    {signalData?.mtfConsensus === 'STRONG_BEAR' && <span className="text-[8px] bg-rose-500/10 text-rose-400 px-1 rounded border border-rose-500/20">MTF--</span>}
+                                                {/* V5 Indicator Spark dots */}
+                                                {Array.isArray(signalData?.v5Indicators) && signalData.v5Indicators.length > 0 && (
+                                                    <div className="flex gap-0.5 mt-0.5" title="V5 İndikatörler: RSI / MACD / ST / StochRSI / ADX / VWAP / EMA / Ichimoku">
+                                                        {signalData.v5Indicators.map((ind, i) => (
+                                                            <div key={i} title={`${ind.name}: ${ind.state}`} className={cn(
+                                                                "flex-1 h-2.5 rounded-sm transition-all",
+                                                                ind.color === 'green' ? 'bg-emerald-500' : ind.color === 'red' ? 'bg-rose-500' : ind.color === 'orange' ? 'bg-amber-500' : 'bg-slate-700'
+                                                            )} />
+                                                        ))}
+                                                    </div>
+                                                )}
+                                                <div className="flex gap-1 mt-0.5">
+                                                    {signalData?.mtfConsensus === 'GÜÇLÜ YÜKSELİŞ' && <span className="text-[8px] bg-emerald-500/10 text-emerald-400 px-1 rounded border border-emerald-500/20">MTF++</span>}
+                                                    {signalData?.mtfConsensus === 'GÜÇLÜ DÜŞÜŞ' && <span className="text-[8px] bg-rose-500/10 text-rose-400 px-1 rounded border border-rose-500/20">MTF--</span>}
+                                                    <span className="text-[8px] text-slate-600 truncate">{signalData?.mtfConsensus}</span>
                                                 </div>
-                                            </div>
+                                             </div>
                                         </td>
 
                                         {/* 5. MARKET REGIME & TREND */}
                                         <td className="px-3 py-2.5 border-r border-slate-800/30">
                                             <div className="flex flex-col gap-1">
-                                                <div className={`flex items-center gap-1.5 ${signalData?.marketRegime === 'RISK_ON' ? 'text-emerald-400' : signalData?.marketRegime === 'RISK_OFF' ? 'text-rose-400' : 'text-slate-400'}`}>
+                                                <div className={cn(
+                                                    "flex items-center gap-1.5 px-2 py-0.5 rounded border transition-all",
+                                                    (signalData?.aiScore || 0) >= 50 
+                                                        ? "bg-emerald-500/20 border-emerald-500/30 text-emerald-400" 
+                                                        : "bg-rose-500 border-rose-400 text-black shadow-lg"
+                                                )}>
                                                     {signalData?.marketRegime === 'RISK_ON' ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                                                    <span className="text-[10px] font-bold">{signalData?.marketRegime?.replace('_', ' ') || 'NEUTRAL'}</span>
+                                                    <span className="text-[10px] font-black uppercase tracking-tighter">
+                                                        {signalData?.marketRegime === 'RISK_ON' ? 'BOĞA (RISK-ON)' : signalData?.marketRegime === 'RISK_OFF' ? 'AYI (RISK-OFF)' : 'NÖTR'}
+                                                    </span>
                                                 </div>
-                                                <span className={`text-[9px] ${signalData?.trend === 'BULLISH' ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                                    Trend: {signalData?.trend || '---'}
-                                                </span>
+                                                <div className={cn(
+                                                    "inline-flex px-1.5 py-0.5 rounded border text-[9px] font-black uppercase mt-1 tracking-tighter",
+                                                    signalData?.trend === 'BULLISH' 
+                                                        ? "bg-emerald-500 border-emerald-400 text-white" 
+                                                        : signalData?.trend === 'BEARISH' 
+                                                            ? "bg-rose-500 border-rose-400 text-black" 
+                                                            : "bg-slate-800 border-slate-700 text-slate-400"
+                                                )}>
+                                                    TREND: {signalData?.trend === 'BULLISH' ? 'YÜKSELİŞ' : (signalData?.trend === 'BEARISH' ? 'DÜŞÜŞ' : 'NÖTR')}
+                                                </div>
                                             </div>
                                         </td>
 
                                         {/* 6. WHALE & VOLATILITY */}
                                         <td className="px-3 py-2.5 border-r border-slate-800/30">
                                             <div className="flex flex-col gap-1">
-                                                {/* Whale Status */}
-                                                <div className="flex items-center gap-1.5">
-                                                    <Fish className={`w-3 h-3 ${
-                                                        signalData?.whaleDetected && (signalData.whaleStatus === 'BUY_ACTIVE' || signalData.whaleStatus === 'RALLY_PREP') ? 'text-emerald-400 animate-pulse' : 
-                                                        signalData?.whaleDetected && (signalData.whaleStatus === 'SELL_ACTIVE' || signalData.whaleStatus === 'DISTRIBUTION' || signalData.whaleStatus === 'TRAP') ? 'text-rose-400 animate-pulse' : 
-                                                        signalData?.whaleDetected ? 'text-amber-400 animate-pulse' : 'text-slate-700'
-                                                    }`} />
-                                                    <span className={`text-[9px] font-bold ${
-                                                        signalData?.whaleStatus === 'BUY_ACTIVE' || signalData?.whaleStatus === 'RALLY_PREP' ? 'text-emerald-400' : 
-                                                        signalData?.whaleStatus === 'SELL_ACTIVE' || signalData?.whaleStatus === 'DISTRIBUTION' || signalData?.whaleStatus === 'TRAP' ? 'text-rose-400' : 
-                                                        signalData?.whaleDetected ? 'text-amber-400' : 'text-slate-600'
-                                                    }`}>
-                                                        {signalData?.whaleDetected ? (signalData.whaleStatus || 'WHALE') : 'NO WHALE'}
+                                                <div className={cn(
+                                                    "flex items-center gap-1.5 px-2 py-0.5 rounded border transition-all",
+                                                    signalData?.whaleDetected
+                                                        ? (signalData.whaleStatus === 'ALIM_AKTİF' || signalData.whaleStatus === 'RALLİ_HAZIRLIĞI') 
+                                                            ? "bg-emerald-500 border-emerald-400 text-white shadow-[0_0_10px_rgba(16,185,129,0.3)]"
+                                                            : "bg-rose-500 border-rose-400 text-black shadow-[0_0_10px_rgba(244,63,94,0.3)]"
+                                                        : "bg-slate-800 border-slate-700 text-slate-500"
+                                                )}>
+                                                    <Fish className="w-3 h-3" />
+                                                    <span className="text-[9px] font-black uppercase truncate tracking-tighter">
+                                                        {signalData?.whaleDetected ? (signalData.whaleStatus?.replace('_', ' ') || 'WHALE') : 'YOK'}
                                                     </span>
                                                 </div>
                                                 {/* Volatility */}
-                                                <div className="flex items-center gap-1.5">
-                                                    <Activity className={`w-3 h-3 ${
-                                                        signalData?.volatilityRegime === 'EXPLOSION' ? 'text-purple-400 animate-bounce' : 
-                                                        signalData?.volatilityRegime === 'HIGH_VOL' ? 'text-amber-500' :
-                                                        signalData?.volatilityRegime === 'SQUEEZE' ? 'text-orange-400' : 'text-slate-600'
-                                                    }`} />
-                                                    <span className={`text-[9px] font-bold ${
-                                                        signalData?.volatilityRegime === 'EXPLOSION' ? 'text-purple-400' : 
-                                                        signalData?.volatilityRegime === 'HIGH_VOL' ? 'text-amber-500' :
-                                                        signalData?.volatilityRegime === 'SQUEEZE' ? 'text-orange-400' : 'text-slate-500'
-                                                    }`}>
+                                                <div className={cn(
+                                                    "flex items-center gap-1.5 mt-1 px-2 py-0.5 rounded border transition-all",
+                                                    signalData?.volatilityRegime === 'PATLAMA' || signalData?.volatilityRegime === 'SIKIŞTIRMA' 
+                                                        ? "bg-purple-500 border-purple-400 text-white animate-pulse" 
+                                                        : signalData?.volatilityRegime === 'YÜKSEK_VOL'
+                                                            ? "bg-amber-500 border-amber-400 text-black"
+                                                            : "bg-slate-800 border-slate-700 text-slate-500"
+                                                )}>
+                                                    <Activity className="w-3 h-3" />
+                                                    <span className="text-[9px] font-black uppercase tracking-tighter">
                                                         {signalData?.volatilityRegime || 'NORMAL'}
                                                     </span>
                                                 </div>
                                             </div>
                                         </td>
 
-                                        {/* 7. PREDICTION */}
-                                        <td className="px-3 py-2.5 border-r border-slate-800/30">
-                                            <div className="flex flex-col">
-                                                <span className={`text-[10px] font-bold truncate max-w-[100px] ${getPredictionColor(signalData?.regimePrediction || '')}`}>
-                                                    {getPredictionLabel(signalData?.regimePrediction || '')}
-                                                </span>
-                                                {(signalData?.aiComponents?.trapPenalty || 0) < 0 && (
-                                                    <span className="text-[9px] text-rose-400 flex items-center gap-1 mt-0.5">
-                                                        <AlertCircle className="w-2.5 h-2.5" /> TUZAK TESPİTİ
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </td>
+                                         {/* 7. PREDICTION + SMART ANALYSIS */}
+                                         <td className="px-3 py-2.5 border-r border-slate-800/30">
+                                             {(() => {
+                                                 const sp = calculateSmartPrediction(signalData);
+                                                 return (
+                                                     <div className="flex flex-col gap-1 min-w-[130px]">
+                                                         {/* Ana etiket */}
+                                                         <span className={`text-[9px] font-black leading-tight ${sp.verdictColor}`}>
+                                                             {sp.label}
+                                                         </span>
+                                                         {/* Bull/bear yüzdesi bar */}
+                                                         <div className="flex gap-0.5 items-center">
+                                                             <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                                                 <div
+                                                                     className={`h-full rounded-full transition-all duration-500 ${
+                                                                         sp.bulletScore >= 60 ? 'bg-emerald-500' :
+                                                                         sp.bulletScore <= 40 ? 'bg-rose-500' : 'bg-amber-500'
+                                                                     }`}
+                                                                     style={{ width: `${sp.bulletScore}%` }}
+                                                                 />
+                                                             </div>
+                                                             <span className={`text-[8px] font-mono w-7 text-right font-bold ${
+                                                                 sp.bulletScore >= 60 ? 'text-emerald-400' :
+                                                                 sp.bulletScore <= 40 ? 'text-rose-400' : 'text-amber-400'
+                                                             }`}>
+                                                                 {sp.bulletScore}%
+                                                             </span>
+                                                         </div>
+                                                         {/* Up prob mini bar */}
+                                                         {signalData?.prediction && (
+                                                             <div className="flex gap-0.5 items-center">
+                                                                 <div className="flex-1 h-1 bg-slate-800 rounded-full overflow-hidden">
+                                                                     <div className="h-full bg-cyan-500/70 rounded-full" style={{ width: `${signalData.prediction.upProb}%` }} />
+                                                                 </div>
+                                                                 <span className="text-[8px] text-cyan-500 font-mono w-7 text-right">{Math.round(signalData.prediction.upProb)}%↑</span>
+                                                             </div>
+                                                         )}
+                                                         {/* Tepe/dip sinyal özeti */}
+                                                         <div className="flex flex-wrap gap-0.5 mt-0.5">
+                                                             {sp.bullPoints.slice(0, 2).map((p: string, i: number) => (
+                                                                 <span key={i} className="text-[7px] bg-emerald-500/10 text-emerald-400 px-1 py-0.5 rounded border border-emerald-500/15 leading-tight max-w-[120px] truncate" title={p}>{p}</span>
+                                                             ))}
+                                                             {sp.bearPoints.slice(0, 2).map((p: string, i: number) => (
+                                                                 <span key={i} className="text-[7px] bg-rose-500/10 text-rose-400 px-1 py-0.5 rounded border border-rose-500/15 leading-tight max-w-[120px] truncate" title={p}>{p}</span>
+                                                             ))}
+                                                         </div>
+                                                         {(signalData?.aiComponents?.trapPenalty || 0) < 0 && (
+                                                             <span className="text-[9px] text-rose-400 flex items-center gap-1">
+                                                                 <AlertCircle className="w-2.5 h-2.5" /> TUZAK
+                                                             </span>
+                                                         )}
+                                                     </div>
+                                                 );
+                                             })()}
+                                         </td>
 
-                                        {/* 8. DECISION */}
-                                        <td className="px-3 py-2.5 text-center border-r border-slate-800/30">
-                                            <div className={`inline-flex flex-col items-center justify-center px-3 py-1.5 rounded-md border ${getDecisionStyle(signalData?.systemDecision || 'WAIT')}`}>
-                                                <span className="text-[10px] font-black tracking-wider">
-                                                    {signalData?.systemDecision === 'GO_LONG' ? 'LONG AÇ' : signalData?.systemDecision === 'GO_SHORT' ? 'SHORT AÇ' : 'BEKLE'}
-                                                </span>
-                                            </div>
-                                        </td>
+                                         {/* 8. DECISION + KILL SWITCH */}
+                                         <td className="px-3 py-2.5 text-center border-r border-slate-800/30">
+                                             <div className="flex flex-col items-center gap-1">
+                                                 <div className={`inline-flex flex-col items-center justify-center px-3 py-1.5 rounded-md border w-full ${getDecisionStyle(signalData?.systemDecision || 'WAIT')}`}>
+                                                     <span className="text-[10px] font-black tracking-wider">
+                                                         {signalData?.systemDecision === 'GO_LONG' ? 'LONG AÇ ✅' : signalData?.systemDecision === 'GO_SHORT' ? 'SHORT AÇ 🔻' : 'BEKLE ⏸'}
+                                                     </span>
+                                                 </div>
+                                                 {signalData?.deathRisk && (
+                                                     <span className="text-[8px] bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded px-1.5 py-0.5 font-black animate-pulse w-full text-center">
+                                                         🛑 KILL SW
+                                                     </span>
+                                                 )}
+                                             </div>
+                                         </td>
 
                                         {/* 9. QUICK TRADE */}
                                         <td className="px-3 py-2.5">
@@ -575,6 +528,126 @@ export function MatrixPortfolio() {
                                             </div>
                                         </td>
                                     </tr>
+
+                                    {/* EXPANDED DETAILS — GELİŞMİŞ SINYAL AÇIKLAMASI */}
+                                    {expandedRow === fullSymbol && (() => {
+                                        const sp = calculateSmartPrediction(signalData);
+                                        return (
+                                            <tr className="bg-slate-900/90 border-b border-slate-800/40">
+                                                <td colSpan={9} className="p-0">
+                                                    <div className="p-4 space-y-4">
+                                                        {/* KARAR BANNER */}
+                                                        <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${
+                                                            sp.verdict === 'AL' ? 'bg-emerald-900/30 border-emerald-600/30' :
+                                                            sp.verdict === 'SAT' ? 'bg-rose-900/30 border-rose-600/30' :
+                                                            'bg-amber-900/20 border-amber-600/20'
+                                                        }`}>
+                                                            <div className="flex-1">
+                                                                <div className={`text-sm font-black ${sp.verdictColor}`}>{sp.label}</div>
+                                                                <div className="text-[10px] text-slate-400 mt-0.5 font-mono">{sp.explanation}</div>
+                                                            </div>
+                                                            <div className="flex flex-col items-center gap-1">
+                                                                <div className={`text-xl font-black ${ sp.verdict === 'AL' ? 'text-emerald-400' : sp.verdict === 'SAT' ? 'text-rose-400' : 'text-amber-400'}`}>{sp.bulletScore}<span className="text-xs">%</span></div>
+                                                                <div className="text-[8px] text-slate-500 uppercase tracking-wider">Boğa Puanı</div>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                            {/* BOĞA NEDENLERİ */}
+                                                            <div className="space-y-1.5">
+                                                                <div className="text-[9px] font-black text-emerald-400 uppercase tracking-widest flex items-center gap-1">
+                                                                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                                                                    AL SİNYALLERİ ({sp.bullPoints.length})
+                                                                </div>
+                                                                {sp.bullPoints.length === 0 && (
+                                                                    <div className="text-[9px] text-slate-600 italic">Boğa sinyali yok</div>
+                                                                )}
+                                                                {sp.bullPoints.map((p, i) => (
+                                                                    <div key={i} className="flex items-start gap-1.5 text-[9px] font-mono text-emerald-300 bg-emerald-500/5 border border-emerald-500/10 rounded px-2 py-1 leading-relaxed">
+                                                                        <span className="text-emerald-500 mt-0.5">▲</span>
+                                                                        <span>{p}</span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+
+                                                            {/* AYI NEDENLERİ */}
+                                                            <div className="space-y-1.5">
+                                                                <div className="text-[9px] font-black text-rose-400 uppercase tracking-widest flex items-center gap-1">
+                                                                    <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                                                                    SAT SİNYALLERİ ({sp.bearPoints.length})
+                                                                </div>
+                                                                {sp.bearPoints.length === 0 && (
+                                                                    <div className="text-[9px] text-slate-600 italic">Ayı sinyali yok</div>
+                                                                )}
+                                                                {sp.bearPoints.map((p, i) => (
+                                                                    <div key={i} className="flex items-start gap-1.5 text-[9px] font-mono text-rose-300 bg-rose-500/5 border border-rose-500/10 rounded px-2 py-1 leading-relaxed">
+                                                                        <span className="text-rose-500 mt-0.5">▼</span>
+                                                                        <span>{p}</span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* TEKNİK DETAYLAR */}
+                                                        <div className="grid grid-cols-5 gap-3 text-[9px] font-mono border-t border-slate-800/50 pt-3">
+                                                            <div className="space-y-1">
+                                                                <div className="text-slate-500 uppercase tracking-wider font-bold">Rejim</div>
+                                                                <div className={`font-black ${signalData?.marketRegime === 'RISK_ON' ? 'text-emerald-400' : 'text-rose-400'}`}>{signalData?.marketRegime || '-'}</div>
+                                                                <div className="text-slate-400">{signalData?.regimePrediction?.replace(/_/g, ' ')}</div>
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                <div className="text-slate-500 uppercase tracking-wider font-bold">AI Katkısı</div>
+                                                                <div className="text-slate-300">Trend: <span className="text-white font-bold">+{signalData?.aiComponents?.trendAlignment || 0}</span></div>
+                                                                <div className="text-slate-300">Hacim: <span className="text-white font-bold">+{signalData?.aiComponents?.volumePower || 0}</span></div>
+                                                                <div className="text-slate-300">Balina: <span className="text-amber-400 font-bold">+{signalData?.aiComponents?.whaleConfirmed || 0}</span></div>
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                <div className="text-slate-500 uppercase tracking-wider font-bold">Likidite</div>
+                                                                <div className={signalData?.liquidityZone?.includes('BOĞA') ? 'text-emerald-400 font-bold' : signalData?.liquidityZone?.includes('AYI') ? 'text-rose-400 font-bold' : 'text-slate-500'}>{signalData?.liquidityZone || 'YOK'}</div>
+                                                                <div className="text-slate-400">Güç Kaybı: <span className={(signalData?.f4PowerLoss ?? 0) > 50 ? 'text-rose-400 font-bold' : 'text-emerald-400 font-bold'}>%{(signalData?.f4PowerLoss ?? 0).toFixed(0)}</span></div>
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                <div className="text-slate-500 uppercase tracking-wider font-bold">VPA / ADM</div>
+                                                                <div className={signalData?.vpa?.state === 'ALIM BASKISI' ? 'text-emerald-400' : signalData?.vpa?.state === 'SATIM BASKISI' ? 'text-rose-400' : 'text-slate-400'}>{signalData?.vpa?.state || 'NÖTR'}</div>
+                                                                <div className="text-slate-400">{signalData?.adm?.bias || '-'}</div>
+                                                            </div>
+                                                            <div className="space-y-1 border-l border-slate-700/50 pl-3">
+                                                                <div className="text-cyan-500 uppercase tracking-wider font-bold flex items-center justify-between">
+                                                                    <span>V5.4 Engine</span>
+                                                                    <button 
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setViewDetailAsset({
+                                                                                symbol: assetName,
+                                                                                price: currentPrice,
+                                                                                score: signalData?.aiScore || 0,
+                                                                                decision: signalData?.systemDecision || 'WAIT',
+                                                                                prediction: signalData?.prediction?.text || signalData?.regimePrediction || 'NÖTR',
+                                                                                trap: signalData?.whaleStatus === 'TUZAK' || (signalData?.aiComponents?.trapPenalty ?? 0) < 0,
+                                                                                smc: signalData?.smc,
+                                                                                vpa: signalData?.vpa,
+                                                                                adm: signalData?.adm,
+                                                                                liquidity: signalData?.liquidity,
+                                                                                whaleTrust: signalData?.whaleTrust
+                                                                            });
+                                                                        }}
+                                                                        className="px-1.5 py-0.5 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded text-[8px]"
+                                                                    >
+                                                                        TAM
+                                                                    </button>
+                                                                </div>
+                                                                <div className={(signalData?.f4EarlyBuy || signalData?.f4ConfirmedBuy) ? 'text-emerald-400 font-bold animate-pulse' : (signalData?.f4EarlySell || signalData?.f4ConfirmedSell) ? 'text-rose-400 font-bold animate-pulse' : 'text-slate-500'}>
+                                                                    {signalData?.f4ConfirmedBuy ? '✅ ONAYLI AL' : signalData?.f4EarlyBuy ? '🔔 ERKEN AL' : signalData?.f4ConfirmedSell ? '❌ ONAYLI SAT' : signalData?.f4EarlySell ? '🔕 ERKEN SAT' : '⏸ BEKLE'}
+                                                                </div>
+                                                                <div className="text-slate-400">Z-Score: <span className={Math.abs(signalData?.zScoreValue || 0) > 2 ? 'text-amber-400 font-bold' : 'text-white'}>{(signalData?.zScoreValue || 0).toFixed(2)}</span></div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })()}
+                                    </React.Fragment>
                                 );
                             }))}
                     </tbody>
@@ -582,7 +655,7 @@ export function MatrixPortfolio() {
             </div>
             
             <div className="px-4 py-2 border-t border-slate-800 bg-slate-900/50 flex justify-between items-center text-[9px] text-slate-600 font-mono uppercase">
-                <span>MATRIX ENGINE V3.1.0 // ONLINE</span>
+                <span>MatrixPortfolio // ONLINE</span>
                 <span>SYNC: {new Date().toLocaleTimeString()}</span>
             </div>
 
@@ -593,7 +666,7 @@ export function MatrixPortfolio() {
                         <div className="flex items-center justify-between p-3 border-b border-slate-800 bg-[#1e222d]">
                             <div className="flex items-center gap-3">
                                 <span className="font-bold text-lg text-slate-200">{selectedChartSymbol} / USDT</span>
-                                <span className="text-xs px-2 py-0.5 bg-cyan-500/10 text-cyan-400 rounded border border-cyan-500/20 font-mono">MATRIX CHART</span>
+                                <span className="text-xs px-2 py-0.5 bg-cyan-500/10 text-cyan-400 rounded border border-cyan-500/20 font-mono">TradingViewEmbedChart</span>
                             </div>
                             <button 
                                 onClick={() => setSelectedChartSymbol(null)}

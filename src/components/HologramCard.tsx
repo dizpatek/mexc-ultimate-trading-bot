@@ -4,18 +4,18 @@ import React, { useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { CyberMarkdown } from './CyberMarkdown';
 import { LucideIcon } from 'lucide-react';
-import { HologramVisual } from './HologramVisual';
 
 interface HologramCardProps {
     title: string;
     content: string;
     icon?: LucideIcon;
-    visualType?: 'overview' | 'architecture' | 'trailing' | 'engine' | 'settings' | 'defense' | 'strategy' | 'routine';
+    visualType?: 'overview' | 'architecture' | 'trailing' | 'engine' | 'settings' | 'defense' | 'strategy' | 'routine' | 'whale' | 'regime' | 'smc' | 'radar' | 'killswitch' | 'decay' | 'bayesian' | 'bridge' | 'trailing_buy' | 'trailing_sell' | 'ai_score' | 'stop_loss' | 'breakeven' | 'wick_protection' | 'panic' | 'test_mode' | 'ob' | 'volatility' | 'zscore' | 'capital' | 'fvg' | 'alarms' | 'scalp' | 'swing' | 'performance' | 'limit' | 'market' | 'split_tp' | 'timeout' | 'tech_panel' | 'decision' | 'simulator';
+    image?: string;
     className?: string;
     delay?: number;
 }
 
-export const HologramCard: React.FC<HologramCardProps> = ({ title, content, icon: Icon, visualType, className, delay = 0 }) => {
+export const HologramCard: React.FC<HologramCardProps> = ({ title, content, icon: Icon, visualType, image, className, delay = 0 }) => {
     const cardRef = useRef<HTMLDivElement>(null);
     const [tilt, setTilt] = useState({ x: 0, y: 0 });
     const [isHovered, setIsHovered] = useState(false);
@@ -76,12 +76,23 @@ export const HologramCard: React.FC<HologramCardProps> = ({ title, content, icon
                     </h2>
                 </div>
 
-                {/* 3D Visual Content (CSS/SVG Visualization) */}
-                {visualType && (
-                    <div className="mb-8">
-                        <HologramVisual type={visualType} />
+                {/* 3D Visual Content (CSS/SVG Visualization) OR AI Image */}
+                {image ? (
+                    <div className="mb-8 relative w-full aspect-video rounded-2xl overflow-hidden border border-white/10 group/img">
+                        <img 
+                            src={image} 
+                            alt={title} 
+                            className="w-full h-full object-cover transition-transform duration-700 group-hover/img:scale-110" 
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity" />
                     </div>
-                )}
+                ) : visualType ? (
+                    <div className="mb-8">
+                        <div className="w-full h-24 bg-gradient-to-br from-cyan-500/20 to-blue-500/20 rounded-lg flex items-center justify-center">
+                            <span className="text-cyan-400/50 text-xs font-mono uppercase">{visualType}</span>
+                        </div>
+                    </div>
+                ) : null}
                 
                 <div className="flex-1">
                     <CyberMarkdown content={content} className="prose-sm" />

@@ -7,13 +7,14 @@ import { useHoldings } from '@/hooks/usePortfolio';
 import { Header } from '@/components/Header';
 import { PortfolioChart } from '@/components/PortfolioChart';
 import { CombatLog } from '@/components/CombatLog';
-import { CommandDeck } from '@/components/CommandDeck';
 import { IntelligenceHub } from '@/components/IntelligenceHub';
 import { SmartOperationCenter } from '@/components/SmartOperationCenter';
 import { UnifiedControlStrip } from '@/components/UnifiedControlStrip';
 import { MatrixHorizon } from '@/components/matrix-horizon/MatrixHorizon';
 import { HorizonLayout } from '@/components/matrix-horizon/HorizonLayout';
 import { HorizonCard } from '@/components/matrix-horizon/HorizonCard';
+import { TimeframeProvider } from '@/context/TimeframeContext';
+import { TradeProvider } from '@/context/TradeContext';
 import { RefreshCw } from 'lucide-react';
 
 // Dashboard component starts below
@@ -65,19 +66,21 @@ export default function Dashboard() {
   if (!user) return null;
 
   return (
+    <TimeframeProvider defaultTimeframe="4h">
+    <TradeProvider>
     <HorizonLayout>
       <Header />
 
-      <main className="flex-1 min-w-0 p-2 space-y-4 overflow-y-auto max-w-full mx-auto w-full pb-24 no-scrollbar">
+      <main className="flex-1 min-w-0 p-2 md:p-4 lg:p-6 space-y-6 overflow-y-auto max-w-full mx-auto w-full pb-24 no-scrollbar">
         {/* MIDDLE ROW: WIDE CHART */}
-        <div className="grid grid-cols-12 gap-4 h-[900px]">
+        <div className="grid grid-cols-12 gap-4 h-[900px] -mt-2 md:-mt-4 lg:-mt-6">
             {/* MAIN CHART - FULL WIDTH */}
-            <div className="col-span-12">
-                <HorizonCard className="h-full bg-slate-900/30 backdrop-blur-sm border-slate-800" glowColor="emerald">
+            <div className="col-span-12 mt-0">
+                <HorizonCard className="h-full bg-slate-900/30 backdrop-blur-sm border-slate-800 mt-0 rounded-t-none" glowColor="emerald">
                      <div className="absolute top-3 left-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <span className="px-2 py-1 bg-slate-950/80 backdrop-blur text-[10px] uppercase font-bold rounded text-emerald-400 border border-emerald-500/20">Market View</span>
+                        <span className="px-2 py-1 bg-slate-950/80 backdrop-blur text-[10px] uppercase font-bold rounded text-emerald-400 border border-emerald-500/20">PortfolioChart</span>
                     </div>
-                    <PortfolioChart />
+                    <PortfolioChart symbol={activeSymbol} />
                 </HorizonCard>
             </div>
         </div>
@@ -91,16 +94,24 @@ export default function Dashboard() {
             </HorizonCard>
         </div>
 
-        {/* TACTICAL OPERATIONS CENTER */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 h-auto xl:h-[500px]">
-            <CommandDeck />
-            <CombatLog />
-            <IntelligenceHub />
-        </div>
-
         {/* SMART TRADE OPERATION CENTER */}
         <div className="w-full">
             <SmartOperationCenter />
+        </div>
+
+        {/* TERMINAL & NEWS (Side by Side) - F4 Terminal features merged into Portfolio*/}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 h-auto xl:h-[400px]">
+            {/* TERMINAL (Combat Log) */}
+            <div className="min-h-[300px] xl:min-h-0">
+                <div className="h-full overflow-hidden flex flex-col rounded-xl shadow-2xl">
+                    <CombatLog />
+                </div>
+            </div>
+            
+            {/* NEWS (Intelligence Hub) */}
+            <div className="min-h-[300px] xl:min-h-0">
+                <IntelligenceHub />
+            </div>
         </div>
       </main>
 
@@ -113,5 +124,7 @@ export default function Dashboard() {
       />
 
     </HorizonLayout>
+    </TradeProvider>
+    </TimeframeProvider>
   );
 }

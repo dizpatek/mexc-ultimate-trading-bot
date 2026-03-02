@@ -6,62 +6,12 @@
       "type": "modifyHeaders",
       "responseHeaders": [
         { "header": "X-Frame-Options", "operation": "remove" },
-        { "header": "Frame-Options", "operation": "remove" },
-        { "header": "Content-Security-Policy", "operation": "remove" },
-        { "header": "X-Content-Type-Options", "operation": "remove" }
-      ]
-    },
-    "condition": {
-      "urlFilter": "*",
-      "resourceTypes": ["sub_frame", "main_frame", "xmlhttprequest", "script", "image", "stylesheet", "font", "media", "other"]
-    }
-  },
-  {
-    "id": 5,
-    "priority": 5,
-    "action": {
-      "type": "modifyHeaders",
-      "requestHeaders": [
-        { "header": "Sec-Fetch-Dest", "operation": "set", "value": "document" },
-        { "header": "Sec-Fetch-Mode", "operation": "set", "value": "navigate" },
-        { "header": "Sec-Fetch-Site", "operation": "set", "value": "same-origin" }
+        { "header": "Frame-Options", "operation": "remove" }
       ]
     },
     "condition": {
       "urlFilter": "*://*.tradingview.com/*",
-      "resourceTypes": ["sub_frame", "xmlhttprequest"]
-    }
-  },
-  {
-    "id": 6,
-    "priority": 5,
-    "action": {
-      "type": "modifyHeaders",
-      "requestHeaders": [
-        { "header": "Sec-Fetch-Dest", "operation": "set", "value": "document" },
-        { "header": "Sec-Fetch-Mode", "operation": "set", "value": "navigate" },
-        { "header": "Sec-Fetch-Site", "operation": "set", "value": "cross-site" }
-      ]
-    },
-    "condition": {
-      "urlFilter": "*://accounts.google.com/*",
-      "resourceTypes": ["sub_frame"]
-    }
-  },
-  {
-    "id": 7,
-    "priority": 1,
-    "action": {
-      "type": "modifyHeaders",
-      "responseHeaders": [
-        { "header": "Cross-Origin-Embedder-Policy", "operation": "remove" },
-        { "header": "Cross-Origin-Opener-Policy", "operation": "remove" },
-        { "header": "Cross-Origin-Resource-Policy", "operation": "remove" }
-      ]
-    },
-    "condition": {
-      "urlFilter": "*",
-      "resourceTypes": ["sub_frame", "main_frame", "xmlhttprequest"]
+      "resourceTypes": ["sub_frame", "main_frame"]
     }
   }
 ]

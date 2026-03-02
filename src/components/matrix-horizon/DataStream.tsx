@@ -23,7 +23,7 @@ export const DataStream: React.FC<DataStreamProps> = ({ title, data, side, class
         <div className="bg-cyan-500/20 p-1.5 rounded text-cyan-400">
             <Activity className="w-3 h-3" />
         </div>
-        <h3 className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{title}</h3>
+        <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-slate-400">{title}</h3>
         <div className="flex-1 h-[1px] bg-gradient-to-r from-cyan-500/0 via-cyan-500/30 to-cyan-500/0" />
       </div>
 
@@ -34,7 +34,7 @@ export const DataStream: React.FC<DataStreamProps> = ({ title, data, side, class
 
         {data.map((item, idx) => (
             <div key={idx} className="group relative flex items-center justify-between p-2 rounded bg-slate-900/40 hover:bg-cyan-900/10 border border-transparent hover:border-cyan-500/20 transition-all">
-                <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider group-hover:text-cyan-300 transition-colors">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider group-hover:text-cyan-300 transition-colors">
                     {item.label}
                 </span>
                 <span className={cn(

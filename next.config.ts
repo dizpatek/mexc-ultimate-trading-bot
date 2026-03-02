@@ -4,6 +4,15 @@ const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
   transpilePackages: ['lightweight-charts'],
+  turbopack: {},
+  async rewrites() {
+    return [
+      {
+        source: '/command-deck/:path*',
+        destination: '/api/command-deck/:path*',
+      },
+    ];
+  },
   images: {
     remotePatterns: [
       {

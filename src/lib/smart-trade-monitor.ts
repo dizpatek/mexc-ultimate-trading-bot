@@ -1,24 +1,49 @@
 import { sql } from '@vercel/postgres';
 import { getPrice, marketSellByQty, marketBuyByQuote } from './mexc-wrapper';
-import { MatrixV3Engine } from './matrix-v3-engine';
-import { fetchKlines } from './mexc'; // Need to make sure this exists or use a wrapper
+import { MatrixV5Engine } from './matrix-v5-engine';
+import { fetchKlines } from './mexc';
 
 let lastRun = 0;
-const MONITOR_INTERVAL = 5000; // 5 seconds minimum between cycles
-const AI_ANALYSIS_INTERVAL = 60000; // Only re-analyze every 60s per trade
+const MONITOR_INTERVAL = 5000; 
+const AI_ANALYSIS_INTERVAL = 60000; 
+const CONCURRENCY_LIMIT = 5; 
+
+const sharedEngine = new MatrixV5Engine();
+let isDbRepaired = false;
+let repairPromise: Promise<void> | null = null;
+
+async function performRepair() {
+    try {
+        await sql`UPDATE orders SET meta = replace(meta, '}{', ',')::text WHERE meta LIKE '%}{%'`;
+        isDbRepaired = true;
+        console.log('[SmartMonitor] Database metadata repair successful.');
+    } catch (e) {
+        console.error('[SmartMonitor] Database repair failed (will retry):', e);
+        repairPromise = null; // P4.1 & P4.2: Reset to allow retry on next cycle
+        throw e;
+    }
+}
+
+// Global initialization task (P4.3: Robust non-blocking wrap)
+function ensureInitialized() {
+    if (isDbRepaired) {
+        performRepair(); // Background check without blocking
+        return Promise.resolve();
+    }
+    if (!repairPromise) repairPromise = performRepair();
+    return repairPromise;
+}
 
 export async function monitorSmartTrades() {
     const now = Date.now();
-    if (now - lastRun < MONITOR_INTERVAL) {
-        return;
-    }
+    if (now - lastRun < MONITOR_INTERVAL) return;
     lastRun = now;
     
     console.log('[SmartMonitor] Starting monitoring cycle...');
     
     try {
-        // 1. Fetch active smart trades (both filled and pending entry)
-        // Now selecting user_id as well
+        await ensureInitialized();
+        
         const { rows } = await sql`
             SELECT id, user_id, symbol, side, qty, price, meta, status 
             FROM orders 
@@ -26,24 +51,20 @@ export async function monitorSmartTrades() {
             AND status IN ('FILLED', 'PENDING')
         `;
 
-        if (rows.length === 0) {
-            console.log('[SmartMonitor] No active smart trades to monitor.');
-            return;
-        }
-
+        if (rows.length === 0) return;
         const trades = rows as unknown as MonitoredTrade[];
-        const engine = new MatrixV3Engine();
 
-        for (const trade of trades) {
-            try {
-                await processTradeMonitoring(trade, engine);
-            } catch (err) {
-                console.error(`[SmartMonitor] Error monitoring trade ${trade.id}:`, err);
-            }
+        for (let i = 0; i < trades.length; i += CONCURRENCY_LIMIT) {
+            const chunk = trades.slice(i, i + CONCURRENCY_LIMIT);
+            await Promise.allSettled(chunk.map(trade => 
+                processTradeMonitoring(trade).catch(err => 
+                    console.error(`[SmartMonitor] Error for trade ${trade.id}:`, err)
+                )
+            ));
         }
 
     } catch (error) {
-        console.error('[SmartMonitor] Critical error in monitor cycle:', error);
+        console.error('[SmartMonitor] Critical error in cycle:', error);
     }
 }
 
@@ -58,498 +79,428 @@ interface MonitoredTrade {
     status: string;
 }
 
-async function processTradeMonitoring(trade: MonitoredTrade, engine: MatrixV3Engine) {
-    const { id, user_id, symbol, side, qty: rawQty, price: rawEntryPrice, meta: rawMeta } = trade;
-    const entryPrice = typeof rawEntryPrice === 'string' ? parseFloat(rawEntryPrice) : Number(rawEntryPrice);
-    const qty = typeof rawQty === 'string' ? parseFloat(rawQty) : Number(rawQty);
-    
-    const meta = typeof rawMeta === 'string' ? JSON.parse(rawMeta) : rawMeta;
-    const payload = meta.payload;
+interface TPTarget { 
+    price: string; 
+    volume: string; 
+}
+
+interface TakeProfitPayload {
+    price: string;
+    type?: string;
+    trailing?: boolean;
+    deviation?: number;
+    isSplit?: boolean;
+    targets?: TPTarget[];
+}
+
+interface StopLossPayload {
+    price: string;
+    type?: string;
+    trailing?: boolean;
+    deviation?: number;
+    timeout?: boolean;
+    timeoutSeconds?: number;
+    breakeven?: boolean;
+}
+
+interface TradePayload {
+    symbol: string;
+    amount: string;
+    buyPrice: string;
+    buyType: string;
+    trailingBuy?: boolean;
+    trailingBuyDev?: number;
+    takeProfit?: TakeProfitPayload | null;
+    stopLoss?: StopLossPayload | null;
+}
+
+interface TradeMeta extends Record<string, unknown> {
+    payload?: TradePayload;
+    highestPrice?: number;
+    lowestPrice?: number;
+    tpTriggered?: boolean;
+    lastAiScore?: number;
+    monitorLogs?: string[];
+    lastAiRunAt?: number;
+    monitorError?: string;
+    filledTargets?: number[];
+    slMovedToBreakeven?: boolean;
+    slTimeoutStart?: number | null;
+    initialQty?: string;
+    activeStopLoss?: number;
+    activeTakeProfit?: number;
+    entryTriggered?: boolean;
+    entryReason?: string;
+    entryResult?: unknown;
+    exitReason?: string;
+    exitResult?: unknown;
+    exitPrice?: number | string;
+    closedAt?: number;
+    filledAt?: number;
+}
+
+async function processTradeMonitoring(trade: MonitoredTrade) {
+    const { id, symbol, price: rawEntryPrice, qty: rawQty, meta: rawMeta } = trade;
+    const entryPrice = Number(rawEntryPrice);
+    let currentQty = Number(rawQty);
+    const meta = (typeof rawMeta === 'string' ? JSON.parse(rawMeta) : rawMeta) as TradeMeta;
 
     try {
         const currentPrice = await getPrice(symbol);
         if (!currentPrice || isNaN(currentPrice)) return;
 
-        // 1. AI Analysis Throttling
-        let aiScore = meta.lastAiScore || 0;
-        let aiLogs: string[] = meta.monitorLogs || [];
-        const lastAiRun = meta.lastAiRunAt || 0;
-
-        if (Date.now() - lastAiRun > AI_ANALYSIS_INTERVAL) {
-            try {
-                const klines = await fetchKlines(symbol, '1m', 200);
-                if (klines && klines.length >= 50) {
-                    const closes = klines.map((k) => k.close);
-                    const highs = klines.map((k) => k.high);
-                    const lows = klines.map((k) => k.low);
-                    const volumes = klines.map((k) => k.volume);
-                    
-                    const result = engine.analyze(closes, highs, lows, volumes);
-                    aiScore = result.aiScore;
-                    aiLogs = [
-                        `Trend: ${result.trend}`,
-                        `Regime: ${result.regimePrediction}`,
-                        `Decision: ${result.systemDecision}`
-                    ];
-                    meta.lastAiRunAt = Date.now();
-                }
-            } catch (aiErr) {
-                console.warn(`[SmartMonitor] AI Analysis failed for ${symbol}:`, aiErr);
-            }
+        let isDirty = false;
+        const aiResult = await runAiAnalysis(symbol, meta);
+        if (aiResult) {
+            meta.lastAiScore = aiResult.aiScore;
+            meta.monitorLogs = aiResult.aiLogs;
+            meta.lastAiRunAt = Date.now();
+            isDirty = true;
         }
 
-        // 2. Trailing & SL/TP Logic
-        const highestPrice = meta.highestPrice || entryPrice;
-        const lowestPrice = meta.lowestPrice || entryPrice;
-        let tpTriggered = meta.tpTriggered || false;
-        
-        let newHighest = highestPrice;
-        let newLowest = lowestPrice;
         let shouldExit = false;
         let exitReason = '';
+        const stateUpdates = {
+            highestPrice: (meta.highestPrice as number) || entryPrice,
+            lowestPrice: (meta.lowestPrice as number) || entryPrice,
+            tpTriggered: !!meta.tpTriggered
+        };
 
         if (trade.status === 'PENDING') {
-            const targetEntryPrice = parseFloat(payload.buyPrice) || entryPrice;
-            const isTrailingBuy = !!payload.trailingBuy;
-            const trailingBuyDev = payload.trailingBuyDev || 1.0;
-            let entryTriggered = meta.entryTriggered || false;
-
-                // Directional tracking for Entry phase
-                if (side === 'BUY') {
-                    // Long Entry: Trail the bottom
-                    if (currentPrice < lowestPrice) {
-                        newLowest = currentPrice;
-                    }
-                } else if (side === 'SELL') {
-                    // Short Entry: Trail the top
-                    if (currentPrice > highestPrice) {
-                        newHighest = currentPrice;
-                    }
-                }
-                
-                // 1. Check Entry Condition
-                if (!entryTriggered) {
-                    // Long Entry Trigger: Price drops to or below target
-                    if (side === 'BUY' && currentPrice <= targetEntryPrice) {
-                        entryTriggered = true;
-                        console.log(`[SmartMonitor] Long Entry triggered for ${symbol} @ ${currentPrice}.`);
-                        if (!isTrailingBuy) {
-                            shouldExit = true;
-                            exitReason = 'LIMIT ENTRY REACHED';
-                        } else {
-                             // Initialize trailing tracking
-                             newLowest = currentPrice;
-                             console.log(`[SmartMonitor] Trailing Buy Activates! Tracking bottom from ${newLowest}`);
-                        }
-                    } 
-                    // Short Entry Trigger (Cover Mode): Price rises to or above target
-                    else if (side === 'SELL' && currentPrice >= targetEntryPrice) {
-                        entryTriggered = true;
-                        console.log(`[SmartMonitor] Short Entry triggered for ${symbol} @ ${currentPrice}.`);
-                         if (!isTrailingBuy) { // Reusing 'trailingBuy' flag for 'Trailing Entry' generic
-                            shouldExit = true;
-                            exitReason = 'LIMIT ENTRY REACHED (SHORT)';
-                        } else {
-                             // Initialize trailing tracking
-                             newHighest = currentPrice;
-                             console.log(`[SmartMonitor] Trailing Short Entry Activates! Tracking top from ${newHighest}`);
-                        }
-                    }
-                }
-
-                if (entryTriggered && isTrailingBuy) {
-                    if (side === 'BUY') {
-                        // Trailing Buy: Wait for bounce from bottom
-                        // 3Commas behavior: Once triggered, track absolute bottom. Buy when price bounces by deviation%.
-                        const buyTrigger = newLowest * (1 + trailingBuyDev / 100);
-                        if (currentPrice >= buyTrigger) {
-                            shouldExit = true;
-                            exitReason = `TRAILING BUY EXECUTED @ ${currentPrice} (Bottom: ${newLowest}, Dev: ${trailingBuyDev}%)`;
-                        }
-                    } else {
-                        // Trailing Sell (Short Entry): Wait for drop from top
-                        const sellTrigger = newHighest * (1 - trailingBuyDev / 100);
-                        if (currentPrice <= sellTrigger) {
-                            shouldExit = true;
-                            exitReason = `TRAILING SHORT ENTRY EXECUTED @ ${currentPrice} (Top: ${newHighest}, Dev: ${trailingBuyDev}%)`;
-                        }
-                    }
-                }
-
-            meta.entryTriggered = entryTriggered;
-            
-            if (shouldExit) {
-                console.log(`[SmartMonitor] 🟢 EXECUTING ENTRY for ${symbol}: ${exitReason}`);
-                await executeEntry(trade, currentPrice, exitReason);
-                return; // executeEntry handles DB update
-            }
-        } else if (side === 'BUY') {
-            // Update Highest Price
-            if (currentPrice > highestPrice) {
-                newHighest = currentPrice;
-            }
-
-            // A. STOP LOSS
-            // Check Move to Breakeven: If first TP filled and breakeven enabled, override SL to entry price
-            let effectiveSLPrice = payload.stopLoss?.price ? parseFloat(payload.stopLoss.price) : 0;
-            const filledTargetsForBE = meta.filledTargets || [];
-            if (payload.stopLoss?.breakeven && filledTargetsForBE.length > 0 && !meta.slMovedToBreakeven) {
-                meta.slMovedToBreakeven = true;
-                effectiveSLPrice = entryPrice;
-                console.log(`[SmartMonitor] Move to Breakeven activated for ${symbol}. SL moved to entry: ${entryPrice}`);
-            } else if (meta.slMovedToBreakeven) {
-                effectiveSLPrice = entryPrice; // Keep SL at entry after breakeven
-            }
-
-            if (payload.stopLoss?.trailing && payload.stopLoss?.deviation) {
-                // 3Commas AEP-based formula: Trail value = AEP × SL%
-                const trailValue = entryPrice * (Math.abs(payload.stopLoss.deviation) / 100);
-                const trailingSLPrice = newHighest - trailValue;
-                
-                // Use the higher of trailing SL and breakeven SL
-                const finalSL = Math.max(trailingSLPrice, meta.slMovedToBreakeven ? entryPrice : 0);
-                
-                // DEBUG LOG
-                if (Date.now() % 30000 < 5000) { // Log every ~30s to avoid spam
-                    console.log(`[SmartMonitor] ${symbol} TSL Check | Price: ${currentPrice.toFixed(2)} | TrailSL: ${finalSL.toFixed(2)} | Peak: ${newHighest.toFixed(2)}`);
-                }
-
-                if (currentPrice <= finalSL) {
-                    // SL Timeout: Wait N seconds before confirming
-                    if (payload.stopLoss.timeout && payload.stopLoss.timeoutSeconds) {
-                        const timeoutSec = Number(payload.stopLoss.timeoutSeconds) || 10;
-                        if (!meta.slTimeoutStart) {
-                            meta.slTimeoutStart = Date.now();
-                            console.log(`[SmartMonitor] ⏱ SL Timeout started for ${symbol}. Waiting ${timeoutSec}s...`);
-                        } else if (Date.now() - meta.slTimeoutStart >= timeoutSec * 1000) {
-                            shouldExit = true;
-                            exitReason = `TRAILING STOP LOSS HIT @ ${currentPrice} (after ${timeoutSec}s timeout)`;
-                        }
-                    } else {
-                        shouldExit = true;
-                        exitReason = `TRAILING STOP LOSS HIT @ ${currentPrice} (AEP Trail: ${trailValue.toFixed(4)})`;
-                    }
-                } else {
-                    // Price recovered above SL, reset timeout
-                    if (meta.slTimeoutStart) {
-                        console.log(`[SmartMonitor] ✨ SL Timeout reset for ${symbol}. Price recovered to ${currentPrice}`);
-                        meta.slTimeoutStart = null;
-                    }
-                }
-            } else if (effectiveSLPrice > 0) {
-                if (currentPrice <= effectiveSLPrice) {
-                    // SL Timeout for fixed SL
-                    if (payload.stopLoss?.timeout && payload.stopLoss?.timeoutSeconds) {
-                        const timeoutSec = Number(payload.stopLoss.timeoutSeconds) || 10;
-                        if (!meta.slTimeoutStart) {
-                            meta.slTimeoutStart = Date.now();
-                            console.log(`[SmartMonitor] ⏱ SL Timeout started for ${symbol}. Waiting ${timeoutSec}s...`);
-                        } else if (Date.now() - meta.slTimeoutStart >= timeoutSec * 1000) {
-                            shouldExit = true;
-                            exitReason = `FIXED STOP LOSS HIT @ ${currentPrice} (after ${timeoutSec}s timeout)`;
-                        }
-                    } else {
-                        shouldExit = true;
-                        exitReason = `FIXED STOP LOSS HIT @ ${currentPrice}`;
-                    }
-                } else {
-                    if (meta.slTimeoutStart) {
-                        meta.slTimeoutStart = null;
-                    }
-                }
-            }
-
-            // B. TAKE PROFIT
-            if (payload.takeProfit?.price || payload.takeProfit?.targets?.length > 0) {
-                const isSplit = !!payload.takeProfit.isSplit && payload.takeProfit.targets?.length > 0;
-                const targets = isSplit ? payload.takeProfit.targets : [{ price: payload.takeProfit.price, volume: 100 }];
-                const filledTargets = meta.filledTargets || []; // Array of indices
-
-                // Sort targets by price ascending for BUY trades
-                const sortedTargets = [...targets].sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
-                
-                for (let i = 0; i < sortedTargets.length; i++) {
-                    if (filledTargets.includes(i)) continue;
-
-                    const target = sortedTargets[i];
-                    const tpPrice = parseFloat(target.price);
-                    const isLastTarget = i === sortedTargets.length - 1;
-
-                    // If target reached
-                    if (currentPrice >= tpPrice) {
-                        // Check if trailing applies to THIS target
-                        // Rule: Trailing only applies to the LAST target if multiple exist, or the single target.
-                        const useTrailing = payload.takeProfit.trailing && payload.takeProfit.deviation && isLastTarget;
-
-                        if (useTrailing) {
-                            if (!tpTriggered) {
-                                tpTriggered = true;
-                                meta.tpTriggered = true;
-                                console.log(`[SmartMonitor] Final TP Target reached for ${symbol} @ ${currentPrice}. Trailing active.`);
-                            }
-
-                            const trailExit = newHighest * (1 - Math.abs(payload.takeProfit.deviation) / 100);
-                            if (currentPrice <= trailExit) {
-                                shouldExit = true;
-                                exitReason = `TRAILING TAKE PROFIT HIT @ ${currentPrice} (Peak: ${newHighest})`;
-                            }
-                        } else {
-                            // Immediate Partial or Full Exit
-                            if (isSplit && !isLastTarget) {
-                                console.log(`[SmartMonitor] Split TP Target ${i+1} reached for ${symbol} @ ${currentPrice}. Executing partial sell.`);
-                                // Execute partial sell
-                                const targetVolume = parseFloat(String(target.volume)) / 100;
-                                const originalQty = parseFloat(meta.initialQty || qty); // track initial qty for precise % calculation
-                                const sellQty = originalQty * targetVolume;
-                                
-                                // Safety: Ensure we don't oversell current qty
-                                const safeSellQty = Math.min(sellQty, qty);
-
-                                try {
-                                    await marketSellByQty(user_id, symbol, safeSellQty.toFixed(8).replace(/\.?0+$/, ''));
-                                    filledTargets.push(i);
-                                    meta.filledTargets = filledTargets;
-                                    
-                                    // Update internal Quantity tracking
-                                    const remainingQty = qty - safeSellQty;
-                                    
-                                    // Update the 'qty' in the main order record for consistent display/logic
-                                    await sql`UPDATE orders SET qty = ${remainingQty} WHERE id = ${id}`;
-                                    
-                                    console.log(`[SmartMonitor] Partial sell successful. Remaining: ${remainingQty}`);
-                                    
-                                    // We need to return here to avoid double processing or inconsistent state in this loop
-                                    // The next tick will pick up the new Qty.
-                                    meta.lastUpdate = Date.now();
-                                    await sql`UPDATE orders SET meta = ${JSON.stringify(meta)} WHERE id = ${id}`;
-                                    return; 
-                                } catch (err) {
-                                    console.error(`[SmartMonitor] Partial sell failed for target ${i+1}:`, err);
-                                }
-                            } else {
-                                // Final or Single Target (No Trailing)
-                                shouldExit = true;
-                                exitReason = isSplit ? `FINAL SPLIT TP TARGET HIT @ ${currentPrice}` : `FIXED TAKE PROFIT HIT @ ${currentPrice}`;
-                            }
-                        }
-                    }
-                    
-                    // Only process one target at a time per tick for safety, 
-                    // or break if we found the first un-filled target that isn't hit yet.
-                    if (!filledTargets.includes(i)) break;
-                }
-            }
+            const result = await handlePendingTrade(trade, currentPrice, stateUpdates, meta);
+            if (result.newHighest !== stateUpdates.highestPrice || result.newLowest !== stateUpdates.lowestPrice) isDirty = true;
+            stateUpdates.highestPrice = result.newHighest;
+            stateUpdates.lowestPrice = result.newLowest;
+            shouldExit = result.shouldExit;
+            exitReason = result.exitReason;
+            Object.assign(meta, result.metaUpdates);
+            if (shouldExit) return; 
         } else {
-            // Side === 'SELL' (Cover mode / Short)
-            if (currentPrice < lowestPrice) {
-                newLowest = currentPrice;
-            }
-
-            // A. STOP LOSS (Short)
-            // Check Move to Breakeven for Short
-            let effectiveSLPriceShort = payload.stopLoss?.price ? parseFloat(payload.stopLoss.price) : 0;
-            const filledTargetsForBEShort = meta.filledTargets || [];
-            if (payload.stopLoss?.breakeven && filledTargetsForBEShort.length > 0 && !meta.slMovedToBreakeven) {
-                meta.slMovedToBreakeven = true;
-                effectiveSLPriceShort = entryPrice;
-                console.log(`[SmartMonitor] Move to Breakeven (Short) activated for ${symbol}. SL moved to entry: ${entryPrice}`);
-            } else if (meta.slMovedToBreakeven) {
-                effectiveSLPriceShort = entryPrice;
-            }
-
-            if (payload.stopLoss?.trailing && payload.stopLoss?.deviation) {
-                // 3Commas AEP-based formula for Short: Trail value = AEP × SL%
-                const trailValue = entryPrice * (Math.abs(payload.stopLoss.deviation) / 100);
-                const trailingSLPrice = newLowest + trailValue;
-                const finalSL = Math.min(trailingSLPrice, meta.slMovedToBreakeven ? entryPrice : Infinity);
-                if (currentPrice >= finalSL) {
-                    if (payload.stopLoss.timeout && payload.stopLoss.timeoutSeconds) {
-                        if (!meta.slTimeoutStart) {
-                            meta.slTimeoutStart = Date.now();
-                        } else if (Date.now() - meta.slTimeoutStart >= payload.stopLoss.timeoutSeconds * 1000) {
-                            shouldExit = true;
-                            exitReason = `TRAILING STOP LOSS (SELL) HIT @ ${currentPrice} (after timeout)`;
-                        }
-                    } else {
-                        shouldExit = true;
-                        exitReason = `TRAILING STOP LOSS (SELL) HIT @ ${currentPrice} (AEP Trail: ${trailValue.toFixed(4)})`;
-                    }
-                } else {
-                    if (meta.slTimeoutStart) meta.slTimeoutStart = null;
-                }
-            } else if (effectiveSLPriceShort > 0) {
-                if (currentPrice >= effectiveSLPriceShort) {
-                    if (payload.stopLoss?.timeout && payload.stopLoss?.timeoutSeconds) {
-                        if (!meta.slTimeoutStart) {
-                            meta.slTimeoutStart = Date.now();
-                        } else if (Date.now() - meta.slTimeoutStart >= payload.stopLoss.timeoutSeconds * 1000) {
-                            shouldExit = true;
-                            exitReason = `FIXED STOP LOSS (SELL) HIT @ ${currentPrice} (after timeout)`;
-                        }
-                    } else {
-                        shouldExit = true;
-                        exitReason = `FIXED STOP LOSS (SELL) HIT @ ${currentPrice}`;
-                    }
-                } else {
-                    if (meta.slTimeoutStart) meta.slTimeoutStart = null;
-                }
-            }
-
-            // B. TAKE PROFIT (Short)
-            if (payload.takeProfit?.price || payload.takeProfit?.targets?.length > 0) {
-                const isSplit = !!payload.takeProfit.isSplit && payload.takeProfit.targets?.length > 0;
-                const targets = isSplit ? payload.takeProfit.targets : [{ price: payload.takeProfit.price, volume: 100 }];
-                const filledTargets = meta.filledTargets || [];
-
-                // Sort targets by price descending for SELL (Short) trades
-                const sortedTargets = [...targets].sort((a, b) => parseFloat(b.price) - parseFloat(a.price));
-
-                for (let i = 0; i < sortedTargets.length; i++) {
-                    if (filledTargets.includes(i)) continue;
-
-                    const target = sortedTargets[i];
-                    const tpPrice = parseFloat(target.price);
-                    const isLastTarget = i === sortedTargets.length - 1;
-
-                    // If target reached (price went DOWN)
-                    if (currentPrice <= tpPrice) {
-                        const useTrailing = payload.takeProfit.trailing && payload.takeProfit.deviation && isLastTarget;
-
-                        if (useTrailing) {
-                            if (!tpTriggered) {
-                                tpTriggered = true;
-                                meta.tpTriggered = true;
-                                console.log(`[SmartMonitor] Final TP Target (Short) reached for ${symbol} @ ${currentPrice}. Trailing active.`);
-                            }
-
-                            const trailExit = newLowest * (1 + Math.abs(payload.takeProfit.deviation) / 100);
-                            if (currentPrice >= trailExit) {
-                                shouldExit = true;
-                                exitReason = `TRAILING TAKE PROFIT (SELL) HIT @ ${currentPrice} (Bottom: ${newLowest})`;
-                            }
-                        } else {
-                            if (isSplit && !isLastTarget) {
-                                console.log(`[SmartMonitor] Split TP Target (Short) ${i+1} reached for ${symbol} @ ${currentPrice}. Executing partial buyback.`);
-                                const targetVolume = parseFloat(String(target.volume)) / 100;
-                                const buyQty = qty * targetVolume;
-                                
-                                try {
-                                    const cost = buyQty * currentPrice;
-                                    await marketBuyByQuote(user_id, symbol, cost.toFixed(6));
-                                    filledTargets.push(i);
-                                    meta.filledTargets = filledTargets;
-                                } catch (err) {
-                                    console.error(`[SmartMonitor] Partial buyback failed for target ${i+1}:`, err);
-                                }
-                            } else {
-                                shouldExit = true;
-                                exitReason = isSplit ? `FINAL SPLIT TP TARGET (SHORT) HIT @ ${currentPrice}` : `FIXED TAKE PROFIT (SELL) HIT @ ${currentPrice}`;
-                            }
-                        }
-                    }
-                    if (!filledTargets.includes(i)) break;
-                }
-            }
+            const result = await evaluateActiveTrade(trade, currentPrice, entryPrice, currentQty, stateUpdates, meta);
+            if (result.newHighest !== stateUpdates.highestPrice || result.newLowest !== stateUpdates.lowestPrice || result.newQty !== currentQty || result.tpTriggered !== stateUpdates.tpTriggered) isDirty = true;
+            stateUpdates.highestPrice = result.newHighest;
+            stateUpdates.lowestPrice = result.newLowest;
+            stateUpdates.tpTriggered = result.tpTriggered;
+            shouldExit = result.shouldExit;
+            exitReason = result.exitReason;
+            currentQty = result.newQty;
+            Object.assign(meta, result.metaUpdates);
         }
 
-        // 3. Update Meta & DB
-        meta.highestPrice = newHighest;
-        meta.lowestPrice = newLowest;
-        meta.tpTriggered = tpTriggered;
-        meta.lastAiScore = aiScore;
-        meta.monitorLogs = aiLogs;
-        meta.lastUpdate = Date.now();
-
+        Object.assign(meta, { ...stateUpdates, lastUpdate: Date.now() });
+        
+        // P4.3: Separate Persistence Side-Effects
         if (shouldExit) {
-            console.log(`[SmartMonitor] 🚨 EXIT TRIGGERED for ${symbol}: ${exitReason}`);
-            await executeExit(trade, currentPrice, exitReason);
-        } else {
-            await sql`
-                UPDATE orders 
-                SET meta = ${JSON.stringify(meta)} 
-                WHERE id = ${id}
-            `;
+            await executeExit(trade, currentPrice, exitReason, meta, currentQty);
+        } else if (isDirty) {
+            await saveTradeUpdate(id, currentQty, meta);
         }
 
-    } catch (err) {
-        console.error(`[SmartMonitor] Error processing trade ${id}:`, err);
+    } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await handleMonitorError(id, msg);
     }
+}
+
+function resetRepairState() {
+    isDbRepaired = false;
+    repairPromise = null;
+}
+
+async function handleMonitorError(id: number, msg: string) {
+    if (msg.includes('22P02') || msg.includes('syntax error')) {
+        resetRepairState(); // Standardized reset
+    }
+    
+    const userFriendlyMsg = mapTechnicalError(msg);
+    console.error(`[SmartMonitor] Error for trade ${id}:`, msg);
+    
+    // Log technical error but store user-friendly version in DB
+    await sql`
+        UPDATE orders 
+        SET meta = (jsonb_set(meta::jsonb, '{monitorError}', ${JSON.stringify(userFriendlyMsg)}::jsonb))::text, 
+            updated_at = ${Date.now()}
+        WHERE id = ${id}
+    `;
+}
+
+async function saveTradeUpdate(id: number, qty: number, meta: TradeMeta) {
+    await sql`
+        UPDATE orders 
+        SET qty = ${qty}, 
+            meta = (meta::jsonb || ${JSON.stringify(meta)}::jsonb)::text,
+            updated_at = ${Date.now()}
+        WHERE id = ${id}
+    `;
+}
+
+async function runAiAnalysis(symbol: string, meta: Record<string, unknown>) {
+    const lastAiRun = (meta.lastAiRunAt as number) || 0;
+    if (Date.now() - lastAiRun <= AI_ANALYSIS_INTERVAL) return null;
+
+    try {
+        const klines = await fetchKlines(symbol, '1m', 200);
+        if (klines && klines.length >= 50) {
+            const res = sharedEngine.analyze(klines.map(k=>k.close), klines.map(k=>k.high), klines.map(k=>k.low), klines.map(k=>k.volume), '1m', 'normal');
+            return { aiScore: res.aiScore, aiLogs: [`Trend: ${res.trend}`, `Regime: ${res.regimePrediction}`, `Decision: ${res.systemDecision}`] };
+        }
+    } catch (err) { console.warn(`[SmartMonitor] AI fail ${symbol}:`, err); }
+    return null;
+}
+
+function mapTechnicalError(msg: string): string {
+    const lower = msg.toLowerCase();
+    if (lower.includes('insufficient')) return 'Bakiye Yetersiz';
+    if (lower.includes('mexc') || lower.includes('network')) return 'Borsa Bağlantı Hatası';
+    if (lower.includes('database') || lower.includes('sql')) return 'Sistem Veri Hatası';
+    return msg;
+}
+
+// P4.3: Refactored evaluateActiveTrade into sub-evaluators
+async function evaluateActiveTrade(trade: MonitoredTrade, currentPrice: number, entryPrice: number, qty: number, state: { highestPrice: number; lowestPrice: number; tpTriggered: boolean }, meta: TradeMeta) {
+    const payload = meta.payload || {} as TradePayload;
+    const metaUpdates: Partial<TradeMeta> = {};
+    
+    const newHighest = Math.max(state.highestPrice, currentPrice);
+    const newLowest = Math.min(state.lowestPrice, currentPrice);
+    let shouldExit = false;
+    let exitReason = '';
+    let tpTriggered = state.tpTriggered;
+    let newQty = qty;
+
+    // 1. Evaluate Stop Loss
+    const slResult = evaluateStopLoss(trade.side, currentPrice, entryPrice, newHighest, newLowest, payload, meta);
+    
+    // BUG FIX: Her halükarda State'i güncelle (Timeout sayaçları ve dinamik TSL değerlerinin kaybolmaması için)
+    Object.assign(metaUpdates, slResult.metaUpdates);
+    
+    if (slResult.shouldExit) {
+        exitReason = slResult.reason || 'STOP LOSS';
+        shouldExit = true;
+    }
+
+    // 2. Evaluate Take Profit (only if SL not hit)
+    if (!shouldExit) {
+        const tpResult = evaluateTakeProfit(trade, currentPrice, entryPrice, newQty, newHighest, newLowest, tpTriggered, payload, meta);
+        if (tpResult.shouldExit) {
+            shouldExit = true;
+            exitReason = tpResult.reason;
+        }
+        tpTriggered = tpResult.tpTriggered;
+        newQty = tpResult.newQty;
+        Object.assign(metaUpdates, tpResult.metaUpdates);
+        
+            // P4.4: Execution of partial TP moved to caller (Side-Effect separation)
+            if (tpResult.partialExecution) {
+                 const result = await executePartialTP(trade, currentPrice, newQty, tpResult.partialExecution, meta, metaUpdates, tpTriggered);
+                 newQty = result.newQty;
+                 tpTriggered = result.tpTriggered;
+            }
+        }
+    
+        return { newHighest, newLowest, shouldExit, exitReason, tpTriggered, newQty, metaUpdates };
+    }
+    
+    async function executePartialTP(trade: MonitoredTrade, currentPrice: number, currentQty: number, exec: { qty: number; targetIndex: number }, meta: TradeMeta, metaUpdates: Partial<TradeMeta>, tpTriggered: boolean) {
+        let newQty = currentQty;
+        if (typeof exec.qty !== 'number' || isNaN(exec.qty) || exec.qty <= 0) return { newQty, tpTriggered };
+        try {
+            const isLong = trade.side === 'BUY';
+            const qtyStr = exec.qty.toFixed(8).replace(/\.?0+$/, '');
+            const res = isLong ? await marketSellByQty(trade.user_id, trade.symbol, qtyStr) 
+                               : await marketBuyByQuote(trade.user_id, trade.symbol, (exec.qty * currentPrice).toFixed(6));
+            const executed = parseFloat(res.executedQty || String(exec.qty));
+            newQty -= executed;
+            const filled = (metaUpdates.filledTargets as number[]) || (meta.filledTargets as number[]) || [];
+            if (!filled.includes(exec.targetIndex)) filled.push(exec.targetIndex);
+            metaUpdates.filledTargets = filled;
+        } catch (err) { 
+            console.error(`[Partial TP Fail]`, err); 
+        }
+        return { newQty, tpTriggered };
+    }
+
+function evaluateStopLoss(side: string, currentPrice: number, entryPrice: number, highest: number, lowest: number, payload: TradePayload, meta: TradeMeta) {
+    const isLong = side === 'BUY';
+    const metaUpdates: Partial<TradeMeta> = {};
+    let slPrice = payload.stopLoss?.price ? parseFloat(payload.stopLoss.price) : 0;
+    const filledTargets = (meta.filledTargets as number[]) || [];
+
+    if (payload.stopLoss?.breakeven && filledTargets.length > 0) {
+        slPrice = entryPrice;
+        metaUpdates.slMovedToBreakeven = true;
+    } else if (meta.slMovedToBreakeven) {
+        slPrice = entryPrice;
+    }
+
+    if (payload.stopLoss?.trailing && payload.stopLoss?.deviation) {
+        // Trailing SL is calculated as a percentage deviation from the highest (for Longs) or lowest (for Shorts) price reached.
+        // This ensures the SL updates dynamically as the trade moves in a profitable direction.
+        const devPercent = Math.abs(payload.stopLoss.deviation) / 100;
+        
+        // Sabitlik ilkesi (Monotonicity): TSL seviyesi eski seviyesinden geriye/aşağıya (Long) düşemez.
+        const prevSl = (meta.activeStopLoss as number) || slPrice; 
+        
+        const trailSL = isLong ? (highest * (1 - devPercent)) : (lowest * (1 + devPercent));
+        const finalSL = isLong ? Math.max(trailSL, prevSl) : Math.min(trailSL, prevSl || Infinity);
+        
+        metaUpdates.activeStopLoss = finalSL;
+        
+        const slHit = isLong ? (currentPrice <= finalSL) : (currentPrice >= finalSL);
+        if (slHit) {
+            const timeoutSeconds = payload.stopLoss.timeoutSeconds as number;
+            if (payload.stopLoss.timeout && timeoutSeconds) {
+                if (!meta.slTimeoutStart) {
+                    metaUpdates.slTimeoutStart = Date.now();
+                    return { shouldExit: false, reason: '', metaUpdates };
+                }
+                const slTimeoutStart = meta.slTimeoutStart as number;
+                if (Date.now() - slTimeoutStart >= timeoutSeconds * 1000) {
+                    return { shouldExit: true, reason: `TRAILING SL HIT (Timeout)`, metaUpdates };
+                }
+            } else return { shouldExit: true, reason: `TRAILING SL HIT`, metaUpdates };
+        } else if (meta.slTimeoutStart) {
+            metaUpdates.slTimeoutStart = null;
+        }
+    } else if (slPrice > 0) {
+        metaUpdates.activeStopLoss = slPrice;
+        if (isLong ? (currentPrice <= slPrice) : (currentPrice >= slPrice)) {
+            return { shouldExit: true, reason: `FIXED SL HIT`, metaUpdates };
+        }
+    }
+    return { shouldExit: false, reason: '', metaUpdates };
+}
+
+function evaluateTakeProfit(trade: MonitoredTrade, currentPrice: number, entryPrice: number, qty: number, highest: number, lowest: number, triggered: boolean, payload: TradePayload, meta: TradeMeta) {
+    const side = trade.side as string;
+    const isLong = side === 'BUY';
+    const metaUpdates: Partial<TradeMeta> = {};
+    let tpTriggered = triggered;
+    const newQty = qty;
+
+    if (!payload.takeProfit?.price && !payload.takeProfit?.targets?.length) return { shouldExit: false, reason: '', tpTriggered, newQty, metaUpdates };
+
+    const targets = (payload.takeProfit.isSplit && payload.takeProfit.targets) ? payload.takeProfit.targets : [{ price: payload.takeProfit.price, volume: '100' }];
+    const sorted = [...targets].sort((a,b) => isLong ? (parseFloat(a.price) - parseFloat(b.price)) : (parseFloat(b.price) - parseFloat(a.price)));
+    const filledTargets = (meta.filledTargets as number[]) || [];
+
+    for (let i = 0; i < sorted.length; i++) {
+        if (filledTargets.includes(i)) continue;
+        const target = sorted[i];
+        const tpPrice = parseFloat(target.price);
+        const isLast = i === sorted.length - 1;
+
+        if (isLong ? (currentPrice >= tpPrice) : (currentPrice <= tpPrice)) {
+            if (payload.takeProfit.trailing && payload.takeProfit.deviation && isLast) {
+                if (!tpTriggered) tpTriggered = metaUpdates.tpTriggered = true;
+                const trailExit = isLong ? (highest * (1 - payload.takeProfit.deviation/100)) : (lowest * (1 + payload.takeProfit.deviation/100));
+                metaUpdates.activeTakeProfit = trailExit;
+                if (isLong ? (currentPrice <= trailExit) : (currentPrice >= trailExit)) {
+                    return { shouldExit: true, reason: `TRAILING TP HIT`, tpTriggered, newQty, metaUpdates };
+                }
+            } else if (payload.takeProfit.isSplit && !isLast) {
+                const sellQty = Math.min(parseFloat(meta.initialQty || String(qty)) * (parseFloat(String(target.volume)) / 100), newQty);
+                // P4.4: Return Execution Instruction instead of performing it
+                return { 
+                    shouldExit: false, 
+                    reason: '', 
+                    tpTriggered, 
+                    newQty, 
+                    metaUpdates, 
+                    partialExecution: { qty: sellQty, targetIndex: i } 
+                };
+            } else return { shouldExit: true, reason: `TAKE PROFIT HIT`, tpTriggered, newQty, metaUpdates };
+        } else break;
+    }
+    return { shouldExit: false, reason: '', tpTriggered, newQty, metaUpdates };
+}
+
+async function handlePendingTrade(trade: MonitoredTrade, currentPrice: number, state: { highestPrice: number; lowestPrice: number }, meta: TradeMeta) {
+    const { side, price: entryPrice } = trade;
+    const payload = meta.payload || {} as TradePayload;
+    const targetEntry = parseFloat(payload.buyPrice) || entryPrice;
+    const isTrailing = !!payload.trailingBuy;
+    const dev = (payload.trailingBuyDev as number) || 1.0;
+    
+    let entryTriggered = meta.entryTriggered || false;
+    let newHighest = state.highestPrice;
+    let newLowest = state.lowestPrice;
+    let shouldExit = false;
+    let exitReason = '';
+    const metaUpdates: Partial<TradeMeta> = {};
+
+    if (side === 'BUY') newLowest = Math.min(newLowest, currentPrice);
+    else newHighest = Math.max(newHighest, currentPrice);
+    
+    if (!entryTriggered) {
+        if ((side === 'BUY' && currentPrice <= targetEntry) || (side === 'SELL' && currentPrice >= targetEntry)) {
+            // SLIPPAGE GUARD (Validation Window): 
+            // If the price is already > 2% beyond our target entry during the first trigger detection,
+            // it's a "fast gap". We wait for the next cycle to avoid a bad market entry.
+            const slippage = Math.abs(currentPrice - targetEntry) / targetEntry;
+            if (slippage > 0.02) {
+                console.warn(`[SmartMonitor] Slippage Guard: Price gap detected for trade ${trade.id} (${(slippage*100).toFixed(2)}%). Waiting for stability.`);
+                metaUpdates.monitorError = 'VOLATILITY_GAP_PROTECTION';
+                return { newHighest, newLowest, shouldExit: false, exitReason: '', metaUpdates };
+            }
+
+            entryTriggered = true;
+            if (!isTrailing) {
+                shouldExit = true;
+                exitReason = side === 'BUY' ? 'LIMIT ENTRY REACHED' : 'LIMIT ENTRY REACHED (SHORT)';
+            } else {
+                if (side === 'BUY') newLowest = currentPrice; else newHighest = currentPrice;
+            }
+        }
+    }
+
+    if (entryTriggered && isTrailing) {
+        if (side === 'BUY' && currentPrice >= newLowest * (1 + dev/100)) {
+            shouldExit = true;
+            exitReason = `TRAILING BUY EXECUTED @ ${currentPrice}`;
+        } else if (side === 'SELL' && currentPrice <= newHighest * (1 - dev/100)) {
+            shouldExit = true;
+            exitReason = `TRAILING SHORT ENTRY EXECUTED @ ${currentPrice}`;
+        }
+    }
+
+    metaUpdates.entryTriggered = entryTriggered;
+    if (shouldExit) await executeEntry(trade, currentPrice, exitReason);
+    return { newHighest, newLowest, shouldExit, exitReason, metaUpdates };
 }
 
 async function executeEntry(trade: MonitoredTrade, currentPrice: number, reason: string) {
-    const { id, user_id, symbol, qty, meta: rawMeta } = trade;
-    const meta = typeof rawMeta === 'string' ? JSON.parse(rawMeta) : rawMeta;
-    
-    try {
-        // Execute real market buy using our quote amount logic
-        const quoteAmount = qty * currentPrice;
-        // Round quote amount to standard precision
-        
-        // Use userId to get their specific mode/keys
-        const result = await marketBuyByQuote(user_id, symbol, quoteAmount.toFixed(6));
-        
-        // Calculate real average price from fill data
-        let avgPrice = currentPrice;
-        if (result?.cummulativeQuoteQty && result?.executedQty && parseFloat(result.executedQty) > 0) {
-            avgPrice = parseFloat(result.cummulativeQuoteQty) / parseFloat(result.executedQty);
-        } else if (result?.price) {
-            avgPrice = parseFloat(result.price);
-        }
-
-        await sql`
-            UPDATE orders 
-            SET status = 'FILLED',
-                price = ${avgPrice},
-                meta = ${JSON.stringify({ 
-                    ...meta, 
-                    entryReason: reason, 
-                    entryResult: result, 
-                    highestPrice: avgPrice, 
-                    lowestPrice: avgPrice, 
-                    filledAt: Date.now() 
-                })} 
-            WHERE id = ${id}
-        `;
-        
-        console.log(`[SmartMonitor] Successfully entered trade ${id} for ${symbol} @ ${avgPrice}`);
-    } catch (err) {
-        console.error(`[SmartMonitor] Failed to execute entry for ${symbol}:`, err);
-    }
-}
-
-async function executeExit(trade: MonitoredTrade, currentPrice: number, reason: string) {
-    const { id, user_id, symbol, side, qty, meta: rawMeta } = trade;
-    const meta = typeof rawMeta === 'string' ? JSON.parse(rawMeta) : rawMeta;
-    
+    const { id, user_id, symbol, qty: rawQty, meta } = trade;
+    const side = trade.side as string;
+    const qty = Number(rawQty);
     try {
         let result;
-        if (side === 'BUY') {
-            // Sell to close: Round quantity to avoid MEXC precision rejection
-            const sellQty = parseFloat(String(qty)).toFixed(8).replace(/\.?0+$/, '');
-            result = await marketSellByQty(user_id, symbol, sellQty);
-        } else {
-            // Buy back to close
-            const cost = qty * currentPrice;
-            result = await marketBuyByQuote(user_id, symbol, cost.toFixed(6));
-        }
-
-        // Calculate real exit price from the fill result
-        let realExitPrice = currentPrice;
-        if (result?.cummulativeQuoteQty && result?.executedQty && parseFloat(result.executedQty) > 0) {
-            realExitPrice = parseFloat(result.cummulativeQuoteQty) / parseFloat(result.executedQty);
-        } else if (result?.price) {
-            realExitPrice = parseFloat(result.price);
-        }
-
-        await sql`
-            UPDATE orders 
-            SET status = 'CLOSED', 
-                meta = ${JSON.stringify({ ...meta, exitReason: reason, exitResult: result, exitPrice: realExitPrice, closedAt: Date.now() })} 
-            WHERE id = ${id}
-        `;
+        let avgPrice = currentPrice;
+        if (side === 'BUY') result = await marketBuyByQuote(user_id, symbol, (qty * currentPrice).toFixed(6));
+        else result = await marketSellByQty(user_id, symbol, qty.toFixed(8).replace(/\.?0+$/, ''));
         
-        console.log(`[SmartMonitor] Successfully closed trade ${id} for ${symbol}`);
-    } catch (err) {
-        console.error(`[SmartMonitor] Failed to execute exit for ${symbol}:`, err);
-    }
+        if (result?.cummulativeQuoteQty && result?.executedQty && parseFloat(result.executedQty) > 0) {
+            avgPrice = parseFloat(result.cummulativeQuoteQty) / parseFloat(result.executedQty);
+        }
+        await sql`UPDATE orders SET status = 'FILLED', price = ${avgPrice}, updated_at = ${Date.now()}, meta = ${JSON.stringify({...meta, entryReason: reason, entryResult: result, highestPrice: avgPrice, lowestPrice: avgPrice, filledAt: Date.now()})} WHERE id = ${id}`;
+    } catch (err) { console.error(`[Entry Error]`, err); }
+}
+
+async function executeExit(trade: MonitoredTrade, currentPrice: number, reason: string, meta: TradeMeta, currentQty: number) {
+    const { id, user_id, symbol, side } = trade;
+    try {
+        let result;
+        if (side === 'BUY') result = await marketSellByQty(user_id, symbol, currentQty.toFixed(8).replace(/\.?0+$/, ''));
+        else result = await marketBuyByQuote(user_id, symbol, (currentQty * currentPrice).toFixed(6));
+
+        let realExitPrice = currentPrice;
+        let executedQty = currentQty;
+
+        if (result?.cummulativeQuoteQty && result?.executedQty && parseFloat(result.executedQty) > 0) {
+            executedQty = parseFloat(result.executedQty);
+            realExitPrice = parseFloat(result.cummulativeQuoteQty) / executedQty;
+        }
+
+        await sql`UPDATE orders SET status = 'CLOSED', updated_at = ${Date.now()}, meta = ${JSON.stringify({...meta, exitReason: reason, exitResult: result, exitPrice: realExitPrice, executedQty, closedAt: Date.now()})} WHERE id = ${id}`;
+    } catch (err) { console.error(`[Exit Error]`, err); throw err; }
 }

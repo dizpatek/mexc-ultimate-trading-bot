@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { getSessionUser } from '@/lib/auth-utils';
 import { executePanicSell } from '@/lib/panic-service';
+import { type TradingMode } from '@/lib/mexc-wrapper';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,7 +13,10 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        const result = await executePanicSell(user.id);
+        const cookieStore = await cookies();
+        const mode = cookieStore.get('TRADING_MODE')?.value as TradingMode || 'test';
+
+        const result = await executePanicSell(user.id, mode);
 
         if (!result.success) {
             return NextResponse.json({

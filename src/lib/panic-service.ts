@@ -1,6 +1,7 @@
 // Last Updated: 2026-01-24T02:23:00+03:00
 import { sql } from '@vercel/postgres';
-import { getAccountInfo, marketSellByQty, getTradingMode } from '@/lib/mexc-wrapper';
+import { getAccountInfo, marketSellByQty, getTradingMode, type TradingMode } from '@/lib/mexc-wrapper';
+import { normalizeSymbol } from '@/lib/symbol-utils';
 
 interface SellResult {
     asset: string;
@@ -10,28 +11,31 @@ interface SellResult {
     error?: string;
 }
 
-export async function executePanicSell(userId: string) {
+export async function executePanicSell(userId: string | number, forcedMode?: TradingMode) {
     try {
-        const tradingMode = await getTradingMode(Number(userId));
+        const tradingMode = forcedMode || await getTradingMode(Number(userId));
         console.log(`[PanicService] Initiating Panic Sell for user ${userId} in ${tradingMode.toUpperCase()} mode`);
 
         // Get all current balances (works in both test and production mode)
-        const accountInfo = await getAccountInfo(Number(userId));
+        const accountInfo = await getAccountInfo(Number(userId), tradingMode);
+        console.log(`[PanicService] Total balances found: ${accountInfo.balances.length}`);
 
         // Filter assets: >0 balance and not USDT/USDC
-        const activeBalances = accountInfo.balances.filter(
-            b => {
+        const activeBalances = (accountInfo.balances || []).filter(
+            (b: { asset: string; free: string; locked: string }) => {
                 const total = parseFloat(b.free) + parseFloat(b.locked);
-                return total > 0 && b.asset !== 'USDT' && b.asset !== 'USDC';
+                const isTradable = total > 0 && b.asset !== 'USDT' && b.asset !== 'USDC';
+                if (isTradable) console.log(`[PanicService] Tradable asset found: ${b.asset} (${total})`);
+                return isTradable;
             }
         );
 
         if (activeBalances.length === 0) {
-            console.log('[PanicService] No active assets to sell');
+            console.log('[PanicService] No active assets to sell. Balances were:', JSON.stringify(accountInfo.balances));
             return { success: false, message: 'No assets to sell', totalUsdtValue: 0, mode: tradingMode };
         }
 
-        const snapshotData: unknown[] = [];
+        const snapshotData: any[] = [];
         const sellResults: SellResult[] = [];
         let totalUsdtValue = 0;
 
@@ -40,19 +44,23 @@ export async function executePanicSell(userId: string) {
             const asset = balance.asset;
             const quantity = parseFloat(balance.free);
 
-            if (quantity <= 0) continue;
+            if (quantity <= 0) {
+                console.log(`[PanicService] Skipping ${asset} due to 0 free balance (locked: ${balance.locked})`);
+                continue;
+            }
 
             try {
-                const symbol = `${asset}USDT`;
-                // Check if symbol exists/is tradable? Assuming mostly yes for major assets
-                // In a perfect world we check exchangeInfo
+                const symbol = normalizeSymbol(asset);
+                console.log(`[PanicService] Selling ${quantity} ${asset} as ${symbol}...`);
 
-                const sellResult = await marketSellByQty(Number(userId), symbol, String(quantity));
+                const sellResult: any = await marketSellByQty(Number(userId), symbol, String(quantity), tradingMode);
+                console.log(`[PanicService] ${asset} Sell Result:`, JSON.stringify(sellResult));
 
-                const usdtReceived = parseFloat(sellResult.cummulativeQuoteQty || '0');
+                // Simulation uses executedQuote, production uses cummulativeQuoteQty
+                const usdtReceived = parseFloat(sellResult.cummulativeQuoteQty || sellResult.executedQuote || '0');
                 totalUsdtValue += usdtReceived;
 
-                console.log(`[PanicService] Sold ${asset}: +${usdtReceived} USDT`);
+                console.log(`[PanicService] Sold ${asset}: +${usdtReceived} USDT (Mode: ${tradingMode}, Total: ${totalUsdtValue})`);
 
                 snapshotData.push({
                     asset,
@@ -80,17 +88,18 @@ export async function executePanicSell(userId: string) {
             }
         }
 
-        // Save snapshot to database
+        console.log(`[PanicService] Panic Sell Cycle Complete. Total USDT Received: ${totalUsdtValue}`);
+
+        // Save snapshot to database (Snapshots track what was sold, regardless of mode)
         try {
             const timestamp = Date.now();
             await sql`
                 INSERT INTO panic_snapshots (user_id, snapshot_data, total_usdt_value, created_at)
-                VALUES (${userId}, ${JSON.stringify(snapshotData)}, ${totalUsdtValue}, ${timestamp})
+                VALUES (${Number(userId)}, ${JSON.stringify(snapshotData)}, ${totalUsdtValue}, ${timestamp})
             `;
             console.log(`[PanicService] Snapshot saved for user ${userId}`);
         } catch (dbError) {
             console.error('[PanicService] Failed to save snapshot:', dbError);
-            // Don't fail the whole operation if DB write fails, but log it
         }
 
         return {

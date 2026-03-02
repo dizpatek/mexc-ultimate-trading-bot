@@ -1,0 +1,63 @@
+{
+  "tech_stack": [
+    "TypeScript",
+    "JavaScript",
+    "Next.js",
+    "React",
+    "Vercel Postgres (SQL)",
+    "Tailwind CSS",
+    "Lucide React"
+  ],
+  "features": [
+    {
+      "name": "Smart Trade Execution",
+      "description": "Handles the entry and setup of automated trading strategies including market/limit buys and sells.",
+      "files": [
+        "src/lib/smart-trade.ts"
+      ]
+    },
+    {
+      "name": "Smart Trade Monitoring",
+      "description": "Continuous background monitoring of active trades for TP/SL levels, trailing mechanisms, and AI analysis.",
+      "files": [
+        "src/lib/smart-trade-monitor.ts"
+      ]
+    },
+    {
+      "name": "Smart Trade UI",
+      "description": "The main user interface for configuring and submitting smart trades with TP/SL and trailing options.",
+      "files": [
+        "src/components/SmartTrade.tsx"
+      ]
+    },
+    {
+      "name": "Active Trades Dashboard",
+      "description": "Displays and manages current open smart trades with real-time status and PNL updates.",
+      "files": [
+        "src/components/ActiveSmartTrades.tsx"
+      ]
+    },
+    {
+      "name": "Database Abstraction",
+      "description": "Unified interface for interacting with the trade data, user configs, and history.",
+      "files": [
+        "src/lib/db.ts"
+      ]
+    },
+    {
+      "name": "MEXC Exchange Integration",
+      "description": "Wrapper around MEXC V3 API for order execution and market data retrieval.",
+      "files": [
+        "src/lib/mexc-wrapper.ts",
+        "src/lib/mexc.ts"
+      ]
+    },
+    {
+      "name": "Matrix v3 AI Engine",
+      "description": "Trend prediction and market regime analysis engine.",
+      "files": [
+        "src/lib/matrix-v3-engine.ts"
+      ]
+    }
+  ]
+}

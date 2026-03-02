@@ -14,7 +14,16 @@ export async function GET(request: Request) {
     try {
         // Verify cron secret (security)
         const authHeader = request.headers.get('authorization');
-        const expectedAuth = `Bearer ${process.env.CRON_SECRET || 'dev-secret'}`;
+        // Use 'dev-secret' ONLY in non-production environments for local testing
+        const isDev = process.env.NODE_ENV !== 'production';
+        const cronSecret = process.env.CRON_SECRET || (isDev ? 'dev-secret' : null);
+        
+        if (!cronSecret) {
+            console.error('[Cron] CRON_SECRET is not configured. Aborting snapshot.');
+            return NextResponse.json({ error: 'Configuration Error' }, { status: 500 });
+        }
+        
+        const expectedAuth = `Bearer ${cronSecret}`;
 
         if (authHeader !== expectedAuth) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -22,10 +31,10 @@ export async function GET(request: Request) {
 
         console.log('[Cron] Starting portfolio snapshot...');
 
-        // Get account info (cron uses system-wide mode, no specific user)
-        const accountInfo = await getAccountInfo();
-        const activeBalances = accountInfo.balances.filter(
-            b => parseFloat(b.free) + parseFloat(b.locked) > 0
+        // Get account info (cron uses user 1 as default)
+        const accountInfo = await getAccountInfo(1);
+        const activeBalances = (accountInfo.balances || []).filter(
+            (b: { free: string; locked: string }) => parseFloat(b.free) + parseFloat(b.locked) > 0
         );
 
         let totalValue = 0;
@@ -68,6 +77,10 @@ export async function GET(request: Request) {
                 });
             }
         }
+        // P3.1: TODO: Add a mechanism to identify and handle delisted or untradeable assets gracefully.
+        // P4.1: TODO: Implement a more robust error handling for price fetching, possibly with retries or fallback sources.
+        // P4.2: TODO: Consider adding a cache for price data to reduce API calls and improve performance.
+        // P4.3: TODO: Evaluate the impact of parallelizing price fetching for all active balances.
 
         // Create snapshot
         const snapshotId = await createPortfolioSnapshot(

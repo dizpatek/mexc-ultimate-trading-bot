@@ -6,7 +6,7 @@ import { getMexcCredentials } from './settings';
 
 const BASE = 'https://api.mexc.com';
 
-const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+const httpsAgent = new https.Agent({ rejectUnauthorized: true });
 
 async function getEnv(userId: number) {
     const { apiKey, apiSecret } = await getMexcCredentials(userId, 'production');
@@ -21,7 +21,7 @@ function sign(totalParams: string, secret: string): string {
     return crypto.createHmac('sha256', secret).update(totalParams).digest('hex');
 }
 
-async function fetchWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
+async function fetchWithRetry<T>(fn: () => Promise<T>, retries = 2, delay = 500): Promise<T> {
     let lastError: unknown;
     for (let i = 0; i < retries; i++) {
         try {
@@ -39,7 +39,7 @@ async function fetchWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 1000
     throw lastError;
 }
 
-async function publicGet<T>(endpoint: string, params: Record<string, string | number | boolean> = {}, timeout = 10000): Promise<T> {
+async function publicGet<T>(endpoint: string, params: Record<string, string | number | boolean> = {}, timeout = 8000): Promise<T> {
     const url = `${BASE}${endpoint}`;
     const execute = async () => {
         const res = await axios.get(url, { params, timeout, httpsAgent });
@@ -62,28 +62,52 @@ async function publicGet<T>(endpoint: string, params: Record<string, string | nu
     }
 }
 
+let serverTimeOffset = 0;
+let lastSync = 0;
+
+async function syncTime() {
+    if (Date.now() - lastSync < 3600000) return; // Sync once an hour
+    try {
+        const { serverTime } = await getServerTime();
+        serverTimeOffset = serverTime - Date.now();
+        lastSync = Date.now();
+        console.log(`[MEXC] Time synced. Offset: ${serverTimeOffset}ms`);
+    } catch (e) {
+        console.warn('[MEXC] Failed to sync time:', e);
+    }
+}
+
 async function signedGet<T>(endpoint: string, userId: number, params: Record<string, string | number | boolean> = {}, timeout = 10000): Promise<T | null> {
     const { apiKey, apiSecret } = await getEnv(userId);
+    
+    const execute = async () => {
+        await syncTime();
+        const timestamp = Date.now() + serverTimeOffset;
+        const recvWindow = 60000;
+        const queryParams = { ...params, timestamp, recvWindow };
+        const queryString = qs.stringify(queryParams, { encode: false });
+        const signature = sign(queryString, apiSecret);
+        const url = `${BASE}${endpoint}?${queryString}&signature=${signature}`;
 
-    const timestamp = Date.now();
-    const recvWindow = 60000; // Increased to 60s
-    const queryParams = { ...params, timestamp, recvWindow };
-    const queryString = qs.stringify(queryParams, { encode: false });
-    const signature = sign(queryString, apiSecret);
-    const url = `${BASE}${endpoint}?${queryString}&signature=${signature}`;
-
-    try {
         const res = await axios.get(url, {
             headers: { 'X-MEXC-APIKEY': apiKey },
             timeout,
             httpsAgent
         });
         return res.data;
+    };
+
+    try {
+        return await execute();
     } catch (err: unknown) {
         if (axios.isAxiosError(err)) {
-            console.error(`Signed GET ${endpoint} error:`, err.response?.data || err.message);
-        } else {
-            console.error(`Signed GET ${endpoint} error:`, err);
+            const data = err.response?.data;
+            if (data && data.code === 700003) {
+                 console.error('[MEXC] Timestamp drift detected (700003). Re-syncing and retrying...');
+                 lastSync = 0; // Force sync
+                 return await execute(); // Transparent retry
+            }
+            console.error(`Signed GET ${endpoint} error:`, data || err.message);
         }
         throw err;
     }
@@ -214,6 +238,24 @@ export interface MexcOrder {
     origQuoteOrderQty: string;
 }
 
+export interface OrderResult {
+    symbol: string;
+    orderId: string;
+    id?: string;
+    orderListId: number;
+    clientOrderId: string;
+    transactTime: number;
+    price: string;
+    origQty: string;
+    executedQty: string;
+    cummulativeQuoteQty: string;
+    status: string;
+    timeInForce: string;
+    type: string;
+    side: string;
+    fills?: { price: string; qty: string; commission: string; commissionAsset: string }[];
+}
+
 export async function getAccountInfo(userId: number) {
     const res = await signedGet<AccountInfo>('/api/v3/account', userId);
     return res as AccountInfo;
@@ -307,9 +349,23 @@ export async function getKlines(symbol: string, interval: string = '1h', limit: 
     return publicGet<(string | number)[][]>('/api/v3/klines', params);
 }
 
+// ─── KLINES IN-MEMORY CACHE ──────────────────────────────────────────────────
+interface KlineCache {
+    data: { time: number | string; open: number; high: number; low: number; close: number; volume: number; }[];
+    expiresAt: number;
+}
+const klinesCache = new Map<string, KlineCache>();
+const KLINES_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 export async function fetchKlines(symbol: string, interval: string = '1h', limit: number = 500) {
+    const cacheKey = `${symbol}:${interval}:${limit}`;
+    const cached = klinesCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+        return cached.data;
+    }
+
     const raw = await getKlines(symbol, interval, limit);
-    return raw.map(k => ({
+    const data = raw.map(k => ({
         time: k[0],
         open: parseFloat(k[1] as string),
         high: parseFloat(k[2] as string),
@@ -317,9 +373,11 @@ export async function fetchKlines(symbol: string, interval: string = '1h', limit
         close: parseFloat(k[4] as string),
         volume: parseFloat(k[5] as string)
     }));
+    klinesCache.set(cacheKey, { data, expiresAt: Date.now() + KLINES_CACHE_TTL });
+    return data;
 }
 
-export async function postOrder(userId: number, params: Record<string, string | number | boolean> = {}) {
+export async function postOrder(userId: number, params: Record<string, string | number | boolean> = {}): Promise<OrderResult> {
     const { apiKey, apiSecret } = await getEnv(userId);
 
     const timestamp = Date.now();
@@ -344,7 +402,7 @@ export async function postOrder(userId: number, params: Record<string, string | 
         const res = await axios.post(url, {}, { 
             headers,
             timeout: 10000,
-            httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+            httpsAgent: new https.Agent({ rejectUnauthorized: true }),
         });
         return res.data;
     } catch (error: unknown) {
@@ -366,7 +424,7 @@ export async function postOrder(userId: number, params: Record<string, string | 
     }
 }
 
-export async function marketBuyByQuote(userId: number, pair: string, quoteAmount: string) {
+export async function marketBuyByQuote(userId: number, pair: string, quoteAmount: string): Promise<OrderResult> {
     return postOrder(userId, {
         symbol: pair,
         side: 'BUY',
@@ -375,7 +433,7 @@ export async function marketBuyByQuote(userId: number, pair: string, quoteAmount
     });
 }
 
-export async function marketSellByQty(userId: number, pair: string, quantity: string) {
+export async function marketSellByQty(userId: number, pair: string, quantity: string): Promise<OrderResult> {
     return postOrder(userId, {
         symbol: pair,
         side: 'SELL',

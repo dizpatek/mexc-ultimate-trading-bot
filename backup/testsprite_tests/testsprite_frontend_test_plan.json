@@ -1,0 +1,110 @@
+[
+  {
+    "id": "TC_TBY",
+    "title": "Trailing Buy (TBY) Test",
+    "description": "Configure a trade with Trailing Buy enabled and verify submission.",
+    "category": "Trading Features",
+    "priority": "High",
+    "steps": [
+      { "type": "action", "description": "Navigate to /" },
+      { "type": "action", "description": "Click on 'Trailing Buy' toggle" },
+      { "type": "action", "description": "Type '1.5' into Trailing Buy deviation field" },
+      { "type": "action", "description": "Click 'Execute Order'" },
+      { "type": "assertion", "description": "Verify 'SmartTrade başarıyla oluşturuldu!' or 'Success' matches" }
+    ]
+  },
+  {
+    "id": "TC_TTP",
+    "title": "Trailing Take Profit (TTP) Test",
+    "description": "Enable Trailing Take Profit on a trade.",
+    "category": "Trading Features",
+    "priority": "High",
+    "steps": [
+      { "type": "action", "description": "Navigate to /" },
+      { "type": "action", "description": "Click on 'Trailing TP' toggle" },
+      { "type": "action", "description": "Type '1' into TP deviation field" },
+      { "type": "action", "description": "Click 'Execute Order'" },
+      { "type": "assertion", "description": "Verify 'Success' message" }
+    ]
+  },
+  {
+    "id": "TC_TSL",
+    "title": "Trailing Stop Loss (TSL) Test",
+    "description": "Enable Trailing Stop Loss on a trade.",
+    "category": "Trading Features",
+    "priority": "High",
+    "steps": [
+      { "type": "action", "description": "Navigate to /" },
+      { "type": "action", "description": "Click on 'Trailing SL' toggle" },
+      { "type": "action", "description": "Type '1' into SL deviation field" },
+      { "type": "action", "description": "Click 'Execute Order'" },
+      { "type": "assertion", "description": "Verify 'Success' message" }
+    ]
+  },
+  {
+    "id": "TC_COVER",
+    "title": "Smart Cover Test",
+    "description": "Switch to COVER mode and verify submission.",
+    "category": "Trading Features",
+    "priority": "High",
+    "steps": [
+      { "type": "action", "description": "Navigate to /" },
+      { "type": "action", "description": "Click on 'Cover' mode button" },
+      { "type": "action", "description": "Click 'Execute Order'" },
+      { "type": "assertion", "description": "Verify 'Success' message" }
+    ]
+  },
+  {
+    "id": "TC_FLASH",
+    "title": "Flash Open Test",
+    "description": "Verify quick market entry or Flash Open functionality.",
+    "category": "Trading Features",
+    "priority": "High",
+    "steps": [
+      { "type": "action", "description": "Navigate to /" },
+      { "type": "action", "description": "Click on 'Flash Open' or equivalent quick buy button" },
+      { "type": "assertion", "description": "Verify success toast" }
+    ]
+  },
+  {
+    "id": "TC_BE",
+    "title": "Breakeven Test",
+    "description": "Verify 'Move to Breakeven' option in SL configuration.",
+    "category": "Trading Features",
+    "priority": "High",
+    "steps": [
+      { "type": "action", "description": "Navigate to /" },
+      { "type": "action", "description": "Click on 'Move to Breakeven' checkbox in SL section" },
+      { "type": "action", "description": "Click 'Execute Order'" },
+      { "type": "assertion", "description": "Verify success toast" }
+    ]
+  },
+  {
+    "id": "TC_SPLIT",
+    "title": "Split TP Test",
+    "description": "Configure multiple TP targets.",
+    "category": "Trading Features",
+    "priority": "High",
+    "steps": [
+      { "type": "action", "description": "Navigate to /" },
+      { "type": "action", "description": "Click on 'Split TP' toggle" },
+      { "type": "action", "description": "Click 'Add Target' button" },
+      { "type": "action", "description": "Set prices and volumes for targets" },
+      { "type": "action", "description": "Click 'Execute Order'" },
+      { "type": "assertion", "description": "Verify success toast" }
+    ]
+  },
+  {
+    "id": "TC_TIMEOUT",
+    "title": "Timeout SL Test",
+    "description": "Configure SL Timeout (wick protection).",
+    "category": "Trading Features",
+    "priority": "High",
+    "steps": [
+      { "type": "action", "description": "Navigate to /" },
+      { "type": "action", "description": "Click on 'SL Timeout' toggle in SL section" },
+      { "type": "action", "description": "Click 'Execute Order'" },
+      { "type": "assertion", "description": "Verify success toast" }
+    ]
+  }
+]

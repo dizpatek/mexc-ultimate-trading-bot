@@ -11,7 +11,7 @@ export async function GET(request: Request) {
 
     const openOrders = await getOpenOrders(user.id);
 
-    const orders = (openOrders || []).map((order, index) => {
+    const orders = (openOrders as any[] || []).map((order: any, index: number) => {
       // Handle both MexcOrder and SimulatedOrder types
       const price = typeof order.price === 'number' ? order.price : parseFloat(String(order.price || '0'));
       const qty = 'origQty' in order ? parseFloat(order.origQty || '0') : ('quantity' in order ? (order.quantity as number) : 0);

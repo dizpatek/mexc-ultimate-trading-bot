@@ -4,11 +4,12 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, ColorType, LineStyle, CandlestickSeries, LineSeries, HistogramSeries, BaselineSeries } from 'lightweight-charts';
 import type { IChartApi, ISeriesApi, IPriceLine, Time, MouseEventParams, LogicalRange } from 'lightweight-charts';
 import { fetchKlines } from '@/services/api';
-import { Target } from 'lucide-react';
+import { Target, ChevronLeft, ChevronRight } from 'lucide-react';
 import { AssetIcon } from '@/components/AssetIcon';
 import { core } from '@/services/ApiCore';
 import { cn } from '@/lib/utils';
 import type { Holding } from '@/services/api';
+import { useModuleTimeframe } from '@/context/TimeframeContext';
 
 
 interface SmartChartProps {
@@ -34,6 +35,9 @@ interface SmartChartProps {
     trailingSlDev?: number;
     assets?: Holding[];
     onAssetChange?: (asset: Holding) => void;
+    potentialEntry?: number;
+    compact?: boolean;
+    isEditingExisting?: boolean;
 }
 
 interface CandleData {
@@ -54,15 +58,9 @@ interface RawCandle {
 }
 
 const TIMEFRAMES = [
-    { label: '1m', value: '1m' },
-    { label: '5m', value: '5m' },
     { label: '15m', value: '15m' },
-    { label: '30m', value: '30m' },
     { label: '1h', value: '1h' },
     { label: '4h', value: '4h' },
-    { label: '12h', value: '12h' },
-    { label: '1d', value: '1d' },
-    { label: '1w', value: '1w' },
 ];
 
 const TIMEFRAME_SECONDS: Record<string, number> = {
@@ -102,9 +100,14 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     trailingSlDev = -1.0,
     assets = [],
     onAssetChange,
+    potentialEntry,
+    compact = false,
+    isEditingExisting = false,
 }) => {
     const chartContainerRef = useRef<HTMLDivElement>(null);
     const chartRef = useRef<IChartApi | null>(null);
+    const assetScrollRef = useRef<HTMLDivElement>(null);
+    const scrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
     const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
     const ghostSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
@@ -119,8 +122,24 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     const allKlinesRef = useRef<CandleData[]>([]);
     const allVolumeRef = useRef<{ time: Time; value: number; color: string }[]>([]);
     const isHistoryLoadingRef = useRef(false);
-    const [timeframe, setTimeframe] = useState('1h');
+    const [timeframe, setTimeframe] = useModuleTimeframe('1h');
     const isUpdatingOverlaysRef = useRef(false);
+
+    const startScroll = (direction: 'left' | 'right') => {
+        if (scrollIntervalRef.current) return;
+        scrollIntervalRef.current = setInterval(() => {
+            if (assetScrollRef.current) {
+                assetScrollRef.current.scrollLeft += direction === 'left' ? -8 : 8;
+            }
+        }, 16);
+    };
+
+    const stopScroll = () => {
+        if (scrollIntervalRef.current) {
+            clearInterval(scrollIntervalRef.current);
+            scrollIntervalRef.current = null;
+        }
+    };
 
 
 
@@ -136,7 +155,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
 
     // Forces the chart to include all trade levels in the visible area
     const focusOnPrices = useCallback(() => {
-        if (!chartRef.current || !seriesRef.current || !ghostSeriesRef.current) return;
+        if (!chartRef.current || !seriesRef.current || !ghostSeriesRef.current || !isChartReady) return;
         
         const b = propsRef.current.buyPrice;
         const t = propsRef.current.tpPrice;
@@ -156,21 +175,31 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                 const timestamp2 = timeFrom + (timeTo - timeFrom) / 2;
                 const timestamp3 = timeTo;
 
-                ghostSeriesRef.current.setData([
-                    { time: timestamp1 as Time, value: Math.min(b, te ? t : b, se ? s : b) * 0.999 },
-                    { time: timestamp2 as Time, value: Math.max(b, te ? t : b, se ? s : b) * 1.001 },
-                    { time: timestamp3 as Time, value: b }
-                ]);
+                const safeB = isNaN(b) ? 0 : b;
+                const minV = Math.min(safeB, te && !isNaN(t) ? t : safeB, se && !isNaN(s) ? s : safeB) * 0.999;
+                const maxV = Math.max(safeB, te && !isNaN(t) ? t : safeB, se && !isNaN(s) ? s : safeB) * 1.001;
+
+                if (!isNaN(minV) && !isNaN(maxV) && minV > 0) {
+                    ghostSeriesRef.current.setData([
+                        { time: timestamp1 as Time, value: minV },
+                        { time: timestamp2 as Time, value: maxV },
+                        { time: timestamp3 as Time, value: safeB }
+                    ]);
+                }
             }
         }
 
         if (chartRef.current) {
             chartRef.current.priceScale('right').applyOptions({ autoScale: true });
         }
-    }, []);
+    }, [isChartReady]);
 
     // Refs for price lines
     const currentPriceLineRef = useRef<IPriceLine | null>(null);
+    const buyPriceLineRef = useRef<IPriceLine | null>(null);
+    const tpPriceLineRef = useRef<IPriceLine | null>(null);
+    const slPriceLineRef = useRef<IPriceLine | null>(null);
+    const potentialEntryLineRef = useRef<IPriceLine | null>(null);
     const tpFillRef = useRef<ISeriesApi<"Baseline"> | null>(null);
     const slFillRef = useRef<ISeriesApi<"Baseline"> | null>(null);
 
@@ -212,7 +241,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
             layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#94a3b8' },
             grid: { vertLines: { color: 'rgba(30, 41, 59, 0.3)' }, horzLines: { color: 'rgba(30, 41, 59, 0.3)' } },
             width: container.clientWidth || 800,
-            height: 500,
+            height: compact ? (container.clientHeight || 250) : 500,
             timeScale: { borderColor: '#1e293b', timeVisible: true },
             rightPriceScale: { borderColor: '#1e293b', autoScale: true },
             crosshair: {
@@ -248,13 +277,26 @@ export const SmartChart: React.FC<SmartChartProps> = ({
 
         const handleResize = () => {
             if (chartRef.current && chartContainerRef.current) {
-                chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
+                chartRef.current.applyOptions({ 
+                    width: chartContainerRef.current.clientWidth,
+                    height: chartContainerRef.current.clientHeight || (compact ? 250 : 500) 
+                });
             }
         };
+
+        const robserver = new ResizeObserver(() => {
+            handleResize();
+        });
+
+        if (chartContainerRef.current) {
+            robserver.observe(chartContainerRef.current);
+        }
+
         window.addEventListener('resize', handleResize);
 
         return () => {
             window.removeEventListener('resize', handleResize);
+            robserver.disconnect();
             if (chartRef.current) {
                 chartRef.current.remove();
                 chartRef.current = null;
@@ -285,12 +327,13 @@ export const SmartChart: React.FC<SmartChartProps> = ({
         const updateSeriesData = (newKlines: CandleData[], newVolume: { time: Time; value: number; color: string }[], mode: 'reset' | 'update' | 'prepend' = 'reset') => {
             if (!seriesRef.current || !volumeSeriesRef.current || !isChartReady) return;
             
-            const toSeconds = (t: Time): number => {
-                if (typeof t === 'number') return t;
-                if (typeof t === 'string') return Number(t);
-                if (t && typeof t === 'object' && 'timestamp' in t) return (t as { timestamp: number }).timestamp;
-                return 0;
-            };
+        const toSeconds = (t: Time): number => {
+            if (t === null || t === undefined) return 0;
+            if (typeof t === 'number') return t;
+            if (typeof t === 'string') return Number(t) || 0;
+            if (typeof t === 'object' && 'timestamp' in t) return (t as { timestamp: number }).timestamp;
+            return 0;
+        };
 
             const sanitize = <T extends { time: Time }>(data: T[]): T[] => {
                 return data.filter(d => {
@@ -383,6 +426,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
         };
 
         const fetchData = async (shouldFocus = false) => {
+            if (!isMounted) return;
             if (shouldFocus) {
                 setIsLoading(true);
                 setError(null);
@@ -395,25 +439,27 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                 if (!isMounted) return;
 
                 if (!data || !Array.isArray(data) || data.length === 0) {
-                    setError(`Veri bulunamadı: ${apiSymbol}`);
+                    if (shouldFocus) setError(`Veri bulunamadı: ${apiSymbol}`);
                     return;
                 }
 
-                const validData: CandleData[] = (data as RawCandle[])
-                    .filter((d): d is RawCandle => !!(d && d.time !== undefined))
-                    .map(d => ({
+                // Double check data validity before mapping
+                interface RawCandleLocal { time: string | number; open: string | number; high: string | number; low: string | number; close: string | number; volume?: string | number; }
+                const validRaw = (data as RawCandleLocal[]).filter(d => d && (typeof d.time === 'number' || typeof d.time === 'string'));
+
+                const validData: CandleData[] = validRaw.map(d => ({
                         time: d.time as Time,
-                        open: Number(d.open),
-                        high: Number(d.high),
-                        low: Number(d.low),
-                        close: Number(d.close),
+                        open: Number(d.open) || 0,
+                        high: Number(d.high) || 0,
+                        low: Number(d.low) || 0,
+                        close: Number(d.close) || 0,
                     }));
                 
-                const volumeData = (data as RawCandle[])
-                    .filter((d): d is RawCandle => !!(d && d.time !== undefined && d.volume !== undefined))
+                const volumeData = validRaw
+                    .filter(d => d.volume !== undefined)
                     .map(d => ({
                         time: d.time as Time,
-                        value: Number(d.volume || 0),
+                        value: Number(d.volume || 0) || 0,
                         color: Number(d.close) >= Number(d.open) ? 'rgba(16,185,129,0.25)' : 'rgba(244,63,94,0.25)',
                     }));
 
@@ -423,7 +469,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                 if (allKlinesRef.current.length > 0) {
                     const latest = allKlinesRef.current[allKlinesRef.current.length - 1];
                     const price = latest.close;
-                    if (price > 0) {
+                    if (price > 0 && !isNaN(price)) {
                         setLastClose(price);
                         if (onMarketPriceUpdate) onMarketPriceUpdate(price);
                         if (shouldFocus) focusOnPrices();
@@ -595,16 +641,16 @@ export const SmartChart: React.FC<SmartChartProps> = ({
         try {
             const series = seriesRef.current;
             const chart = chartRef.current;
-            const buy = localPricesRef.current.buy;
-            const tp = localPricesRef.current.tp;
-            const sl = localPricesRef.current.sl;
+            const buy = Number(localPricesRef.current.buy);
+            const tp = Number(localPricesRef.current.tp);
+            const sl = Number(localPricesRef.current.sl);
             
-            if (typeof buy !== 'number' || isNaN(buy)) return;
+            if (isNaN(buy) || buy <= 0) return;
 
             // 1. Sync Labels (React side)
             const buyCoord = series.priceToCoordinate(buy);
-            const tpCoord = (tpEnabled && typeof tp === 'number') ? series.priceToCoordinate(tp) : null;
-            const slCoord = (slEnabled && typeof sl === 'number') ? series.priceToCoordinate(sl) : null;
+            const tpCoord = (tpEnabled && !isNaN(tp) && tp > 0) ? series.priceToCoordinate(tp) : null;
+            const slCoord = (slEnabled && !isNaN(sl) && sl > 0) ? series.priceToCoordinate(sl) : null;
 
             const newCoords = {
                 buy: buyCoord ?? undefined,
@@ -622,28 +668,36 @@ export const SmartChart: React.FC<SmartChartProps> = ({
             if (range && range.from && range.to) {
                 // Stabilization: conversion logic for numeric and object timestamps
                 const toSecs = (t: Time): number => {
+                    if (t === null || t === undefined) return 0;
                     if (typeof t === 'number') return t;
-                    if (t && typeof t === 'object' && 'timestamp' in t) return (t as { timestamp: number }).timestamp;
+                    if (typeof t === 'string') {
+                        const n = Number(t);
+                        return isNaN(n) ? 0 : n;
+                    }
+                    if (typeof t === 'object' && 'timestamp' in t) return (t as { timestamp: number }).timestamp;
                     return 0;
                 };
 
                 const fromNum = toSecs(range.from);
                 const toNum = toSecs(range.to);
                 
-                if (isNaN(fromNum) || isNaN(toNum) || fromNum === 0) return;
+                // CRITICAL: Lightweight-charts will CRASH if we pass timestamps that are <= 0 or NaN
+                if (!fromNum || !toNum || isNaN(fromNum) || isNaN(toNum) || fromNum <= 0 || toNum <= 0) return;
 
                 const tStart = (fromNum - 10000) as Time;
-                const tEnd = (toNum + 10000) as Time;
+                const tEnd = (toNum + 20000) as Time;
 
-                if (tpFillRef.current && tpEnabled) {
+                if (tpFillRef.current && tpEnabled && !isNaN(tp) && tp > 0) {
                     tpFillRef.current.applyOptions({ baseValue: { type: 'price', price: buy } });
                     tpFillRef.current.setData([{ time: tStart, value: tp }, { time: tEnd, value: tp }]);
                 }
-                if (slFillRef.current && slEnabled) {
+                if (slFillRef.current && slEnabled && !isNaN(sl) && sl > 0) {
                     slFillRef.current.applyOptions({ baseValue: { type: 'price', price: buy } });
                     slFillRef.current.setData([{ time: tStart, value: sl }, { time: tEnd, value: sl }]);
                 }
             }
+        } catch (e) {
+            console.error('[SmartChart] Overlay Error:', e);
         } finally {
             isUpdatingOverlaysRef.current = false;
         }
@@ -653,39 +707,55 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     useEffect(() => {
         if (!isChartReady || !chartRef.current) return;
         const chart = chartRef.current;
-        const handleScaleChange = () => refreshChartOverlays();
+        const handleScaleChange = () => {
+            refreshChartOverlays();
+            focusOnPrices();
+        };
         chart.timeScale().subscribeVisibleLogicalRangeChange(handleScaleChange);
         return () => chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleScaleChange);
-    }, [isChartReady, refreshChartOverlays]);
+    }, [isChartReady, refreshChartOverlays, focusOnPrices]);
 
     // Update markers and trigger overlay refresh on price changes
     useEffect(() => {
         if (!seriesRef.current || !isChartReady) return;
         const series = seriesRef.current;
 
-        const updateMarkerLine = (lineRef: React.MutableRefObject<IPriceLine | null>, price: number, color: string, title: string, enabled: boolean, style: number = LineStyle.Solid) => {
+        const updateMarkerLine = (lineRef: React.MutableRefObject<IPriceLine | null>, price: number, color: string, title: string, enabled: boolean, style: number = LineStyle.Solid, axisLabelVisible: boolean = true) => {
             if (!enabled || price <= 0) {
                 if (lineRef.current) { series.removePriceLine(lineRef.current); lineRef.current = null; }
                 return;
             }
             if (lineRef.current) {
-                lineRef.current.applyOptions({ price, color, lineStyle: style, title });
+                lineRef.current.applyOptions({ price, color, lineStyle: style, title, axisLabelVisible });
             } else {
-                lineRef.current = series.createPriceLine({ price, color, lineWidth: 2, lineStyle: style, axisLabelVisible: true, title });
+                lineRef.current = series.createPriceLine({ price, color, lineWidth: 2, lineStyle: style, axisLabelVisible, title });
             }
         };
 
-        // Current market price marker
-        updateMarkerLine(currentPriceLineRef, currentPrice, '#fbbf24', 'Fiyat', true, LineStyle.Dashed);
+        // Standard Static/Trigger Markers
+        updateMarkerLine(currentPriceLineRef, currentPrice, '#fbbf24', '', true, LineStyle.Dashed, false);
+        
+        const isCover = mode === 'COVER';
+        updateMarkerLine(buyPriceLineRef, localPrices.buy, isCover ? '#10b981' : '#06b6d2', '', !isEditingExisting);
+        updateMarkerLine(tpPriceLineRef, localPrices.tp, '#10b981', '', tpEnabled);
+        updateMarkerLine(slPriceLineRef, localPrices.sl, '#f43f5e', '', slEnabled);
+        
+        // Potential Entry Marker (Visualization of Trailing)
+        updateMarkerLine(potentialEntryLineRef, potentialEntry || 0, isCover ? '#10b981' : '#06b6d2', '', !!potentialEntry, LineStyle.LargeDashed, false);
 
         // Manage Profit/Risk Area Series Lifecycle
         const chart = chartRef.current!;
-        if (tpEnabled && localPrices.tp > localPrices.buy) {
+        const isTpProfit = isCover ? localPrices.tp < localPrices.buy : localPrices.tp > localPrices.buy;
+        const isSlRisk = isCover ? localPrices.sl > localPrices.buy : localPrices.sl < localPrices.buy;
+
+        if (tpEnabled && isTpProfit) {
             if (!tpFillRef.current) {
                 tpFillRef.current = chart.addSeries(BaselineSeries, {
                     baseValue: { type: 'price', price: localPrices.buy },
-                    topFillColor1: 'rgba(16, 185, 129, 0.15)', topFillColor2: 'rgba(16, 185, 129, 0.05)',
-                    bottomFillColor1: 'transparent', bottomFillColor2: 'transparent',
+                    topFillColor1: isCover ? 'transparent' : 'rgba(16, 185, 129, 0.15)', 
+                    topFillColor2: isCover ? 'transparent' : 'rgba(16, 185, 129, 0.05)',
+                    bottomFillColor1: isCover ? 'rgba(16, 185, 129, 0.15)' : 'transparent', 
+                    bottomFillColor2: isCover ? 'rgba(16, 185, 129, 0.05)' : 'transparent',
                     lineVisible: false, lastValueVisible: false, priceLineVisible: false, autoscaleInfoProvider: () => null
                 });
             }
@@ -694,12 +764,14 @@ export const SmartChart: React.FC<SmartChartProps> = ({
             tpFillRef.current = null;
         }
 
-        if (slEnabled && localPrices.sl < localPrices.buy) {
+        if (slEnabled && isSlRisk) {
             if (!slFillRef.current) {
                 slFillRef.current = chart.addSeries(BaselineSeries, {
                     baseValue: { type: 'price', price: localPrices.buy },
-                    topFillColor1: 'transparent', topFillColor2: 'transparent',
-                    bottomFillColor1: 'rgba(244, 63, 94, 0.15)', bottomFillColor2: 'rgba(244, 63, 94, 0.05)',
+                    topFillColor1: isCover ? 'rgba(244, 63, 94, 0.15)' : 'transparent', 
+                    topFillColor2: isCover ? 'rgba(244, 63, 94, 0.05)' : 'transparent',
+                    bottomFillColor1: isCover ? 'transparent' : 'rgba(244, 63, 94, 0.15)', 
+                    bottomFillColor2: isCover ? 'transparent' : 'rgba(244, 63, 94, 0.05)',
                     lineVisible: false, lastValueVisible: false, priceLineVisible: false, autoscaleInfoProvider: () => null
                 });
             }
@@ -709,7 +781,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
         }
 
         refreshChartOverlays();
-    }, [isChartReady, tpEnabled, slEnabled, currentPrice, localPrices.buy, localPrices.tp, localPrices.sl, refreshChartOverlays]);
+    }, [isChartReady, tpEnabled, slEnabled, currentPrice, localPrices.buy, localPrices.tp, localPrices.sl, refreshChartOverlays, mode, potentialEntry]);
 
     // Optimize Dragging
     useEffect(() => {
@@ -721,7 +793,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
             if (!param.point) return;
             const { buyPrice: b, tpPrice: t, slPrice: s, tpEnabled: te, slEnabled: se } = propsRef.current;
             const dist = (p: number) => Math.abs(param.point!.y - (series.priceToCoordinate(p) || 0));
-            if (dist(b) < 30) setDraggingLine('buy');
+            if (!isEditingExisting && dist(b) < 30) setDraggingLine('buy');
             else if (te && dist(t) < 30) setDraggingLine('tp');
             else if (se && dist(s) < 30) setDraggingLine('sl');
         };
@@ -782,11 +854,12 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     };
 
     return (
-        <div className="w-full space-y-4 select-none">
+        <div className={cn("w-full select-none", compact ? "space-y-0" : "space-y-1")}>
             {/* Chart Header: Price and Timeframe */}
-            <div className="flex items-end justify-between px-1">
-                {/* Current Price Indicator */}
-                <div className="flex items-center gap-6">
+            {!compact && (
+                <div className="flex items-end gap-4 w-full px-1 overflow-hidden">
+                {/* Current Price Indicator & Assets List */}
+                <div className="flex-1 flex items-center gap-4 min-w-0">
                     {currentPrice > 0 ? (
                         <div className="flex items-center gap-3 pr-6 border-r border-slate-800/50">
                             <div className="relative group/asset">
@@ -812,41 +885,68 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                     )}
 
                     {/* Active Assets Horizontal Scroll */}
-                    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar max-w-[50vw]">
-                        {assets.map((asset) => (
-                            <button
-                                key={asset.id}
-                                onClick={() => onAssetChange?.(asset)}
-                                className={cn(
-                                    "flex items-center gap-3 p-1.5 pr-4 rounded-xl border transition-all relative group h-[44px] min-w-fit",
-                                    symbol.split('/')[0] === asset.symbol 
-                                        ? "bg-cyan-500/10 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.1)]" 
-                                        : "bg-slate-900/40 border-slate-800/50 hover:border-slate-700 hover:bg-slate-800/50"
-                                )}
-                            >
-                                <div className="relative">
-                                    <AssetIcon symbol={asset.symbol} size={28} />
-                                    {symbol.startsWith(asset.symbol) && (
-                                        <div className="absolute -top-1 -right-1">
-                                            <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee]" />
-                                        </div>
+                    <div className="flex-1 flex items-center gap-1 relative group/scroll-container overflow-hidden min-w-0">
+                        {/* Hover Scroll Arrows - Left */}
+                        <div 
+                            onMouseEnter={() => startScroll('left')}
+                            onMouseLeave={stopScroll}
+                            className="absolute left-0 top-0 bottom-0 w-10 z-20 flex items-center justify-start bg-gradient-to-r from-[#020617] via-[#020617]/80 to-transparent cursor-pointer opacity-0 group-hover/scroll-container:opacity-100 transition-opacity duration-300"
+                        >
+                            <div className="w-6 h-6 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center backdrop-blur-sm ml-1 hover:bg-cyan-500/20 transition-colors">
+                                <ChevronLeft className="w-4 h-4 text-cyan-400" />
+                            </div>
+                        </div>
+
+                        {/* Scroll Container */}
+                        <div 
+                            ref={assetScrollRef}
+                            className="flex-1 flex items-center gap-2 overflow-x-auto no-scrollbar scroll-smooth px-2 min-w-0"
+                        >
+                            {assets.map((asset) => (
+                                <button
+                                    key={asset.id}
+                                    onClick={() => onAssetChange?.(asset)}
+                                    className={cn(
+                                        "flex items-center gap-3 p-1.5 pr-4 rounded-xl border transition-all relative group h-[44px] min-w-fit flex-shrink-0",
+                                        symbol.split('/')[0] === asset.symbol 
+                                            ? "bg-cyan-500/10 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.1)]" 
+                                            : "bg-slate-900/40 border-slate-800/50 hover:border-slate-700 hover:bg-slate-800/50"
                                     )}
-                                </div>
-                                <div className="flex flex-col items-start">
-                                    <div className="text-[10px] font-black text-white leading-none mb-1">{asset.symbol}</div>
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">{asset.holding.toFixed(asset.holding < 1 ? 4 : 2)}</span>
-                                        <span className="text-[9px] font-black text-emerald-400 font-mono group-hover:block hidden">${asset.price.toLocaleString()}</span>
+                                >
+                                    <div className="relative">
+                                        <AssetIcon symbol={asset.symbol} size={28} />
+                                        {symbol.startsWith(asset.symbol) && (
+                                            <div className="absolute -top-1 -right-1">
+                                                <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee]" />
+                                            </div>
+                                        )}
                                     </div>
-                                </div>
-                            </button>
-                        ))}
+                                    <div className="flex flex-col items-start">
+                                        <div className="text-[10px] font-black text-white leading-none mb-1">{asset.symbol}</div>
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">{asset.holding.toFixed(asset.holding < 1 ? 4 : 2)}</span>
+                                            <span className="text-[9px] font-black text-emerald-400 font-mono group-hover:block hidden">${asset.price.toLocaleString()}</span>
+                                        </div>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Hover Scroll Arrows - Right */}
+                        <div 
+                            onMouseEnter={() => startScroll('right')}
+                            onMouseLeave={stopScroll}
+                            className="absolute right-0 top-0 bottom-0 w-10 z-20 flex items-center justify-end bg-gradient-to-l from-[#020617] via-[#020617]/80 to-transparent cursor-pointer opacity-0 group-hover/scroll-container:opacity-100 transition-opacity duration-300"
+                        >
+                            <div className="w-6 h-6 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center backdrop-blur-sm mr-1 hover:bg-cyan-500/20 transition-colors">
+                                <ChevronRight className="w-4 h-4 text-cyan-400" />
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                {/* Timeframe Selector Moved Outside */}
-                <div className="flex flex-col items-end">
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Zaman Dilimi</span>
+                {/* Timeframe Selector & Focus */}
+                <div className="flex flex-row items-center flex-shrink-0 gap-3">
                     <div className="flex gap-1 p-1 bg-slate-900/40 backdrop-blur-md border border-slate-800/50 rounded-xl">
                         {TIMEFRAMES.map((tf) => (
                             <button
@@ -863,12 +963,22 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                             </button>
                         ))}
                     </div>
+                    <button 
+                        onClick={focusOnPrices} 
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/40 border border-slate-800/50 text-[9px] font-black text-cyan-400 hover:bg-cyan-400/10 hover:border-cyan-400/30 transition-all backdrop-blur-md group/focus"
+                    >
+                        <Target className="w-3 h-3 group-hover/focus:scale-125 transition-transform" />
+                        ODAKLA (FİYATA HİZALA)
+                    </button>
                 </div>
             </div>
+            )}
 
             <div className="relative group/chart">
-
-            <div ref={chartContainerRef} className="w-full h-[500px] bg-slate-950/20 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl" />
+                <div ref={chartContainerRef} className={cn(
+                    "w-full bg-slate-950/20 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl transition-all",
+                    compact ? "h-[250px]" : "h-[500px]"
+                )} />
             {syncError && allKlinesRef.current.length > 0 && (
                 <div className="absolute top-4 right-4 z-30 px-3 py-1 bg-rose-500/20 border border-rose-500/40 backdrop-blur-md rounded-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
                     <div className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
@@ -906,6 +1016,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
             <div className="absolute inset-0 pointer-events-none overflow-hidden z-20">
                 {Object.entries(lineCoords).map(([key, coord]) => {
                     if (coord === undefined) return null;
+                    if (key === 'buy' && isEditingExisting) return null;
                     
                     let label = '';
                     if (key === 'buy') label = mode === 'TRADE' ? 'Giriş (Al)' : 'Giriş (Sat)';
@@ -913,7 +1024,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                     else label = 'Stop';
                     
                     // Append trailing indicator suffix with deviation
-                    if (key === 'buy' && trailingBuy) label += ` ⟐TB ${trailingBuyDev.toFixed(1)}%`;
+                    if (key === 'buy' && trailingBuy) label += ` ⟐TBY ${trailingBuyDev.toFixed(1)}%`;
                     else if (key === 'tp' && trailingTp) label += ` ⟐TTP ${Math.abs(trailingTpDev).toFixed(1)}%`;
                     else if (key === 'sl' && trailingSl) label += ` ⟐TSL ${Math.abs(trailingSlDev).toFixed(1)}%`;
 
@@ -925,6 +1036,8 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                     const isTrailing = key === 'buy' ? trailingBuy : key === 'tp' ? trailingTp : trailingSl;
                     const onToggleTrailing = key === 'buy' ? onTrailingBuyChange : key === 'tp' ? onTrailingTpChange : onTrailingSlChange;
 
+                    const isDisabledBuy = key === 'buy' && isEditingExisting;
+                    
                     return (
                         <div key={key} className="absolute inset-x-0 transition-all duration-150" style={{ top: Math.max(20, Math.min(480, coord)) }}>
                             {/* Full-width dashed horizontal line */}
@@ -933,11 +1046,16 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                             <div className="absolute left-4 -translate-y-1/2 flex items-center gap-1.5 pointer-events-auto">
                                 {/* Drag Handle + Label */}
                                 <div 
-                                    onMouseDown={(e) => { e.preventDefault(); setDraggingLine(key as 'buy' | 'tp' | 'sl'); }}
-                                    className={`flex items-center ${bgColor} rounded-lg shadow-xl ${bgGlow} cursor-ns-resize hover:scale-105 transition-transform active:scale-95`}
+                                    onMouseDown={(e) => { if (!isDisabledBuy) { e.preventDefault(); setDraggingLine(key as 'buy' | 'tp' | 'sl'); }}}
+                                    className={`flex items-center ${bgColor} rounded-lg shadow-xl ${bgGlow} ${isDisabledBuy ? 'opacity-50 cursor-not-allowed' : 'cursor-ns-resize hover:scale-105'} transition-transform active:scale-95`}
                                 >
-                                    <div className="px-2 py-1 text-[9px] font-black text-white/90 uppercase border-r border-white/20">{label}</div>
+                                    {/* <div className="px-2 py-1 text-[9px] font-black text-white/90 uppercase border-r border-white/20">{label}</div> */}
                                     <div className="px-2 py-1 text-[10px] font-bold text-white font-mono tracking-tighter">{price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}</div>
+                                    {isDisabledBuy && (
+                                        <div className="px-1.5 py-0.5 bg-slate-800 rounded text-[8px] font-black text-slate-400 ml-1" title="Fiyat değiştirilemez">
+                                            🔒
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* % Distance Badge */}
@@ -966,22 +1084,11 @@ export const SmartChart: React.FC<SmartChartProps> = ({
 
             </div>
 
-            {/* Chart Footer: Focus Button */}
-            <div className="flex items-center justify-between px-1">
-                <div className="flex items-center gap-2">
-                    <button 
-                        onClick={focusOnPrices} 
-                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900/40 border border-slate-800/50 text-[10px] font-black text-cyan-400 hover:bg-cyan-400/10 hover:border-cyan-400/30 transition-all backdrop-blur-md group/focus"
-                    >
-                        <Target className="w-4 h-4 group-hover/focus:scale-125 transition-transform" />
-                        ODAKLA (FİYATA HIZALA)
-                    </button>
-
-                </div>
-                
-                <div className="text-[9px] font-bold text-slate-600 uppercase tracking-widest flex items-center gap-2 pr-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-slate-800" />
-                    Matrix Pro Trading Engine v3.0
+            {/* Chart Footer: Engine Version Only */}
+            <div className="flex items-center justify-end px-1 mt-1">
+                <div className="text-[8px] font-bold text-slate-700 uppercase tracking-widest flex items-center gap-1 pr-1">
+                    <div className="w-1 h-1 rounded-full bg-slate-800" />
+                    Matrix Engine v3.0
                 </div>
             </div>
         </div>

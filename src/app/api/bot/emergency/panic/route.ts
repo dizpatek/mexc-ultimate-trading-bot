@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth-utils';
-import { getHoldings, type HoldingItem } from '@/lib/mexc-wrapper';
-import { handleSellSignal } from '@/lib/trade';
+import { executePanicSell } from '@/lib/panic-service';
+import { TradingMode } from '@/lib/mexc-wrapper';
+import { cookies } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,43 +13,22 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        console.log('EMERGENCY: Panic Sell triggered by user');
+        console.log(`[EmergencyAPI] Panic Sell triggered for user ${user.id}`);
         
-        // 1. Get all holdings
-        const holdings = await getHoldings();
-        const assetsToSell = holdings.filter((h: HoldingItem) => 
-            h.symbol !== 'USDT' && 
-            h.symbol !== 'USDC' && 
-            h.holding > 0
-        );
+        // Retrieve trading mode from cookies for consistency with other routes
+        const cookieStore = await cookies();
+        const mode = (cookieStore.get('TRADING_MODE')?.value as TradingMode) || 'test';
 
-        if (assetsToSell.length === 0) {
-            return NextResponse.json({ success: true, message: 'No assets to sell.' });
+        const result = await executePanicSell(user.id, mode);
+
+        if (!result.success && result.message === 'No assets to sell') {
+             return NextResponse.json({ success: true, message: 'No assets to sell.' });
         }
 
-        // 2. Execute market sell for each asset
-        const results = await Promise.all(assetsToSell.map(async (asset: HoldingItem) => {
-            try {
-                const pair = `${asset.symbol}USDT`;
-                const res = await handleSellSignal({
-                    pair,
-                    percent: 100 // Sell everything
-                });
-                return { symbol: asset.symbol, success: res.ok !== false, message: res.message || 'Sold' };
-            } catch (err: unknown) {
-                const errorMessage = err instanceof Error ? err.message : String(err);
-                return { symbol: asset.symbol, success: false, error: errorMessage };
-            }
-        }));
-
-        return NextResponse.json({ 
-            success: true, 
-            message: `Panic sell completed for ${assetsToSell.length} assets`,
-            results 
-        });
+        return NextResponse.json(result);
 
     } catch (error: unknown) {
-        console.error('Panic Sell Error:', error);
-        return NextResponse.json({ error: 'Panic sell failed' }, { status: 500 });
+        console.error('[EmergencyAPI] Panic Sell Critical Error:', error);
+        return NextResponse.json({ error: 'Panic sell failed', detail: error instanceof Error ? error.message : String(error) }, { status: 500 });
     }
 }

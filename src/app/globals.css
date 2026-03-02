@@ -148,3 +148,49 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Matrix Logo Animations */
+@keyframes matrix-dash {
+  to {
+    stroke-dashoffset: 200;
+  }
+}
+.animate-matrix-dash {
+  stroke-dasharray: 20;
+  stroke-dashoffset: 0;
+  animation: matrix-dash 10s linear infinite;
+}
+
+@keyframes matrix-scan {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.5;
+  }
+  80% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: translateY(80px);
+    opacity: 0;
+  }
+}
+.animate-matrix-scan {
+  animation: matrix-scan 3s ease-in-out infinite;
+}
+
+@keyframes stripeMove {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 100% 100%;
+  }
+}
+
+.animate-stripes {
+  background-size: 200% 200%;
+  animation: stripeMove 60s linear infinite;
+}

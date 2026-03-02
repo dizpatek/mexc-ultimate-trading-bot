@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, memo, useCallback, useRef } from 'react';
-import { Activity, Globe, LogIn, Cookie, RefreshCw, AlertCircle, CheckCircle, ExternalLink } from 'lucide-react';
+import { Activity, Globe, LogIn, Cookie, RefreshCw, AlertCircle, CheckCircle, ExternalLink, List } from 'lucide-react';
+import { CryptoRankWatchlist } from './CryptoRankWatchlist';
 
 // Type definitions
 interface LoginStatus {
@@ -57,7 +58,11 @@ function loadStoredLoginStatus(): LoginStatus | null {
     return null;
 }
 
-function TradingViewWidget() {
+interface TradingViewWidgetProps {
+    symbol?: string;
+}
+
+function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
     const containerId = 'tv-widget-portfolio-chart';
     
     // Load initial states from localStorage
@@ -227,7 +232,7 @@ function TradingViewWidget() {
              if (typeof window.TradingView !== 'undefined') {
                 new window.TradingView.widget({
                     autosize: true,
-                    symbol: "MEXC:BTCUSDT",
+                    symbol: symbol.includes(':') ? symbol : `MEXC:${symbol}`,
                     interval: "60",
                     timezone: "Etc/UTC",
                     theme: "dark",
@@ -287,7 +292,7 @@ function TradingViewWidget() {
                 return () => clearInterval(checkInterval);
             }
         }
-    }, [isWebMode]);
+    }, [isWebMode, symbol]);
 
     // Check login status after popup closes
     const checkLoginAfterPopup = useCallback(async () => {
@@ -394,12 +399,12 @@ function TradingViewWidget() {
     }, [showMessage]);
 
     return (
-        <div className="h-full w-full flex flex-col bg-slate-950 border border-slate-800 rounded-xl overflow-hidden shadow-2xl relative">
+        <div className="h-full w-full flex flex-col bg-slate-950 border border-slate-800 rounded-t-xl overflow-hidden shadow-2xl relative">
             {/* Header/Toolbar */}
-            <div className="flex items-center justify-between px-3 py-2 bg-slate-900 border-b border-slate-800 z-50">
+            <div className="flex items-center justify-between px-3 py-1 bg-slate-900 border-b border-slate-800 z-50 rounded-t-xl">
                 <div className="flex items-center gap-3">
                     <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-black tracking-widest text-slate-500 uppercase">Pro Chart V3</span>
+                        <span className="text-[10px] font-black tracking-widest text-slate-500 uppercase">PortfolioChart</span>
                         {extensionChecked && !extensionInstalled && (
                             <div 
                                 onClick={() => setShowLoginModal(true)}
@@ -465,6 +470,16 @@ function TradingViewWidget() {
                             <ExternalLink className="w-4 h-4" />
                         </button>
 
+                        <button 
+                            onClick={() => window.open('https://cryptorank.io/watchlist/4f7effbd40d4', '_blank')}
+                            className="h-8 px-3 rounded flex items-center gap-2 transition-all border text-[10px] font-bold bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700"
+                            title="CryptoRank Watchlist"
+                        >
+                            <List className="w-3.5 h-3.5" />
+                            <span>Watchlist</span>
+                            <ExternalLink className="w-3 h-3" />
+                        </button>
+
                         {loginStatus?.isLoggedIn ? (
                             <button
                                 onClick={handleLogout}
@@ -487,17 +502,17 @@ function TradingViewWidget() {
             </div>
 
             {/* Chart Area */}
-            <div className="flex-1 w-full bg-[#020617] relative overflow-hidden">
+            <div className="flex-1 w-full bg-[#020617] relative overflow-hidden flex flex-col">
                 {isWebMode ? (
                     <iframe 
-                        src="https://www.tradingview.com/chart/?symbol=MEXC:BTCUSDT&theme=dark"
-                        className="w-full h-full border-0"
+                        src={`https://www.tradingview.com/chart/?symbol=MEXC:${symbol}&theme=dark`}
+                        className="w-full h-full border-0 flex-1"
                         allowFullScreen
                         title="TradingView Pro Web"
                         sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-top-navigation"
                     />
                 ) : (
-                    <div id={containerId} className="h-full w-full" />
+                    <div id={containerId} className="h-full w-full flex-1" />
                 )}
 
                 {/* Overlays */}

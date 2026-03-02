@@ -27,15 +27,15 @@ export async function GET(request: Request) {
         console.log(`[PortfolioSummary] Fetching for user ${user.id} in ${mode} mode`);
 
         const accountInfo = await getAccountInfo(user.id, mode);
-        const activeBalances = accountInfo.balances.filter(
-            b => parseFloat(b.free) + parseFloat(b.locked) > 0
+        const activeBalances = (accountInfo.balances || []).filter(
+            (b: { free: string; locked: string }) => parseFloat(b.free) + parseFloat(b.locked) > 0
         );
 
         let totalValueCurrent = 0;
         let totalChangeUsdt = 0;
         let assetsCount = 0;
 
-        const assetResults = await Promise.all(activeBalances.map(async (balance) => {
+        const assetResults = await Promise.all(activeBalances.map(async (balance: { asset: string; free: string; locked: string }) => {
             const sym = balance.asset;
             const totalQty = parseFloat(balance.free) + parseFloat(balance.locked);
             let price = 0;

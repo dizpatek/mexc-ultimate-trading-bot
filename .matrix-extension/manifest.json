@@ -1,14 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Matrix Pro Bridge",
-  "version": "3.0",
-  "description": "Advanced bypass for TradingView & Google Auth with Cookie Management.",
+  "version": "3.3",
+  "description": "Advanced bypass for TradingView & Google Auth.",
   "permissions": [
     "declarativeNetRequest",
     "scripting",
     "storage",
-    "cookies",
-    "identity"
+    "cookies"
   ],
   "host_permissions": [
     "*://*.tradingview.com/*",

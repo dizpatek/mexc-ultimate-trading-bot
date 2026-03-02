@@ -59,7 +59,6 @@ export function calculateF3(
 ): number[] {
     const tp = typicalPrice(ohlc);
 
-    // Calculate 6 levels of EMA
     const e1 = ema(tp, length);
     const e2 = ema(e1, length);
     const e3 = ema(e2, length);
@@ -67,14 +66,12 @@ export function calculateF3(
     const e5 = ema(e4, length);
     const e6 = ema(e5, length);
 
-    // Calculate coefficients
     const a = volumeFactor;
     const c1 = -a * a * a;
     const c2 = 3 * a * a + 3 * a * a * a;
     const c3 = -6 * a * a - 3 * a - 3 * a * a * a;
     const c4 = 1 + 3 * a + a * a * a + 3 * a * a;
 
-    // Calculate F3 values
     const f3Values: number[] = [];
     for (let i = 0; i < ohlc.length; i++) {
         const f3 = c1 * e6[i] + c2 * e5[i] + c3 * e4[i] + c4 * e3[i];
@@ -97,7 +94,6 @@ export function calculateF3Fibo(
 ): number[] {
     const tp = typicalPrice(ohlc);
 
-    // Calculate 6 levels of EMA
     const e1 = ema(tp, length);
     const e2 = ema(e1, length);
     const e3 = ema(e2, length);
@@ -105,14 +101,12 @@ export function calculateF3Fibo(
     const e5 = ema(e4, length);
     const e6 = ema(e5, length);
 
-    // Calculate coefficients
     const a = volumeFactor;
     const c1 = -a * a * a;
     const c2 = 3 * a * a + 3 * a * a * a;
     const c3 = -6 * a * a - 3 * a - 3 * a * a * a;
     const c4 = 1 + 3 * a + a * a * a + 3 * a * a;
 
-    // Calculate F3 Fibo values
     const f3FiboValues: number[] = [];
     for (let i = 0; i < ohlc.length; i++) {
         const f3Fibo = c1 * e6[i] + c2 * e5[i] + c3 * e4[i] + c4 * e3[i];
@@ -158,7 +152,6 @@ export function calculateF3WithSignals(
         const f3Fibo = f3FiboValues[i];
         const f3FiboPrev = f3FiboValues[i - 1];
 
-        // Determine F3 color
         let color: 'green' | 'red' | 'yellow' = 'yellow';
         if (f3 > f3Prev) {
             color = 'green';
@@ -166,7 +159,6 @@ export function calculateF3WithSignals(
             color = 'red';
         }
 
-        // Determine F3 Fibo color
         let fiboColor: 'blue' | 'purple' | 'yellow' = 'yellow';
         if (f3Fibo > f3FiboPrev) {
             fiboColor = 'blue';
@@ -174,13 +166,12 @@ export function calculateF3WithSignals(
             fiboColor = 'purple';
         }
 
-        // Determine signal based on F3 Fibo crossover/crossunder
         let signal: 'BUY' | 'SELL' | 'NEUTRAL' = 'NEUTRAL';
         if (showF3Fibo) {
             if (crossover(f3Fibo, f3FiboPrev)) {
-                signal = 'BUY';  // Blue line active (Mavi çizgi aktif)
+                signal = 'BUY';
             } else if (crossunder(f3Fibo, f3FiboPrev)) {
-                signal = 'SELL'; // Purple line active (Mor çizgi aktif)
+                signal = 'SELL';
             }
         }
 
@@ -218,9 +209,7 @@ export function getLatestF3Signal(ohlc: OHLCData[]): {
         timestamp: latest.timestamp
     };
 }
-/**
- * Helper function for Alarm Engine to get latest indicators easily
- */
+
 export function F3(ohlc: OHLCData[]) {
     if (!ohlc || ohlc.length < 50) {
         return { f3: 0, f3Fibo: 0, buySignal: false, sellSignal: false };

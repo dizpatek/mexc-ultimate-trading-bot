@@ -24,9 +24,9 @@ export async function POST(request: Request) {
             'USDC': 1
         };
 
-        const balances = accountInfo.balances
-            .filter(b => (parseFloat(b.free) + parseFloat(b.locked)) > 0)
-            .map(b => {
+        const balances = (accountInfo.balances || [])
+            .filter((b: any) => (parseFloat(b.free) + parseFloat(b.locked)) > 0)
+            .map((b: any) => {
                 const total = parseFloat(b.free) + parseFloat(b.locked);
                 const price = prices[b.asset] || 0;
                 const value = total * price;

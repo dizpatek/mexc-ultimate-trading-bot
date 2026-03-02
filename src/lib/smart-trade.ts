@@ -4,6 +4,7 @@ import {
     getPrice,
     TradingMode
 } from './mexc-wrapper';
+import { OrderResult } from './mexc';
 import { insertOrder } from './db';
 import { getSymbolPrecision } from './trade';
 
@@ -35,6 +36,7 @@ export interface SmartTradePayload {
 }
 
 export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: TradingMode) {
+    console.log('[SmartTrade] New Request Payload:', JSON.stringify(payload, null, 2));
     const { mode, symbol, amount, takeProfit, stopLoss, useExisting, user_id } = payload;
     const pair = symbol.replace('/', '');
     let qty = parseFloat(amount);
@@ -45,7 +47,7 @@ export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: 
 
     console.log(`[SmartTrade] Starting ${mode} for ${pair} | Qty: ${qty} | UseExisting: ${!!useExisting}`);
 
-    let entryResult;
+    let entryResult: Partial<OrderResult> | undefined;
     let avgPrice = 0;
     
     const precision = await getSymbolPrecision(pair);
@@ -54,7 +56,7 @@ export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: 
     try {
         const isTrailingBuy = !!payload.trailingBuy;
 
-        if (useExisting) {
+        if (useExisting && mode === 'TRADE') {
             console.log('[SmartTrade] bypassing entry order (useExisting=true)');
             avgPrice = await getPrice(pair);
             entryResult = { 
@@ -63,9 +65,9 @@ export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: 
                 price: avgPrice.toString(),
                 executedQty: amount
             };
-        } else if (mode === 'TRADE' && isTrailingBuy) {
-            // PENDING ENTRY (Trailing Buy)
-            console.log('[SmartTrade] Trailing Buy enabled. Setting order to PENDING.');
+        } else if (isTrailingBuy) {
+            // PENDING ENTRY (Trailing Buy or Trailing Sell entry)
+            console.log('[SmartTrade] Trailing Entry enabled. Setting order to PENDING.');
             avgPrice = parseFloat(payload.buyPrice) || await getPrice(pair);
             entryResult = {
                 orderId: 'PENDING_ENTRY_' + Date.now(),
@@ -78,9 +80,20 @@ export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: 
             if (!currentPrice || currentPrice <= 0) {
                 throw new Error(`Could not fetch valid price for ${pair}`);
             }
-            // 'amount' from UI is the USDT quote amount for BUY orders
-            const quoteStr = parseFloat(amount).toFixed(precision.quote);
+            // 'amount' from UI is the BASE quantity. marketBuyByQuote needs the TOTAL USDT.
+            let quoteAmt = parseFloat(amount) * currentPrice;
             
+            // SANITY CAP: No test trade should exceed $100K USDT
+            const MAX_QUOTE = 100_000;
+            if (quoteAmt > MAX_QUOTE) {
+                console.warn(`[SmartTrade] quoteAmt $${quoteAmt.toFixed(2)} exceeds $${MAX_QUOTE} cap. Clamping to max.`);
+                quoteAmt = MAX_QUOTE;
+                qty = quoteAmt / currentPrice; // Recalculate base qty
+            }
+            
+            const quoteStr = quoteAmt.toFixed(precision.quote);
+            
+            console.log(`[SmartTrade] Executing Market Buy (Base: ${qty.toFixed(8)} | Price: ${currentPrice} | Total USDT: ${quoteStr})`);
             entryResult = await marketBuyByQuote(user_id, pair, quoteStr, forcedMode);
             
             // DEBUG: Log raw MEXC response to diagnose price recording
@@ -92,15 +105,25 @@ export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: 
                 avgPrice = parseFloat(entryResult.cummulativeQuoteQty) / parseFloat(entryResult.executedQty);
                 console.log(`[SmartTrade] ✅ Used cummulativeQuoteQty/executedQty → avgPrice: ${avgPrice}`);
             } else {
-                avgPrice = parseFloat(entryResult?.price) || currentPrice;
+                avgPrice = parseFloat(entryResult?.price || '0') || currentPrice;
                 console.log(`[SmartTrade] ⚠️ Fallback to price field or ticker → avgPrice: ${avgPrice}`);
             }
             
+            if (!avgPrice || isNaN(avgPrice) || avgPrice <= 0) {
+                avgPrice = await getPrice(pair).catch(() => 0);
+            }
+            
+            if (!avgPrice || isNaN(avgPrice) || avgPrice <= 0) {
+                throw new Error(`Could not determine entry price for ${pair}. Please check connectivity or symbol name.`);
+            }
+            
             // Recalculate base qty if available from result, otherwise estimate
-            if (entryResult?.executedQty) {
+            if (entryResult?.executedQty && parseFloat(entryResult.executedQty) > 0) {
                 qty = parseFloat(entryResult.executedQty);
-            } else {
+            } else if (parseFloat(quoteStr) > 0) {
                 qty = parseFloat(quoteStr) / avgPrice;
+            } else {
+                throw new Error('Invalid quote amount for market buy');
             }
         } else {
             // For SELL/COVER, amount is the base quantity
@@ -111,12 +134,17 @@ export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: 
             if (entryResult?.cummulativeQuoteQty && entryResult?.executedQty && parseFloat(entryResult.executedQty) > 0) {
                 avgPrice = parseFloat(entryResult.cummulativeQuoteQty) / parseFloat(entryResult.executedQty);
             } else {
-                avgPrice = parseFloat(entryResult?.price) || await getPrice(pair);
+                avgPrice = parseFloat(entryResult?.price || '0') || await getPrice(pair).catch(() => 0);
+            }
+
+            if (!avgPrice || isNaN(avgPrice) || avgPrice <= 0) {
+                throw new Error(`Could not determine entry price for ${pair}. Please check connectivity or symbol name.`);
             }
         }
     } catch (e: unknown) {
         const message = e instanceof Error ? e.message : String(e);
-        console.error('[SmartTrade] Entry order execution failed:', message);
+        console.error('[SmartTrade] Entry order execution failed:', message, e);
+        if (e instanceof Error) throw e;
         throw new Error(`Entry order failed: ${message}`);
     }
 

@@ -7,7 +7,7 @@
         const isTV = window.location.hostname.includes('tradingview.com');
         const isIframe = window.self !== window.top;
         
-        console.log('[Matrix Bridge Bridge] Initializing communication bridge...', { isTV, isIframe });
+        console.log('[Matrix Bridge] Initializing communication bridge...', { isTV, isIframe, url: window.location.href });
 
         // 1. Listen for messages from the PAGE (Matrix Dashboard or TradingView Main World)
         window.addEventListener('message', (event) => {

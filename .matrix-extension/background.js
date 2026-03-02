@@ -372,8 +372,11 @@ async function clearAllCookies() {
     try {
         const tvCookies = await chrome.cookies.getAll({ domain: '.tradingview.com' });
         for (const cookie of tvCookies) {
+            // Strip leading dot from domain to form a valid URL
+            // e.g. ".tradingview.com" -> "tradingview.com"
+            const domainName = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
             await chrome.cookies.remove({
-                url: `https://${cookie.domain}${cookie.path}`,
+                url: `https://${domainName}${cookie.path}`,
                 name: cookie.name
             });
         }

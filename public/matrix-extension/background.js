@@ -66,12 +66,13 @@ async function restoreSession() {
             const cookies = data[STORAGE_KEYS.TV_COOKIES];
             for (const cookie of cookies) {
                 try {
+                    const isHostOnly = cookie.name.startsWith('__Host-');
                     await chrome.cookies.set({
                         url: 'https://www.tradingview.com',
                         name: cookie.name,
                         value: cookie.value,
-                        domain: cookie.domain || '.tradingview.com',
-                        path: cookie.path || '/',
+                        domain: isHostOnly ? undefined : (cookie.domain || '.tradingview.com'),
+                        path: isHostOnly ? '/' : (cookie.path || '/'),
                         secure: cookie.secure !== false,
                         httpOnly: cookie.httpOnly || false,
                         sameSite: cookie.sameSite || 'lax',
@@ -344,12 +345,13 @@ async function checkTradingViewLoginStatus() {
 async function setTradingViewCookies(cookies) {
     try {
         for (const cookie of cookies) {
+            const isHostOnly = cookie.name.startsWith('__Host-');
             await chrome.cookies.set({
                 url: 'https://www.tradingview.com',
                 name: cookie.name,
                 value: cookie.value,
-                domain: cookie.domain || '.tradingview.com',
-                path: cookie.path || '/',
+                domain: isHostOnly ? undefined : (cookie.domain || '.tradingview.com'),
+                path: isHostOnly ? '/' : (cookie.path || '/'),
                 secure: true,
                 httpOnly: cookie.httpOnly || false,
                 sameSite: 'no_restriction',
@@ -436,12 +438,14 @@ chrome.cookies.onChanged.addListener(async (changeInfo) => {
                 const url = `https://${domainName}${cookie.path}`;
                 
                 // Re-set the cookie with SameSite=None and Secure
+                const isHostOnly = cookie.name.startsWith('__Host-');
+                
                 await chrome.cookies.set({
                     url: url,
                     name: cookie.name,
                     value: cookie.value,
-                    domain: cookie.domain,
-                    path: cookie.path,
+                    domain: isHostOnly ? undefined : cookie.domain,
+                    path: isHostOnly ? '/' : cookie.path,
                     secure: true,
                     httpOnly: cookie.httpOnly,
                     sameSite: 'no_restriction',

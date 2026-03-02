@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
+  experimental: {
+     instrumentationHook: true
+  },
   /* config options here */
   reactCompiler: true,
   transpilePackages: ['lightweight-charts'],

@@ -270,7 +270,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
         };
 
         fetchPrice(); // Immediate fetch
-        const interval = setInterval(fetchPrice, 5000); // Every 5 seconds
+        const interval = setInterval(fetchPrice, 15000); // Reduced from 5s to 15s to save Vercel usage limits
 
         return () => {
             cancelled = true;

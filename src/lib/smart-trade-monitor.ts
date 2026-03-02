@@ -4,7 +4,7 @@ import { MatrixV5Engine } from './matrix-v5-engine';
 import { fetchKlines } from './mexc';
 
 let lastRun = 0;
-const MONITOR_INTERVAL = 5000; 
+const MONITOR_INTERVAL = 12000; // Increased from 5s to 12s to save Vercel CPU time
 const AI_ANALYSIS_INTERVAL = 60000; 
 const CONCURRENCY_LIMIT = 5; 
 

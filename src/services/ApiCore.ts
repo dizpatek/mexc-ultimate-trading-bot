@@ -50,7 +50,7 @@ class MarketKernel extends Kernel<Record<string, { price: string; time: number }
     private symbols: Set<string> = new Set();
 
     constructor() {
-        super(500); // 500ms high-priority pulse
+        super(3000); // Reduced from 500ms to 3s to save Vercel usage limits
         this.symbols.add('BTCUSDT'); // Default seed
     }
 
@@ -105,7 +105,7 @@ class MarketKernel extends Kernel<Record<string, { price: string; time: number }
  */
 class PortfolioKernel extends Kernel<{ holdings: Holding[]; summary: PortfolioData | null; trades: Trade[] }> {
     constructor() {
-        super(5000); // 5 seconds for portfolio
+        super(15000); // Reduced from 5s to 15s to save Vercel usage limits
     }
 
     protected async fetch() {

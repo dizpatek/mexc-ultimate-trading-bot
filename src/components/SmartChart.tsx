@@ -548,7 +548,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
         }
 
         fetchData(true); // Initial/Symbol change load: Focus
-        const refreshInterval = setInterval(() => fetchData(false), 5000); // Faster background refresh (5s)
+        const refreshInterval = setInterval(() => fetchData(false), 15000); // Reduced from 5s to 15s to save Vercel usage limits
 
         // Real-time pulse from MarketKernel
         const formattedSym = symbol.replace('/', '');

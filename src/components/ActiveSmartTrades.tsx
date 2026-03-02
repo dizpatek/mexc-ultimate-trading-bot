@@ -403,7 +403,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit, on
 
     useEffect(() => {
         fetchTrades();
-        const interval = setInterval(fetchTrades, 2000);
+        const interval = setInterval(fetchTrades, 12000); // Reduced from 2s to 12s
         return () => clearInterval(interval);
     }, []);
 

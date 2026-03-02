@@ -119,7 +119,8 @@ async function saveSession(cookies, userInfo) {
 // Get all TradingView cookies
 async function getTradingViewCookies() {
     try {
-        const cookies = await chrome.cookies.getAll({ url: 'https://www.tradingview.com' });
+        // Query all cookies on tradingview.com and its subdomains
+        const cookies = await chrome.cookies.getAll({ domain: 'tradingview.com' });
         const formattedCookies = cookies.map(cookie => ({
             name: cookie.name,
             value: cookie.value,
@@ -131,7 +132,7 @@ async function getTradingViewCookies() {
             expirationDate: cookie.expirationDate
         }));
         
-        console.log('[Matrix Bridge] Found', cookies.length, 'TradingView cookies');
+        console.log('[Matrix Bridge] Found', cookies.length, 'TradingView cookies for .tradingview.com');
         return { success: true, cookies: formattedCookies };
     } catch (error) {
         console.error('[Matrix Bridge] Error getting cookies:', error);
@@ -286,13 +287,16 @@ async function monitorLoginWindow(windowId) {
 // Check TradingView login status
 async function checkTradingViewLoginStatus() {
     try {
-        const cookies = await chrome.cookies.getAll({ url: 'https://www.tradingview.com' });
+        // Use domain instead of URL to ensure we check both .tradingview.com and www.tradingview.com
+        const cookies = await chrome.cookies.getAll({ domain: 'tradingview.com' });
         
         const sessionCookie = cookies.find(c => c.name === 'sessionid');
         const deviceToken = cookies.find(c => c.name === 'device_token');
         const authToken = cookies.find(c => c.name === 'auth_token');
         
         const isLoggedIn = !!(sessionCookie || authToken);
+        
+        console.log('[Matrix Bridge] Login check:', { isLoggedIn, cookieCount: cookies.length });
         
         // Check stored session first
         const stored = await chrome.storage.local.get([

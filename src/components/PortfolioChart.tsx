@@ -136,18 +136,17 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
                 case 'checkLoginStatusResponse':
                 case 'restoreSessionResponse':
                     if (statusData?.isLoggedIn) {
-                        console.log('[PortfolioChart] Session verified:', statusData);
                         setLoginStatus(statusData);
                         setShowLoginModal(false);
                         
                         // New login success
                         if (data.action === 'loginComplete') {
                             setIsWebMode(true);
-                            showMessage('TradingView girisi basarili!', 'success');
+                            showMessage(`Oturum senkronize edildi: ${statusData.cookies?.length || 0} çerez`, 'success');
                         }
-                    } else if (data.action === 'checkLoginStatusResponse') {
-                        // Only clear if we explicitly asked and it definitively failed
-                        // This prevents clearing state during initial load/restoration
+                    } else if (data.action === 'checkLoginStatusResponse' || data.action === 'restoreSessionResponse') {
+                        // Extension says NO login - only then clear
+                        console.log('[PortfolioChart] No active session found by bridge');
                         setLoginStatus(null);
                         localStorage.removeItem(LOGIN_STORAGE_KEY);
                     }
@@ -440,9 +439,9 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
                 <div className="flex items-center gap-2">
                     {/* Cookies Status */}
                     {loginStatus?.isLoggedIn && (
-                        <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 bg-slate-800/50 rounded border border-slate-700/50 text-[10px] text-slate-400 font-medium">
+                        <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 bg-slate-800/50 rounded border border-slate-700/50 text-[10px] text-slate-400 font-medium h-8">
                             <Cookie className="w-3 h-3 text-purple-400" />
-                            <span>{loginStatus.cookies?.length || 0} Veri</span>
+                            <span>{loginStatus.cookies?.length || 0} Senkron Veri</span>
                         </div>
                     )}
 

@@ -7,13 +7,17 @@
     "declarativeNetRequest",
     "scripting",
     "storage",
-    "cookies"
+    "cookies",
+    "tabs",
+    "notifications"
   ],
   "host_permissions": [
+    "<all_urls>",
     "*://*.tradingview.com/*",
     "*://*.google.com/*",
     "*://accounts.google.com/*",
     "*://*.mexc.com/*",
+    "*://*.vercel.app/*",
     "*://localhost/*",
     "*://127.0.0.1/*"
   ],
@@ -27,9 +31,7 @@
   "content_scripts": [
     {
       "matches": [
-        "*://*.tradingview.com/*",
-        "*://localhost/*",
-        "*://127.0.0.1/*"
+        "<all_urls>"
       ],
       "js": ["content.js"],
       "run_at": "document_start",

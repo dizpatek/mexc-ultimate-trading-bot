@@ -37,18 +37,6 @@ export async function GET() {
             console.warn('[DB Init] system_settings migration check skipped (table might be new):', err.message);
         }
 
-        // Seed default admin user if none exists
-        const { rows: users } = await pool.query('SELECT * FROM users LIMIT 1');
-        if (users.length === 0) {
-            const passwordHash = await bcrypt.hash('admin123', 10);
-            const now = Date.now();
-            await pool.query(
-                'INSERT INTO users (username, email, password_hash, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)',
-                ['admin', 'snat@bot.com', passwordHash, now, now]
-            );
-            console.log('[DB Init] Admin user seeded: snat@bot.com / admin123');
-        }
-
         // Seed default bot config if none exists
         const { rows: configs } = await pool.query('SELECT * FROM bot_configs WHERE id = 1');
         if (configs.length === 0) {
@@ -62,11 +50,7 @@ export async function GET() {
 
         return NextResponse.json({ 
             success: true, 
-            message: 'Database initialized and seeded',
-            loginHints: {
-                email: 'snat@bot.com',
-                password: 'admin123'
-            }
+            message: 'Database initialization and migration completed'
         });
     } catch (error: any) {
         console.error('[DB Init] Fatal error:', error);

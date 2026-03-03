@@ -35,250 +35,8 @@ interface GuideSection {
 
 const GuidePageContent = () => {
     const router = useRouter();
-    const [mode, setMode] = React.useState<'PRO' | 'EASY'>('PRO');
     
-    const proSections: GuideSection[] = useMemo(() => [
-        {
-            id: 'overview',
-            title: 'Matrix F4 V3 Mimarisi',
-            icon: Globe,
-            visualType: 'overview' as const,
-            content: `Matrix F4 Ultimate V3, **9 ana katmandan** oluşan hibrit bir trading motorudur. Pine Script v6 tabanlı MTF Engine, Bayesian Probability ve AI Score bileşenlerini tek bir hibrit yapıda birleştirir.`
-        },
-        {
-            id: 'architecture',
-            title: 'Sistem Katmanları',
-            icon: Layout,
-            visualType: 'architecture' as const,
-            content: `Sistem; Whale Engine, Market Regime, Volatility Classifiers ve Bayesian Tracker gibi katmanlardan gelen verileri harmonize ederek "SİSTEM KARARI" üretir. Her katman bağımsız bir risk filtresidir.`
-        },
-        {
-            id: 'trailing-buy',
-            title: 'Trailing Buy Mekanizması',
-            icon: Zap,
-            visualType: 'trailing_buy' as const,
-            content: `Düşüş trendindeki fiyatı **Trailing Distance (%)** ile takip eder. Fiyat, en dip noktadan (V-Bottom) yukarı yönlü sapma yaptığında emri tetikler. 3Commas ve Binance algoritmalarıyla %100 uyumludur.`
-        },
-        {
-            id: 'trailing-sell',
-            title: 'Trailing Take Profit (TTP)',
-            icon: TrendingUp,
-            visualType: 'trailing_sell' as const,
-            content: `Hedef fiyata (TP) ulaşıldığında pozisyonu kapatmaz; fiyatı **Callback (%)** ile yukarı takip eder. Momentumun tükendiği ve geri çekilmenin başladığı en yüksek verimli noktada çıkış yapar.`
-        },
-        {
-            id: 'ai-trust-score',
-            title: 'AI Multi-Component Score',
-            icon: Shield,
-            visualType: 'ai_score' as const,
-            content: `10 farklı indikatör ve veri setinin (Momentum, Volatilite, Trend, Hacim vb.) ağırlıklı ortalamasını alır. 65 puan üzerindeki sinyaller istatistiksel olarak yüksek başarı oranına sahiptir.`
-        },
-        {
-            id: 'whale-engine',
-            title: 'Whale Master Engine',
-            icon: Activity,
-            visualType: 'whale' as const,
-            content: `Hacim proxy analizi ile kurumsal oyuncuların (Smart Money) ayak izlerini takip eder. Ortalama hacmin **2.5x** üzerine çıkan anomalileri tespit ederek trend kırılımlarını doğrular.`
-        },
-        {
-            id: 'regime-prediction',
-            title: 'Volatility Regime Classifier',
-            icon: RefreshCw,
-            visualType: 'regime' as const,
-            content: `Piyasanın Risk-ON (Boğa), Risk-OFF (Ayı) veya Sıkışma (Consolidation) durumunu belirler. **Momentum İvmesi** kullanarak rejimin ne yöne evrileceğini tahmin eder.`
-        },
-        {
-            id: 'stop-loss-trailing',
-            title: 'Trailing Stop Loss (TSL)',
-            icon: Shield,
-            visualType: 'stop_loss' as const,
-            content: `Fiyat lehine hareket ettikçe Stop Loss seviyesini dinamik olarak yukarı çeker. Sabit stopların aksine, kârı kilitleyerek drawdown oranını minimize eder.`
-        },
-        {
-            id: 'breakeven-logic',
-            title: 'Move to Breakeven',
-            icon: Zap,
-            visualType: 'breakeven' as const,
-            content: `İlk kâr hedefi (TP1) gerçekleştiğinde, kalan pozisyonun Stop Loss seviyesini otomatik olarak giriş fiyatına çeker. İşlemi tamamen "Risk-Free" hale getirir.`
-        },
-        {
-            id: 'wick-protection',
-            title: 'Stop Loss Timeout',
-            icon: Target,
-            visualType: 'wick_protection' as const,
-            content: `Anlık fiyat iğnelerinin (wick) stop etmesini engeller. Fiyatın stop seviyesinde ne kadar süre (saniye/bar) kalması gerektiğini filtreleyen bir zamanlayıcı mekanizmasıdır.`
-        },
-        {
-            id: 'panic-button',
-            title: 'Emergency Panic Button',
-            icon: Zap,
-            visualType: 'panic' as const,
-            content: `Tek tıkla tüm aktif pozisyonları piyasa fiyatından (Market Order) kapatır ve varlıkları anında stabil coine (USDT) taşır. API üzerinden anlık tepki verir.`
-        },
-        {
-            id: 'killswitch-pro',
-            title: 'Kill Switch & Fatigue',
-            icon: Shield,
-            visualType: 'killswitch' as const,
-            content: `**System Fatigue** (Aşırı İşlem) ve ardışık kayıp durumunda sizi korur. Risk limitleri aşıldığında sistemi otomatik olarak durdurur ve savunma moduna geçer.`
-        },
-        {
-            id: 'radar-pro',
-            title: 'Cross-Asset Radar',
-            icon: Target,
-            visualType: 'radar' as const,
-            content: `BTC Dominansı, ETH Gücü ve USDT Rezervleri arasındaki korelasyonu izler. Sermayenin piyasaya giriş/çıkış yönünü belirleyerek trend teyidi sağlar.`
-        },
-        {
-            id: 'decay-pro',
-            title: 'Time-Decay Alpha',
-            icon: RefreshCw,
-            visualType: 'decay' as const,
-            content: `Sinyal oluştuktan sonra geçen bar sayısını takip eder. Belirli bir süreyi aşan "bayatlamış" sinyallerin (Signalling Fatigue) risk teşkil ettiğini bildirir.`
-        },
-        {
-            id: 'bayesian-pro',
-            title: 'Bayesian Tracker',
-            icon: BarChart3,
-            visualType: 'bayesian' as const,
-            content: `Geçmiş başarı oranlarına dayanarak mevcut sinyalin gerçekleşme ihtimalini (P-Value) hesaplar. İstatistiksel olasılık tabanlı bir karar destek mekanizmasıdır.`
-        },
-        {
-            id: 'bridge-pro',
-            title: 'Matrix Bridge Plugin',
-            icon: Layout,
-            visualType: 'bridge' as const,
-            content: `TradingView Pro verilerinin ve oturum devamlılığının sağlanması için geliştirilmiş tarayıcı eklentisidir. Dashboard ile TV grafiği arasındaki veri köprüsünü kurar.`
-        },
-        {
-            id: 'test-mode-pro',
-            title: 'Sandbox Test Modu',
-            icon: Terminal,
-            visualType: 'test_mode' as const,
-            content: `Gerçek API bağlantısı üzerinden ama sanal bakiye ($100k) ile çalışan simülasyon katmanıdır. Stratejilerin canlı piyasada risksiz test edilmesini sağlar.`
-        },
-        {
-            id: 'smc-engine-pro',
-            title: 'SMC & Structure Engine',
-            icon: Layout,
-            visualType: 'smc' as const,
-            content: `Piyasa yapısını (BOS, CHoCH) otomatik çizer. Akıllı Para Kavramları (Smart Money Concepts) ile kurumsal likidite bölgelerini tespit ederek güvenli giriş alanlarını belirler.`
-        },
-        {
-            id: 'ob-detector-pro',
-            title: 'Order Block (OB) Analizi',
-            icon: Target,
-            visualType: 'ob' as const,
-            content: `Fiyatın sert tepki aldığı kurumsal alım/satım bloklarını tespit eder. Bu bölgeler, mıknatıs etkisi yaratan yüksek olasılıklı arz-talep alanlarıdır.`
-        },
-        {
-            id: 'volatility-engine-pro',
-            title: 'Volatility Classifier',
-            icon: Activity,
-            visualType: 'volatility' as const,
-            content: `Piyasanın volatilite durumunu (Sıkışma, Patlama, Yüksek Volatilite) ölçer. Z-Score ve Standart Sapma kullanarak fiyatın ortalamaya dönüş potansiyelini analiz eder.`
-        },
-        {
-            id: 'zscore-analyzer-pro',
-            title: 'Z-Score Mean Reversion',
-            icon: RefreshCw,
-            visualType: 'zscore' as const,
-            content: `Fiyatın tarihsel ortalamasından sapma miktarını ölçer. 3 standart sapma dışına çıkan hareketlerin "overextended" olduğunu ve geri dönüşün yakın olduğunu tespit eder.`
-        },
-        {
-            id: 'capital-flow-pro',
-            title: 'Sermaye ve İlgi Akışı',
-            icon: Globe,
-            visualType: 'capital' as const,
-            content: `Likit akışının hangi sektörlere (HFT, DePIN, AI, Meme vb.) yöneldiğini izler. Sermaye rotasyonunu takip ederek trendin erken aşamalarını yakalar.`
-        },
-        {
-            id: 'fvg-vacuum-pro',
-            title: 'Fair Value Gap (FVG)',
-            icon: Zap,
-            visualType: 'fvg' as const,
-            content: `Fiyattaki dengesizlikleri (Imbalance) ve verimsiz fiyat hareketlerini tespit eder. Piyasanın bu boşlukları doldurma (Full Fill) eğilimini fırsata çevirir.`
-        },
-        {
-            id: 'alert-system-pro',
-            title: 'Multi-Core Alarm Motoru',
-            icon: Activity,
-            visualType: 'alarms' as const,
-            content: `19 teknik ve 11 balina motoru alarmını destekleyen bildirim altyapısıdır. Webhook entegrasyonu ile TradingView sinyallerini anında dashboard'a iletir.`
-        },
-        {
-            id: 'scalp-mode-pro',
-            title: 'Scalping Motoru (LTF)',
-            icon: Zap,
-            visualType: 'scalp' as const,
-            content: `Düşük zaman dilimlerinde (1m, 3m, 5m) mikro trendleri yakalamak için optimize edilmiştir. Yüksek frekanslı girişler için hassas filtreleme sağlar.`
-        },
-        {
-            id: 'swing-mode-pro',
-            title: 'Swing Stratejisi (HTF)',
-            icon: TrendingUp,
-            visualType: 'swing' as const,
-            content: `Yüksek zaman dilimlerinde (4H, 1D) ana trend dönüşlerini hedefler. Daha büyük kâr marjları ve daha az gürültü içeren "makro" bakış açısı sunar.`
-        },
-        {
-            id: 'performance-tracker-pro',
-            title: 'Portföy Analizi & PnL',
-            icon: BarChart3,
-            visualType: 'performance' as const,
-            content: `Her 4 saatte bir portföy anlık görüntüsü alır. 24s/7g periyotlarında başarı oranını, kâr/zarar grafiğini ve drawdown istatistiklerini raporlar.`
-        },
-        {
-            id: 'limit-orders-pro',
-            title: 'Limit Emir Protokolü',
-            icon: Layout,
-            visualType: 'limit' as const,
-            content: `Emir defterine (Order Book) doğrudan emir iletir. Belirlenen fiyattan alım/satım yapmanızı sağlar, slipaj (fiyat kayması) riskini ortadan kaldırır.`
-        },
-        {
-            id: 'market-execution-pro',
-            title: 'Market Emirleri (Hızlı)',
-            icon: Zap,
-            visualType: 'market' as const,
-            content: `O anki en iyi fiyattan anında işlem gerçekleştirir. Hızın kritik olduğu durumlarda ve likiditesi yüksek paritelerde tercih edilir.`
-        },
-        {
-            id: 'split-tp-pro',
-            title: 'Çok Seviyeli Kâr Alma',
-            icon: BarChart3,
-            visualType: 'split_tp' as const,
-            content: `Pozisyonu birden fazla kâr alma seviyesine böler. Fiyat yükseldikçe kademeli çıkış yaparak kârın büyük kısmını optimize etmeyi sağlar.`
-        },
-        {
-            id: 'trade-timeout-pro',
-            title: 'Emir Zaman Aşımı',
-            icon: Shield,
-            visualType: 'timeout' as const,
-            content: `Gerçekleşmeyen veya beklemede kalan emirlerin ne süre sonra iptal edileceğini yönetir. Piyasanın terse dönmesi durumunda takılı kalan emir riskini önler.`
-        },
-        {
-            id: 'tech-panel-pro',
-            title: 'Teknik İstihbarat Paneli',
-            icon: Terminal,
-            visualType: 'tech_panel' as const,
-            content: `Piyasa verilerini, teknik göstergeleri ve yapay zeka analizlerini tek bir ekranda toplayan komuta merkezidir. Tüm veriler anlık olarak akar.`
-        },
-        {
-            id: 'final-decision-pro',
-            title: 'Sistem Konsensüs Mantığı',
-            icon: Target,
-            visualType: 'decision' as const,
-            content: `Tüm alt modüllerden gelen verilerin (Whale + AI + SMC + Regime) nihai sonucudur. Konsensüs sağlanmadan sisteme giriş izni verilmez.`
-        },
-        {
-            id: 'backtest-sim-pro',
-            title: 'Strateji Simülatörü',
-            icon: Terminal,
-            visualType: 'simulator' as const,
-            content: `Geçmiş piyasa verileri üzerinde stratejiyi koşturan gelişmiş simülatördür. Teknik veritabanı destekli geçmiş performans yanıtlarını üretir.`
-        }
-    ], []);
-
-    const easySections: GuideSection[] = useMemo(() => [
+    const guideSections: GuideSection[] = useMemo(() => [
         {
             id: 'easy-overview',
             title: 'Matrix Nedir?',
@@ -297,35 +55,35 @@ const GuidePageContent = () => {
             id: 'easy-trailing-buy',
             title: 'Düştükçe Al (Trailing Buy)',
             icon: Zap,
-            image: '/assets/docs/growth.png',
+            image: '/assets/docs/trailing_buy_new.png',
             content: `Fiyat düşerken hemen almaz, düşüşü takip eder. Fiyat en dipten yukarı dönmeye başladığında alım yapar. Böylece her zaman en ucuzdan almayı hedefler.`
         },
         {
             id: 'easy-trailing-sell',
             title: 'Yüksekten Sat (Trailing Sell)',
             icon: TrendingUp,
-            image: '/assets/docs/growth.png',
+            image: '/assets/docs/trailing_sell_new.png',
             content: `Kâr hedefinize ulaşıldığında hemen satmaz, fiyatın daha da yükselmesini bekler. Fiyat zirveden aşağı dönmeye başladığında satış yaparak kârınızı maksimize eder.`
         },
         {
             id: 'easy-ai-score',
             title: 'İşlem Güven Skoru',
             icon: Shield,
-            image: '/assets/docs/safety.png',
+            image: '/assets/docs/ai_score_new.png',
             content: `Her sinyali 0-100 arası puanlar. 65 puan üstü "Yeşil Işık"tır. Teknik bilginiz olmasa bile bu puanı takip ederek güvenli işlemler yapabilirsiniz.`
         },
         {
             id: 'easy-whale',
             title: 'Balina Avcısı',
             icon: Activity,
-            image: '/assets/docs/whale.png',
+            image: '/assets/docs/whale_new.png',
             content: `Büyük miktarda para yatıran (Balina) oyuncuların hareketlerini izler. Onlarla birlikte hareket ederek piyasada ezilmenizi engeller.`
         },
         {
             id: 'easy-regime',
             title: 'Piyasa Havası',
             icon: RefreshCw,
-            image: '/assets/docs/overview.png',
+            image: '/assets/docs/regime_new.png',
             content: `Piyasanın genel havasını (Güneşli, Bulutlu, Fırtınalı) söyler. Fırtınalı havalarda sizi uyarır ve kaybetmenizi önler.`
         },
         {
@@ -381,7 +139,7 @@ const GuidePageContent = () => {
             id: 'easy-bayesian',
             title: 'Olasılık Takibi',
             icon: BarChart3,
-            image: '/assets/docs/safety.png',
+            image: '/assets/docs/ai_score_new.png',
             content: `Sistemin geçmiş verilerine bakarak o anki işlemin tutma olasılığını hesaplar. Size "bu işlemin başarı ihtimali yüksek" veya "riskli" şeklinde bilgi verir.`
         },
         {
@@ -402,21 +160,21 @@ const GuidePageContent = () => {
             id: 'easy-smc',
             title: 'Piyasa İskeleti (SMC)',
             icon: Layout,
-            image: '/assets/docs/overview.png',
+            image: '/assets/docs/smc_new.png',
             content: `Fiyatın hangi yöne kırıldığını (yukarı mı aşağı mı) otomatik tespit eder. Bir binanın iskeleti gibi, piyasanın sağlam basıp basmadığını gösterir.`
         },
         {
             id: 'easy-ob',
             title: 'Kurumsal Seviyeler',
             icon: Target,
-            image: '/assets/docs/safety.png',
+            image: '/assets/docs/whale_new.png',
             content: `Bankaların ve büyük borsaların alım emri beklettiği bölgeleri boyayarak gösterir. Fiyat bu bölgelere geldiğinde genellikle tepki verir.`
         },
         {
             id: 'easy-volatility',
             title: 'Piyasa Hızı',
             icon: Activity,
-            image: '/assets/docs/overview.png',
+            image: '/assets/docs/regime_new.png',
             content: `Piyasa şu an çok mu hızlı (patlamaya hazır) yoksa çok mu yavaş (uykuda) olduğunu söyler. Doğru zamanda işlemde olmanızı sağlar.`
         },
         {
@@ -451,14 +209,14 @@ const GuidePageContent = () => {
             id: 'easy-scalp',
             title: 'Hızlı Kazanç (Scalp)',
             icon: Zap,
-            image: '/assets/docs/growth.png',
+            image: '/assets/docs/trailing_buy_new.png',
             content: `Çok kısa süreli, dakikalık grafiklerde yapılan hızlı al-sat işlemleridir. Küçük ama sık kârlar kovalamayı sevenler içindir.`
         },
         {
             id: 'easy-swing',
             title: 'Büyük Dalga (Swing)',
             icon: TrendingUp,
-            image: '/assets/docs/growth.png',
+            image: '/assets/docs/trailing_sell_new.png',
             content: `Günlerce veya haftalarca süren büyük trendleri yakalamayı hedefler. Daha az işlem yapıp, daha büyük hareketleri bekleyenler için idealdir.`
         },
         {
@@ -472,21 +230,21 @@ const GuidePageContent = () => {
             id: 'easy-limit',
             title: 'Sıraya Gir (Limit)',
             icon: Layout,
-            image: '/assets/docs/growth.png',
+            image: '/assets/docs/smc_new.png',
             content: `İstediğiniz fiyata alış veya satış emri bırakmanızı sağlar. Market fiyatı oraya gelene kadar sabırla bekler.`
         },
         {
             id: 'easy-market',
             title: 'Hemen Al (Market)',
             icon: Zap,
-            image: '/assets/docs/growth.png',
+            image: '/assets/docs/smc_new.png',
             content: `Fiyatı beklemeden, o an piyasada en iyi ne fiyat varsa oradan alım veya satım yapar. Hızın önemli olduğu anlar içindir.`
         },
         {
             id: 'easy-split-tp',
             title: 'Parça Parça Kazanç',
             icon: BarChart3,
-            image: '/assets/docs/growth.png',
+            image: '/assets/docs/trailing_sell_new.png',
             content: `Tüm malınızı tek bir fiyatta satmak yerine, fiyat yükseldikçe kademeli olarak satmanızı sağlar. Kârınızı garanti altına alır.`
         },
         {
@@ -500,14 +258,14 @@ const GuidePageContent = () => {
             id: 'easy-tech-panel',
             title: 'Durum Özeti',
             icon: Terminal,
-            image: '/assets/docs/overview.png',
+            image: '/assets/docs/regime_new.png',
             content: `Ekranın bir köşesinde piyasanın o anki fotoğrafını çeker. Trend ne yönde, güç ne durumda hepsini bir bakışta görürsünüz.`
         },
         {
             id: 'easy-decision',
             title: 'Sistemin Son Sözü',
             icon: Target,
-            image: '/assets/docs/safety.png',
+            image: '/assets/docs/ai_score_new.png',
             content: `Onlarca karmaşık hesaplamadan sonra sistem size tek bir kelime söyler: "İŞLEM AÇ" veya "BEKLE". Size sadece uymak kalır.`
         },
         {
@@ -518,8 +276,6 @@ const GuidePageContent = () => {
             content: `Geçmişte piyasa nasıl hareket etmiş, sistem orada ne yapmış görebilirsiniz. Kendi stratejinizi geliştirmek için harika bir antrenman sahasıdır.`
         }
     ], []);
-
-    const guideSections = mode === 'PRO' ? proSections : easySections;
 
     return (
         <HorizonLayout className="bg-[#020617]">
@@ -536,43 +292,14 @@ const GuidePageContent = () => {
                     <div className="flex flex-col gap-2 mb-16 animate-in fade-in slide-in-from-top-4 duration-1000">
                         <div className="flex items-center gap-3 mb-1">
                             <div className="h-[1px] w-12 bg-cyan-500/50" />
-                            <span className="text-cyan-400 text-[10px] font-black tracking-[0.4em] uppercase">Matrix Protocol v4.0</span>
+                            <span className="text-cyan-400 text-[10px] font-black tracking-[0.4em] uppercase">User Manual v4.0</span>
                         </div>
                         <h1 className="text-5xl md:text-7xl font-black italic tracking-tighter text-white uppercase leading-none">
-                            Visual <span className="text-transparent border-t-text-white stroke-white" style={{ WebkitTextStroke: '1px rgba(255,255,255,0.3)' }}>Operation</span><br />Center
+                            User <span className="text-transparent border-t-text-white stroke-white" style={{ WebkitTextStroke: '1px rgba(255,255,255,0.3)' }}>Manual</span><br />Center
                         </h1>
                         <p className="mt-6 text-slate-400 max-w-2xl text-lg leading-relaxed font-medium">
-                            Terminalin tüm teknik yeteneklerini ve operasyonel akışını keşfedin. 
-                            Her modül maksimum işlem verimliliği için modernize edildi.
+                            Matrix terminalin tüm teknik yeteneklerini ve operasyonel akışını keşfedin. 
                         </p>
-                    </div>
-
-                    {/* MODE TOGGLE SWITCH */}
-                    <div className="flex justify-center mb-16">
-                        <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 p-1.5 rounded-2xl flex gap-2">
-                            <button 
-                                onClick={() => setMode('PRO')}
-                                className={cn(
-                                    "px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all duration-300",
-                                    mode === 'PRO' 
-                                        ? "bg-cyan-500 text-white shadow-[0_0_20px_rgba(6,182,212,0.4)]" 
-                                        : "text-slate-500 hover:text-slate-300 hover:bg-white/5"
-                                )}
-                            >
-                                PROKK
-                            </button>
-                            <button 
-                                onClick={() => setMode('EASY')}
-                                className={cn(
-                                    "px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all duration-300",
-                                    mode === 'EASY' 
-                                        ? "bg-cyan-500 text-white shadow-[0_0_20px_rgba(6,182,212,0.4)]" 
-                                        : "text-slate-500 hover:text-slate-300 hover:bg-white/5"
-                                )}
-                            >
-                                EASYKK
-                            </button>
-                        </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">

@@ -1,0 +1,10 @@
+{
+  "name": "mexc-db",
+  "type": "postgres",
+  "version": "14.13",
+  "billing": {
+    "deploymentPlan": "nf-compute-20",
+    "storage": 4096,
+    "replicas": 1
+  }
+}

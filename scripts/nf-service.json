@@ -12,8 +12,9 @@
     "projectType": "github"
   },
   "buildSettings": {
-    "buildpack": {
-      "builder": "PAKETO_JAMMY_BASE"
+    "dockerfile": {
+      "dockerfilePath": "Dockerfile",
+      "dockerContext": "/"
     }
   },
   "ports": [

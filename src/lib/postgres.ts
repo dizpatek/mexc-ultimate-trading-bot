@@ -6,14 +6,21 @@ const connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL ||
 const pool = new Pool({
     connectionString,
     ssl: connectionString?.includes('primary') ? { rejectUnauthorized: false } : false,
-    max: 10, // Avoid Vercel/Northflank connection limits
+    max: 10,
     idleTimeoutMillis: 30000,
 });
+
+// Debug Logging (Masked)
+if (connectionString) {
+    console.log(`[Postgres] Connecting to: ${connectionString.split('@')[1] || 'URL'}`);
+} else {
+    console.warn('[Postgres] No connection string provided in environment!');
+}
 
 /**
  * Tagged template literal for SQL queries, compatible with @vercel/postgres
  */
-export async function sql(strings: TemplateStringsArray, ...values: any[]): Promise<QueryResult<any>> {
+export async function sql(strings: TemplateStringsArray, ...values: unknown[]): Promise<QueryResult<Record<string, unknown>>> {
     const query = strings.reduce((acc, str, i) => acc + str + (i < values.length ? `$${i + 1}` : ''), '');
     
     // Automatic JSON serialization for objects/arrays to match Vercel driver flavor
@@ -32,5 +39,5 @@ export async function sql(strings: TemplateStringsArray, ...values: any[]): Prom
 
 // Ensure pool is closed on hot reload/shutdown
 if (process.env.NODE_ENV === 'development') {
-    (global as any).pgPool = (global as any).pgPool || pool;
+    (global as typeof globalThis & { pgPool?: Pool }).pgPool = (global as any).pgPool || pool;
 }

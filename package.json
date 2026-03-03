@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.16",
-    "@vercel/postgres": "^0.11.0",
+    "@vercel/postgres": "^0.10.0",
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",

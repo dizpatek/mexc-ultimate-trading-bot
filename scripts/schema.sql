@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS strategy_signals (
   execution_result TEXT
 );
 
--- System settings table (for API keys and configuration)
+-- System settings table (for API keys and configuration, per user)
 CREATE TABLE IF NOT EXISTS system_settings (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id),

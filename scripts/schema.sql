@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- Orders table
 CREATE TABLE IF NOT EXISTS orders (
   id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
   mexc_order_id TEXT,
   symbol TEXT,
   side TEXT,
@@ -24,9 +25,13 @@ CREATE TABLE IF NOT EXISTS orders (
   meta TEXT
 );
 
+-- Ensure user_id exists if table was already created
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_id INTEGER;
+
 -- Trade history table
 CREATE TABLE IF NOT EXISTS trade_history (
   id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id),
   order_id INTEGER REFERENCES orders(id),
   symbol TEXT NOT NULL,
   side TEXT NOT NULL,
@@ -40,6 +45,9 @@ CREATE TABLE IF NOT EXISTS trade_history (
   profit_loss_percentage NUMERIC,
   created_at BIGINT
 );
+
+-- Ensure user_id exists if table was already created
+ALTER TABLE trade_history ADD COLUMN IF NOT EXISTS user_id INTEGER;
 
 -- Portfolio snapshots table
 CREATE TABLE IF NOT EXISTS portfolio_snapshots (

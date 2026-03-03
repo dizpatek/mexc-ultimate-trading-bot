@@ -291,7 +291,7 @@ export async function createStrategySignal(signalData: { strategy_id: number; si
 
 export async function getStrategySignals(strategyId: number, limit = 100) {
     const { rows } = await sql`SELECT * FROM strategy_signals WHERE strategy_id = ${strategyId} ORDER BY timestamp DESC LIMIT ${limit}`;
-    return rows.map((s) => ({ ...s, execution_result: s.execution_result ? JSON.parse(s.execution_result) : null }));
+    return rows.map((s) => ({ ...s, execution_result: s.execution_result ? JSON.parse(s.execution_result as string) : null }));
 }
 
 // --- BOT CONFIG ---
@@ -309,7 +309,7 @@ export async function getBotConfig(): Promise<BotConfig> {
             updated_at: Date.now()
         } as BotConfig;
     }
-    return rows[0] as BotConfig;
+    return rows[0] as unknown as BotConfig;
 }
 
 export async function updateBotConfig(updates: Partial<BotConfig>) {

@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { MatrixLogo } from './MatrixLogo';
 import { useAuth } from '@/hooks/useAuth';
-import { getTradingModeSync } from '@/lib/mexc-wrapper';
+import { getTradingModeSync } from '@/lib/trading-mode';
 import { cn } from '@/lib/utils';
 import { useTimeframe, TIMEFRAME_LABELS, type Timeframe } from '@/context/TimeframeContext';
 

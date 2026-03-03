@@ -13,8 +13,9 @@
   },
   "buildSettings": {
     "dockerfile": {
-      "dockerfilePath": "Dockerfile",
-      "dockerContext": "/"
+      "dockerFilePath": "/Dockerfile",
+      "dockerContext": "/",
+      "dockerWorkDir": "/"
     }
   },
   "ports": [

@@ -1,7 +1,7 @@
 'use server';
 
 import { setSetting } from '@/lib/settings';
-import { type TradingMode } from '@/lib/mexc-wrapper';
+import type { TradingMode } from '@/lib/trading-mode';
 import { cookies } from 'next/headers';
 
 export async function updateTradingMode(mode: TradingMode, userId: number) {

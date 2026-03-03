@@ -5,12 +5,12 @@ import { useRouter } from 'next/navigation';
 import { Header } from '@/components/Header';
 import { HorizonLayout } from '@/components/matrix-horizon/HorizonLayout';
 import { Save, ArrowLeft, Key, RefreshCw, ShieldAlert, AlertTriangle } from 'lucide-react';
-import { setTradingModeClient, getTradingModeSync } from '@/lib/mexc-wrapper';
+import { setTradingModeClient, getTradingModeSync } from '@/lib/trading-mode';
+import type { TradingMode } from '@/lib/trading-mode';
 import { updateTradingMode } from '@/app/actions/trading-mode';
 import { api } from '@/services/api';
 import { useAuth } from '@/hooks/useAuth';
 import type { User, BotConfig } from '@/lib/db';
-import type { TradingMode } from '@/lib/mexc-wrapper';
 
 export default function SettingsPage() {
     const router = useRouter();

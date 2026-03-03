@@ -1,39 +1,13 @@
-/**
- * TODO (P4.4): Refactor this God Module. Split simulator persistence, 
- * trading mode management, and API proxying into distinct modules.
- */
-/* cSpell:disable */
 import { getSetting, setSetting } from './settings';
 import { TradingSimulator, getSimulator } from './trading-simulator';
 import { fetchKlines } from './mexc';
+import { getTradingMode, getTradingModeSync, setTradingModeClient } from './trading-mode';
+import type { TradingMode } from './trading-mode';
+
+export { getTradingMode, getTradingModeSync, setTradingModeClient };
+export type { TradingMode };
 
 const _lastSavePromises = new Map<number, Promise<void>>();
-
-export type TradingMode = 'test' | 'production';
-
-export function getTradingMode(_userId?: number): TradingMode {
-    void _userId; // P4.1 TODO: Use this for per-user settings in the future.
-    // TODO (P4.1): Implement per-user trading mode resolution from database settings.
-    // Currently defaults to global/client-side mode.
-    if (typeof window !== 'undefined') {
-        const stored = localStorage.getItem('TRADING_MODE');
-        if (stored === 'production' || stored === 'test') return stored as TradingMode;
-    }
-    return (process.env.TRADING_MODE as TradingMode) || (process.env.NEXT_PUBLIC_TRADING_MODE as TradingMode) || 'test';
-}
-
-export function getTradingModeSync(_userId?: number): TradingMode {
-    return getTradingMode(_userId);
-}
-
-export function setTradingModeClient(mode: TradingMode) {
-    if (typeof window !== 'undefined') {
-        localStorage.setItem('TRADING_MODE', mode);
-        // Sync to cookie for server-side awareness
-        document.cookie = `TRADING_MODE=${mode}; path=/; max-age=31536000; SameSite=Lax`;
-        window.dispatchEvent(new Event('tradingModeChanged'));
-    }
-}
 
 export async function syncSimulator(userId: number, simulator: TradingSimulator) {
     if (typeof window !== 'undefined') return;

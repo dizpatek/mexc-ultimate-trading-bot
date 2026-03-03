@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { marketBuyByQuote, type TradingMode } from '@/lib/mexc-wrapper';
 import { getSessionUser } from '@/lib/auth-utils';
-import { sql } from '@vercel/postgres';
+import { sql } from '@/lib/postgres';
 
 export const dynamic = 'force-dynamic';
 

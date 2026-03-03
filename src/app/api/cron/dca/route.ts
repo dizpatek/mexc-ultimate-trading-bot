@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { checkDcaBots } from '@/lib/dca-engine';
-import { sql } from '@vercel/postgres';
+import { sql } from '@/lib/postgres';
 
 export const dynamic = 'force-dynamic';
 

@@ -1,4 +1,4 @@
-import { sql } from '@vercel/postgres';
+import { sql } from '@/lib/postgres';
 import { getPrice, marketSellByQty, marketBuyByQuote } from './mexc-wrapper';
 import { MatrixV5Engine } from './matrix-v5-engine';
 import { fetchKlines } from './mexc';

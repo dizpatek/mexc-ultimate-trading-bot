@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { sql } from '@vercel/postgres';
+import { sql } from '@/lib/postgres';
 import { getTopAssets } from '@/lib/mexc';
 
 export const dynamic = 'force-dynamic';

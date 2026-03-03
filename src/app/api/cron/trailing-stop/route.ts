@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { checkTrailingStops } from '@/lib/trailing-stop';
 import { monitorSmartTrades } from '@/lib/smart-trade-monitor';
-import { sql } from '@vercel/postgres';
+import { sql } from '@/lib/postgres';
 
 export const dynamic = 'force-dynamic';
 

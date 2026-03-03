@@ -1,4 +1,4 @@
-import { sql } from '@vercel/postgres';
+import { sql } from '@/lib/postgres';
 
 export async function getSetting(key: string, userId: number): Promise<string | null> {
     try {

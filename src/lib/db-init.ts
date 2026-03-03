@@ -1,4 +1,4 @@
-import { sql } from '@vercel/postgres';
+import { sql } from '@/lib/postgres';
 
 export async function ensureTablesExist() {
     try {

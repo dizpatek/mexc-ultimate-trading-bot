@@ -1,5 +1,5 @@
 // Last Updated: 2026-01-24T02:23:00+03:00
-import { sql } from '@vercel/postgres';
+import { sql } from '@/lib/postgres';
 import { getAccountInfo, marketSellByQty, getTradingMode, type TradingMode } from '@/lib/mexc-wrapper';
 import { normalizeSymbol } from '@/lib/symbol-utils';
 

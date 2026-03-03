@@ -1,6 +1,6 @@
 import { MatrixV5Engine, MatrixV5Result } from './matrix-v5-engine';
 import { getKlines } from './mexc-wrapper'; // Use wrapper!
-import { sql } from '@vercel/postgres';
+import { sql } from '@/lib/postgres';
 import { executePanicSell } from './panic-service';
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 
 import { NextResponse } from 'next/server';
-import { sql } from '@vercel/postgres';
+import { sql } from '@/lib/postgres';
 import { getTradingMode } from '@/lib/mexc-wrapper';
 
 export async function GET() {

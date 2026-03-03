@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth-utils';
-import { sql } from '@vercel/postgres';
+import { sql } from '@/lib/postgres';
 import { ensureTablesExist } from '@/lib/db-init';
 import { resetSimulator } from '@/lib/trading-simulator';
 

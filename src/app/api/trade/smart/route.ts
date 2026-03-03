@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth-utils';
 import { monitorSmartTrades } from '@/lib/smart-trade-monitor';
 import { handleSmartTrade } from '@/lib/smart-trade';
-import { sql } from '@vercel/postgres';
+import { sql } from '@/lib/postgres';
 import axios from 'axios';
 import { getPrice, marketBuyByQuote, marketSellByQty, type TradingMode } from '@/lib/mexc-wrapper';
 import { getMexcCredentials } from '@/lib/settings';

@@ -1,6 +1,6 @@
 
 import { NextResponse } from 'next/server';
-import { sql } from '@vercel/postgres';
+import { sql } from '@/lib/postgres';
 
 export async function GET() {
     try {

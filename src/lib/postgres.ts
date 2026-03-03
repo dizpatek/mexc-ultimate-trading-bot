@@ -3,7 +3,7 @@ import { Pool, QueryResult } from 'pg';
 // Standardize connection URL for Northflank/Generic Postgres
 const connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL || process.env.POSTGRES_URI;
 
-const pool = new Pool({
+export const pool = new Pool({
     connectionString,
     ssl: connectionString?.includes('primary') ? { rejectUnauthorized: false } : false,
     max: 10,

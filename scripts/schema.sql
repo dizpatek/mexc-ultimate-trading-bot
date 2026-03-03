@@ -97,3 +97,15 @@ CREATE TABLE IF NOT EXISTS system_settings (
   value TEXT NOT NULL,
   updated_at BIGINT NOT NULL
 );
+
+-- Bot config table
+CREATE TABLE IF NOT EXISTS bot_configs (
+  id INTEGER PRIMARY KEY,
+  f4_length INTEGER DEFAULT 10,
+  whale_multiplier NUMERIC DEFAULT 1.8,
+  ai_threshold INTEGER DEFAULT 65,
+  auto_trade BOOLEAN DEFAULT FALSE,
+  defense_mode BOOLEAN DEFAULT FALSE,
+  timeframe TEXT DEFAULT '4h',
+  updated_at BIGINT NOT NULL
+);

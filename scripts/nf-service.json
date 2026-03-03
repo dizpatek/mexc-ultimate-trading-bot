@@ -1,0 +1,28 @@
+{
+  "name": "mexc-trading-bot",
+  "billing": {
+    "deploymentPlan": "nf-compute-20"
+  },
+  "deployment": {
+    "instances": 1
+  },
+  "vcsData": {
+    "projectUrl": "https://github.com/dizpatek/mexc-ultimate-trading-bot",
+    "projectBranch": "main",
+    "projectType": "github"
+  },
+  "buildSettings": {
+    "buildpack": {
+      "builder": "PAKETO_JAMMY_BASE"
+    }
+  },
+  "ports": [
+    {
+      "name": "http",
+      "port": 3000,
+      "internalPort": 3000,
+      "public": true,
+      "protocol": "HTTP"
+    }
+  ]
+}

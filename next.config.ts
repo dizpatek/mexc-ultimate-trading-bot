@@ -2,9 +2,24 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
-  reactCompiler: true,
+  experimental: {
+    reactCompiler: true,
+  },
   output: 'standalone',
   transpilePackages: ['lightweight-charts'],
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        tls: false,
+        net: false,
+        fs: false,
+        dns: false,
+        child_process: false,
+      };
+    }
+    return config;
+  },
   async rewrites() {
     return [
       {

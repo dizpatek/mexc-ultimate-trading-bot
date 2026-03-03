@@ -145,8 +145,8 @@ export async function getOrderById(id: number) {
 export async function insertTradeHistory(obj: Partial<Trade>) {
     try {
         const result = await sql`
-            INSERT INTO trade_history (order_id, symbol, side, type, qty, price, quote_qty, commission, commission_asset, profit_loss, profit_loss_percentage, created_at) 
-            VALUES (${obj.order_id || null}, ${obj.symbol}, ${obj.side}, ${obj.type || 'MARKET'}, ${obj.qty}, ${obj.price}, ${obj.quote_qty}, ${obj.commission || 0}, ${obj.commission_asset || null}, ${obj.profit_loss || 0}, ${obj.profit_loss_percentage || 0}, ${Date.now()}) 
+            INSERT INTO trade_history (user_id, order_id, symbol, side, type, qty, price, quote_qty, commission, commission_asset, profit_loss, profit_loss_percentage, created_at) 
+            VALUES (${obj.user_id || DEFAULT_UID}, ${obj.order_id || null}, ${obj.symbol}, ${obj.side}, ${obj.type || 'MARKET'}, ${obj.qty}, ${obj.price}, ${obj.quote_qty}, ${obj.commission || 0}, ${obj.commission_asset || null}, ${obj.profit_loss || 0}, ${obj.profit_loss_percentage || 0}, ${Date.now()}) 
             RETURNING id
         `;
         return result.rows[0].id;

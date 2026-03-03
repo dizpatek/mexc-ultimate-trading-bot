@@ -31,7 +31,12 @@ export default function SettingsPage() {
         ai_threshold: 65,
         auto_trade: false,
         defense_mode: false,
-        timeframe: '4h',
+        pilot_trailing_buy: true,
+        pilot_trailing_buy_dev: 0.3,
+        pilot_tp_trailing: true,
+        pilot_tp_deviation: 0.5,
+        pilot_sl_trailing: true,
+        pilot_sl_deviation: 0.5,
         updated_at: Date.now()
     });
     const [adminLoading, setAdminLoading] = useState(false);
@@ -306,15 +311,6 @@ export default function SettingsPage() {
                                             type="number" 
                                             value={globalConfig.ai_threshold ?? 65} 
                                             onChange={(e) => setGlobalConfig({...globalConfig, ai_threshold: parseInt(e.target.value) || 0})}
-                                            className="input-field w-full text-xs h-9"
-                                        />
-                                    </div>
-                                    <div className="space-y-1">
-                                        <label className="text-[9px] font-black text-muted-foreground uppercase ml-1">Timeframe</label>
-                                        <input 
-                                            type="text" 
-                                            value={globalConfig.timeframe ?? ''} 
-                                            onChange={(e) => setGlobalConfig({...globalConfig, timeframe: e.target.value})}
                                             className="input-field w-full text-xs h-9"
                                         />
                                     </div>

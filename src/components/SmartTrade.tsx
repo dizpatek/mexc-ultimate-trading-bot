@@ -220,10 +220,10 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
         const currentPrice = asset.price;
         setBuyPrice(currentPrice.toString());
         
-        // Calculate logical targets (+9% / -10% for TRADE, -9% / +10% for COVER)
+        // Calculate logical targets (+1% / -1% for TRADE, -1% / +1% for COVER)
         const isCover = mode === 'COVER';
-        const defaultTp = isCover ? currentPrice * 0.91 : currentPrice * 1.09;
-        const defaultSl = isCover ? currentPrice * 1.10 : currentPrice * 0.90;
+        const defaultTp = isCover ? currentPrice * 0.99 : currentPrice * 1.01;
+        const defaultSl = isCover ? currentPrice * 1.01 : currentPrice * 0.99;
         
         setTpPrice(defaultTp.toFixed(6));
         setSlPrice(defaultSl.toFixed(6));
@@ -279,11 +279,11 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     }, [compact, symbol]);
 
     useEffect(() => {
-        // When priceSync is active and not using existing assets, always sync with market price
-        if (marketPrice !== null && marketPrice > 0 && !editingTrade && priceSync && !useExisting) {
+        // When priceSync is active, not using existing assets, AND trailingBuy is OFF, always sync with market price
+        if (marketPrice !== null && marketPrice > 0 && !editingTrade && priceSync && !useExisting && !trailingBuy) {
             setBuyPrice(marketPrice.toString());
         }
-    }, [marketPrice, setBuyPrice, editingTrade, priceSync, useExisting]);
+    }, [marketPrice, setBuyPrice, editingTrade, priceSync, useExisting, trailingBuy]);
 
 
     // Auto-select highest value asset on mount (by USDT value, not quantity)
@@ -498,10 +498,42 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
 
 
     const handlePricesChange = useCallback((p: { buy?: number; tp?: number; sl?: number }) => {
-        if (p.buy !== undefined) setBuyPrice(p.buy.toString());
-        if (p.tp !== undefined) setTpPrice(p.tp.toString());
-        if (p.sl !== undefined) setSlPrice(p.sl.toString());
-    }, [setBuyPrice, setTpPrice, setSlPrice]);
+        if (p.buy !== undefined && p.tp === undefined && p.sl === undefined) {
+             const newBuy = p.buy;
+             const oldBuy = parseFloat(buyPrice) || 0;
+             setBuyPrice(newBuy.toString());
+             
+             // If ONLY buy was moved (dragged individually or auto-tracking), move TP and SL proportionally
+             if (oldBuy > 0) {
+                 const currentTpP = parseFloat(tpPrice) || 0;
+                 const currentSlP = parseFloat(slPrice) || 0;
+                 
+                 if (currentTpP > 0) {
+                     const newTp = newBuy * (currentTpP / oldBuy);
+                     setTpPrice(Number(newTp.toFixed(6)).toString());
+                 }
+                 
+                 // Scale split TP targets if any, regardless of whether main TP is set
+                 setTpTargets(prev => prev.map(t => {
+                     const tPrice = parseFloat(t.price) || 0;
+                     if (tPrice > 0) {
+                         const scaledPrice = newBuy * (tPrice / oldBuy);
+                         return { ...t, price: Number(scaledPrice.toFixed(6)).toString() };
+                     }
+                     return t;
+                 }));
+
+                 if (currentSlP > 0) {
+                     const newSl = newBuy * (currentSlP / oldBuy);
+                     setSlPrice(Number(newSl.toFixed(6)).toString());
+                 }
+             }
+        } else {
+            if (p.buy !== undefined) setBuyPrice(p.buy.toString());
+            if (p.tp !== undefined) setTpPrice(p.tp.toString());
+            if (p.sl !== undefined) setSlPrice(p.sl.toString());
+        }
+    }, [buyPrice, tpPrice, slPrice, setBuyPrice, setTpPrice, setSlPrice, setTpTargets]);
 
     // Dynamic calculations
     const buyP = parseFloat(buyPrice) || 0;
@@ -526,9 +558,9 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     // --- VISUALIZATION LOGIC FOR CHART ---
     // If Trailing Buy is active and price is better than trigger, 
     // we visualize the potential Entry/TP/SL moving with the market price.
-    let vizBuyPrice = buyP;
-    let vizTpPrice = tpP;
-    let vizSlPrice = slP;
+    const vizBuyPrice = buyP;
+    const vizTpPrice = tpP;
+    const vizSlPrice = slP;
 
     // Reciprocal TP/SL price adjustment when mode changes
     // Only swaps if current targets are 'illogical' for the selected mode
@@ -556,25 +588,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
         }
     }, [mode, buyP, tpP, slP, tpPrice, slPrice, setTpPrice, setSlPrice, editingTrade, hasInitialized]);
 
-    if (marketPrice && trailingBuy && !useExisting) {
-        // Mode TRADE: Buying Low. Trigger is buyP. If Market < buyP, we trail down.
-        if (mode === 'TRADE' && marketPrice < buyP) {
-             // Simulated Entry = Current Market * (1 + Dev)
-             vizBuyPrice = marketPrice * (1 + (trailingBuyDev / 100));
-             
-             // Recalculate TP/SL based on this new Entry, keeping the same percentages
-             vizTpPrice = vizBuyPrice * (1 + (tpPercent / 100));
-             vizSlPrice = vizBuyPrice * (1 + (slPercent / 100));
-        }
-        // Mode COVER: Selling High. Trigger is buyP (Entry). If Market > buyP, we trail up.
-        else if (mode === 'COVER' && marketPrice > buyP) {
-             // Simulated Entry = Current Market * (1 - Dev)
-             vizBuyPrice = marketPrice * (1 - (trailingBuyDev / 100));
-
-             vizTpPrice = vizBuyPrice * (1 + (tpPercent / 100));
-             vizSlPrice = vizBuyPrice * (1 + (slPercent / 100));
-        }
-    }
+    // Removed active simulation block that caused TP, SL, and Potential Entry lines to jitter/snap towards market price when trailing was active.
 
     return (
         <div id="trade-top-anchor">
@@ -623,9 +637,6 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                         currentMarketPrice={marketPrice || selectedHolding?.price}
                         onMarketPriceUpdate={setMarketPrice}
                         mode={mode}
-                        trailingBuyDev={trailingBuyDev}
-                        trailingTpDev={tpDeviation}
-                        trailingSlDev={trailingSlDev}
                         assets={filteredAssets}
                         onAssetChange={handleAssetSelect}
                         potentialEntry={trailingBuy ? vizBuyPrice : undefined}
@@ -1259,9 +1270,6 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                                 currentMarketPrice={marketPrice || selectedHolding?.price}
                                 onMarketPriceUpdate={setMarketPrice}
                                 mode={mode}
-                                trailingBuyDev={trailingBuyDev}
-                                trailingTpDev={tpDeviation}
-                                trailingSlDev={trailingSlDev}
                                 assets={filteredAssets}
                                 onAssetChange={handleAssetSelect}
                                 potentialEntry={trailingBuy ? vizBuyPrice : undefined}

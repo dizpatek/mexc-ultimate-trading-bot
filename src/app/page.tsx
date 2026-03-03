@@ -13,8 +13,6 @@ import { UnifiedControlStrip } from '@/components/UnifiedControlStrip';
 import { MatrixHorizon } from '@/components/matrix-horizon/MatrixHorizon';
 import { HorizonLayout } from '@/components/matrix-horizon/HorizonLayout';
 import { HorizonCard } from '@/components/matrix-horizon/HorizonCard';
-import { TimeframeProvider } from '@/context/TimeframeContext';
-import { TradeProvider } from '@/context/TradeContext';
 import { RefreshCw } from 'lucide-react';
 
 // Dashboard component starts below
@@ -66,8 +64,6 @@ export default function Dashboard() {
   if (!user) return null;
 
   return (
-    <TimeframeProvider defaultTimeframe="4h">
-    <TradeProvider>
     <HorizonLayout>
       <Header />
 
@@ -124,7 +120,5 @@ export default function Dashboard() {
       />
 
     </HorizonLayout>
-    </TradeProvider>
-    </TimeframeProvider>
   );
 }

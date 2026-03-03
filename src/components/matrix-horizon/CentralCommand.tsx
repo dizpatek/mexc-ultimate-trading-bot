@@ -24,7 +24,9 @@ export const CentralCommand: React.FC<CentralCommandProps> = ({ score, status, p
          <div 
             className={cn(
                 "absolute inset-0 rounded-full opacity-20 blur-xl transition-colors duration-1000",
-                score >= 65 ? "bg-emerald-500" : score < 50 ? "bg-rose-500" : "bg-amber-500"
+                score >= 65 ? "bg-emerald-500 shadow-[0_0_40px_rgba(16,185,129,0.4)]" : 
+                score < 50 ? "bg-rose-500 shadow-[0_0_40px_rgba(244,63,94,0.4)]" : 
+                "bg-slate-500 shadow-[0_0_40px_rgba(100,116,139,0.3)]"
             )} 
          />
 
@@ -34,7 +36,7 @@ export const CentralCommand: React.FC<CentralCommandProps> = ({ score, status, p
                 <span className="text-sm font-black text-slate-500 tracking-[0.25em] uppercase">AI CONFIDENCE</span>
                 <span className={cn(
                     "text-6xl font-black font-mono tracking-tighter transition-colors duration-500 drop-shadow-2xl",
-                    score >= 65 ? "text-emerald-400" : score < 50 ? "text-rose-400" : "text-amber-400"
+                    score >= 65 ? "text-emerald-400" : score < 50 ? "text-rose-400" : "text-slate-400"
                 )}>
                     {score.toFixed(1)}%
                 </span>
@@ -53,9 +55,9 @@ export const CentralCommand: React.FC<CentralCommandProps> = ({ score, status, p
                 <>
                     <div className={cn(
                         "px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-colors",
-                        score >= 50 
-                            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" 
-                            : "bg-rose-500/10 border-rose-500/30 text-rose-400"
+                        score >= 65 ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" : 
+                        score < 50 ? "bg-rose-500/10 border-rose-500/30 text-rose-400" : 
+                        "bg-slate-800/40 border-slate-700 text-slate-400"
                     )}>
                         {status}
                     </div>

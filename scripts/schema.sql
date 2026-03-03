@@ -89,9 +89,10 @@ CREATE TABLE IF NOT EXISTS strategies (
 -- Strategy signals table
 CREATE TABLE IF NOT EXISTS strategy_signals (
   id SERIAL PRIMARY KEY,
-  strategy_id INTEGER NOT NULL REFERENCES strategies(id),
+  strategy_id INTEGER REFERENCES strategies(id),
+  symbol TEXT,
   signal_type TEXT NOT NULL,
-  price NUMERIC NOT NULL,
+  price NUMERIC,
   volume NUMERIC,
   timestamp BIGINT NOT NULL,
   executed BOOLEAN DEFAULT FALSE,
@@ -121,6 +122,11 @@ CREATE TABLE IF NOT EXISTS bot_configs (
   ai_threshold INTEGER DEFAULT 65,
   auto_trade BOOLEAN DEFAULT FALSE,
   defense_mode BOOLEAN DEFAULT FALSE,
-  timeframe TEXT DEFAULT '4h',
+  pilot_trailing_buy BOOLEAN DEFAULT TRUE,
+  pilot_trailing_buy_dev NUMERIC DEFAULT 0.3,
+  pilot_tp_trailing BOOLEAN DEFAULT TRUE,
+  pilot_tp_deviation NUMERIC DEFAULT 0.5,
+  pilot_sl_trailing BOOLEAN DEFAULT TRUE,
+  pilot_sl_deviation NUMERIC DEFAULT 0.5,
   updated_at BIGINT NOT NULL
 );

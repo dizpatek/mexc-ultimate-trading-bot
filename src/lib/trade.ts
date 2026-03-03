@@ -26,6 +26,17 @@ function notify(text: string) {
     }
 }
 
+function calculateAvgPrice(res: { fills?: Array<{ price: string; qty: string }>; cummulativeQuoteQty?: string; executedQty?: string }, defaultPrice: number): number {
+    if (res.fills && res.fills.length > 0) {
+        const totalQty = res.fills.reduce((sum: number, fill: { price: string; qty: string }) => sum + parseFloat(fill.qty), 0);
+        const totalQuote = res.fills.reduce((sum: number, fill: { price: string; qty: string }) => sum + (parseFloat(fill.price) * parseFloat(fill.qty)), 0);
+        return totalQty > 0 ? totalQuote / totalQty : defaultPrice;
+    } else if (res.cummulativeQuoteQty && res.executedQty && parseFloat(res.executedQty) > 0) {
+        return parseFloat(res.cummulativeQuoteQty) / parseFloat(res.executedQty);
+    }
+    return defaultPrice;
+}
+
 export interface BuySignalOptions {
     pair: string;
     risk?: number;
@@ -95,17 +106,17 @@ export async function handleBuySignal({
                     amount: '20', // Default quote amount if not specified
                     buyPrice: currentPrice.toString(),
                     buyType: 'MARKET',
-                    trailingBuy: true,
-                    trailingBuyDev: 0.3,
+                    trailingBuy: botConfig.pilot_trailing_buy ?? true,
+                    trailingBuyDev: Number(botConfig.pilot_trailing_buy_dev ?? 0.3),
                     takeProfit: {
                         price: defaultTp.toString(),
-                        trailing: true,
-                        deviation: 0.5
+                        trailing: botConfig.pilot_tp_trailing ?? true,
+                        deviation: Number(botConfig.pilot_tp_deviation ?? 0.5)
                     },
                     stopLoss: {
                         price: defaultSl.toString(),
-                        trailing: true,
-                        deviation: 0.5
+                        trailing: botConfig.pilot_sl_trailing ?? true,
+                        deviation: Number(botConfig.pilot_sl_deviation ?? 0.5)
                     }
                 });
                 
@@ -158,20 +169,11 @@ export async function handleBuySignal({
         const precision = await getSymbolPrecision(pair);
         const finalQuote = parseFloat(quoteToSpend.toFixed(precision.quote));
 
-        // Place market buy using quoteOrderQty
-        const res = await marketBuyByQuote(userId, pair, String(finalQuote)) as { orderId: string; executedQty: string; cummulativeQuoteQty: string; fills?: { price: string; qty: string; commission?: string; commissionAsset?: string }[] };
+        // Place market buy and process result
+        const res = await marketBuyByQuote(userId, pair, String(finalQuote)) as { orderId: string; executedQty: string; cummulativeQuoteQty: string; fills?: Array<{ price: string; qty: string; commission?: string; commissionAsset?: string }> };
         notify(`BUY executed ${pair} => ${JSON.stringify(res)}`);
 
-        // Calculate average price from fills or cumulative fields
-        let avgPrice = currentPrice;
-        if (res.fills && res.fills.length > 0) {
-            const totalQty = res.fills.reduce((sum: number, fill) => sum + parseFloat(fill.qty), 0);
-            const totalQuote = res.fills.reduce((sum: number, fill) => sum + (parseFloat(fill.price) * parseFloat(fill.qty)), 0);
-            avgPrice = totalQuote / totalQty;
-        } else if (res.cummulativeQuoteQty && res.executedQty && parseFloat(res.executedQty) > 0) {
-            // Fallback: MEXC often doesn't return fills for market orders
-            avgPrice = parseFloat(res.cummulativeQuoteQty) / parseFloat(res.executedQty);
-        }
+        const avgPrice = calculateAvgPrice(res, currentPrice);
 
         // Record primary order in DB
         const dbId = await insertOrder({
@@ -184,7 +186,7 @@ export async function handleBuySignal({
             price: avgPrice,
             status: 'FILLED',
             meta: res as unknown as Record<string, unknown>
-        });
+        }) as number;
 
         // Record in trade history
         await insertTradeHistory({
@@ -257,19 +259,16 @@ export async function handleSellSignal({ pair, amount = null, percent = null, us
                 const balance = await getBalance(baseAsset, userId);
                 
                 if (balance.free > 0) {
+                    // Redirection for automated SELL: use handleSmartTrade for consistency and tracking
                     const smartResult = await handleSmartTrade({
                         user_id: userId,
                         symbol: pair,
-                        mode: 'COVER', // Sell to close
+                        mode: 'COVER', // Sell to close existing position
                         amount: balance.free.toString(),
                         buyPrice: (await getPrice(pair)).toString(),
                         buyType: 'MARKET',
-                        takeProfit: {
-                            price: (await getPrice(pair) * 0.995).toString(), // TP for Sell is lower price, but here we mean Exit
-                            trailing: true,
-                            deviation: 0.5
-                        },
-                        stopLoss: null // No SL for sell exit usually or set a protective one
+                        takeProfit: null, // Don't set illogical TP for an immediate exit signal
+                        stopLoss: null 
                     });
                     notify(`[Smart Pilot] 🔻 ${pair} için Trailing Sell ile kapatma işlemi başlatıldı.`);
                     return { ok: true, ...smartResult };
@@ -311,18 +310,10 @@ export async function handleSellSignal({ pair, amount = null, percent = null, us
         const currentPrice = await getPrice(pair);
         notify(`${pair} satış: ${finalQty} adet @ ${currentPrice} USDT`);
 
-        const res = await marketSellByQty(userId, pair, String(finalQty)) as { orderId: string; executedQty: string; cummulativeQuoteQty: string; fills?: { price: string; qty: string; commission?: string; commissionAsset?: string }[] };
+        const res = await marketSellByQty(userId, pair, String(finalQty)) as { orderId: string; executedQty: string; cummulativeQuoteQty: string; fills?: Array<{ price: string; qty: string; commission?: string; commissionAsset?: string }> };
         notify(`SELL executed ${pair} => ${JSON.stringify(res)}`);
 
-        let avgPrice = currentPrice;
-        if (res.fills && res.fills.length > 0) {
-            const totalQty = res.fills.reduce((sum: number, fill) => sum + parseFloat(fill.qty), 0);
-            const totalQuote = res.fills.reduce((sum: number, fill) => sum + (parseFloat(fill.price) * parseFloat(fill.qty)), 0);
-            avgPrice = totalQuote / totalQty;
-        } else if (res.cummulativeQuoteQty && res.executedQty && parseFloat(res.executedQty) > 0) {
-            // Fallback: MEXC often doesn't return fills for market orders
-            avgPrice = parseFloat(res.cummulativeQuoteQty) / parseFloat(res.executedQty);
-        }
+        const avgPrice = calculateAvgPrice(res, currentPrice);
 
         const dbId = await insertOrder({
             mexc_order_id: res.orderId || undefined,
@@ -334,9 +325,9 @@ export async function handleSellSignal({ pair, amount = null, percent = null, us
             price: avgPrice,
             status: 'FILLED',
             meta: res as unknown as Record<string, unknown>
-        });
+        }) as number;
 
-        const previousBuys = await getTradeHistoryBySymbol(pair, 10);
+        const previousBuys = await getTradeHistoryBySymbol(pair, 10) as Array<{ side: string; price: number }>;
         const lastBuy = previousBuys.find(t => t.side === 'BUY');
 
         let profitLoss = 0;
@@ -348,7 +339,7 @@ export async function handleSellSignal({ pair, amount = null, percent = null, us
             profitLoss = sellValue - buyValue;
             profitLossPercentage = ((sellValue - buyValue) / buyValue) * 100;
         }
-
+    
         await insertTradeHistory({
             order_id: dbId,
             symbol: pair,

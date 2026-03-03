@@ -17,13 +17,13 @@ import { cn } from '@/lib/utils';
 import { useTimeframe, TIMEFRAME_LABELS, type Timeframe } from '@/context/TimeframeContext';
 
 const TF_ITEMS: { id: Timeframe; short: string }[] = [
-    { id: '1m',  short: '1D' },
-    { id: '15m', short: '15D' },
-    { id: '1h',  short: '1S' },
-    { id: '4h',  short: '4S' },
-    { id: '1d',  short: '1G' },
-    { id: '1w',  short: '1H' },
-    { id: '1M',  short: '1A' },
+    { id: '1m',  short: '1m' },
+    { id: '15m', short: '15m' },
+    { id: '1h',  short: '1h' },
+    { id: '4h',  short: '4h' },
+    { id: '1d',  short: '1d' },
+    { id: '1w',  short: '1w' },
+    { id: '1M',  short: '1M' },
 ];
 
 const TimeframeBar = () => {

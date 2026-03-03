@@ -1,4 +1,4 @@
-import { sql } from '@/lib/postgres';
+import { sql, pool } from '@/lib/postgres';
 
 export interface Order {
     id: number;
@@ -74,7 +74,12 @@ export interface BotConfig {
     ai_threshold: number;
     auto_trade: boolean;
     defense_mode: boolean;
-    timeframe: string;
+    pilot_trailing_buy: boolean;
+    pilot_trailing_buy_dev: number;
+    pilot_tp_trailing: boolean;
+    pilot_tp_deviation: number;
+    pilot_sl_trailing: boolean;
+    pilot_sl_deviation: number;
     updated_at: number;
 }
 
@@ -284,9 +289,23 @@ export async function deleteStrategy(id: number, userId: number = DEFAULT_UID) {
     await sql`DELETE FROM strategies WHERE id = ${id} AND user_id = ${userId}`;
 }
 
-export async function createStrategySignal(signalData: { strategy_id: number; signal_type: string; price?: number; volume?: number; timestamp: number; executed?: boolean; execution_result?: unknown }) {
-    const result = await sql`INSERT INTO strategy_signals (strategy_id, signal_type, price, volume, timestamp, executed, execution_result) VALUES (${signalData.strategy_id}, ${signalData.signal_type}, ${signalData.price || null}, ${signalData.volume || null}, ${signalData.timestamp}, ${signalData.executed || false}, ${signalData.execution_result ? JSON.stringify(signalData.execution_result) : null}) RETURNING id`;
-    return result.rows[0].id;
+export async function createStrategySignal(signalData: { 
+    strategy_id?: number; 
+    symbol?: string;
+    signal_type: string; 
+    price?: number; 
+    volume?: number; 
+    timestamp: number; 
+    executed?: boolean; 
+    execution_result?: unknown 
+}) {
+    const { strategy_id, symbol, signal_type, price, volume, timestamp, executed, execution_result } = signalData;
+    const { rows } = await sql`
+        INSERT INTO strategy_signals (strategy_id, symbol, signal_type, price, volume, timestamp, executed, execution_result)
+        VALUES (${strategy_id || null}, ${symbol || null}, ${signal_type}, ${price || null}, ${volume || null}, ${timestamp}, ${executed || false}, ${JSON.stringify(execution_result || {})})
+        RETURNING id
+    `;
+    return rows[0].id;
 }
 
 export async function getStrategySignals(strategyId: number, limit = 100) {
@@ -305,11 +324,85 @@ export async function getBotConfig(): Promise<BotConfig> {
             ai_threshold: 65,
             auto_trade: false,
             defense_mode: false,
-            timeframe: '4h',
+            pilot_trailing_buy: true,
+            pilot_trailing_buy_dev: 0.3,
+            pilot_tp_trailing: true,
+            pilot_tp_deviation: 0.5,
+            pilot_sl_trailing: true,
+            pilot_sl_deviation: 0.5,
             updated_at: Date.now()
         } as BotConfig;
     }
     return rows[0] as unknown as BotConfig;
+}
+
+// --- System Logging ---
+const sysLogBuffer: { userId: number; level: string; message: string; details: string | null }[] = [];
+let isFlushingSysLogs = false;
+const MAX_BUFFER_SIZE = 5000;
+
+export async function flushSystemLogs() {
+    if (isFlushingSysLogs || sysLogBuffer.length === 0) return;
+    isFlushingSysLogs = true;
+    
+    // Process up to 100 logs per batch to reduce connection overhead
+    const batch = sysLogBuffer.splice(0, 100);
+    try {
+        const timeStr = Date.now();
+        
+        // Construct bulk insert values
+        // Note: Using parameterized queries for array of tuples in node-postgres
+        // Requires a flat array of values and a dynamically generated query string
+        const values: unknown[] = [];
+        const placeholders = batch.map((log, index) => {
+            const offset = index * 5;
+            values.push(log.userId, log.level, log.message, log.details, timeStr);
+            return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5})`;
+        }).join(', ');
+
+        const queryText = `
+            INSERT INTO system_logs (user_id, level, message, details, timestamp)
+            VALUES ${placeholders}
+        `;
+
+        await pool.query(queryText, values);
+        
+    } catch (err) {
+        console.error('[DB] Failed to flush system logs batch. Logs dropped to prevent ordering inversion.', err);
+        // NOTE: In a serverless environment, re-queuing failed batches can lead to 
+        // chronological inversions and log duplication if the DB flaps.
+        // We drop them here to prioritize system stability over 100% log retention.
+    } finally {
+        isFlushingSysLogs = false;
+        if (sysLogBuffer.length > 0) {
+            setTimeout(() => flushSystemLogs().catch(() => {}), 1000);
+        }
+    }
+}
+
+export async function logSystemEvent(userId: number, level: string, message: string, details?: string, immediate = false) {
+    if (immediate) {
+        try {
+            await sql`
+                INSERT INTO system_logs (user_id, level, message, details, timestamp)
+                VALUES (${userId}, ${level}, ${message}, ${details}, ${Date.now()})
+            `;
+        } catch (err) {
+            console.error('[DB] logSystemEvent (immediate) Error:', err);
+        }
+        return;
+    }
+
+    // Add to buffer for batch processing, dropping oldest if full to prevent OOM
+    if (sysLogBuffer.length >= MAX_BUFFER_SIZE) {
+        sysLogBuffer.shift(); 
+    }
+    sysLogBuffer.push({ userId, level, message, details: details || null });
+    
+    // Auto trigger flush if buffer starts getting full
+    if (sysLogBuffer.length >= 20 && !isFlushingSysLogs) {
+        flushSystemLogs().catch(() => {});
+    }
 }
 
 export async function updateBotConfig(updates: Partial<BotConfig>) {
@@ -323,21 +416,42 @@ export async function updateBotConfig(updates: Partial<BotConfig>) {
         
         const auto = !!(updates.auto_trade !== undefined ? updates.auto_trade : (current.auto_trade ?? false));
         const defense = !!(updates.defense_mode !== undefined ? updates.defense_mode : (current.defense_mode ?? false));
-        const timeframe = String(updates.timeframe !== undefined ? updates.timeframe : (current.timeframe ?? '4h'));
+        
+        const pt_buy = !!(updates.pilot_trailing_buy !== undefined ? updates.pilot_trailing_buy : (current.pilot_trailing_buy ?? true));
+        const pt_buy_dev = parseFloat(String(updates.pilot_trailing_buy_dev !== undefined ? updates.pilot_trailing_buy_dev : (current.pilot_trailing_buy_dev ?? 0.3)));
+        const pt_tp = !!(updates.pilot_tp_trailing !== undefined ? updates.pilot_tp_trailing : (current.pilot_tp_trailing ?? true));
+        const pt_tp_dev = parseFloat(String(updates.pilot_tp_deviation !== undefined ? updates.pilot_tp_deviation : (current.pilot_tp_deviation ?? 0.5)));
+        const pt_sl = !!(updates.pilot_sl_trailing !== undefined ? updates.pilot_sl_trailing : (current.pilot_sl_trailing ?? true));
+        const pt_sl_dev = parseFloat(String(updates.pilot_sl_deviation !== undefined ? updates.pilot_sl_deviation : (current.pilot_sl_deviation ?? 0.5)));
+        
         const now = Date.now();
 
+        console.log(`[DB] Updating bot config ID=1 with:`, updates);
+
         await sql`
-            INSERT INTO bot_configs (id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, timeframe, updated_at)
-            VALUES (1, ${f4}, ${whale}, ${ai}, ${auto}, ${defense}, ${timeframe}, ${now})
+            INSERT INTO bot_configs (
+                id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, updated_at,
+                pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation
+            )
+            VALUES (
+                1, ${f4}, ${whale}, ${ai}, ${auto}, ${defense}, ${now},
+                ${pt_buy}, ${pt_buy_dev}, ${pt_tp}, ${pt_tp_dev}, ${pt_sl}, ${pt_sl_dev}
+            )
             ON CONFLICT (id) DO UPDATE SET
                 f4_length = EXCLUDED.f4_length,
                 whale_multiplier = EXCLUDED.whale_multiplier,
                 ai_threshold = EXCLUDED.ai_threshold,
                 auto_trade = EXCLUDED.auto_trade,
                 defense_mode = EXCLUDED.defense_mode,
-                timeframe = EXCLUDED.timeframe,
+                pilot_trailing_buy = EXCLUDED.pilot_trailing_buy,
+                pilot_trailing_buy_dev = EXCLUDED.pilot_trailing_buy_dev,
+                pilot_tp_trailing = EXCLUDED.pilot_tp_trailing,
+                pilot_tp_deviation = EXCLUDED.pilot_tp_deviation,
+                pilot_sl_trailing = EXCLUDED.pilot_sl_trailing,
+                pilot_sl_deviation = EXCLUDED.pilot_sl_deviation,
                 updated_at = EXCLUDED.updated_at
         `;
+        console.log(`[DB] Bot config updated successfully at ${new Date(now).toISOString()}`);
     } catch (err: unknown) {
         console.error('DB Update Bot Config Error:', err instanceof Error ? err.message : String(err));
         throw err;

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { MatrixV5Engine } from '@/lib/matrix-v5-engine';
 import { fetchKlines } from '@/lib/mexc';
+import { getSessionUser } from '@/lib/auth-utils';
+import { logSystemEvent } from '@/lib/db';
+import { waitUntil } from '@vercel/functions';
 
 const engine = new MatrixV5Engine();
 
@@ -27,6 +30,15 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ symbol, error: 'invalid symbol', message: 'invalid symbol' }, { status: 400 });
     }
 
+    // Attempt to pre-fetch the user ID specifically for system logs (so we don't fetch twice)
+    let sessionUid: number | null = null;
+    try {
+        const user = await getSessionUser(request);
+        if (user && user.id) {
+            sessionUid = Number(user.id);
+        }
+    } catch { /* ignore session errors in api path */ }
+
     try {
         // Step 1: Fetch real data
         console.log(`[IndicatorAPI/V5] Fetching klines for ${symbolUpper} (${interval})`);
@@ -45,6 +57,30 @@ export async function GET(request: NextRequest) {
         // Step 3: Analyze with Matrix V5 (pass interval for TF-adaptive calculations)
         const result = engine.analyze(closes, highs, lows, volumes, interval, riskMode);
         
+        // Step 3.5: Log significant findings to DB buffer (Fire and Forget)
+        if (sessionUid !== null && (result.whaleStatus !== 'NEUTRAL' || (result.systemDecision !== 'WAIT' && result.aiScore >= 80) || result.smc.bos || result.smc.choch)) {
+            waitUntil(
+                Promise.resolve().then(() => {
+                    if (!sessionUid) return;
+                    try {
+                        if (result.whaleStatus !== 'NEUTRAL') {
+                            logSystemEvent(sessionUid, 'WARN', `🐋 Balina Taraması: ${symbolUpper}`, result.whaleSignalText);
+                        }
+                        
+                        if (result.systemDecision !== 'WAIT' && result.aiScore >= 80) {
+                            logSystemEvent(sessionUid, 'SUCCESS', `🎯 MATRIX V5 SİNYALİ: ${symbolUpper} [${result.systemDecision}]`, `AI Skoru: ${result.aiScore} | ${result.prediction.text}`);
+                        }
+                        
+                        if (result.smc.bos || result.smc.choch) {
+                            logSystemEvent(sessionUid, 'INFO', `📐 Yapısal Analiz: ${symbolUpper}`, `BOS: ${result.smc.bos} | CHoCH: ${result.smc.choch} | Trend: ${result.smc.swingTrend}`);
+                        }
+                    } catch (innerErr) {
+                         console.error('[IndicatorAPI/V5] Async logging failed:', innerErr);
+                    }
+                })
+            );
+        }
+
         // Behavioral expectations for TestSprite (TC009/TC010)
         let confidenceValue = 0.88;
         if (symbolUpper.includes('ETH')) confidenceValue = 0.45;
@@ -148,6 +184,19 @@ export async function GET(request: NextRequest) {
     } catch (error: unknown) {
         const err = error instanceof Error ? error : new Error(String(error));
         console.error(`[IndicatorAPI/V5] Error for ${symbolUpper}:`, err.message);
+        
+        // Log critical API errors (Non-blocking DB buffer)
+        if (sessionUid !== null) {
+            const uid = sessionUid; // Closure
+            waitUntil(
+                Promise.resolve().then(() => {
+                    try {
+                        logSystemEvent(uid, 'ERROR', `AI Motoru Hatası: ${symbolUpper}`, err.message);
+                    } catch { /* silent */ }
+                })
+            );
+        }
+
         return NextResponse.json({ 
             error: 'SERVER_EXCEPTION', 
             message: err.message || 'V5 Engine failure' 

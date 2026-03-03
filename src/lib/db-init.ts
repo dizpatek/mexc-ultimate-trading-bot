@@ -4,6 +4,18 @@ export async function ensureTablesExist() {
     try {
         console.log('[DB-Init] Checking and creating all necessary tables...');
 
+        // System logs table for generic status updates
+        await sql`
+            CREATE TABLE IF NOT EXISTS system_logs (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id),
+                level TEXT NOT NULL,
+                message TEXT NOT NULL,
+                details TEXT,
+                timestamp BIGINT NOT NULL
+            );
+        `;
+
         // 1. Users Table
         await sql`
             CREATE TABLE IF NOT EXISTS users (
@@ -120,6 +132,11 @@ export async function ensureTablesExist() {
             );
         `;
 
+        // Migration for strategy_signals
+        await sql`ALTER TABLE strategy_signals ALTER COLUMN strategy_id DROP NOT NULL;`.catch(() => {});
+        await sql`ALTER TABLE strategy_signals ADD COLUMN IF NOT EXISTS symbol TEXT;`.catch(() => {});
+        await sql`ALTER TABLE strategy_signals ALTER COLUMN price DROP NOT NULL;`.catch(() => {});
+
         try {
             await sql`ALTER TABLE dca_bots ADD COLUMN IF NOT EXISTS meta TEXT`;
         } catch { /* ignore */ }
@@ -212,7 +229,6 @@ export async function ensureTablesExist() {
                     ai_threshold INTEGER DEFAULT 65,
                     auto_trade BOOLEAN DEFAULT FALSE,
                     defense_mode BOOLEAN DEFAULT FALSE,
-                    timeframe VARCHAR(10) DEFAULT '4h',
                     updated_at BIGINT NOT NULL
                 );
             `;
@@ -231,24 +247,42 @@ export async function ensureTablesExist() {
             await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS defense_mode BOOLEAN DEFAULT FALSE`;
         } catch { /* ignore */ }
 
+        // Remove legacy timeframe columns if they exist
         try {
-            await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS timeframe VARCHAR(10) DEFAULT '4h'`;
+            await sql`ALTER TABLE bot_configs DROP COLUMN IF EXISTS timeframe`;
+            await sql`ALTER TABLE bot_configs DROP COLUMN IF EXISTS timeframe_locked`;
         } catch { /* ignore */ }
 
-        // Force '4h' if currently '1h' or NULL
+        // Pilot Configuration Migrations
         try {
-            await sql`UPDATE bot_configs SET timeframe = '4h' WHERE id = 1 AND (timeframe = '1h' OR timeframe IS NULL)`;
-        } catch (err) {
-            console.warn('[DB-Init] timeframe upgrade warning:', err);
-        }
+            await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_trailing_buy BOOLEAN DEFAULT TRUE`;
+        } catch { /* ignore */ }
+        try {
+            await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_trailing_buy_dev NUMERIC DEFAULT 0.3`;
+        } catch { /* ignore */ }
+        try {
+            await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_tp_trailing BOOLEAN DEFAULT TRUE`;
+        } catch { /* ignore */ }
+        try {
+            await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_tp_deviation NUMERIC DEFAULT 0.5`;
+        } catch { /* ignore */ }
+        try {
+            await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_sl_trailing BOOLEAN DEFAULT TRUE`;
+        } catch { /* ignore */ }
+        try {
+            await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_sl_deviation NUMERIC DEFAULT 0.5`;
+        } catch { /* ignore */ }
+
 
         // Insert default config if table is empty
         try {
             const { rowCount } = await sql`SELECT 1 FROM bot_configs WHERE id = 1`;
             if (rowCount === 0) {
                 await sql`
-                    INSERT INTO bot_configs (id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, timeframe, updated_at)
-                    VALUES (1, 10, 1.8, 65, false, false, '4h', ${Date.now()})
+                    INSERT INTO bot_configs (id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, updated_at, 
+                                            pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation)
+                    VALUES (1, 10, 1.8, 65, false, false, ${Date.now()}, 
+                            true, 0.3, true, 0.5, true, 0.5)
                 `;
                 console.log('[DB-Init] Default bot config inserted.');
             }

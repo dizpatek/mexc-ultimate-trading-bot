@@ -62,8 +62,6 @@ const LoginForm: React.FC = () => {
 
         try {
             let success = false;
-            // Add artificial delay for the high-tech feel
-            await new Promise(resolve => setTimeout(resolve, 3500));
             
             if (isLogin) {
                 success = await login(email, password);

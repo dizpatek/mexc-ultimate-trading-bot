@@ -1,29 +1,22 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
-    Clock, 
-    TrendingUp, 
-    TrendingDown, 
-    ExternalLink, 
-    RefreshCw,
-    ChevronDown,
-    ChevronUp,
-    Zap,
-    Search,
-    Activity,
-    Brain,
-    ShieldAlert,
-    Timer,
-    ZapOff,
-    Radar,
-    AlertCircle
+    ChevronDown, ChevronUp, RefreshCw,
+    TrendingUp, TrendingDown, Zap, Search, Brain, Timer, Radar
 } from 'lucide-react';
 import { api } from '@/services/api';
 import { cn } from '@/lib/utils';
-import { interpretTradingStatus, F4Data } from '@/lib/trading-logic';
+import { interpretTradingStatus } from '@/lib/trading-logic';
 import { useTradingSignals, MTF_INTERVALS } from '@/hooks/useTradingSignals';
 import { useModuleTimeframe } from '@/context/TimeframeContext';
+import { logger } from '@/lib/logger';
+import { ExpandedTradePanel } from './matrix-horizon/ExpandedTradePanel';
+import { TradeHeader } from './matrix-horizon/TradeHeader';
+import { StatusBadge } from './matrix-horizon/StatusBadge';
+import { TradeProgressBar } from './matrix-horizon/TradeProgressBar';
+
+
 
 // --- Pure Helper Functions (Extracted to reduce Component God-Object antipattern) ---
 
@@ -59,164 +52,8 @@ export function calculateMtfVerdict(allTfs: { trend?: string; signal?: string | 
 
 // --- Sub-components to reduce cognitive load ---
 
-const StatusBadge = ({ meta, side, isClosed, timeframe, liveData, statusText, statusColor }: { meta: SmartTradeOrder['meta'], side: 'BUY' | 'SELL', isClosed: boolean, timeframe: string, liveData: F4Data | null, statusText: string, statusColor: string }) => {
-    return (
-        <div className="text-center group/status relative">
-            {meta.monitorError && !isClosed && (
-                <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-rose-600 text-white text-[9px] px-2 py-1 rounded shadow-2xl z-50 whitespace-nowrap animate-bounce font-black border border-rose-400/50 flex items-center gap-1.5 min-w-[150px] justify-center">
-                    <ShieldAlert className="w-3 h-3" />
-                    <span>{meta.monitorError === 'VOLATILITY_GAP_PROTECTION' ? 'OYNADAKLIK KORUMASI (BEKLE)' : `HATA: ${meta.monitorError.toUpperCase()}`}</span>
-                </div>
-            )}
-            <div className={cn(
-                "text-[9px] font-black px-2 py-1 rounded border uppercase tracking-widest whitespace-nowrap flex flex-col items-center transition-colors duration-500",
-                meta.monitorError && !isClosed ? "border-rose-500 bg-rose-500/20 text-rose-400 shadow-[0_0_15px_rgba(244,63,94,0.3)]" :
-                isClosed ? "border-white/10 bg-white/5 text-slate-500 animate-none opacity-50" : (
-                    statusColor === "text-emerald-400" ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-400 animate-pulse" :
-                    statusColor === "text-rose-400" ? "border-rose-500/20 bg-rose-500/5 text-rose-400 animate-pulse" :
-                    statusColor === "text-amber-400" ? "border-amber-500/20 bg-amber-500/5 text-amber-400 animate-pulse" :
-                    "border-cyan-500/20 bg-cyan-500/5 text-cyan-400 animate-pulse"
-                )
-            )}>
-                <span className="opacity-50 text-[7px] mb-0.5">{isClosed ? 'ARŞİVLENMİŞ İŞLEM VERİSİ' : liveData ? `${timeframe.toUpperCase()} CANLI SİNYAL` : 'YZ ALIM-SATIM YAKLAŞIMI'}</span>
-                {isClosed ? (side === 'SELL' ? 'SATIŞ TAMAM' : 'ALIM TAMAM') : (meta.monitorError ? 'ÇIKIŞ HATASI' : statusText)}
-            </div>
-        </div>
-    );
-};
+// --- Sub-components extracted ---
 
-const TradeProgressBar = ({ trade, entry, currentPrice, sl, tp, pnlPercent, pnlUsdt, isProfit, trailingTpDev, trailingSlDev, isTtpActive, isTslActive }: { trade: SmartTradeOrder; entry: number; currentPrice: number; sl: number; tp: number; pnlPercent: number; pnlUsdt: number; isProfit: boolean; trailingTpDev?: number; trailingSlDev?: number; isTtpActive?: boolean; isTslActive?: boolean }) => {
-    const formatPrice = (p: number) => p < 1 ? p.toFixed(4) : p < 10 ? p.toFixed(3) : p.toFixed(2);
-    const slPct = entry > 0 ? ((sl - entry) / entry * 100 * (trade.side === 'BUY' ? 1 : -1)) : 0;
-    const tpPct = entry > 0 ? ((tp - entry) / entry * 100 * (trade.side === 'BUY' ? 1 : -1)) : 0;
-
-    const meta = trade.meta;
-    const highestPrice = Math.max(Number(meta.highestPrice) || entry, currentPrice);
-    const lowestPrice = Math.min(Number(meta.lowestPrice) || entry, currentPrice);
-
-    let displaySl = sl;
-    let displayTp = tp;
-    
-    // TSL Dynamic Logic
-    if (isTslActive && trailingSlDev !== undefined) {
-        const slDistance = Math.abs(slPct) + Math.abs(trailingSlDev);
-        if (trade.side === 'BUY') {
-            displaySl = Math.max(sl, highestPrice * (1 - slDistance / 100));
-        } else {
-            displaySl = Math.min(sl, lowestPrice * (1 + slDistance / 100));
-        }
-    }
-
-    // TTP Dynamic Logic
-    let passedTpPercent = 0;
-    if (isTtpActive && trailingTpDev !== undefined) {
-        if (trade.side === 'BUY') {
-            displayTp = Math.max(tp, highestPrice * (1 - Math.abs(trailingTpDev) / 100));
-            passedTpPercent = currentPrice > tp ? ((currentPrice - tp) / entry) * 100 : 0;
-        } else {
-            displayTp = Math.min(tp, lowestPrice * (1 + Math.abs(trailingTpDev) / 100));
-            passedTpPercent = currentPrice < tp ? ((tp - currentPrice) / entry) * 100 : 0;
-        }
-    }
-
-    const dynSlPct = entry > 0 ? ((displaySl - entry) / entry * 100 * (trade.side === 'BUY' ? 1 : -1)) : 0;
-    const dynTpPct = entry > 0 ? ((displayTp - entry) / entry * 100 * (trade.side === 'BUY' ? 1 : -1)) : 0;
-
-    return (
-        <div className="px-1.5 py-1 flex flex-col gap-0.5">
-            {/* SL / TP header row — compact single line */}
-            <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-tighter leading-none">
-                <span className="text-rose-500 flex items-center gap-1">
-                    SL:{sl > 0 ? formatPrice(displaySl) : '--'}
-                    {sl > 0 && <span className="text-rose-500/60 font-bold">({dynSlPct >= 0 ? '+' : ''}{dynSlPct.toFixed(1)}%)</span>}
-                    {isTslActive && trailingSlDev !== undefined && <span className="text-rose-400 bg-rose-500/15 px-1 rounded text-[8px] animate-pulse">TSL Aktif</span>}
-                </span>
-                <span className="text-emerald-500 flex items-center gap-1">
-                    {isTtpActive && trailingTpDev !== undefined && <span className="text-emerald-400 bg-emerald-500/15 px-1 rounded text-[8px] animate-pulse">TTP (+{passedTpPercent.toFixed(1)}%)</span>}
-                    {tp > 0 && <span className="text-emerald-500/60 font-bold">({dynTpPct >= 0 ? '+' : ''}{dynTpPct.toFixed(1)}%)</span>}
-                    TP:{tp > 0 ? formatPrice(displayTp) : '--'}
-                </span>
-            </div>
-
-            {/* Progress bar track */}
-            <div className="h-1.5 w-full bg-slate-800/50 rounded-full relative border border-white/5 mt-1 mb-3">
-                {sl > 0 && tp > 0 ? (() => {
-                    const minP = Math.min(sl, displaySl, tp, displayTp, entry, currentPrice);
-                    const maxP = Math.max(sl, displaySl, tp, displayTp, entry, currentPrice);
-                    const padding = (maxP - minP) * 0.05;
-                    const paddedMinP = minP - padding;
-                    const paddedMaxP = maxP + padding;
-                    const range = paddedMaxP - paddedMinP;
-                    if (range <= 0) return null;
-                    const getPos = (p: number) => Math.min(100, Math.max(0, ((p - paddedMinP) / range) * 100));
-                    
-                    const entryPos = getPos(entry);
-                    const currentPos = getPos(currentPrice);
-                    const slPos = getPos(sl);
-                    const dynSlPos = getPos(displaySl);
-                    const tpPos = getPos(tp);
-                    const dynTpPos = getPos(displayTp);
-                    
-                    const stringStart = Math.min(entryPos, currentPos);
-                    const stringWidth = Math.abs(currentPos - entryPos);
-
-                    return (
-                        <>
-                            {/* Original SL marker (faded) */}
-                            <div style={{ left: `${slPos}%` }} className="absolute top-1/2 -translate-y-1/2 w-0.5 h-2 bg-rose-500/30 z-10" />
-                            {/* Dynamic SL marker */}
-                            <div style={{ left: `${dynSlPos}%` }} className="absolute top-1/2 -translate-y-1/2 w-0.5 h-2.5 bg-rose-500/80 z-10 shadow-[0_0_4px_rgba(244,63,94,0.5)]" />
-                            
-                            {/* Original TP marker */}
-                            <div style={{ left: `${tpPos}%` }} className={cn("absolute top-1/2 -translate-y-1/2 w-0.5 z-10", isTtpActive ? "h-2 bg-emerald-500/30" : "h-2.5 bg-emerald-500/60")} />
-                            {/* Dynamic TTP marker */}
-                            {isTtpActive && <div style={{ left: `${dynTpPos}%` }} className="absolute top-1/2 -translate-y-1/2 w-0.5 h-2.5 bg-emerald-400 z-10 shadow-[0_0_4px_rgba(52,211,153,0.8)]" />}
-                            
-                            {/* Entry marker */}
-                            <div style={{ left: `${entryPos}%` }} className="absolute top-1/2 -translate-y-1/2 w-0.5 h-2.5 bg-amber-400/50 z-10" />
-                            {/* Entry label — below the bar */}
-                            <div style={{ left: `${Math.min(85, Math.max(15, entryPos))}%` }} className="absolute top-[calc(100%+3px)] -translate-x-1/2 text-[8px] font-black text-amber-500/80 whitespace-nowrap z-30">
-                                E:${formatPrice(entry)}
-                            </div>
-                            {/* PNL fill line */}
-                            <div style={{ left: `${stringStart}%`, width: `${stringWidth}%` }} className={cn("absolute top-1/2 -translate-y-1/2 h-0.5 z-0 opacity-60", isProfit ? "bg-emerald-500" : "bg-rose-500")} />
-                            {/* Current price thumb */}
-                            <div style={{ left: `${currentPos}%` }} className={cn("absolute top-0 bottom-0 w-1.5 rounded-full z-20 transition-all duration-700 cursor-help group/thumb", isProfit ? "bg-emerald-400 shadow-[0_0_6px_rgba(16,185,129,0.5)]" : "bg-rose-400 shadow-[0_0_6px_rgba(244,63,94,0.5)]")}>
-                                {/* Hover tooltip */}
-                                <div className={cn("absolute -top-[50px] left-1/2 -translate-x-1/2 px-1.5 py-1 rounded text-[9px] font-black whitespace-nowrap transition-all opacity-0 group-hover/thumb:opacity-100 scale-90 group-hover/thumb:scale-100 shadow-xl z-50", isProfit ? "bg-emerald-500 text-white" : "bg-rose-500 text-white")}>
-                                    ${currentPrice.toLocaleString()} | {isProfit ? '+' : ''}{pnlUsdt.toLocaleString(undefined, { style: 'currency', currency: 'USD' })} ({pnlPercent.toFixed(2)}%)
-                                </div>
-                                {/* Price label above bar */}
-                                <div className={cn("absolute -top-[28px] left-1/2 -translate-x-1/2 text-[8px] font-black whitespace-nowrap z-40", isProfit ? "text-emerald-400" : "text-rose-400")}>
-                                    ${formatPrice(currentPrice)}
-                                </div>
-                            </div>
-                        </>
-                    );
-                })() : (
-                    (() => {
-                        const entryPos = 50;
-                        const currentPos = Math.min(95, Math.max(5, 50 + (pnlPercent * 2)));
-                        const stringStart = Math.min(entryPos, currentPos);
-                        const stringWidth = Math.abs(currentPos - entryPos);
-                        
-                        return (
-                            <>
-                                <div className="absolute left-1/2 top-1/2 -translate-y-1/2 w-0.5 h-2.5 bg-white/40 z-10" />
-                                <div style={{ left: `${stringStart}%`, width: `${stringWidth}%` }} className={cn("absolute top-1/2 -translate-y-1/2 h-0.5 z-0 opacity-60", isProfit ? "bg-emerald-500" : "bg-rose-500")} />
-                                <div style={{ left: `${currentPos}%` }} className={cn("absolute top-0 bottom-0 w-1.5 rounded-full z-20 transition-all duration-700 group/thumb-fb", isProfit ? "bg-emerald-400 shadow-[0_0_6px_rgba(16,185,129,0.5)]" : "bg-rose-400 shadow-[0_0_6px_rgba(244,63,94,0.5)]")}>
-                                    <div className={cn("absolute -top-[28px] left-1/2 -translate-x-1/2 text-[8px] font-black whitespace-nowrap z-40", isProfit ? "text-emerald-400" : "text-rose-400")}>
-                                        ${formatPrice(currentPrice)}
-                                    </div>
-                                </div>
-                            </>
-                        );
-                    })()
-                )}
-            </div>
-        </div>
-    );
-};
 
 export interface SmartTradeOrder {
     id: number;
@@ -283,7 +120,8 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit, on
     const [expandedTrade, setExpandedTrade] = useState<number | null>(null);
     const [activeTab, setActiveTab] = useState<'AKTIF' | 'PASIF'>('AKTIF');
     const [lastFetchTime, setLastFetchTime] = useState<number>(Date.now());
-    const [isSectionExpanded, setIsSectionExpanded] = useState(true);
+    const [isSectionExpanded, setIsSectionExpanded] = useState(false);
+    const prevActiveCountRef = useRef<number>(0);
 
     const [error, setError] = useState<string | null>(null);
     const [clearingAction, setClearingAction] = useState<'active' | 'passive' | null>(null);
@@ -341,9 +179,11 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit, on
         e.stopPropagation();
         try {
             await api.delete(`/trade/smart?id=${trade.id}`);
+            logger.warn('🚨 MANUEL POZİSYON İPTALİ', `${trade.symbol} için iptal ve satış komutu verildi.`);
             fetchTrades();
         } catch (error) {
             console.error('Panic close failed:', error);
+            logger.error('⚠️ Pozisyon İptal Hatası', `${trade.symbol} kapatılamadı.`);
         }
     };
 
@@ -367,9 +207,11 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit, on
                 trailingBuy: false,
                 forceExecute: true
             });
+            logger.success('⚡ FLASH OPEN TETİKLENDİ', `${trade.symbol} bekleyen alımı piyasa fiyattan anında işleme alındı.`);
             fetchTrades();
         } catch (error) {
             console.error('Flash open failed:', error);
+            logger.error('⚠️ Flash Open Hatası', `${trade.symbol} tetiklenemedi.`);
         }
     };
 
@@ -382,8 +224,10 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit, on
             let result;
             if (type === 'active') {
                 result = await api.delete('/trade/smart?all=true');
+                logger.warn('🧹 AKTİF İŞLEMLER TEMİZLENDİ', 'Kullanıcı tüm aktif pozisyonları piyasadan kapattı.'); 
             } else {
                 result = await api.delete('/trade/smart?clearHistory=true');
+                logger.info('🗄️ İŞLEM GEÇMİŞİ SİLİNDİ', 'Arşivlenen eski işlemler sistemden temizlendi.');
             }
             console.log('[ClearAll] Success:', result.data);
             await new Promise(r => setTimeout(r, 500));
@@ -406,6 +250,16 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit, on
         const interval = setInterval(fetchTrades, 12000); // Reduced from 2s to 12s
         return () => clearInterval(interval);
     }, []);
+
+    // Auto-expand if a new Active trade is added
+    useEffect(() => {
+        const activeTrades = trades.filter(t => t.status !== 'CLOSED');
+        if (activeTrades.length > prevActiveCountRef.current) {
+            setIsSectionExpanded(true);
+            setActiveTab('AKTIF'); // switch to active tab immediately just in case
+        }
+        prevActiveCountRef.current = activeTrades.length;
+    }, [trades]);
 
     const triggerDataSync = useCallback(() => {
         if (trades.length === 0) return;
@@ -458,117 +312,21 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit, on
     return (
         <div className="mt-8 space-y-4">
             {/* FUTURISTIC HEADER */}
-            <div className="flex items-center justify-between px-2 cursor-pointer group" onClick={() => setIsSectionExpanded(!isSectionExpanded)}>
-                <div className="flex items-center gap-4">
-                    <div className="relative">
-                        <div className="absolute -inset-1 bg-cyan-500/20 rounded-full blur-sm animate-pulse"></div>
-                        <Activity className="w-5 h-5 text-cyan-400 relative z-10" />
-                    </div>
-                    <div>
-                        <h2 className="text-sm font-black text-white uppercase tracking-[0.3em] flex items-center gap-2 group-hover:text-cyan-400 transition-colors">
-                            ActiveSmartTrades 
-                            {isSectionExpanded ? <ChevronUp className="w-4 h-4 ml-1 text-slate-500" /> : <ChevronDown className="w-4 h-4 ml-1 text-slate-500" />}
-                        </h2>
-                        <div className="flex items-center gap-2 mt-0.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                            <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
-                                Neuro-Engine Integrated {" // "} {trades.length} Positions {" // "} Last Pulse: {new Date(lastFetchTime).toLocaleTimeString([], { hour12: false, second: '2-digit' })}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
-                    {error && (
-                        error.includes('API keys') ? (
-                            <div 
-                                onClick={() => window.location.href = '/settings'}
-                                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-xs font-bold animate-pulse cursor-pointer hover:bg-yellow-500/20 transition-colors"
-                            >
-                                <ShieldAlert className="w-3.5 h-3.5" />
-                                CONFIGURATION REQUIRED: CLICK TO FIX KEYS
-                            </div>
-                        ) : (
-                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-bold animate-pulse">
-                                <AlertCircle className="w-3.5 h-3.5" />
-                                API ERROR: {error.toUpperCase()}
-                            </div>
-                        )
-                    )}
-                    <div className="flex bg-slate-950/50 border border-slate-800 rounded-lg overflow-hidden p-0.5">
-                        <button 
-                            onClick={onNewTrade}
-                            className="p-2 px-3 text-[10px] font-black transition-all rounded-md bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 flex items-center gap-1.5 mr-1"
-                            title="YENİ İŞLEM OLUŞTUR"
-                        >
-                            <Zap className="w-3 h-3" />
-                            NEW TRADE
-                        </button>
-                        <button 
-                            onClick={() => setActiveTab('AKTIF')}
-                            className={cn(
-                                "p-2 px-4 text-xs font-black transition-all rounded-md",
-                                activeTab === 'AKTIF' ? "text-white bg-slate-800" : "text-slate-500 hover:text-slate-300"
-                            )}
-                        >
-                            AKTİF
-                        </button>
-                        <button 
-                            onClick={() => setActiveTab('PASIF')}
-                            className={cn(
-                                "p-2 px-4 text-xs font-black transition-all rounded-md",
-                                activeTab === 'PASIF' ? "text-white bg-slate-800" : "text-slate-500 hover:text-slate-300"
-                            )}
-                        >
-                            PASİF
-                        </button>
-                    </div>
-                    {trades.filter(t => activeTab === 'AKTIF' ? (t.status === 'FILLED' || t.status === 'PENDING') : t.status === 'CLOSED').length > 0 && (
-                        <div className="flex items-center gap-2 relative">
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); console.log('[UI] Button clicked, setting pendingClear'); setPendingClear(activeTab === 'AKTIF' ? 'active' : 'passive'); }}
-                                disabled={clearingAction !== null || pendingClear !== null}
-                                className={cn(
-                                    "flex items-center gap-2 px-3 py-2 rounded-lg transition-all text-xs font-black uppercase tracking-widest group",
-                                    (clearingAction !== null || pendingClear !== null) ? "opacity-50 cursor-not-allowed" : "",
-                                    activeTab === 'AKTIF' 
-                                        ? "bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500/20 text-rose-400" 
-                                        : "bg-slate-500/10 border border-slate-500/20 hover:bg-slate-500/20 text-slate-400"
-                                )}
-                                title={activeTab === 'AKTIF' ? "TÜM AKTİF POZİSYONLARI KAPAT VE SAT" : "İŞLEM GEÇMİŞİNİ TEMİZLE"}
-                                id={activeTab === 'AKTIF' ? "flush-all-btn" : "clear-history-btn"}
-                            >
-                                {clearingAction !== null ? (
-                                    <RefreshCw className="w-4 h-4 animate-spin" />
-                                ) : (
-                                    <ShieldAlert className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                                )}
-                                {clearingAction !== null ? 'İŞLENİYOR...' : (activeTab === 'AKTIF' ? 'FLUSH ALL' : 'CLEAR HISTORY')}
-                            </button>
-                            {/* Inline Confirmation Panel */}
-                            {pendingClear !== null && (
-                                <div className="absolute right-0 top-full mt-2 z-50 flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-900 border border-rose-500/30 shadow-[0_0_30px_rgba(244,63,94,0.2)] animate-in fade-in slide-in-from-top-2 duration-200 whitespace-nowrap">
-                                    <span className="text-[10px] font-black text-rose-300 uppercase tracking-wider mr-2">
-                                        {pendingClear === 'active' ? 'TÜM POZİSYONLAR SATILACAK!' : 'GEÇMİŞ SİLİNECEK!'}
-                                    </span>
-                                    <button 
-                                        onClick={(e) => { e.stopPropagation(); handleClearAll(pendingClear); }}
-                                        className="px-3 py-1.5 rounded-lg bg-rose-500 hover:bg-rose-600 text-white text-[10px] font-black uppercase tracking-wider transition-colors shadow-lg"
-                                    >
-                                        ONAYLA ✓
-                                    </button>
-                                    <button 
-                                        onClick={(e) => { e.stopPropagation(); setPendingClear(null); }}
-                                        className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-[10px] font-black uppercase tracking-wider transition-colors"
-                                    >
-                                        İPTAL ✕
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
-            </div>
+            <TradeHeader 
+                isSectionExpanded={isSectionExpanded}
+                setIsSectionExpanded={setIsSectionExpanded}
+                tradesCount={trades.length}
+                lastFetchTime={lastFetchTime}
+                error={error}
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+                onNewTrade={onNewTrade || (() => {})}
+                clearingAction={clearingAction}
+                pendingClear={pendingClear}
+                setPendingClear={setPendingClear}
+                handleClearAll={handleClearAll}
+                hasTradeItems={trades.filter(t => activeTab === 'AKTIF' ? (t.status === 'FILLED' || t.status === 'PENDING') : t.status === 'CLOSED').length > 0}
+            />
 
             {/* TABLE-LIKE LIST (ACCORDION EFFECT) */}
             <div className={cn("transition-all duration-500 overflow-hidden", isSectionExpanded ? "max-h-[5000px] opacity-100" : "max-h-0 opacity-0")}>
@@ -914,197 +672,24 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit, on
 
                                     {/* EXPANDED PANEL (SADECE CONSOLIDATED STATS VE NEURAL LOGS) */}
                                     {isExpanded && (
-                                        <div className="px-6 pb-6 pt-2 border-t border-white/5 bg-slate-950/40 animate-in fade-in slide-in-from-top-2">
-                                            <div className="grid grid-cols-4 gap-6">
-                                                <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-xl relative overflow-hidden">
-                                                     <span className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] block mb-3">KONSOLİDE İSTATİSTİKLER</span>
-                                                    <div className="space-y-3">
-                                                        <div className="flex items-center justify-between">
-                                                            <span className="text-xs font-bold text-slate-400 uppercase tracking-tighter">Miktar ({trade.symbol.split('/')[0]})</span>
-                                                            <span className="text-xs font-black text-white">{trade.qty.toLocaleString()}</span>
-                                                        </div>
-                                                        <div className="flex items-center justify-between">
-                                                            <span className="text-xs font-bold text-slate-400 uppercase tracking-tighter">Varlık (USDT)</span>
-                                                            <span className="text-xs font-black text-white">${(trade.qty * currentPrice).toLocaleString()}</span>
-                                                        </div>
-                                                        <div className="flex items-center justify-between border-t border-white/5 pt-2">
-                                                            <span className="text-xs font-bold text-slate-400 uppercase tracking-tighter">TP Uzaklığı</span>
-                                                            <span className="text-xs font-black text-emerald-400">
-                                                                {tp > 0 ? `${(((tp - currentPrice) / currentPrice) * 100 * (trade.side === 'BUY' ? 1 : -1)).toFixed(2)}%` : 'N/A'}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-xl">
-                                                     <span className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] block mb-3">SİSTEM DENETİM GÜNLÜĞÜ</span>
-                                                    <div className="space-y-1.5 overflow-hidden">
-                                                        <div className="text-[10px] font-mono text-emerald-400 uppercase bg-emerald-400/5 px-2 py-1 rounded flex items-center gap-1 border border-emerald-500/10">
-                                                            <div className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
-                                                            <Clock className="w-2.5 h-2.5" /> Giriş: ${entry} @ {meta.filledAt ? new Date(meta.filledAt).toLocaleTimeString([], { hour12: false }) : 'BAŞLANGIÇ'}
-                                                        </div>
-                                                        {meta.entryReason && (
-                                                            <div className="text-[10px] font-mono text-cyan-500/70 uppercase px-2 py-0.5 ml-4 border-l border-white/5">
-                                                                ↳ Sebep: {meta.entryReason}
-                                                            </div>
-                                                        )}
-                                                        <div className="text-[10px] font-mono text-cyan-400 uppercase bg-cyan-400/5 px-2 py-1 rounded flex items-center gap-1 border border-cyan-500/10">
-                                                            <Brain className="w-2.5 h-2.5" /> AI Skoru: {aiScore}% Peak Güven
-                                                        </div>
-                                                        
-                                                        {isClosed ? (
-                                                            <div className="text-[10px] font-mono text-rose-400 uppercase bg-rose-400/5 px-2 py-1 rounded flex items-center gap-1 border border-rose-500/10 mt-2">
-                                                                <ZapOff className="w-2.5 h-2.5" /> 
-                                                                SİSTEM DIŞI: {meta.exitReason || 'SİSTEM_KAPATILDI'}
-                                                            </div>
-                                                        ) : (
-                                                            <div className="text-[10px] font-mono text-cyan-400 uppercase bg-cyan-400/10 px-2 py-1 rounded flex items-center gap-1 border border-cyan-500/20 animate-pulse">
-                                                                <Radar className="w-2.5 h-2.5 animate-spin" /> {statusText} AKTİF
-                                                            </div>
-                                                        )}
-                                                        
-                                                        <div className="text-[10px] font-mono text-slate-600 uppercase px-1 pt-1 opacity-50 flex justify-between items-center">
-                                                            <span>Oluşturma: {new Date(trade.created_at).toLocaleTimeString([], { hour12: false })}</span>
-                                                            {isClosed && meta.closedAt && <span>Kapanış: {new Date(meta.closedAt).toLocaleTimeString([], { hour12: false })}</span>}
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                 {trade.status !== 'CLOSED' ? (
-                                                    <>
-                                                        <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-xl flex flex-col justify-center gap-2">
-                                                             <a 
-                                                                href={`https://www.mexc.com/exchange/${trade.symbol.replace('/', '_')}`}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                className="flex items-center justify-center gap-2 w-full py-2.5 bg-slate-800 hover:bg-slate-755 rounded-lg transition-all border border-slate-700 text-white text-xs font-black uppercase tracking-widest"
-                                                            >
-                                                                <ExternalLink className="w-4 h-4" />
-                                                                MEXC GÖRÜNTÜLE
-                                                            </a>
-                                                            <button 
-                                                                 onClick={(e) => { 
-                                                                     e.stopPropagation(); 
-                                                                     if (onEdit) onEdit(trade); 
-                                                                 }}
-                                                                 className="flex items-center justify-center gap-2 w-full py-2.5 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-lg transition-all border border-emerald-500/20 text-emerald-400 text-xs font-black uppercase tracking-widest"
-                                                             >
-                                                                 <TrendingUp className="w-4 h-4" />
-                                                                 DÜZENLE
-                                                             </button>
-                                                             {trade.status === 'PENDING' && payload.trailingBuy && (
-                                                                 <button 
-                                                                     onClick={(e) => handleFlashOpen(e, trade)}
-                                                                     className="flex items-center justify-center gap-2 w-full py-2.5 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg transition-all border border-amber-500/20 text-amber-400 text-xs font-black uppercase tracking-widest animate-pulse"
-                                                                     title="TBY beklemeden hemen piyasa fiyatından işleme gir"
-                                                                 >
-                                                                     <Zap className="w-4 h-4" />
-                                                                     FLASH OPEN
-                                                                 </button>
-                                                             )}
-                                                             <button
-                                                                 onClick={(e) => { e.stopPropagation(); fetchTrades(); }}
-                                                                 className="flex items-center justify-center gap-2 w-full py-2.5 bg-cyan-500/5 hover:bg-cyan-500/10 rounded-lg transition-all border border-cyan-500/20 text-cyan-400 text-xs font-black uppercase tracking-widest"
-                                                                 title="Verileri sunucudan yeniden yükle"
-                                                                 aria-label="Force Sync"
-                                                             >
-                                                                 <RefreshCw className="w-4 h-4" />
-                                                                 HIZLI SENK
-                                                             </button>
-                                                        </div>
-
-                                                        <div className="flex flex-col gap-3 p-4">
-                                                            <button 
-                                                                onClick={(e) => handlePanicClose(e, trade)}
-                                                                className="group/panic flex flex-col items-center justify-center gap-2 w-full h-[90px] border-2 border-dashed border-rose-500/20 hover:border-rose-500/60 hover:bg-rose-500/10 rounded-2xl transition-all duration-300 shadow-[0_0_20px_rgba(244,63,94,0)] hover:shadow-[0_0_20px_rgba(244,63,94,0.1)]"
-                                                            >
-                                                                <ZapOff className="w-7 h-7 text-rose-500/40 group-hover/panic:text-rose-500 group-hover/panic:scale-110 transition-all" />
-                                                                 <span className="text-xs font-black text-rose-500/40 group-hover/panic:text-rose-500 uppercase tracking-[0.2em]">PANİK ÇIKIŞ (PİYASA SATIŞ)</span>
-                                                            </button>
-
-                                                             <button 
-                                                                 onClick={(e) => handleSilentClose(e, trade)}
-                                                                 className="group/silent flex flex-col items-center justify-center gap-2 w-full h-[60px] border border-slate-800 hover:border-slate-700 hover:bg-white/5 rounded-2xl transition-all duration-300"
-                                                                 title="İşlemi kapatmadan sadece listeden kaldır"
-                                                                 aria-label="Sessiz Arşiv"
-                                                             >
-                                                                 <div className="flex items-center gap-2">
-                                                                     <RefreshCw className="w-4 h-4 text-slate-500 group-hover/silent:text-slate-300 group-hover/silent:rotate-180 transition-all duration-700" />
-                                                                     <span className="text-xs font-black text-slate-500 group-hover/silent:text-slate-300 uppercase tracking-[0.2em]">CLOSE ORDER (SESSİZ ARŞİV)</span>
-                                                                 </div>
-                                                             </button>
-                                                        </div>
-                                                    </>
-                                                ) : (
-                                                    <div className="col-span-2 p-5 bg-slate-950/60 border border-slate-800/50 rounded-2xl relative overflow-hidden group/audit">
-                                                        <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none group-hover/audit:opacity-10 transition-opacity">
-                                                            <ShieldAlert className="w-24 h-24 text-cyan-500" />
-                                                        </div>
-                                                        
-                                                        <div className="flex flex-col gap-4 relative z-10">
-                                                            <div className="flex items-center gap-3 border-b border-white/5 pb-3">
-                                                                <div className="w-10 h-10 rounded-full bg-slate-900 border border-white/5 flex items-center justify-center">
-                                                                    <ShieldAlert className="w-5 h-5 text-slate-400" />
-                                                                </div>
-                                                                <div>
-                                                                    <span className="text-xs font-black text-cyan-400 uppercase tracking-widest block">KAPANIŞ DENETİM KAYDI</span>
-                                                                    <span className="text-[10px] font-bold text-slate-500 uppercase">POZİSYON TAMAMLANDI VE ARŞİVLENDİ</span>
-                                                                </div>
-                                                            </div>
-
-                                                            <div className="grid grid-cols-2 gap-y-4 gap-x-6">
-                                                                <div className="flex flex-col gap-1">
-                                                                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-tighter">KAPANIŞ TETİKLEYİCİ</span>
-                                                                    <span className={cn(
-                                                                        "text-[11px] font-black uppercase",
-                                                                        meta.exitReason?.startsWith('MANUAL') ? "text-amber-400" : "text-emerald-400"
-                                                                    )}>
-                                                                        {meta.exitReason?.startsWith('MANUAL') ? '● KULLANICI KOMUTU (MANUEL)' : '● MATRIX AI MONİTÖR'}
-                                                                    </span>
-                                                                </div>
-                                                                <div className="flex flex-col gap-1">
-                                                                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-tighter">ANA SEBEP</span>
-                                                                    <span className="text-[11px] font-black text-white uppercase truncate" title={meta.exitReason}>
-                                                                        {meta.exitReason ? (
-                                                                            meta.exitReason === 'MANUAL_PANIC_EXIT' ? 'PANİK SATIŞ TETİKLENDİ' :
-                                                                            meta.exitReason === 'MANUAL_SILENT_EXIT' ? 'SESSİZ ARŞİV (POZİSYON KORUNDU)' :
-                                                                            meta.exitReason.replace(/ HIT$/, '').replace('TRAILING TP', 'TTP').replace('TRAILING SL', 'TSL').replace('TRAILING BUY', 'TBY')
-                                                                        ) : 'BİLİNMEYEN_SİSTEM_ÇIKIŞI'}
-                                                                    </span>
-                                                                </div>
-                                                                <div className="flex flex-col gap-1">
-                                                                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-tighter">SON ÇIKIŞ FİYATI</span>
-                                                                    <span className="text-[11px] font-black text-white font-mono">
-                                                                        ${currentPrice.toLocaleString()}
-                                                                    </span>
-                                                                </div>
-                                                                <div className="flex flex-col gap-1">
-                                                                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-tighter">KAPANIŞ ZAMANI</span>
-                                                                    <span className="text-[11px] font-black text-slate-300 font-mono">
-                                                                        {meta.closedAt ? new Date(meta.closedAt).toLocaleString([], { hour12: false }) : 'N/A'}
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-
-                                                            <div className="mt-2 pt-3 border-t border-white/5 flex flex-col gap-2">
-                                                                <div className="flex justify-between items-center bg-slate-900/40 px-3 py-2 rounded-lg border border-white/5">
-                                                                    <span className="text-[9px] font-black text-slate-500 uppercase">MEXC Emir ID</span>
-                                                                    <span className="text-[10px] font-mono text-cyan-500/80">
-                                                                        {meta.exitResult?.orderId || 'INTERNAL_LIQUIDATION'}
-                                                                    </span>
-                                                                </div>
-                                                                <div className="bg-emerald-500/5 px-3 py-2 rounded-lg border border-emerald-500/10 flex justify-between items-center">
-                                                                    <span className="text-[9px] font-black text-emerald-500/70 uppercase">Toplam Sonuç (PNL)</span>
-                                                                    <span className={cn("text-[11px] font-black font-mono", pnlPercent >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                                                                        {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}% | ${pnlUsdt.toLocaleString()}
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
+                                        <ExpandedTradePanel
+                                            trade={trade}
+                                            currentPrice={currentPrice}
+                                            isClosed={isClosed}
+                                            meta={meta}
+                                            entry={entry}
+                                            aiScore={aiScore}
+                                            statusText={statusText}
+                                            tp={tp}
+                                            payload={payload}
+                                            pnlPercent={pnlPercent}
+                                            pnlUsdt={pnlUsdt}
+                                            onEdit={onEdit}
+                                            handlePanicClose={handlePanicClose}
+                                            handleSilentClose={handleSilentClose}
+                                            handleFlashOpen={handleFlashOpen}
+                                            fetchTrades={fetchTrades}
+                                        />
                                     )}
                                 </div>
                             )

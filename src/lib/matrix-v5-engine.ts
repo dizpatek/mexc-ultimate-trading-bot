@@ -766,7 +766,7 @@ export class MatrixV5Engine {
         else if (isWhale && isGreen) whaleStatus = 'BUY_ACTIVE';
         else if (isWhale && !isGreen) whaleStatus = 'SELL_ACTIVE';
 
-        let whaleSignalText = '—';
+        let whaleSignalText = '';
         if (whaleStatus === 'TRAP') whaleSignalText = 'FAKE HAREKET ⚠️';
         else if (whaleStatus === 'BUY_ACTIVE') whaleSignalText = 'BALİNA TOPLUYOR 🐋';
         else if (whaleStatus === 'SELL_ACTIVE') whaleSignalText = 'BALİNA BOŞALTIYOR 🐋';

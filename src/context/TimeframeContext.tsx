@@ -18,20 +18,40 @@ interface TimeframeContextValue {
 }
 
 const TIMEFRAME_LABELS: Record<Timeframe, string> = {
-    '1m': '1 Dakika',
-    '15m': '15 Dakika',
-    '1h': '1 Saat',
-    '4h': '4 Saat',
-    '1d': '1 Gün',
-    '1w': '1 Hafta',
-    '1M': '1 Ay',
+    '1m': '1 Minute',
+    '15m': '15 Minutes',
+    '1h': '1 Hour',
+    '4h': '4 Hours',
+    '1d': '1 Day',
+    '1w': '1 Week',
+    '1M': '1 Month',
 };
 
 const TimeframeContext = createContext<TimeframeContextValue | undefined>(undefined);
 
 export const TimeframeProvider = ({ children, defaultTimeframe = '4h' }: { children: ReactNode; defaultTimeframe?: Timeframe }) => {
     const [timeframe, setTimeframeState] = useState<Timeframe>(defaultTimeframe);
-    const [locked, setLocked] = useState(true); // locked by default
+    const [locked, setLocked] = useState(true);
+    const [isMounted, setIsMounted] = useState(false);
+
+    // Initial load from localStorage
+    useEffect(() => {
+        const cached = localStorage.getItem('matrix_timeframe');
+        if (cached) setTimeframeState(cached as Timeframe);
+        
+        const cachedLocked = localStorage.getItem('matrix_timeframe_locked');
+        if (cachedLocked !== null) setLocked(cachedLocked === 'true');
+        
+        setIsMounted(true);
+    }, []);
+
+    // Sync localStorage whenever states change (without API overhead)
+    useEffect(() => {
+        if (isMounted) {
+            localStorage.setItem('matrix_timeframe', timeframe);
+            localStorage.setItem('matrix_timeframe_locked', String(locked));
+        }
+    }, [timeframe, locked, isMounted]);
 
     const setTimeframe = useCallback((tf: Timeframe) => {
         setTimeframeState(tf);

@@ -115,7 +115,7 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
             {[
                 { id: 'safe', label: 'SAFE', icon: Shield, color: 'text-emerald-400' },
                 { id: 'normal', label: 'SCALP', icon: Activity, color: 'text-cyan-400' },
-                { id: 'aggressive', label: 'EXTREME', icon: Zap, color: 'text-rose-500' }
+                { id: 'aggressive', label: 'AGGRESSIVE', icon: Zap, color: 'text-rose-500' }
             ].map((strategy) => (
                 <button 
                     key={strategy.id}

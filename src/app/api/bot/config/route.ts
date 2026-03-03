@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth-utils';
 import { getBotConfig, updateBotConfig } from '@/lib/db';
+import { ensureTablesExist } from '@/lib/db-init';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
     try {
+        await ensureTablesExist();
         const user = await getSessionUser(request);
         if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -21,6 +23,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
     try {
+        await ensureTablesExist();
         const user = await getSessionUser(request);
         if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

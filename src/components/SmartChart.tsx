@@ -4,12 +4,11 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, ColorType, LineStyle, CandlestickSeries, LineSeries, HistogramSeries, BaselineSeries } from 'lightweight-charts';
 import type { IChartApi, ISeriesApi, IPriceLine, Time, MouseEventParams, LogicalRange } from 'lightweight-charts';
 import { fetchKlines } from '@/services/api';
-import { Target, ChevronLeft, ChevronRight } from 'lucide-react';
-import { AssetIcon } from '@/components/AssetIcon';
 import { core } from '@/services/ApiCore';
 import { cn } from '@/lib/utils';
 import type { Holding } from '@/services/api';
 import { useModuleTimeframe } from '@/context/TimeframeContext';
+import { SmartChartHeader } from './matrix-horizon/SmartChartHeader';
 
 
 interface SmartChartProps {
@@ -29,10 +28,6 @@ interface SmartChartProps {
     currentMarketPrice?: number;
     onMarketPriceUpdate?: (price: number) => void;
     mode?: 'TRADE' | 'COVER';
-    // Trailing deviation values for visual display
-    trailingBuyDev?: number;
-    trailingTpDev?: number;
-    trailingSlDev?: number;
     assets?: Holding[];
     onAssetChange?: (asset: Holding) => void;
     potentialEntry?: number;
@@ -56,12 +51,6 @@ interface RawCandle {
     close: number | string;
     volume?: number | string;
 }
-
-const TIMEFRAMES = [
-    { label: '15m', value: '15m' },
-    { label: '1h', value: '1h' },
-    { label: '4h', value: '4h' },
-];
 
 const TIMEFRAME_SECONDS: Record<string, number> = {
     '1m': 60,
@@ -95,9 +84,6 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     currentMarketPrice: externalMarketPrice,
     onMarketPriceUpdate,
     mode = 'TRADE',
-    trailingBuyDev = 1.0,
-    trailingTpDev = -1.0,
-    trailingSlDev = -1.0,
     assets = [],
     onAssetChange,
     potentialEntry,
@@ -156,6 +142,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     // Forces the chart to include all trade levels in the visible area
     const focusOnPrices = useCallback(() => {
         if (!chartRef.current || !seriesRef.current || !ghostSeriesRef.current || !isChartReady) return;
+        if (allKlinesRef.current.length === 0) return; // FIX: Don't set ghost series if no real data
         
         const b = propsRef.current.buyPrice;
         const t = propsRef.current.tpPrice;
@@ -163,30 +150,31 @@ export const SmartChart: React.FC<SmartChartProps> = ({
         const te = propsRef.current.tpEnabled;
         const se = propsRef.current.slEnabled;
 
-        const timeScale = chartRef.current.timeScale();
-        const visibleRange = timeScale.getVisibleRange();
+        const klines = allKlinesRef.current;
+        const tFirst = klines[0]?.time as number;
+        const tLast = klines[klines.length - 1]?.time as number;
         
-        if (visibleRange && ghostSeriesRef.current) {
-            const timeFrom = Number(visibleRange.from);
-            const timeTo = Number(visibleRange.to);
-            
-            if (!isNaN(timeFrom) && !isNaN(timeTo)) {
-                const timestamp1 = timeFrom;
-                const timestamp2 = timeFrom + (timeTo - timeFrom) / 2;
-                const timestamp3 = timeTo;
+        if (!tFirst || !tLast) return;
 
-                const safeB = isNaN(b) ? 0 : b;
-                const minV = Math.min(safeB, te && !isNaN(t) ? t : safeB, se && !isNaN(s) ? s : safeB) * 0.999;
-                const maxV = Math.max(safeB, te && !isNaN(t) ? t : safeB, se && !isNaN(s) ? s : safeB) * 1.001;
+        // Ensure strict ascending order for lightweight-charts
+        const timestamp1 = tFirst;
+        let timestamp3 = Math.max(tLast, tFirst + 2);
+        let timestamp2 = timestamp1 + Math.floor((timestamp3 - timestamp1) / 2);
+        
+        // Final sanity check for uniqueness
+        if (timestamp2 <= timestamp1) timestamp2 = timestamp1 + 1;
+        if (timestamp3 <= timestamp2) timestamp3 = timestamp2 + 1;
 
-                if (!isNaN(minV) && !isNaN(maxV) && minV > 0) {
-                    ghostSeriesRef.current.setData([
-                        { time: timestamp1 as Time, value: minV },
-                        { time: timestamp2 as Time, value: maxV },
-                        { time: timestamp3 as Time, value: safeB }
-                    ]);
-                }
-            }
+        const safeB = isNaN(b) ? 0 : b;
+        const minV = Math.min(safeB, te && !isNaN(t) ? t : safeB, se && !isNaN(s) ? s : safeB) * 0.999;
+        const maxV = Math.max(safeB, te && !isNaN(t) ? t : safeB, se && !isNaN(s) ? s : safeB) * 1.001;
+
+        if (!isNaN(minV) && !isNaN(maxV) && minV > 0) {
+            ghostSeriesRef.current.setData([
+                { time: timestamp1 as Time, value: minV },
+                { time: timestamp2 as Time, value: maxV },
+                { time: timestamp3 as Time, value: safeB }
+            ]);
         }
 
         if (chartRef.current) {
@@ -212,7 +200,9 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     // Local prices for ultra-smooth dragging
     const [localPrices, setLocalPrices] = useState({ buy: Number(buyPrice), tp: Number(tpPrice), sl: slPrice ? Number(slPrice) : 0 });
     const localPricesRef = useRef(localPrices);
+    const draggingLineRef = useRef<'buy' | 'tp' | 'sl' | null>(null);
     useEffect(() => { localPricesRef.current = localPrices; }, [localPrices]);
+    useEffect(() => { draggingLineRef.current = draggingLine; }, [draggingLine]);
 
     // Sync local prices when props change (but NOT when dragging)
     useEffect(() => {
@@ -227,10 +217,20 @@ export const SmartChart: React.FC<SmartChartProps> = ({
         }
     }, [buyPrice, tpPrice, slPrice, draggingLine]);
 
-    const propsRef = useRef({ buyPrice, tpPrice, slPrice, tpEnabled, slEnabled, onPricesChange });
+    const propsRef = useRef({ buyPrice, tpPrice, slPrice, tpEnabled, slEnabled, trailingBuy, onPricesChange });
     useEffect(() => {
-        propsRef.current = { buyPrice, tpPrice, slPrice, tpEnabled, slEnabled, onPricesChange };
-    }, [buyPrice, tpPrice, slPrice, tpEnabled, slEnabled, onPricesChange]);
+        propsRef.current = { buyPrice, tpPrice, slPrice, tpEnabled, slEnabled, trailingBuy, onPricesChange };
+    }, [buyPrice, tpPrice, slPrice, tpEnabled, slEnabled, trailingBuy, onPricesChange]);
+
+    // Track market price locally only (Parent SmartTrade already handles its own priceSync)
+    useEffect(() => {
+        if (!isEditingExisting && !trailingBuy && currentPrice > 0) {
+            setLocalPrices(prev => {
+                if (prev.buy === currentPrice) return prev;
+                return { ...prev, buy: currentPrice };
+            });
+        }
+    }, [isEditingExisting, trailingBuy, currentPrice]);
 
     // Initialize Chart Instance (Once)
     useEffect(() => {
@@ -636,11 +636,11 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     // Unified Chart Update Function (Zones + Coords)
     const refreshChartOverlays = useCallback(() => {
         if (!chartRef.current || !seriesRef.current || !isChartReady || isUpdatingOverlaysRef.current) return;
+        if (allKlinesRef.current.length === 0) return; // FIX: Prevents Baseline baseValue coordinate conversion from crashing Lightweight Charts when empty
         
         isUpdatingOverlaysRef.current = true;
         try {
             const series = seriesRef.current;
-            const chart = chartRef.current;
             const buy = Number(localPricesRef.current.buy);
             const tp = Number(localPricesRef.current.tp);
             const sl = Number(localPricesRef.current.sl);
@@ -663,38 +663,24 @@ export const SmartChart: React.FC<SmartChartProps> = ({
             });
 
             // 2. Sync Background Zones (Chart side)
-            const timeScale = chart.timeScale();
-            const range = timeScale.getVisibleRange();
-            if (range && range.from && range.to) {
-                // Stabilization: conversion logic for numeric and object timestamps
-                const toSecs = (t: Time): number => {
-                    if (t === null || t === undefined) return 0;
-                    if (typeof t === 'number') return t;
-                    if (typeof t === 'string') {
-                        const n = Number(t);
-                        return isNaN(n) ? 0 : n;
-                    }
-                    if (typeof t === 'object' && 'timestamp' in t) return (t as { timestamp: number }).timestamp;
-                    return 0;
-                };
+            const klines = allKlinesRef.current;
+            const tFirst = klines[0]?.time as number;
+            const tLast = klines[klines.length - 1]?.time as number;
+            
+            if (!tFirst || !tLast) return;
 
-                const fromNum = toSecs(range.from);
-                const toNum = toSecs(range.to);
-                
-                // CRITICAL: Lightweight-charts will CRASH if we pass timestamps that are <= 0 or NaN
-                if (!fromNum || !toNum || isNaN(fromNum) || isNaN(toNum) || fromNum <= 0 || toNum <= 0) return;
+            // Generate valid timestamps stretching into the past and future
+            const ONE_YEAR = 31536000;
+            const tStart = Math.max(0, tFirst - ONE_YEAR * 5) as Time;
+            const tEnd = (tLast + ONE_YEAR * 5) as Time;
 
-                const tStart = (fromNum - 10000) as Time;
-                const tEnd = (toNum + 20000) as Time;
-
-                if (tpFillRef.current && tpEnabled && !isNaN(tp) && tp > 0) {
-                    tpFillRef.current.applyOptions({ baseValue: { type: 'price', price: buy } });
-                    tpFillRef.current.setData([{ time: tStart, value: tp }, { time: tEnd, value: tp }]);
-                }
-                if (slFillRef.current && slEnabled && !isNaN(sl) && sl > 0) {
-                    slFillRef.current.applyOptions({ baseValue: { type: 'price', price: buy } });
-                    slFillRef.current.setData([{ time: tStart, value: sl }, { time: tEnd, value: sl }]);
-                }
+            if (tpFillRef.current && tpEnabled && !isNaN(tp) && tp > 0) {
+                tpFillRef.current.applyOptions({ baseValue: { type: 'price', price: buy } });
+                tpFillRef.current.setData([{ time: tStart, value: tp }, { time: tEnd, value: tp }]);
+            }
+            if (slFillRef.current && slEnabled && !isNaN(sl) && sl > 0) {
+                slFillRef.current.applyOptions({ baseValue: { type: 'price', price: buy } });
+                slFillRef.current.setData([{ time: tStart, value: sl }, { time: tEnd, value: sl }]);
             }
         } catch (e) {
             console.error('[SmartChart] Overlay Error:', e);
@@ -705,15 +691,36 @@ export const SmartChart: React.FC<SmartChartProps> = ({
 
     // Subscriptions for timescale changes to keep overlays in sync
     useEffect(() => {
-        if (!isChartReady || !chartRef.current) return;
+        if (!isChartReady || !chartRef.current || !seriesRef.current) return;
         const chart = chartRef.current;
+        const series = seriesRef.current;
+        
         const handleScaleChange = () => {
-            refreshChartOverlays();
-            focusOnPrices();
+            // Only sync labels on scale change, DO NOT modify series data (prevents Max Call Stack Size Exceeded)
+            if (allKlinesRef.current.length === 0) return;
+            const buy = Number(localPricesRef.current.buy);
+            const tp = Number(localPricesRef.current.tp);
+            const sl = Number(localPricesRef.current.sl);
+            
+            if (isNaN(buy) || buy <= 0) return;
+
+            const buyCoord = series.priceToCoordinate(buy);
+            const tpCoord = (propsRef.current.tpEnabled && !isNaN(tp) && tp > 0) ? series.priceToCoordinate(tp) : null;
+            const slCoord = (propsRef.current.slEnabled && !isNaN(sl) && sl > 0) ? series.priceToCoordinate(sl) : null;
+
+            setLineCoords(prev => {
+                if (prev.buy === buyCoord && prev.tp === tpCoord && prev.sl === slCoord) return prev;
+                return {
+                    buy: buyCoord ?? undefined,
+                    tp: tpCoord ?? undefined,
+                    sl: slCoord ?? undefined
+                };
+            });
         };
+        
         chart.timeScale().subscribeVisibleLogicalRangeChange(handleScaleChange);
         return () => chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleScaleChange);
-    }, [isChartReady, refreshChartOverlays, focusOnPrices]);
+    }, [isChartReady]);
 
     // Update markers and trigger overlay refresh on price changes
     useEffect(() => {
@@ -781,7 +788,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
         }
 
         refreshChartOverlays();
-    }, [isChartReady, tpEnabled, slEnabled, currentPrice, localPrices.buy, localPrices.tp, localPrices.sl, refreshChartOverlays, mode, potentialEntry]);
+    }, [isChartReady, tpEnabled, slEnabled, currentPrice, localPrices.buy, localPrices.tp, localPrices.sl, refreshChartOverlays, mode, potentialEntry, trailingBuy, trailingTp, trailingSl, isEditingExisting]);
 
     // Optimize Dragging
     useEffect(() => {
@@ -791,9 +798,9 @@ export const SmartChart: React.FC<SmartChartProps> = ({
 
         const onMouseDown = (param: MouseEventParams) => {
             if (!param.point) return;
-            const { buyPrice: b, tpPrice: t, slPrice: s, tpEnabled: te, slEnabled: se } = propsRef.current;
+            const { buyPrice: b, tpPrice: t, slPrice: s, tpEnabled: te, slEnabled: se, trailingBuy: tb } = propsRef.current;
             const dist = (p: number) => Math.abs(param.point!.y - (series.priceToCoordinate(p) || 0));
-            if (!isEditingExisting && dist(b) < 30) setDraggingLine('buy');
+            if (!isEditingExisting && tb && dist(b) < 30) setDraggingLine('buy');
             else if (te && dist(t) < 30) setDraggingLine('tp');
             else if (se && dist(s) < 30) setDraggingLine('sl');
         };
@@ -811,11 +818,21 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                     if (price !== null) {
                         const rounded = Number(price.toFixed(6));
                         
-                        // 1. Immediate Ref sync for next frame
-                        localPricesRef.current = { ...localPricesRef.current, [draggingLine]: rounded };
+                        const draggingLineRefLocal = draggingLineRef.current;
+                        if (!draggingLineRefLocal) return;
+
+                        localPricesRef.current = { ...localPricesRef.current, [draggingLineRefLocal]: rounded };
                         
-                        // 2. Parent Sync
-                        propsRef.current.onPricesChange({ [draggingLine]: rounded });
+                        // Update visual line immediately for 60fps drag
+                        if (draggingLineRefLocal === 'buy' && buyPriceLineRef.current) {
+                            buyPriceLineRef.current.applyOptions({ price: rounded });
+                        } else if (draggingLineRefLocal === 'tp' && tpPriceLineRef.current) {
+                            tpPriceLineRef.current.applyOptions({ price: rounded });
+                        } else if (draggingLineRefLocal === 'sl' && slPriceLineRef.current) {
+                            slPriceLineRef.current.applyOptions({ price: rounded });
+                        }
+
+                        // We DO NOT call onPricesChange here. We wait for mouseUp to avoid React render spam.
                     }
                 }
                 
@@ -828,7 +845,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                     
                     const distY = (y: number) => Math.abs(param.point!.y - y);
                     const over = distY(buyY) < 30 || distY(tpY) < 30 || distY(slY) < 30;
-                    chartContainerRef.current.style.cursor = over || draggingLine ? 'ns-resize' : 'crosshair';
+                    chartContainerRef.current.style.cursor = over || draggingLineRef.current ? 'ns-resize' : 'crosshair';
                 }
             } finally {
                 isProcessing.current = false;
@@ -837,7 +854,15 @@ export const SmartChart: React.FC<SmartChartProps> = ({
 
         chart.subscribeClick(onMouseDown);
         chart.subscribeCrosshairMove(onMouseMove);
-        const onMouseUp = () => setDraggingLine(null);
+        const onMouseUp = () => {
+            if (draggingLineRef.current) {
+                const line = draggingLineRef.current;
+                // Send final coordinate to parent on drop
+                propsRef.current.onPricesChange({ [line]: localPricesRef.current[line] });
+                setDraggingLine(null);
+                draggingLineRef.current = null;
+            }
+        };
         window.addEventListener('mouseup', onMouseUp);
 
         return () => {
@@ -845,7 +870,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
             chart.unsubscribeCrosshairMove(onMouseMove);
             window.removeEventListener('mouseup', onMouseUp);
         };
-    }, [isChartReady, draggingLine]);
+    }, [isChartReady, isEditingExisting]);
 
     // Helper: % distance from current price
     const pctFromCurrent = (price: number) => {
@@ -855,124 +880,19 @@ export const SmartChart: React.FC<SmartChartProps> = ({
 
     return (
         <div className={cn("w-full select-none", compact ? "space-y-0" : "space-y-1")}>
-            {/* Chart Header: Price and Timeframe */}
-            {!compact && (
-                <div className="flex items-end gap-4 w-full px-1 overflow-hidden">
-                {/* Current Price Indicator & Assets List */}
-                <div className="flex-1 flex items-center gap-4 min-w-0">
-                    {currentPrice > 0 ? (
-                        <div className="flex items-center gap-3 pr-6 border-r border-slate-800/50">
-                            <div className="relative group/asset">
-                                <div className="absolute -inset-2 bg-gradient-to-tr from-amber-500/20 to-transparent rounded-full blur-md opacity-0 group-hover/asset:opacity-100 transition-opacity duration-500" />
-                                <AssetIcon symbol={symbol} size={42} className="relative z-10 shadow-2xl" />
-                            </div>
-                            <div className="flex flex-col">
-                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">{symbol}</span>
-                                <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 backdrop-blur-xl">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.4)]" />
-                                    <span className="text-base font-black text-amber-400 font-mono">
-                                        {currentPrice > 0 
-                                            ? (currentPrice < 1 ? currentPrice.toFixed(4) : currentPrice < 100 ? currentPrice.toFixed(2) : currentPrice.toFixed(0))
-                                            : '---'}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="h-[42px] flex items-center pr-6 border-r border-slate-800/50">
-                            <div className="w-4 h-4 border-2 border-slate-700 border-t-transparent rounded-full animate-spin" />
-                        </div>
-                    )}
-
-                    {/* Active Assets Horizontal Scroll */}
-                    <div className="flex-1 flex items-center gap-1 relative group/scroll-container overflow-hidden min-w-0">
-                        {/* Hover Scroll Arrows - Left */}
-                        <div 
-                            onMouseEnter={() => startScroll('left')}
-                            onMouseLeave={stopScroll}
-                            className="absolute left-0 top-0 bottom-0 w-10 z-20 flex items-center justify-start bg-gradient-to-r from-[#020617] via-[#020617]/80 to-transparent cursor-pointer opacity-0 group-hover/scroll-container:opacity-100 transition-opacity duration-300"
-                        >
-                            <div className="w-6 h-6 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center backdrop-blur-sm ml-1 hover:bg-cyan-500/20 transition-colors">
-                                <ChevronLeft className="w-4 h-4 text-cyan-400" />
-                            </div>
-                        </div>
-
-                        {/* Scroll Container */}
-                        <div 
-                            ref={assetScrollRef}
-                            className="flex-1 flex items-center gap-2 overflow-x-auto no-scrollbar scroll-smooth px-2 min-w-0"
-                        >
-                            {assets.map((asset) => (
-                                <button
-                                    key={asset.id}
-                                    onClick={() => onAssetChange?.(asset)}
-                                    className={cn(
-                                        "flex items-center gap-3 p-1.5 pr-4 rounded-xl border transition-all relative group h-[44px] min-w-fit flex-shrink-0",
-                                        symbol.split('/')[0] === asset.symbol 
-                                            ? "bg-cyan-500/10 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.1)]" 
-                                            : "bg-slate-900/40 border-slate-800/50 hover:border-slate-700 hover:bg-slate-800/50"
-                                    )}
-                                >
-                                    <div className="relative">
-                                        <AssetIcon symbol={asset.symbol} size={28} />
-                                        {symbol.startsWith(asset.symbol) && (
-                                            <div className="absolute -top-1 -right-1">
-                                                <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee]" />
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="flex flex-col items-start">
-                                        <div className="text-[10px] font-black text-white leading-none mb-1">{asset.symbol}</div>
-                                        <div className="flex items-center gap-1.5">
-                                            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">{asset.holding.toFixed(asset.holding < 1 ? 4 : 2)}</span>
-                                            <span className="text-[9px] font-black text-emerald-400 font-mono group-hover:block hidden">${asset.price.toLocaleString()}</span>
-                                        </div>
-                                    </div>
-                                </button>
-                            ))}
-                        </div>
-
-                        {/* Hover Scroll Arrows - Right */}
-                        <div 
-                            onMouseEnter={() => startScroll('right')}
-                            onMouseLeave={stopScroll}
-                            className="absolute right-0 top-0 bottom-0 w-10 z-20 flex items-center justify-end bg-gradient-to-l from-[#020617] via-[#020617]/80 to-transparent cursor-pointer opacity-0 group-hover/scroll-container:opacity-100 transition-opacity duration-300"
-                        >
-                            <div className="w-6 h-6 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center backdrop-blur-sm mr-1 hover:bg-cyan-500/20 transition-colors">
-                                <ChevronRight className="w-4 h-4 text-cyan-400" />
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Timeframe Selector & Focus */}
-                <div className="flex flex-row items-center flex-shrink-0 gap-3">
-                    <div className="flex gap-1 p-1 bg-slate-900/40 backdrop-blur-md border border-slate-800/50 rounded-xl">
-                        {TIMEFRAMES.map((tf) => (
-                            <button
-                                key={tf.value}
-                                onClick={() => setTimeframe(tf.value)}
-                                className={cn(
-                                    "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
-                                    timeframe === tf.value
-                                        ? 'bg-cyan-500 text-white shadow-[0_0_15px_rgba(6,182,212,0.4)]'
-                                        : 'text-slate-500 hover:text-white hover:bg-slate-800'
-                                )}
-                            >
-                                {tf.label}
-                            </button>
-                        ))}
-                    </div>
-                    <button 
-                        onClick={focusOnPrices} 
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/40 border border-slate-800/50 text-[9px] font-black text-cyan-400 hover:bg-cyan-400/10 hover:border-cyan-400/30 transition-all backdrop-blur-md group/focus"
-                    >
-                        <Target className="w-3 h-3 group-hover/focus:scale-125 transition-transform" />
-                        ODAKLA (FİYATA HİZALA)
-                    </button>
-                </div>
-            </div>
-            )}
+            <SmartChartHeader
+                compact={compact}
+                symbol={symbol}
+                currentPrice={currentPrice}
+                assets={assets}
+                onAssetChange={onAssetChange}
+                timeframe={timeframe}
+                setTimeframe={setTimeframe}
+                focusOnPrices={focusOnPrices}
+                startScroll={startScroll}
+                stopScroll={stopScroll}
+                assetScrollRef={assetScrollRef}
+            />
 
             <div className="relative group/chart">
                 <div ref={chartContainerRef} className={cn(
@@ -1019,14 +939,14 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                     if (key === 'buy' && isEditingExisting) return null;
                     
                     let label = '';
-                    if (key === 'buy') label = mode === 'TRADE' ? 'Giriş (Al)' : 'Giriş (Sat)';
-                    else if (key === 'tp') label = 'Hedef';
-                    else label = 'Stop';
+                    if (key === 'buy') label = 'TBuy';
+                    else if (key === 'tp') label = 'Take Profit';
+                    else if (key === 'sl') label = 'Stop Loss';
                     
-                    // Append trailing indicator suffix with deviation
-                    if (key === 'buy' && trailingBuy) label += ` ⟐TBY ${trailingBuyDev.toFixed(1)}%`;
-                    else if (key === 'tp' && trailingTp) label += ` ⟐TTP ${Math.abs(trailingTpDev).toFixed(1)}%`;
-                    else if (key === 'sl' && trailingSl) label += ` ⟐TSL ${Math.abs(trailingSlDev).toFixed(1)}%`;
+                    // Prepend Trailing prefix when toggle is active
+                    if (key === 'buy' && trailingBuy) label = 'Trailing ' + label;
+                    else if (key === 'tp' && trailingTp) label = 'Trailing ' + label;
+                    else if (key === 'sl' && trailingSl) label = 'Trailing ' + label;
 
                     const bgColor = key === 'buy' ? 'bg-cyan-500' : key === 'tp' ? 'bg-emerald-500' : 'bg-rose-500';
                     const bgGlow = key === 'buy' ? 'shadow-cyan-500/30' : key === 'tp' ? 'shadow-emerald-500/30' : 'shadow-rose-500/30';
@@ -1049,8 +969,8 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                                     onMouseDown={(e) => { if (!isDisabledBuy) { e.preventDefault(); setDraggingLine(key as 'buy' | 'tp' | 'sl'); }}}
                                     className={`flex items-center ${bgColor} rounded-lg shadow-xl ${bgGlow} ${isDisabledBuy ? 'opacity-50 cursor-not-allowed' : 'cursor-ns-resize hover:scale-105'} transition-transform active:scale-95`}
                                 >
-                                    {/* <div className="px-2 py-1 text-[9px] font-black text-white/90 uppercase border-r border-white/20">{label}</div> */}
-                                    <div className="px-2 py-1 text-[10px] font-bold text-white font-mono tracking-tighter">{price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}</div>
+                                    {/* Feature Name Instead of Price */}
+                                    <div className="px-2 py-1 text-[10px] font-bold text-white tracking-widest">{label}</div>
                                     {isDisabledBuy && (
                                         <div className="px-1.5 py-0.5 bg-slate-800 rounded text-[8px] font-black text-slate-400 ml-1" title="Fiyat değiştirilemez">
                                             🔒

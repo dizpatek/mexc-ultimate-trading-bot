@@ -31,11 +31,13 @@ export async function GET() {
     try {
         const response = await axios.get('https://min-api.cryptocompare.com/data/v2/news/?lang=EN');
 
-        const rawNews: CryptoCompareArticle[] = response.data.Data.slice(0, 10);
+        const rawNews: CryptoCompareArticle[] = response.data.Data.slice(0, 50);
         
-        // Translate titles in parallel
-        const news = await Promise.all(rawNews.map(async (article: CryptoCompareArticle) => {
-            const translatedTitle = await translateToTurkish(article.title);
+        // Translate only the first 15 titles to avoid rate limits and high latency
+        const news = await Promise.all(rawNews.map(async (article: CryptoCompareArticle, index: number) => {
+            const shouldTranslate = index < 15;
+            const translatedTitle = shouldTranslate ? await translateToTurkish(article.title) : article.title;
+            
             return {
                 id: article.id,
                 title: article.title,
@@ -43,6 +45,7 @@ export async function GET() {
                 excerpt: article.body.length > 150 ? article.body.substring(0, 150) + '...' : article.body,
                 source: article.source_info.name,
                 time: new Date(article.published_on * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                publishedOn: article.published_on,
                 url: article.url,
                 imageUrl: article.imageurl
             };

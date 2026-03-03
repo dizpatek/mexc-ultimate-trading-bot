@@ -7,7 +7,7 @@ import {
     RefreshCw, LayoutTemplate, Brain, Cpu, 
     Globe, Fish, BarChart2,
     Settings, Zap, Power, ShieldCheck, AlertTriangle, Layers,
-    Database, Newspaper
+    Database, Newspaper, Activity
 } from "lucide-react";
 import { fetchGlobalMarketData } from "@/lib/market-data";
 import { useHoldings } from "@/hooks/usePortfolio";
@@ -16,6 +16,7 @@ import axios from 'axios';
 import { useTimeframe } from "@/context/TimeframeContext";
 import { analyzeSentiment, SentimentResult } from '@/lib/sentiment-analyzer';
 import { AIAnalysisSummary } from "../AIAnalysisSummary";
+import { logger } from "@/lib/logger";
 
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -73,7 +74,19 @@ export interface V5Signal {
     mtfWeightedScore: number;
     dynamicWeights: { tech: number; momentum: number; market: number; trend: number; };
 }
-interface BotConfig { f4_length: number; whale_multiplier: number; ai_threshold: number; auto_trade: boolean; defense_mode: boolean; timeframe: string; }
+interface BotConfig { 
+    f4_length: number; 
+    whale_multiplier: number; 
+    ai_threshold: number; 
+    auto_trade: boolean; 
+    defense_mode: boolean; 
+    pilot_trailing_buy: boolean;
+    pilot_trailing_buy_dev: number;
+    pilot_tp_trailing: boolean;
+    pilot_tp_deviation: number;
+    pilot_sl_trailing: boolean;
+    pilot_sl_deviation: number;
+}
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 const ic = (c: V5Indicator["color"]) => ({ green: "bg-emerald-500", red: "bg-rose-500", orange: "bg-amber-500", gray: "bg-slate-600" })[c];
@@ -102,11 +115,11 @@ const Row = ({ label, value, cls = "text-slate-300" }: { label: string; value: R
 
 const SliderField = ({ label, value, min, max, step = 1, suffix = "", onChange, color }: {
     label: string; value: number; min: number; max: number; step?: number; suffix?: string;
-    onChange: (v: number) => void; color: "cyan" | "indigo" | "purple" | "amber";
+    onChange: (v: number) => void; color: "cyan" | "indigo" | "purple" | "amber" | "emerald" | "rose";
 }) => {
     const pct = ((value - min) / (max - min)) * 100;
-    const bg = { cyan: "bg-cyan-500", indigo: "bg-indigo-500", purple: "bg-purple-500", amber: "bg-amber-500" }[color];
-    const tx = { cyan: "text-cyan-400", indigo: "text-indigo-400", purple: "text-purple-400", amber: "text-amber-400" }[color];
+    const bg = { cyan: "bg-cyan-500", indigo: "bg-indigo-500", purple: "bg-purple-500", amber: "bg-amber-500", emerald: "bg-emerald-500", rose: "bg-rose-500" }[color];
+    const tx = { cyan: "text-cyan-400", indigo: "text-indigo-400", purple: "text-purple-400", amber: "text-amber-400", emerald: "text-emerald-400", rose: "text-rose-400" }[color];
     return (
         <div className="space-y-2">
             <div className="flex justify-between items-end">
@@ -134,16 +147,29 @@ export const MatrixHorizon = () => {
     const [riskMode, setRiskMode] = useState<'safe' | 'normal' | 'aggressive'>('aggressive');
     
     // Command State
-    const [config, setConfig] = useState<BotConfig>({ f4_length: 10, whale_multiplier: 1.8, ai_threshold: 65, auto_trade: false, defense_mode: false, timeframe: "4h" });
+    const [config, setConfig] = useState<BotConfig>({ 
+        f4_length: 10, 
+        whale_multiplier: 1.8, 
+        ai_threshold: 65, 
+        auto_trade: false, 
+        defense_mode: false, 
+        pilot_trailing_buy: true, 
+        pilot_trailing_buy_dev: 0.3, 
+        pilot_tp_trailing: true, 
+        pilot_tp_deviation: 0.5, 
+        pilot_sl_trailing: true, 
+        pilot_sl_deviation: 0.5 
+    });
     const [showSettings, setShowSettings] = useState(false);
     const [isActionLoading, setIsActionLoading] = useState(false);
 
-    const [isPanicActive, setIsPanicActive] = useState(() => {
-        if (typeof window !== "undefined") {
-            return localStorage.getItem("isPanicActive") === "true";
+    const [isPanicActive, setIsPanicActive] = useState(false);
+
+    useEffect(() => {
+        if (typeof window !== "undefined" && localStorage.getItem("isPanicActive") === "true") {
+            setIsPanicActive(true);
         }
-        return false;
-    });
+    }, []);
 
     const [sentiment, setSentiment] = useState<SentimentResult | null>(null);
     const [prediction, setPrediction] = useState<{ predictedPrice: number; trend: 'UP' | 'DOWN' | 'FLAT'; confidence: number; } | null>(null);
@@ -191,27 +217,39 @@ export const MatrixHorizon = () => {
 
     const rotation = sentiment ? (sentiment.score / 100) * 90 : 0;
 
+    // Synchronize local config state with remote state and global timeframe
     useEffect(() => {
-        if (typeof window !== "undefined") {
-            localStorage.setItem("isPanicActive", String(isPanicActive));
-        }
-    }, [isPanicActive]);
+        const loadInitialConfig = async () => {
+            try {
+                const res = await fetch("/api/bot/config").then(r => r.json());
+                if (res && !res.error) {
+                    setConfig(prev => ({ ...prev, ...res }));
+                }
+                
+                // Immediate session heartbeat for the console
+                logger.info('Matrix Engine Online', 'Kullanıcı oturumu başlatıldı, tüm modüller senkronize ediliyor.');
+            } catch (err) {
+                console.error('[MatrixHorizon] Config Load Error:', err);
+            }
+        };
+        loadInitialConfig();
+    }, []);
+
+    // Also sync the timeframe in the local config when the global one changes (No longer needed since it is removed from BotConfig)
 
     const fetchSignal = useCallback(async (isManual = false) => {
         setSocketOnline(true);
         if (isManual) setIsActionLoading(true);
         try {
-            const [r1, mkt, cfg] = await Promise.all([
+            const [r1, mkt] = await Promise.all([
                 fetch(`/api/indicators/f4?symbol=BTCUSDT&interval=${interval}&riskMode=${riskMode}`).then(r => r.json()),
                 fetchGlobalMarketData().catch(() => null),
-                fetch("/api/bot/config").then(r => r.json()).catch(() => null),
             ]);
             if (r1 && !r1.error) setSignal(r1);
             if (mkt) { 
                 setBtcDom(mkt.btcd?.value ?? 58.4); 
                 setUsdtDom(mkt.usdtd?.value ?? 4.2); 
             }
-            if (cfg && !cfg.error) setConfig(cfg);
             setLastSync(new Date());
         } catch { 
             setSocketOnline(false);
@@ -220,11 +258,18 @@ export const MatrixHorizon = () => {
         }
     }, [interval, riskMode]);
 
-    // Periodical background refresh
+    // Periodical background refresh (Market analysis & Cron trigger)
     useEffect(() => {
-        const id = setInterval(() => fetchSignal(false), 30000);
+        const id = setInterval(() => {
+            fetchSignal(false);
+            
+            // If Pilot is ON, trigger a strategy execution cycle to keep it "live"
+            if (config.auto_trade) {
+                api.get('/cron/strategies').catch(() => null);
+            }
+        }, 30000);
         return () => clearInterval(id);
-    }, [fetchSignal]);
+    }, [fetchSignal, config.auto_trade]);
 
     // Active triggers (Manual Load)
     useEffect(() => {
@@ -232,8 +277,30 @@ export const MatrixHorizon = () => {
     }, [interval, riskMode, fetchSignal]);
 
     const saveConfig = useCallback(async (updates: Partial<BotConfig>) => {
-        setConfig(prev => ({ ...prev, ...updates }));
-        try { await fetch("/api/bot/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updates) }); } catch { /* silent */ }
+        setConfig(prev => {
+            const next = { ...prev, ...updates };
+            
+            // Log Pilot toggles ONLY if they actually changed
+            if (updates.auto_trade !== undefined && updates.auto_trade !== prev.auto_trade) {
+                 logger.success(updates.auto_trade ? '✈️ OTOMATİK PİLOT AKTİF' : '⏸ OTOMATİK PİLOT DEVRE DIŞI', 'Sistem PİLOT çalışma durumunu değiştirdi.');
+            }
+            if (updates.defense_mode !== undefined && updates.defense_mode !== prev.defense_mode) {
+                 logger.info(updates.defense_mode ? '🛡️ SAVUNMA MODU ONLINE' : '🛡️ SAVUNMA MODU OFFLINE', 'Bot savunma sistemi yapılandırması güncellendi.');
+            }
+            
+            // Log full config save ONLY if parameters actually changed
+            if (Object.keys(updates).length > 2) {
+                if (prev.f4_length !== next.f4_length || prev.whale_multiplier !== next.whale_multiplier || prev.ai_threshold !== next.ai_threshold || prev.pilot_trailing_buy_dev !== next.pilot_trailing_buy_dev) {
+                    logger.info('⚙️ SİSTEM AYARLARI GÜNCELLENDİ', `F4: ${next.f4_length}, Balina: ${next.whale_multiplier}x, AI Güven: ${next.ai_threshold}%`);
+                }
+            }
+            return next;
+        });
+
+        // Only fire API if something changed
+        try { 
+            await fetch("/api/bot/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updates) }); 
+        } catch { /* silent */ }
     }, []);
 
     const handlePanicSell = async () => {
@@ -245,9 +312,11 @@ export const MatrixHorizon = () => {
             if (res.success) {
                 alert(`PANİK SATIŞ TAMAMLANDI: ${res.results.length} varlık satıldı. Toplam: ${res.totalUsdtValue.toFixed(2)} USDT`);
                 setIsPanicActive(true);
+                logger.error('🚨 PANİK SATIŞ TETİKLENDİ', `Kullanıcı manuel olarak ${res.results.length} işlemi sonlandırdı.`);
                 refetchHoldings();
             } else {
                 alert(`Sistem Hatası: ${res.message || 'Satış yapılamadı'}`);
+                logger.warn('⚠️ Panik Satış Başarısız', res.message);
             }
         } catch (err: unknown) {
             const errorMessage = err instanceof Error ? err.message : String(err);
@@ -267,9 +336,11 @@ export const MatrixHorizon = () => {
             if (res.success) {
                 alert(`PANİK ALIM (GERİ AL) TAMAMLANDI: ${res.results.length} varlık geri alındı. Harcanan: ${res.totalSpent.toFixed(2)} USDT`);
                 setIsPanicActive(false);
+                logger.success('✅ PİYASAYA GERİ DÖNÜŞ', `Panik sonrası ${res.results.length} varlık tekrar satın alındı.`);
                 refetchHoldings(); 
             } else {
                 alert(`Hata: ${res.message || 'Alım yapılamadı'}`);
+                logger.warn('⚠️ Geri Alım Başarısız', res.message);
             }
         } catch (err: unknown) { 
             const errorMessage = err instanceof Error ? err.message : String(err);
@@ -363,43 +434,84 @@ export const MatrixHorizon = () => {
                 </div>
             </div>
             
-            {/* ── MAKER TAKER FLOW EXTERNAL FEED (16:4) ── */}
-            <div className="relative w-full border-b border-slate-800/60 bg-slate-950/40 overflow-hidden shrink-0" style={{ aspectRatio: '16/4' }}>
-                <iframe 
-                    src="https://makertakerflow.vercel.app/" 
-                    className="w-full h-full border-none opacity-90 hover:opacity-100 transition-opacity duration-500"
-                    title="Maker Taker Flow"
-                />
-                
-                {/* HUD Overlay for Iframe */}
-                <div className="absolute top-3 left-3 flex items-center gap-2 pointer-events-none">
-                    <div className="flex h-2 w-2 relative">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
-                    </div>
-                </div>
-                
-                {/* Scanlines Effect */}
-                <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%),linear-gradient(90deg,rgba(255,0,0,0.02),rgba(0,255,0,0.01),rgba(0,0,146,0.02))] bg-[size:100%_4px,3px_100%] z-10 opacity-30"></div>
-            </div>
 
             {/* SETTINGS PANEL */}
             {showSettings && (
-                <div className="relative z-30 bg-slate-950/90 backdrop-blur-xl border border-cyan-500/20 rounded-xl p-4 grid grid-cols-1 md:grid-cols-3 gap-6 animate-in slide-in-from-top-4 duration-300 mb-2">
-                    <div className="space-y-4">
-                        <div className="flex items-center gap-2 text-xs font-black text-cyan-400 uppercase tracking-widest mb-1">
-                            <Zap className="w-4 h-4" /> MOTOR AYARLARI
+                <div className="relative z-30 bg-slate-950/90 backdrop-blur-xl border border-cyan-500/20 rounded-xl p-6 grid grid-cols-1 md:grid-cols-12 gap-8 animate-in slide-in-from-top-4 duration-300 mb-2">
+                    {/* COL 1: ENGINE SETTINGS */}
+                    <div className="md:col-span-3 space-y-6">
+                        <div className="flex items-center gap-2 text-xs font-black text-white uppercase tracking-widest mb-2 pb-2 border-b border-white/5">
+                            <Zap className="w-4 h-4 text-cyan-400" /> MOTOR AYARLARI
                         </div>
-                        <SliderField label="F4 Hassasiyeti" value={config.f4_length} min={5} max={50} onChange={(v) => saveConfig({ f4_length: v })} color="cyan" />
-                        <SliderField label="Balina Çarpanı" value={config.whale_multiplier} min={1} max={5} step={0.1} suffix="x" onChange={(v) => saveConfig({ whale_multiplier: v })} color="indigo" />
-                        <SliderField label="AI Güven Eşiği" value={config.ai_threshold} min={50} max={95} suffix="%" onChange={(v) => saveConfig({ ai_threshold: v })} color="purple" />
+                        <SliderField label="F4 Hassasiyeti" value={config.f4_length} min={5} max={50} onChange={(v) => setConfig(prev => ({ ...prev, f4_length: v }))} color="cyan" />
+                        <SliderField label="Balina Çarpanı" value={config.whale_multiplier} min={1} max={5} step={0.1} suffix="x" onChange={(v) => setConfig(prev => ({ ...prev, whale_multiplier: v }))} color="indigo" />
+                        <SliderField label="AI Güven Eşiği" value={config.ai_threshold} min={50} max={95} suffix="%" onChange={(v) => setConfig(prev => ({ ...prev, ai_threshold: v }))} color="purple" />
                     </div>
-                    <div className="md:col-span-2 flex flex-col justify-end">
-                        <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-4 text-xs text-slate-400 font-mono leading-relaxed">
-                            <span className="text-cyan-400 font-bold block mb-2 uppercase text-sm">ENGINE LOG:</span>
-                            Matrix V5 Engine [{interval}] - Güven Eşiği %{config.ai_threshold}.
-                            Piyasa rejim analizi ve TF adaptasyon çarpanı aktif.
+
+                    {/* COL 2: PILOT CONFIGURATION */}
+                    <div className="md:col-span-5 space-y-5 px-6 border-x border-white/5">
+                        <div className="flex items-center gap-2 text-xs font-black text-amber-400 uppercase tracking-widest mb-2 pb-2 border-b border-white/10">
+                            <Power className="w-4 h-4" /> PİLOT YAPILANDIRMASI (SMART TRADE)
                         </div>
+                        
+                        <div className="grid grid-cols-2 gap-6">
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Gecikmeli Alım</span>
+                                    <button onClick={() => setConfig(prev => ({ ...prev, pilot_trailing_buy: !prev.pilot_trailing_buy }))} className={cn("px-2.5 py-1 rounded text-[10px] font-black uppercase transition-all", config.pilot_trailing_buy ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30" : "bg-slate-900 text-slate-600 border border-slate-800")}>
+                                        {config.pilot_trailing_buy ? "AKTİF" : "PASİF"}
+                                    </button>
+                                </div>
+                                <SliderField label="Alım Sapma" value={config.pilot_trailing_buy_dev} min={0.1} max={2.0} step={0.1} suffix="%" onChange={(v) => setConfig(prev => ({ ...prev, pilot_trailing_buy_dev: v }))} color="amber" />
+                            </div>
+                            
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">TP Trailing</span>
+                                    <button onClick={() => setConfig(prev => ({ ...prev, pilot_tp_trailing: !prev.pilot_tp_trailing }))} className={cn("px-2.5 py-1 rounded text-[10px] font-black uppercase transition-all", config.pilot_tp_trailing ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30" : "bg-slate-900 text-slate-600 border border-slate-800")}>
+                                        {config.pilot_tp_trailing ? "AKTİF" : "PASİF"}
+                                    </button>
+                                </div>
+                                <SliderField label="TP Deviation" value={config.pilot_tp_deviation} min={0.1} max={2.0} step={0.1} suffix="%" onChange={(v) => setConfig(prev => ({ ...prev, pilot_tp_deviation: v }))} color="emerald" />
+                            </div>
+                        </div>
+
+                        <div className="pt-2">
+                             <SliderField label="SL Trailing Deviation (Kalkış)" value={config.pilot_sl_deviation} min={0.1} max={2.0} step={0.1} suffix="%" onChange={(v) => setConfig(prev => ({ ...prev, pilot_sl_deviation: v }))} color="rose" />
+                        </div>
+                    </div>
+
+                    {/* COL 3: CONSOLE & SAVE */}
+                    <div className="md:col-span-4 flex flex-col gap-4">
+                        <div className="bg-slate-900/80 border border-slate-800/80 rounded-xl p-4 text-[11px] text-slate-400 font-mono leading-relaxed flex-1 shadow-inner relative overflow-hidden group">
+                            <div className="absolute top-0 left-0 w-1 h-full bg-cyan-500/50 group-hover:bg-cyan-400 transition-all duration-500" />
+                            <span className="text-cyan-400 font-bold block mb-3 uppercase text-[10px] tracking-widest flex items-center gap-2">
+                                <Activity size={12} /> ENGINE CONSOLE
+                            </span>
+                            <div className="space-y-1.5 opacity-80">
+                                <div>{'>'} Matrix V5.3 Smart Engine Ready</div>
+                                <div>{'>'} Threshold: {config.ai_threshold}% | Sentiment: {sentiment?.label || 'Neutral'}</div>
+                                <div>{'>'} Pilot Redirection: {config.pilot_trailing_buy ? 'Active (Smart Buy)' : 'Direct (Market)'}</div>
+                                <div>{'>'} Waiting for Pilot Action...</div>
+                            </div>
+                        </div>
+
+                        <button 
+                            onClick={() => {
+                                setIsActionLoading(true);
+                                saveConfig(config).finally(() => {
+                                    setTimeout(() => {
+                                        setIsActionLoading(false);
+                                        setShowSettings(false);
+                                    }, 800);
+                                });
+                            }} 
+                            disabled={isActionLoading}
+                            className="w-full py-3.5 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 disabled:text-slate-500 text-white text-[11px] font-black uppercase rounded-xl shadow-[0_5px_20px_-5px_rgba(8,145,178,0.5)] transition-all flex items-center justify-center gap-3 active:scale-[0.98]"
+                        >
+                            {isActionLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4 fill-white" />}
+                            YAPILANDIRMAYI SİSTEME KAYDET
+                        </button>
                     </div>
                 </div>
             )}
@@ -452,25 +564,25 @@ export const MatrixHorizon = () => {
                     <div className="xl:col-span-2 bg-slate-900/40 backdrop-blur-md border border-slate-800/50 rounded-lg p-3 space-y-3">
                         <SH icon={<Newspaper size={11} />} title="Küresel Nabız & On-Chain Tahmin" color="text-amber-400" />
                         
-                        <div className="flex items-center justify-between bg-slate-950/40 px-3 py-2 rounded-lg border border-white/5 relative group overflow-hidden">
-                            <div className="flex items-center gap-3 relative z-10 w-full">
-                                <span className="text-[8px] font-black text-slate-500 uppercase">Haber & Sosyal Durum:</span>
-                                <div className="flex items-center gap-2 ml-auto">
+                        <div className="flex items-center justify-between bg-slate-950/40 px-4 py-3 rounded-lg border border-white/5 relative group overflow-hidden">
+                            <div className="flex items-center gap-4 relative z-10 w-full">
+                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Haber & Sosyal Durum:</span>
+                                <div className="flex items-center gap-3 ml-auto">
                                     <span className={cn(
-                                        "text-[10px] font-black uppercase tracking-tight", 
+                                        "text-lg font-black uppercase tracking-widest leading-none drop-shadow-[0_0_10px_currentColor]", 
                                         (sentiment?.score || 0) >= 20 ? "text-emerald-400" 
                                         : (sentiment?.score || 0) <= -20 ? "text-rose-400" 
                                         : "text-amber-400"
                                     )}>
                                         {sentiment?.label || 'Nötr'}
                                     </span>
-                                    <div className="relative w-6 h-3 overflow-hidden shrink-0 mt-0.5">
+                                    <div className="relative w-10 h-5 overflow-hidden shrink-0 mt-0.5">
                                         <div className="absolute top-0 left-0 w-full h-full bg-slate-800/30 rounded-t-full border border-white/5" />
                                         <div className={cn(
                                             "absolute top-0 left-0 w-full h-full rounded-t-full origin-bottom transition-all duration-1000", 
                                             (sentiment?.score || 0) > 0 ? "bg-emerald-500/40" : "bg-rose-500/40"
                                         )} style={{ transform: `rotate(${rotation}deg)` }} />
-                                        <div className="absolute bottom-0 left-1/2 w-[1px] h-3 bg-white origin-bottom -translate-x-1/2" 
+                                        <div className="absolute bottom-0 left-1/2 w-[1.5px] h-5 bg-white origin-bottom -translate-x-1/2 shadow-[0_0_10px_white]" 
                                             style={{ transform: `translateX(-50%) rotate(${rotation}deg)` }} />
                                     </div>
                                 </div>
@@ -478,28 +590,28 @@ export const MatrixHorizon = () => {
                         </div>
 
                         <div className="grid grid-cols-2 gap-3 relative z-10">
-                            <div className="flex flex-col p-2.5 rounded-xl bg-slate-950/40 border border-white/5">
-                                <span className="text-[8px] font-black text-slate-600 uppercase mb-0.5">Canlı Fiyat [{interval}]</span>
-                                <span className="text-[11px] font-mono font-bold text-slate-200">${currentPrice?.toLocaleString() || '---'}</span>
+                            <div className="flex flex-col p-3 rounded-xl bg-slate-950/40 border border-white/5">
+                                <span className="text-[10px] font-black text-slate-600 uppercase mb-1 tracking-wider">Canlı Fiyat [{interval}]</span>
+                                <span className="text-sm font-mono font-black text-slate-100">${currentPrice?.toLocaleString() || '---'}</span>
                             </div>
-                            <div className="flex flex-col p-2.5 rounded-xl bg-slate-950/40 border border-white/5 items-end text-right">
-                                <span className="text-[8px] font-black text-slate-600 uppercase mb-0.5">Projeksiyon</span>
+                            <div className="flex flex-col p-3 rounded-xl bg-slate-950/40 border border-white/5 items-end text-right">
+                                <span className="text-[10px] font-black text-slate-600 uppercase mb-1 tracking-wider">Projeksiyon</span>
                                 <span className={cn(
-                                    "text-[11px] font-mono font-black", 
+                                    "text-sm font-mono font-black drop-shadow-[0_0_8px_currentColor]", 
                                     prediction?.trend === 'UP' ? "text-emerald-400" : "text-rose-400"
                                 )}>
                                     ${prediction?.predictedPrice?.toLocaleString('en-US', {maximumFractionDigits: 1}) || '---'}
                                 </span>
                             </div>
                         </div>
-                        <div className="space-y-2 relative z-10">
-                            <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest">
+                        <div className="space-y-2.5 relative z-10 px-1">
+                            <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-[0.15em]">
                                 <span className="text-slate-500">AI Güven Modülü</span>
-                                <span className="text-cyan-400 font-mono">{(prediction?.confidence || 0).toFixed(1)}%</span>
+                                <span className="text-cyan-400 font-mono text-xs">{(prediction?.confidence || 0).toFixed(1)}%</span>
                             </div>
-                            <div className="relative h-1.5 bg-slate-950 rounded-full border border-white/5 overflow-hidden">
+                            <div className="relative h-2.5 bg-slate-950 rounded-full border border-white/5 overflow-hidden p-[1px]">
                                 <div className={cn(
-                                    "h-full rounded-full transition-all duration-1000", 
+                                    "h-full rounded-full transition-all duration-1000 shadow-[0_0_10px_currentColor]", 
                                     (prediction?.confidence || 0) > 75 ? "bg-emerald-500" : "bg-cyan-500"
                                 )} style={{ width: `${prediction?.confidence || 0}%` }} />
                             </div>
@@ -527,7 +639,7 @@ export const MatrixHorizon = () => {
                         <CentralCommand 
                             score={score} 
                             status={signal?.whaleSignalText || (signal?.whaleDetected ? "BALİNA GİRİŞİ 🐳" : "NORMAL AKIŞ")} 
-                            prediction={signal?.prediction?.text || "ANALİZ EDİLİYOR..."} 
+                            prediction={signal?.prediction?.text || (prediction?.trend === 'UP' ? 'YUKARI 📈' : prediction?.trend === 'DOWN' ? 'AŞAĞI 📉' : "ANALİZ EDİLİYOR...")} 
                         />
                         <div className="absolute top-[-25px] bg-slate-900/60 backdrop-blur-xl px-5 py-2.5 rounded-xl border border-slate-700/50 text-xs text-slate-400 font-mono w-max uppercase tracking-widest flex items-center gap-3 shadow-2xl">
                             <RefreshCw className={cn("w-4 h-4 text-cyan-500", !lastSync && "animate-spin")} />
@@ -598,17 +710,29 @@ export const MatrixHorizon = () => {
                                 </thead>
                                 <tbody className="divide-y divide-white/5 disabled:divide-transparent">
                                     {[
-                                        { m: "VPA Baskı", a: (signal?.vpa?.netPressure ?? 0).toFixed(2), y: signal?.vpa?.state ?? "Beklemede", hc: (signal?.vpa?.netPressure ?? 0) > 0 },
-                                        { m: "Balina Güveni", a: `${((signal?.whaleTrust ?? 0) * 100).toFixed(1)}%`, y: (signal?.whaleTrust ?? 0) > 0.6 ? "Yüksek" : "Normal", hc: (signal?.whaleTrust ?? 0) > 0.6 },
-                                        { m: "Sermaye Akışı", a: signal?.capitalPhase ?? "Bilinmiyor", y: signal?.capitalFlowText ?? "Nötr", hc: signal?.capitalPhase === "GİRİŞ" },
-                                        { m: "Piyasa Fazı", a: signal?.marketPhaseText ?? "Akümülasyon", y: signal?.marketRegime === "RISK_ON" ? "Risk-On" : "Risk-Off" },
-                                        { m: "Ayı/Boğa Gücü", a: signal?.mtfConsensus ?? "Nötr", y: `${signal?.mtfBullCount ?? 0} TF Boğa`, hc: (signal?.mtfBullCount ?? 0) > 2 },
-                                        { m: "Derin Bias", a: signal?.adm?.bias ?? "Nötr", y: signal?.adm?.evidence ?? "Belirsiz" }
+                                        { m: "VPA Baskı", a: (signal?.vpa?.netPressure ?? 0).toFixed(2), y: signal?.vpa?.state ?? "Beklemede", status: (signal?.vpa?.netPressure ?? 0) > 0.5 ? "good" : (signal?.vpa?.netPressure ?? 0) < -0.5 ? "bad" : "neutral" },
+                                        { m: "Balina Güveni", a: `${((signal?.whaleTrust ?? 0) * 100).toFixed(1)}%`, y: (signal?.whaleTrust ?? 0) > 0.6 ? "Yüksek" : "Normal", status: (signal?.whaleTrust ?? 0) > 0.6 ? "good" : (signal?.whaleTrust ?? 0) < 0.3 ? "bad" : "neutral" },
+                                        { m: "Sermaye Akışı", a: signal?.capitalPhase ?? "Bilinmiyor", y: signal?.capitalFlowText ?? "Para Yok ❌", status: signal?.capitalPhase === "GİRİŞ" ? "good" : signal?.capitalPhase === "ÇIKIŞ" ? "bad" : "neutral" },
+                                        { m: "Piyasa Fazı", a: signal?.marketPhaseText ?? "Akümülasyon", y: signal?.marketRegime === "RISK_ON" ? "Risk-On" : "Risk-Off", status: signal?.marketRegime === "RISK_ON" ? "good" : signal?.marketRegime === "RISK_OFF" ? "bad" : "neutral" },
+                                        { m: "Ayı/Boğa Gücü", a: signal?.mtfConsensus ?? "Nötr", y: `${signal?.mtfBullCount ?? 0} TF Boğa`, status: (signal?.mtfBullCount ?? 0) >= 3 ? "good" : (signal?.mtfBullCount ?? 0) <= 1 ? "bad" : "neutral" },
+                                        { m: "Derin Bias", a: signal?.adm?.bias ?? "Nötr", y: signal?.adm?.evidence ?? "YOK", status: signal?.adm?.bias === "BULLISH" ? "good" : signal?.adm?.bias === "BEARISH" ? "bad" : "neutral" }
                                     ].map((row, i) => (
                                         <tr key={i} className="hover:bg-white/[0.02] transition-colors">
-                                            <td className={cn("py-2 px-3 text-[10px] font-black uppercase whitespace-nowrap", row.hc ? "text-emerald-400" : "text-white")}>{row.m}</td>
-                                            <td className="py-2 px-3 text-[9px] font-medium text-slate-400 leading-tight">{row.a}</td>
-                                            <td className="py-2 px-3 text-[9px] font-medium text-slate-500 text-right leading-tight">{row.y}</td>
+                                            <td className={cn(
+                                                "py-2 px-3 text-[10px] font-black uppercase whitespace-nowrap",
+                                                row.status === "good" ? "text-emerald-400" : row.status === "bad" ? "text-rose-400" : "text-slate-400"
+                                            )}>
+                                                {row.m}
+                                            </td>
+                                            <td className="py-2 px-3 text-[9px] font-medium text-slate-400 leading-tight">
+                                                {row.a}
+                                            </td>
+                                            <td className={cn(
+                                                "py-2 px-3 text-[9px] font-bold text-right leading-tight",
+                                                row.status === "good" ? "text-emerald-500" : row.status === "bad" ? "text-rose-500" : "text-slate-500"
+                                            )}>
+                                                {row.y} {row.status === "good" ? "✅" : row.status === "bad" ? "❌" : "⚪"}
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>

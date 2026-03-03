@@ -3,6 +3,7 @@
 import { useEffect, useState, memo, useCallback, useRef } from 'react';
 import { Activity, Globe, LogIn, Cookie, RefreshCw, AlertCircle, CheckCircle, ExternalLink, List } from 'lucide-react';
 import { CryptoRankWatchlist } from './CryptoRankWatchlist';
+import { useTimeframe } from '@/context/TimeframeContext';
 
 // Type definitions
 interface LoginStatus {
@@ -58,12 +59,26 @@ function loadStoredLoginStatus(): LoginStatus | null {
     return null;
 }
 
+// TradingView Interval Mapping
+const TF_TO_TV: Record<string, string> = {
+    '1m': '1',
+    '5m': '5',
+    '15m': '15',
+    '1h': '60',
+    '4h': '240',
+    '1d': 'D',
+    '1w': 'W',
+    '1M': 'M',
+};
+
 interface TradingViewWidgetProps {
     symbol?: string;
 }
 
 function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
     const containerId = 'tv-widget-portfolio-chart';
+    const { timeframe } = useTimeframe();
+    const tvInterval = TF_TO_TV[timeframe] || '60';
     
     // Load initial states from localStorage
     const [isWebMode, setIsWebMode] = useState(() => {
@@ -232,7 +247,7 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
                 new window.TradingView.widget({
                     autosize: true,
                     symbol: symbol.includes(':') ? symbol : `MEXC:${symbol}`,
-                    interval: "60",
+                    interval: tvInterval,
                     timezone: "Etc/UTC",
                     theme: "dark",
                     style: "1",
@@ -291,7 +306,7 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
                 return () => clearInterval(checkInterval);
             }
         }
-    }, [isWebMode, symbol]);
+    }, [isWebMode, symbol, tvInterval]);
 
     // Check login status after popup closes
     const checkLoginAfterPopup = useCallback(async () => {
@@ -504,7 +519,7 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
             <div className="flex-1 w-full bg-[#020617] relative overflow-hidden flex flex-col">
                 {isWebMode ? (
                     <iframe 
-                        src={`https://www.tradingview.com/chart/?symbol=MEXC:${symbol}&theme=dark`}
+                        src={`https://www.tradingview.com/chart/?symbol=MEXC:${symbol}&interval=${tvInterval}&theme=dark`}
                         className="w-full h-full border-0 flex-1"
                         allowFullScreen
                         title="TradingView Pro Web"

@@ -194,3 +194,34 @@ body {
   background-size: 200% 200%;
   animation: stripeMove 60s linear infinite;
 }
+
+/* Intelligence Hub: Breaking News Ticker */
+@keyframes ticker {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+/* Whale Radar Sweep */
+@keyframes sweep {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 200%;
+  }
+}
+
+/* New News Item Flash */
+@keyframes news-flash {
+  0% { background-color: rgba(34, 211, 238, 0.2); }
+  50% { background-color: rgba(34, 211, 238, 0.05); }
+  100% { background-color: transparent; }
+}
+
+.animate-news-flash {
+  animation: news-flash 2s ease-out 1;
+}

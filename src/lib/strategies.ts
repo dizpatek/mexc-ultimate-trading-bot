@@ -13,6 +13,7 @@ export interface StrategySignal {
     signal: 'BUY' | 'SELL' | null;
     reason: string;
     indicators: Record<string, unknown>;
+    targets?: { t1: number; t2: number; sl: number };
     timestamp: number;
 }
 
@@ -252,23 +253,28 @@ export class MatrixV5Strategy extends BaseStrategy {
             
             const signalType: 'BUY' | 'SELL' | null = result.systemDecision === 'GO_LONG' ? 'BUY' : result.systemDecision === 'GO_SHORT' ? 'SELL' : null;
             
-            if (!signalType) return null;
+            // Return signal for trade OR if it's an informational event (Whale etc)
+            if (!signalType && !result.whaleDetected && result.aiScore < 80) return null;
 
             return {
                 symbol: this.symbol,
                 strategy: 'matrix_v5',
                 signal: signalType,
-                reason: `[MatrixV5] Decision: ${result.systemDecision} | AI: ${result.aiScore} | Regime: ${result.regimePrediction}`,
+                reason: `[MatrixV5] ${result.whaleSignalText ? result.whaleSignalText + ' | ' : ''}AI: ${result.aiScore} | Regime: ${result.regimePrediction}`,
                 indicators: {
                     aiScore: result.aiScore,
                     confluence: result.confluenceScore,
                     regime: result.regimePrediction,
-                    prediction: result.prediction.text
+                    prediction: result.prediction.text,
+                    whaleDetected: result.whaleDetected,
+                    whaleStatus: result.whaleStatus
                 },
+                targets: result.targets,
                 timestamp: Date.now()
             };
             
-        } catch (_error: unknown) {
+        } catch (error: unknown) {
+             console.error(`[MatrixV5Strategy] Analyze Error for ${this.symbol}:`, error);
              return null;
         }
     }

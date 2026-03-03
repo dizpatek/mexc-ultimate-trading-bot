@@ -74,11 +74,6 @@ function CryptoRankWatchlistComponent({ watchlistId = '4f7effbd40d4' }: Watchlis
         return price.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 });
     };
 
-    const formatVolume = (volume: number) => {
-        if (volume >= 1e9) return `$${(volume / 1e9).toFixed(2)}B`;
-        if (volume >= 1e6) return `$${(volume / 1e6).toFixed(2)}M`;
-        return `$${volume.toLocaleString()}`;
-    };
 
     if (loading && coins.length === 0) {
         return (

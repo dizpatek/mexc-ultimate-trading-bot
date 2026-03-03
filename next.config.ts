@@ -4,7 +4,6 @@ const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
   transpilePackages: ['lightweight-charts'],
-  turbopack: {},
   async rewrites() {
     return [
       {

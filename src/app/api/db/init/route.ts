@@ -25,6 +25,18 @@ export async function GET() {
             }
         }
 
+        // Migration: Fix system_settings user_id if needed
+        try {
+            const { rows: nullUserRows } = await pool.query('SELECT count(*) FROM system_settings WHERE user_id IS NULL');
+            if (parseInt(nullUserRows[0].count) > 0) {
+                console.log(`[DB Init] Migrating ${nullUserRows[0].count} system_settings rows to user 1...`);
+                await pool.query('UPDATE system_settings SET user_id = 1 WHERE user_id IS NULL');
+                await pool.query('ALTER TABLE system_settings ALTER COLUMN user_id SET NOT NULL');
+            }
+        } catch (err: any) {
+            console.warn('[DB Init] system_settings migration check skipped (table might be new):', err.message);
+        }
+
         // Seed default admin user if none exists
         const { rows: users } = await pool.query('SELECT * FROM users LIMIT 1');
         if (users.length === 0) {

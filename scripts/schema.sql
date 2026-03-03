@@ -101,10 +101,17 @@ CREATE TABLE IF NOT EXISTS strategy_signals (
 -- System settings table (for API keys and configuration)
 CREATE TABLE IF NOT EXISTS system_settings (
   id SERIAL PRIMARY KEY,
-  key TEXT UNIQUE NOT NULL,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  key TEXT NOT NULL,
   value TEXT NOT NULL,
-  updated_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL,
+  UNIQUE(user_id, key)
 );
+
+-- Migrations for existing systems
+ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS user_id INTEGER;
+ALTER TABLE system_settings DROP CONSTRAINT IF EXISTS system_settings_key_key;
+ALTER TABLE system_settings ADD CONSTRAINT user_setting_unique UNIQUE(user_id, key);
 
 -- Bot config table
 CREATE TABLE IF NOT EXISTS bot_configs (

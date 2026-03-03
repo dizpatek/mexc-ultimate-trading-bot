@@ -39,5 +39,6 @@ export async function sql(strings: TemplateStringsArray, ...values: unknown[]): 
 
 // Ensure pool is closed on hot reload/shutdown
 if (process.env.NODE_ENV === 'development') {
-    (global as typeof globalThis & { pgPool?: Pool }).pgPool = (global as any).pgPool || pool;
+    const globalWithPool = global as typeof globalThis & { pgPool?: Pool };
+    globalWithPool.pgPool = globalWithPool.pgPool || pool;
 }

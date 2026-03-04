@@ -2,6 +2,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import qs from 'qs';
 import https from 'https';
+import { normalizeSymbol } from './symbol-utils';
 import { getMexcCredentials } from './settings';
 
 const BASE = 'https://api.mexc.com';
@@ -122,12 +123,13 @@ export async function getServerTime() {
 }
 
 export async function getPrice(symbol: string): Promise<number> {
+    const normalized = normalizeSymbol(symbol);
     try {
-        const data = await publicGet<{ price: string }>('/api/v3/ticker/price', { symbol });
+        const data = await publicGet<{ price: string }>('/api/v3/ticker/price', { symbol: normalized });
         return parseFloat(data.price);
     } catch {
-        if (symbol === 'BTCUSDT') return 95000;
-        if (symbol === 'ETHUSDT') return 3500;
+        if (normalized === 'BTCUSDT') return 95000;
+        if (normalized === 'ETHUSDT') return 3500;
         return 0;
     }
 }
@@ -313,7 +315,7 @@ export async function getExchangeInfo(symbol: string | null = null) {
 }
 
 export async function getKlines(symbol: string, interval: string = '1h', limit: number = 500, startTime?: number, endTime?: number) {
-    const symbolUpper = symbol.toUpperCase();
+    const symbolNormalized = normalizeSymbol(symbol);
     
     // MEXC expects 60m instead of 1h
     // and case-specific interval strings
@@ -338,7 +340,7 @@ export async function getKlines(symbol: string, interval: string = '1h', limit: 
 
     const mexcInterval = intervalMapper[interval] || interval;
     const params: Record<string, string | number | boolean> = { 
-        symbol: symbolUpper, 
+        symbol: symbolNormalized, 
         interval: mexcInterval, 
         limit 
     };

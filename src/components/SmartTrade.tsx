@@ -66,7 +66,8 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     compact = false,
 }) => {
     // 0. External Data
-    const { data: holdings = [], refetch: refetchHoldings } = useHoldings();
+    const { data: holdingsRaw, refetch: refetchHoldings } = useHoldings();
+    const holdings = React.useMemo(() => holdingsRaw || [], [holdingsRaw]);
 
     // 1. Core State — mode supports controlled pattern from parent
     const [_mode, _setMode] = useState<'TRADE' | 'COVER'>('TRADE');

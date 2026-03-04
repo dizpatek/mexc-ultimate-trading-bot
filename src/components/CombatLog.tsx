@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Terminal, Activity, Crosshair, Zap, Radar } from 'lucide-react';
+import { Terminal, Activity, Crosshair, Zap, Radar, Target, AlertTriangle } from 'lucide-react';
 import { api } from '@/services/api';
 import { cn } from '@/lib/utils';
+import { useTrade } from '@/context/TradeContext';
+import { useHoldings } from '../hooks/usePortfolio';
 
 interface LogEntry {
     id: string;
@@ -19,13 +21,18 @@ export const CombatLog = () => {
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [scanStatus, setScanStatus] = useState<'idle' | 'scanning' | 'done'>('idle');
     const [lastScanTime, setLastScanTime] = useState<number | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const tradeScrollRef = useRef<HTMLDivElement>(null);
     const systemScrollRef = useRef<HTMLDivElement>(null);
+    const trade = useTrade();
+    const { data: holdings } = useHoldings();
 
     const fetchLogs = useCallback(async () => {
         try {
             const response = await api.get('/logs/signals');
             const data = response.data;
+            setError(null);
             
             if (Array.isArray(data)) {
                 const formattedLogs: LogEntry[] = data.map((sig: { id: string; symbol: string; strategy_name: string; type: string; price: string; timestamp: string; executed: boolean; detail: string }) => {
@@ -90,6 +97,9 @@ export const CombatLog = () => {
             }
         } catch (err) {
             console.error('Fetch Logs Error:', err);
+            setError('Veri Çekilemedi');
+        } finally {
+            setIsLoading(false);
         }
     }, []);
 
@@ -209,9 +219,12 @@ export const CombatLog = () => {
                                 <div>{scanStatus === 'scanning' ? 'SİNYALLER TARANIYOR...' : 'SİNYAL HATTI ANALİZ EDİLİYOR...'}</div>
                                 <div className="text-[8px] text-slate-800/50 mt-1">8 coin · 1dk aralık · 60sn döngü</div>
                             </div>
-                        ) : tradeLogs.map((log) => (
-                             <LogLine key={log.id} log={log} icon={getIcon(log.type)} />
-                        ))}
+                        ) : tradeLogs.map((log) => {
+                            const isHeld = holdings?.some(h => log.message.includes(h.symbol));
+                            return (
+                                <LogLine key={log.id} log={log} icon={getIcon(log.type)} isHeld={!!isHeld} trade={trade} />
+                            );
+                        })}
                     </div>
                 </div>
 
@@ -223,10 +236,21 @@ export const CombatLog = () => {
                         </span>
                     </div>
                     <div ref={systemScrollRef} className="flex-1 overflow-y-auto p-2 space-y-1.5 font-mono text-[10px] custom-scrollbar">
-                        {systemLogs.length === 0 ? (
+                        {isLoading ? (
                             <div className="flex flex-col items-center justify-center h-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2">
                                 <Activity size={12} className="opacity-20 animate-spin" />
                                 <div>KONSOL BAŞLATILIYOR...</div>
+                            </div>
+                        ) : error ? (
+                            <div className="flex flex-col items-center justify-center h-full text-rose-800/50 text-[9px] uppercase tracking-[0.2em] gap-2">
+                                <AlertTriangle size={12} className="text-rose-500/30" />
+                                <div>{error}</div>
+                                <button onClick={() => fetchLogs()} className="mt-1 text-[8px] text-cyan-500/50 hover:text-cyan-400 font-black">VENİDEN DENE</button>
+                            </div>
+                        ) : systemLogs.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2">
+                                <Activity size={12} className="opacity-20 h-3" />
+                                <div>SISTEM BEKLEMEDE</div>
                             </div>
                         ) : systemLogs.map((log) => {
                             const style = getSystemLogStyle(log.level);
@@ -258,31 +282,91 @@ export const CombatLog = () => {
     );
 };
 
-const LogLine = ({ log, icon }: { log: LogEntry; icon: React.ReactNode }) => (
-    <div className="group flex gap-2.5 animate-in fade-in slide-in-from-left-1 duration-300">
-        <div className="text-slate-600 shrink-0 select-none opacity-50 text-[10px] mt-0.5">
-            {new Date(log.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+const LogLine = ({ log, icon, isHeld, trade }: { log: LogEntry; icon: React.ReactNode; isHeld: boolean; trade: ReturnType<typeof useTrade> }) => {
+    const isExecution = log.type === 'EXECUTION';
+    const isF4 = log.type === 'F4_SIGNAL';
+    
+    // Extract symbol for buttons
+    const symbolMatch = log.message.match(/([A-Z0-9]+USDT)/);
+    const asset = symbolMatch ? symbolMatch[1] : null;
+
+    const handleTrade = (direction: 'BUY' | 'SELL') => {
+        if (!asset) return;
+        const assetSymbol = `${asset.replace('USDT', '')}/USDT`;
+        trade.setSymbol(assetSymbol);
+        
+        // Note: Using 'COVER' for sell/liquidation to maintain consistency with IntelligenceHub.tsx
+        trade.setMode(direction === 'BUY' ? 'TRADE' : 'COVER');
+        
+        trade.setTpEnabled(true);
+        trade.setSlEnabled(true);
+    };
+
+    return (
+        <div className="group flex gap-2.5 animate-in fade-in slide-in-from-left-1 duration-300 hover:bg-white/5 p-1 rounded transition-colors relative">
+            <div className="text-slate-600 shrink-0 select-none opacity-50 text-[10px] mt-0.5 min-w-[50px]">
+                {new Date(log.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </div>
+            <div className="mt-0.5 shrink-0 opacity-80 group-hover:opacity-100 transition-all">
+                {icon}
+            </div>
+            <div className="flex flex-col flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                    <span className={cn(
+                        "font-black tracking-tight flex items-center gap-2",
+                        log.sentiment === 'POSITIVE' ? 'text-emerald-400' : 
+                        log.sentiment === 'NEGATIVE' ? 'text-rose-400' : 
+                        log.type === 'WHALE_ALERT' ? 'text-cyan-400' : 'text-slate-300'
+                    )}>
+                        {log.message}
+                        {isExecution && (
+                            <span className={cn(
+                                "text-[8px] px-1 border rounded animate-pulse",
+                                log.sentiment === 'POSITIVE' ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" :
+                                log.sentiment === 'NEGATIVE' ? "bg-rose-500/10 border-rose-500/30 text-rose-400" :
+                                "bg-yellow-400/10 border-yellow-400/20 text-yellow-400"
+                            )}>
+                                {log.sentiment === 'POSITIVE' ? 'BUY' : log.sentiment === 'NEGATIVE' ? 'SELL' : 'TRADE'}
+                            </span>
+                        )}
+                        {log.type === 'STRUCTURE' && <span className="text-[8px] bg-amber-400/10 px-1 border border-amber-400/20 rounded">SMC</span>}
+                        {isF4 && (
+                            <span className={cn(
+                                "text-[8px] px-1 border rounded",
+                                log.sentiment === 'POSITIVE' ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" :
+                                log.sentiment === 'NEGATIVE' ? "bg-rose-500/10 border-rose-500/30 text-rose-400" :
+                                "bg-slate-800 border-slate-700 text-slate-400"
+                            )}>
+                                F4
+                            </span>
+                        )}
+                        {isHeld && <Target size={10} className="text-blue-500 animate-pulse" />}
+                    </span>
+
+                    {/* Quick Trade Buttons */}
+                    {asset && (
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                            <button 
+                                onClick={() => handleTrade('BUY')}
+                                className="px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[8px] font-black hover:bg-emerald-500/20 transition-colors"
+                            >
+                                AL
+                            </button>
+                            <button 
+                                onClick={() => handleTrade('SELL')}
+                                className="px-1.5 py-0.5 rounded bg-rose-500/10 border border-rose-500/30 text-rose-400 text-[8px] font-black hover:bg-rose-500/20 transition-colors"
+                            >
+                                SAT
+                            </button>
+                        </div>
+                    )}
+                </div>
+                {log.details && (
+                    <span className="text-slate-500 text-[10px] truncate opacity-70 group-hover:opacity-100 transition-opacity">
+                        {log.details}
+                    </span>
+                )}
+            </div>
         </div>
-        <div className="mt-0.5 shrink-0 opacity-80 group-hover:opacity-100 transition-all">
-            {icon}
-        </div>
-        <div className="flex flex-col flex-1 min-w-0">
-            <span className={cn(
-                "font-black tracking-tight flex items-center gap-2",
-                log.type === 'WHALE_ALERT' ? 'text-cyan-400' :
-                log.type === 'EXECUTION' ? 'text-yellow-400 glow-yellow' :
-                log.type === 'AI_DECISION' ? 'text-purple-400' :
-                log.type === 'STRUCTURE' ? 'text-amber-400' :
-                log.type === 'F4_SIGNAL' ? 'text-emerald-400' : 'text-slate-300'
-            )}>
-                {log.message}
-                {log.type === 'EXECUTION' && <span className="text-[8px] bg-yellow-400/10 px-1 border border-yellow-400/20 rounded animate-pulse">TRADE</span>}
-                {log.type === 'STRUCTURE' && <span className="text-[8px] bg-amber-400/10 px-1 border border-amber-400/20 rounded">SMC</span>}
-                {log.type === 'F4_SIGNAL' && <span className="text-[8px] bg-emerald-400/10 px-1 border border-emerald-400/20 rounded">F4</span>}
-            </span>
-            {log.details && (
-                <span className="text-slate-500 text-[10px] truncate opacity-70 group-hover:opacity-100 transition-opacity">{log.details}</span>
-            )}
-        </div>
-    </div>
-);
+    );
+};

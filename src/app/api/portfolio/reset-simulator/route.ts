@@ -3,6 +3,7 @@ import { getSessionUser } from '@/lib/auth-utils';
 import { sql } from '@/lib/postgres';
 import { ensureTablesExist } from '@/lib/db-init';
 import { resetSimulator } from '@/lib/trading-simulator';
+import { setSetting } from '@/lib/settings';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,48 +20,49 @@ export async function POST(request: Request) {
         // 1. Transactional Delete with individual try-catches to handle non-existent tables or missing data
         const cleanup = async (tableName: string) => {
             try {
-                await sql.query(`DELETE FROM ${tableName} WHERE user_id = $1`, [user.id]);
+                await sql`DELETE FROM ${sql(tableName)} WHERE user_id = ${user.id}`;
                 console.log(`[Reset] Cleaned table: ${tableName}`);
             } catch (e: unknown) {
                 const errorMessage = e instanceof Error ? e.message : 'Unknown error';
                 console.warn(`[Reset] Could not clean ${tableName}: ${errorMessage}`);
-                // Try again without WHERE if user_id column is missing (legacy)
-                try { await sql.query(`DELETE FROM ${tableName}`); } catch { }
             }
         };
 
         // Order matters for some FK constraints if any, but we'll try all
-        await cleanup('trade_history'); // Corrected name from 'trades'
+        await cleanup('trade_history');
         await cleanup('orders');
         await cleanup('portfolio_snapshots');
         await cleanup('dca_bots');
         await cleanup('panic_snapshots');
-        await cleanup('alarm_logs'); // Might not have user_id but cascade? No, let's just try.
-
-        // Special cleanup for alarms (has user_id)
+        await cleanup('alarm_logs');
         await cleanup('alarms');
 
         // 2. Portfolio Table - Total Wipe for this user
         try {
             await sql`DELETE FROM portfolio WHERE user_id = ${user.id}`;
-        } catch { }
+        } catch { /* ignore */ }
 
-        // 3. Re-initialize with crisp $100,000 USDT Simulator entry
+        // 3. Re-initialize with ~$70,000 scaled Simulator entry
         await sql`
             INSERT INTO portfolio (user_id, symbol, balance, type, created_at, updated_at)
-            VALUES (${user.id}, 'USDT', 100000.00, 'SIMULATOR', ${Date.now()}, ${Date.now()})
+            VALUES (${user.id}, 'USDT', 5000.00, 'SIMULATOR', ${Date.now()}, ${Date.now()})
             ON CONFLICT (user_id, symbol, type) DO UPDATE 
-            SET balance = 100000.00, updated_at = ${Date.now()}
+            SET balance = 5000.00, updated_at = ${Date.now()}
         `;
 
-        // 3. Clear in-memory simulator instance (singleton)
+        // 4. Clear in-memory simulator instance (singleton)
         resetSimulator(user.id);
 
-        console.log(`[Reset] Wipe complete. User ${user.id} has $100k USDT reset.`);
+        // 5. Clear saved simulated balances so syncSimulator starts fresh with initializeTestBalance()
+        try {
+            await setSetting('SIMULATED_BALANCES', '', user.id);
+        } catch { /* ignore */ }
+
+        console.log(`[Reset] Wipe complete. User ${user.id} has ~$70k portfolio reset.`);
 
         return NextResponse.json({
             success: true,
-            message: 'Simulator data wiped and $100,000 USDT balance restored.'
+            message: 'Simulator wiped. ~$70,000 portfolio restored (5k USDT + 0.5 BTC + 5 ETH + 50 SOL).'
         });
 
     } catch (error: unknown) {

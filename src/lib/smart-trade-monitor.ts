@@ -1,10 +1,11 @@
 import { sql } from '@/lib/postgres';
-import { getPrice, marketSellByQty, marketBuyByQuote } from './mexc-wrapper';
+import { getPrice } from './mexc-wrapper';
+import { executeEntry, executeExit, executePartialTP, saveTradeUpdate } from './smart-trade-execution';
 import { MatrixV5Engine } from './matrix-v5-engine';
 import { fetchKlines } from './mexc';
 
 let lastRun = 0;
-const MONITOR_INTERVAL = 12000; // Increased from 5s to 12s to save Vercel CPU time
+const MONITOR_INTERVAL = 5000; // Reduced from 12s to 5s to save Vercel CPU time
 const AI_ANALYSIS_INTERVAL = 60000; 
 const CONCURRENCY_LIMIT = 5; 
 
@@ -169,6 +170,8 @@ async function processTradeMonitoring(trade: MonitoredTrade) {
         if (trade.status === 'PENDING') {
             const result = await handlePendingTrade(trade, currentPrice, stateUpdates, meta);
             if (result.newHighest !== stateUpdates.highestPrice || result.newLowest !== stateUpdates.lowestPrice) isDirty = true;
+            if (Object.keys(result.metaUpdates).length > 0) isDirty = true;
+            
             stateUpdates.highestPrice = result.newHighest;
             stateUpdates.lowestPrice = result.newLowest;
             shouldExit = result.shouldExit;
@@ -178,6 +181,8 @@ async function processTradeMonitoring(trade: MonitoredTrade) {
         } else {
             const result = await evaluateActiveTrade(trade, currentPrice, entryPrice, currentQty, stateUpdates, meta);
             if (result.newHighest !== stateUpdates.highestPrice || result.newLowest !== stateUpdates.lowestPrice || result.newQty !== currentQty || result.tpTriggered !== stateUpdates.tpTriggered) isDirty = true;
+            if (Object.keys(result.metaUpdates).length > 0) isDirty = true;
+            
             stateUpdates.highestPrice = result.newHighest;
             stateUpdates.lowestPrice = result.newLowest;
             stateUpdates.tpTriggered = result.tpTriggered;
@@ -224,15 +229,7 @@ async function handleMonitorError(id: number, msg: string) {
     `;
 }
 
-async function saveTradeUpdate(id: number, qty: number, meta: TradeMeta) {
-    await sql`
-        UPDATE orders 
-        SET qty = ${qty}, 
-            meta = (meta::jsonb || ${JSON.stringify(meta)}::jsonb)::text,
-            updated_at = ${Date.now()}
-        WHERE id = ${id}
-    `;
-}
+
 
 async function runAiAnalysis(symbol: string, meta: Record<string, unknown>) {
     const lastAiRun = (meta.lastAiRunAt as number) || 0;
@@ -300,25 +297,7 @@ async function evaluateActiveTrade(trade: MonitoredTrade, currentPrice: number, 
     
         return { newHighest, newLowest, shouldExit, exitReason, tpTriggered, newQty, metaUpdates };
     }
-    
-    async function executePartialTP(trade: MonitoredTrade, currentPrice: number, currentQty: number, exec: { qty: number; targetIndex: number }, meta: TradeMeta, metaUpdates: Partial<TradeMeta>, tpTriggered: boolean) {
-        let newQty = currentQty;
-        if (typeof exec.qty !== 'number' || isNaN(exec.qty) || exec.qty <= 0) return { newQty, tpTriggered };
-        try {
-            const isLong = trade.side === 'BUY';
-            const qtyStr = exec.qty.toFixed(8).replace(/\.?0+$/, '');
-            const res = isLong ? await marketSellByQty(trade.user_id, trade.symbol, qtyStr) 
-                               : await marketBuyByQuote(trade.user_id, trade.symbol, (exec.qty * currentPrice).toFixed(6));
-            const executed = parseFloat(res.executedQty || String(exec.qty));
-            newQty -= executed;
-            const filled = (metaUpdates.filledTargets as number[]) || (meta.filledTargets as number[]) || [];
-            if (!filled.includes(exec.targetIndex)) filled.push(exec.targetIndex);
-            metaUpdates.filledTargets = filled;
-        } catch (err) { 
-            console.error(`[Partial TP Fail]`, err); 
-        }
-        return { newQty, tpTriggered };
-    }
+
 
 function evaluateStopLoss(side: string, currentPrice: number, entryPrice: number, highest: number, lowest: number, payload: TradePayload, meta: TradeMeta) {
     const isLong = side === 'BUY';
@@ -336,36 +315,52 @@ function evaluateStopLoss(side: string, currentPrice: number, entryPrice: number
     if (payload.stopLoss?.trailing && payload.stopLoss?.deviation) {
         // Trailing SL is calculated as a percentage deviation from the highest (for Longs) or lowest (for Shorts) price reached.
         // This ensures the SL updates dynamically as the trade moves in a profitable direction.
-        const devPercent = Math.abs(payload.stopLoss.deviation) / 100;
+        const devPercent = payload.stopLoss.deviation / 100;
         
-        // Sabitlik ilkesi (Monotonicity): TSL seviyesi eski seviyesinden geriye/aşağıya (Long) düşemez.
+        // Sabitlik ilkesi (Monotonicity): TSL seviresi eski seviyesinden geriye/aşagiya (Long) düşemez. Cover (Short) icin de yukariya cikamaz.
         const prevSl = (meta.activeStopLoss as number) || slPrice; 
         
         const trailSL = isLong ? (highest * (1 - devPercent)) : (lowest * (1 + devPercent));
-        const finalSL = isLong ? Math.max(trailSL, prevSl) : Math.min(trailSL, prevSl || Infinity);
+        const finalSL = prevSl > 0 
+            ? (isLong ? Math.max(trailSL, prevSl) : Math.min(trailSL, prevSl)) 
+            : trailSL;
         
         metaUpdates.activeStopLoss = finalSL;
         
         const slHit = isLong ? (currentPrice <= finalSL) : (currentPrice >= finalSL);
+
+        // Tanısal Log: TSL Yakını
+        if (Math.abs(currentPrice - finalSL) / finalSL < 0.01 || slHit) {
+            console.log(`[SmartMonitor] TSL EVAL: ${side} | Price: ${currentPrice} | TSL: ${finalSL} | Hit: ${slHit}`);
+        }
+
         if (slHit) {
             const timeoutSeconds = payload.stopLoss.timeoutSeconds as number;
             if (payload.stopLoss.timeout && timeoutSeconds) {
                 if (!meta.slTimeoutStart) {
                     metaUpdates.slTimeoutStart = Date.now();
+                    console.log(`[SmartMonitor] SL TIMEOUT START: Trade ${meta.id || 'unknown'} @ ${currentPrice}`);
                     return { shouldExit: false, reason: '', metaUpdates };
                 }
                 const slTimeoutStart = meta.slTimeoutStart as number;
                 if (Date.now() - slTimeoutStart >= timeoutSeconds * 1000) {
-                    return { shouldExit: true, reason: `TRAILING SL HIT (Timeout)`, metaUpdates };
+                    return { shouldExit: true, reason: `TSL + Timeout sonrası kapandı`, metaUpdates };
                 }
-            } else return { shouldExit: true, reason: `TRAILING SL HIT`, metaUpdates };
+            } else return { shouldExit: true, reason: `Trailing Stop Loss vuruldu`, metaUpdates };
         } else if (meta.slTimeoutStart) {
             metaUpdates.slTimeoutStart = null;
         }
     } else if (slPrice > 0) {
         metaUpdates.activeStopLoss = slPrice;
-        if (isLong ? (currentPrice <= slPrice) : (currentPrice >= slPrice)) {
-            return { shouldExit: true, reason: `FIXED SL HIT`, metaUpdates };
+        const slHit = isLong ? (currentPrice <= slPrice) : (currentPrice >= slPrice);
+
+        // Tanısal Log: Sabit SL Yakını
+        if (Math.abs(currentPrice - slPrice) / slPrice < 0.01 || slHit) {
+            console.log(`[SmartMonitor] SL EVAL: ${side} | Price: ${currentPrice} | SL: ${slPrice} | Hit: ${slHit}`);
+        }
+
+        if (slHit) {
+            return { shouldExit: true, reason: `Sabit Stop Loss'a ulaşıldı`, metaUpdates };
         }
     }
     return { shouldExit: false, reason: '', metaUpdates };
@@ -390,16 +385,39 @@ function evaluateTakeProfit(trade: MonitoredTrade, currentPrice: number, entryPr
         const tpPrice = parseFloat(target.price);
         const isLast = i === sorted.length - 1;
 
-        if (isLong ? (currentPrice >= tpPrice) : (currentPrice <= tpPrice)) {
+        const isTrailingActive = isLast && payload.takeProfit.trailing && payload.takeProfit.deviation && tpTriggered;
+        const priceCrossedTp = isLong ? (currentPrice >= tpPrice) : (currentPrice <= tpPrice);
+
+        if (priceCrossedTp || isTrailingActive) {
             if (payload.takeProfit.trailing && payload.takeProfit.deviation && isLast) {
-                if (!tpTriggered) tpTriggered = metaUpdates.tpTriggered = true;
-                const trailExit = isLong ? (highest * (1 - payload.takeProfit.deviation/100)) : (lowest * (1 + payload.takeProfit.deviation/100));
-                metaUpdates.activeTakeProfit = trailExit;
-                if (isLong ? (currentPrice <= trailExit) : (currentPrice >= trailExit)) {
-                    return { shouldExit: true, reason: `TRAILING TP HIT`, tpTriggered, newQty, metaUpdates };
+                if (!tpTriggered) {
+                    tpTriggered = metaUpdates.tpTriggered = true;
+                    console.log(`[SmartMonitor] TP TRAILING TRIGGERED: Trade ${trade.id} @ ${currentPrice}`);
+                }
+                
+                const prevTp = (meta.activeTakeProfit as number) || tpPrice;
+                const devPercent = payload.takeProfit.deviation / 100;
+                const trailExit = isLong ? (highest * (1 - devPercent)) : (lowest * (1 + devPercent));
+                
+                // Sabitlik ilkesi (Monotonicity) for TP:
+                const finalTp = prevTp > 0 
+                    ? (isLong ? Math.max(trailExit, prevTp) : Math.min(trailExit, prevTp))
+                    : trailExit;
+                    
+                metaUpdates.activeTakeProfit = finalTp;
+                const tpExited = isLong ? (currentPrice <= finalTp) : (currentPrice >= finalTp);
+
+                // Tanısal Log: TTP Yakını
+                if (Math.abs(currentPrice - finalTp) / finalTp < 0.01 || tpExited) {
+                    console.log(`[SmartMonitor] TTP EVAL: ${side} | Price: ${currentPrice} | TTP Exit: ${finalTp} | trigger: ${tpExited}`);
+                }
+
+                if (tpExited) {
+                    return { shouldExit: true, reason: `Trailing TP vuruldu`, tpTriggered, newQty, metaUpdates };
                 }
             } else if (payload.takeProfit.isSplit && !isLast) {
                 const sellQty = Math.min(parseFloat(meta.initialQty || String(qty)) * (parseFloat(String(target.volume)) / 100), newQty);
+                console.log(`[SmartMonitor] PARTIAL TP: Trade ${trade.id} | Qty: ${sellQty} | Target: ${i}`);
                 // P4.4: Return Execution Instruction instead of performing it
                 return { 
                     shouldExit: false, 
@@ -409,7 +427,10 @@ function evaluateTakeProfit(trade: MonitoredTrade, currentPrice: number, entryPr
                     metaUpdates, 
                     partialExecution: { qty: sellQty, targetIndex: i } 
                 };
-            } else return { shouldExit: true, reason: `TAKE PROFIT HIT`, tpTriggered, newQty, metaUpdates };
+            } else {
+                console.log(`[SmartMonitor] FIXED TP HIT: Trade ${trade.id} @ ${currentPrice}`);
+                return { shouldExit: true, reason: `Sabit TP'ye ulaşıldı`, tpTriggered, newQty, metaUpdates };
+            }
         } else break;
     }
     return { shouldExit: false, reason: '', tpTriggered, newQty, metaUpdates };
@@ -433,7 +454,10 @@ async function handlePendingTrade(trade: MonitoredTrade, currentPrice: number, s
     else newHighest = Math.max(newHighest, currentPrice);
     
     if (!entryTriggered) {
-        if ((side === 'BUY' && currentPrice <= targetEntry) || (side === 'SELL' && currentPrice >= targetEntry)) {
+        // Evaluate condition for entry: For BUY (Trade), we look for currentPrice <= targetEntry. For SELL (Cover), we look for currentPrice >= targetEntry or if it's already lower than target (market short)
+        const conditionMet = side === 'BUY' ? (currentPrice <= targetEntry) : (currentPrice >= targetEntry);
+        
+        if (conditionMet) {
             // SLIPPAGE GUARD (Validation Window): 
             // If the price is already > 2% beyond our target entry during the first trigger detection,
             // it's a "fast gap". We wait for the next cycle to avoid a bad market entry.
@@ -447,9 +471,10 @@ async function handlePendingTrade(trade: MonitoredTrade, currentPrice: number, s
             entryTriggered = true;
             if (!isTrailing) {
                 shouldExit = true;
-                exitReason = side === 'BUY' ? 'LIMIT ENTRY REACHED' : 'LIMIT ENTRY REACHED (SHORT)';
+                exitReason = side === 'BUY' ? 'Limit giriş (BUY) tetiklendi' : 'Limit giriş (SELL/COVER) tetiklendi';
             } else {
-                if (side === 'BUY') newLowest = currentPrice; else newHighest = currentPrice;
+                if (side === 'BUY') { newLowest = currentPrice; newHighest = currentPrice; } 
+                else { newHighest = currentPrice; newLowest = currentPrice; }
             }
         }
     }
@@ -457,10 +482,11 @@ async function handlePendingTrade(trade: MonitoredTrade, currentPrice: number, s
     if (entryTriggered && isTrailing) {
         if (side === 'BUY' && currentPrice >= newLowest * (1 + dev/100)) {
             shouldExit = true;
-            exitReason = `TRAILING BUY EXECUTED @ ${currentPrice}`;
+            exitReason = `Trailing buy gerçekleşti @ ${currentPrice}`;
         } else if (side === 'SELL' && currentPrice <= newHighest * (1 - dev/100)) {
+            // BUG FIX (Cover Trailing Exec): Short/Cover trailing should execute when price drops sufficiently from the local highest peak that followed the entry trigger
             shouldExit = true;
-            exitReason = `TRAILING SHORT ENTRY EXECUTED @ ${currentPrice}`;
+            exitReason = `Trailing Satış (Cover) gerçekleşti @ ${currentPrice}`;
         }
     }
 
@@ -469,38 +495,3 @@ async function handlePendingTrade(trade: MonitoredTrade, currentPrice: number, s
     return { newHighest, newLowest, shouldExit, exitReason, metaUpdates };
 }
 
-async function executeEntry(trade: MonitoredTrade, currentPrice: number, reason: string) {
-    const { id, user_id, symbol, qty: rawQty, meta } = trade;
-    const side = trade.side as string;
-    const qty = Number(rawQty);
-    try {
-        let result;
-        let avgPrice = currentPrice;
-        if (side === 'BUY') result = await marketBuyByQuote(user_id, symbol, (qty * currentPrice).toFixed(6));
-        else result = await marketSellByQty(user_id, symbol, qty.toFixed(8).replace(/\.?0+$/, ''));
-        
-        if (result?.cummulativeQuoteQty && result?.executedQty && parseFloat(result.executedQty) > 0) {
-            avgPrice = parseFloat(result.cummulativeQuoteQty) / parseFloat(result.executedQty);
-        }
-        await sql`UPDATE orders SET status = 'FILLED', price = ${avgPrice}, updated_at = ${Date.now()}, meta = ${JSON.stringify({...meta, entryReason: reason, entryResult: result, highestPrice: avgPrice, lowestPrice: avgPrice, filledAt: Date.now()})} WHERE id = ${id}`;
-    } catch (err) { console.error(`[Entry Error]`, err); }
-}
-
-async function executeExit(trade: MonitoredTrade, currentPrice: number, reason: string, meta: TradeMeta, currentQty: number) {
-    const { id, user_id, symbol, side } = trade;
-    try {
-        let result;
-        if (side === 'BUY') result = await marketSellByQty(user_id, symbol, currentQty.toFixed(8).replace(/\.?0+$/, ''));
-        else result = await marketBuyByQuote(user_id, symbol, (currentQty * currentPrice).toFixed(6));
-
-        let realExitPrice = currentPrice;
-        let executedQty = currentQty;
-
-        if (result?.cummulativeQuoteQty && result?.executedQty && parseFloat(result.executedQty) > 0) {
-            executedQty = parseFloat(result.executedQty);
-            realExitPrice = parseFloat(result.cummulativeQuoteQty) / executedQty;
-        }
-
-        await sql`UPDATE orders SET status = 'CLOSED', updated_at = ${Date.now()}, meta = ${JSON.stringify({...meta, exitReason: reason, exitResult: result, exitPrice: realExitPrice, executedQty, closedAt: Date.now()})} WHERE id = ${id}`;
-    } catch (err) { console.error(`[Exit Error]`, err); throw err; }
-}

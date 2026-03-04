@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import { Wallet, Menu, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useHoldings, usePortfolioSummary } from '@/hooks/usePortfolio';
 import { cn } from '@/lib/utils';
@@ -69,9 +69,10 @@ export const UnifiedControlStrip = ({
         mode, setMode,
         tradeAnchorRef,
         consumePendingScroll,
-        pendingScroll
+        pendingScroll,
+        isPanelOpen: isOpen,
+        setIsPanelOpen: setIsOpen
     } = useTrade();
-    const [isOpen, setIsOpen] = useState(false);
 
     // Consume any pending scroll request when the panel is visible
     useEffect(() => {

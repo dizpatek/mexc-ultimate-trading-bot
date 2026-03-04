@@ -229,12 +229,17 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                 return { ...prev, buy: currentPrice };
             });
             
-            // Update the parent occasionally or when TP/SL is being set, but prevent infinite loops
-            if (Number(propsRef.current.buyPrice) !== currentPrice) {
-                onPricesChange({ buy: currentPrice });
+            // Only update parent if difference is notable to avoid infinite setState loops
+            if (Math.abs(Number(propsRef.current.buyPrice) - currentPrice) > 0.0000001) {
+                // Use a ref function call to prevent dependency cycle
+                const updateFn = propsRef.current.onPricesChange;
+                if (updateFn) {
+                    // Small timeout to decouple from current render cycle
+                    setTimeout(() => updateFn({ buy: currentPrice }), 0);
+                }
             }
         }
-    }, [isEditingExisting, trailingBuy, currentPrice, onPricesChange]);
+    }, [isEditingExisting, trailingBuy, currentPrice]); // Removed onPricesChange to fix React maximum depth exceeded
 
     // Initialize Chart Instance (Once)
     useEffect(() => {
@@ -938,9 +943,9 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                     if (key === 'buy' && isEditingExisting) return null;
                     
                     let label = '';
-                    if (key === 'buy') label = 'TBuy';
-                    else if (key === 'tp') label = 'Take Profit';
-                    else if (key === 'sl') label = 'Stop Loss';
+                    if (key === 'buy') label = mode === 'COVER' ? 'Sell' : 'TBuy';
+                    else if (key === 'tp') label = mode === 'COVER' ? 'Buy (Cover)' : 'Take Profit';
+                    else if (key === 'sl') label = mode === 'COVER' ? 'Buy (Cover SL)' : 'Stop Loss';
                     
                     // Prepend Trailing prefix when toggle is active
                     if (key === 'buy' && trailingBuy) label = 'Trailing ' + label;
@@ -982,18 +987,20 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                                     {pctDist >= 0 ? '+' : ''}{pctDist.toFixed(2)}%
                                 </div>
 
-                                {/* Trailing Toggle Micro-Button */}
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); onToggleTrailing(!isTrailing); }}
-                                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
-                                        isTrailing 
-                                            ? 'border-cyan-400 bg-cyan-400' 
-                                            : 'border-slate-600 bg-slate-900/80 hover:border-slate-500'
-                                    }`}
-                                    title={`Trailing ${label}`}
-                                >
-                                    <span className={`text-[7px] font-black ${isTrailing ? 'text-slate-950' : 'text-slate-400'}`}>T</span>
-                                </button>
+                                {/* Trailing Toggle Micro-Button: Hidden for Cover Buy Entry */}
+                                {!(key === 'buy' && mode === 'COVER') && (
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); onToggleTrailing(!isTrailing); }}
+                                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                                            isTrailing 
+                                                ? 'border-cyan-400 bg-cyan-400' 
+                                                : 'border-slate-600 bg-slate-900/80 hover:border-slate-500'
+                                        }`}
+                                        title={`Trailing ${label}`}
+                                    >
+                                        <span className={`text-[7px] font-black ${isTrailing ? 'text-slate-950' : 'text-slate-400'}`}>T</span>
+                                    </button>
+                                )}
                             </div>
                         </div>
                     );

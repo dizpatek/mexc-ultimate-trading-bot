@@ -15,7 +15,9 @@ import { cn } from '@/lib/utils';
 import { AssetIcon } from './AssetIcon';
 import { normalizeSymbol } from '@/lib/symbol-utils';
 import { useTradingSignals } from '@/hooks/useTradingSignals';
+import { useCombatLogs, LogEntry } from '@/hooks/useCombatLogs';
 import { calculateSmartPrediction } from '@/lib/trading-logic';
+import { extractBaseAsset } from '@/lib/symbol-utils';
 import { useModuleTimeframe } from '@/context/TimeframeContext';
 
 
@@ -70,6 +72,9 @@ export function MatrixPortfolio() {
     const [tradeStatus, setTradeStatus] = useState<Record<string, { type: 'success' | 'error', msg: string } | null>>({});
     const [selectedChartSymbol, setSelectedChartSymbol] = useState<string | null>(null);
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
+    
+    // 5. Signals Alarm Sync
+    const { logs: combatLogs } = useCombatLogs();
 
     // Fetch AI signals — Hook tarafından yönetiliyor
     useEffect(() => {
@@ -104,11 +109,12 @@ export function MatrixPortfolio() {
 
         try {
             const normalizedSymbol = normalizeSymbol(symbol); // Ensure symbol is normalized for the API call
-            const response = await api.post('/trade/execute', { 
-                symbol: normalizedSymbol, 
-                side, 
-                usdtAmount: amount 
-            });
+            
+            const payload = side === 'BUY' 
+                ? { symbol: normalizedSymbol, side, usdtAmount: amount }
+                : { symbol: normalizedSymbol, side, quantity: amount };
+
+            const response = await api.post('/trade/execute', payload);
             
             if (response.status === 200 && response.data.success) {
                 setTradeStatus(prev => ({ ...prev, [symbol]: { type: 'success', msg: 'Tamam!' } }));
@@ -154,7 +160,7 @@ export function MatrixPortfolio() {
          return (
              <div className="bg-transparent text-slate-200 rounded-lg h-48 flex items-center justify-center">
                  <RefreshCw className="w-6 h-6 animate-spin text-cyan-500 mr-2" />
-                  <span className="text-slate-400 font-mono text-xs">MATRIX V3 ENGINE BAŞLATILIYOR...</span>
+                  <span className="text-slate-400 font-mono text-xs">MATRIX V3 MOTORU BAŞLATILIYOR...</span>
               </div>
           );
     }
@@ -165,7 +171,7 @@ export function MatrixPortfolio() {
                 <div className="flex items-center text-[10px] gap-3">
                     <div className={`flex items-center gap-1.5 px-2 py-1 rounded bg-slate-800/50 border border-slate-700 ${isConnected ? 'text-emerald-400 border-emerald-500/20' : 'text-rose-400 border-rose-500/20'}`}>
                         <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-                        <span className="font-bold tracking-wide">{isConnected ? 'SOCKET: ONLINE' : 'SOCKET: OFFLINE'}</span>
+                        <span className="font-bold tracking-wide">{isConnected ? 'SOKET: ÇEVRİMİÇİ' : 'SOKET: ÇEVRİMDIŞI'}</span>
                         {isLoadingSignals && (
                             <div className="ml-2 flex items-center gap-1 border-l border-slate-700 pl-2 text-cyan-400">
                                 <RefreshCw className="w-2.5 h-2.5 animate-spin" />
@@ -192,7 +198,7 @@ export function MatrixPortfolio() {
                         ))}
                     </div>
                     <div className="text-[10px] font-bold text-slate-500 tracking-widest px-2 py-1 bg-slate-950 rounded border border-slate-800">
-                        MatrixPortfolio
+                        Matrix Portföy
                     </div>
                 </div>
             </div>
@@ -245,7 +251,35 @@ export function MatrixPortfolio() {
                                                 <div className="flex items-center gap-2.5">
                                                     <AssetIcon symbol={assetName} />
                                                     <div className="flex flex-col">
-                                                        <span className="font-bold text-slate-200 text-xs">{assetName}</span>
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span className="font-bold text-slate-200 text-xs">{assetName}</span>
+                                                            {(() => {
+                                                                const recentSignal = combatLogs.find((l: LogEntry) => 
+                                                                    l.assetSymbol && extractBaseAsset(l.assetSymbol) === extractBaseAsset(assetName) && 
+                                                                    (Date.now() - l.timestamp < 30 * 60 * 1000) &&
+                                                                    l.type !== 'SYSTEM'
+                                                                );
+                                                                if (!recentSignal) return null;
+                                                                return (
+                                                                    <div 
+                                                                        className={cn(
+                                                                            "relative flex h-2 w-2",
+                                                                            recentSignal.sentiment === 'POSITIVE' ? "text-emerald-400" : "text-rose-400"
+                                                                        )}
+                                                                        title={`ALARM: ${recentSignal.message}`}
+                                                                    >
+                                                                        <span className={cn(
+                                                                            "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
+                                                                            recentSignal.sentiment === 'POSITIVE' ? "bg-emerald-400" : "bg-rose-400"
+                                                                        )}></span>
+                                                                        <span className={cn(
+                                                                            "relative inline-flex rounded-full h-2 w-2",
+                                                                            recentSignal.sentiment === 'POSITIVE' ? "bg-emerald-500" : "bg-rose-500"
+                                                                        )}></span>
+                                                                    </div>
+                                                                );
+                                                            })()}
+                                                        </div>
                                                         <span className="text-[9px] text-slate-500 font-mono">USDT</span>
                                                     </div>
                                                 </div>
@@ -613,7 +647,7 @@ export function MatrixPortfolio() {
                                                             </div>
                                                             <div className="space-y-1 border-l border-slate-700/50 pl-3">
                                                                 <div className="text-cyan-500 uppercase tracking-wider font-bold flex items-center justify-between">
-                                                                    <span>V5.4 Engine</span>
+                                                                    <span>V5.4 Motoru</span>
                                                                     <button 
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
@@ -655,7 +689,7 @@ export function MatrixPortfolio() {
             </div>
             
             <div className="px-4 py-2 border-t border-slate-800 bg-slate-900/50 flex justify-between items-center text-[9px] text-slate-600 font-mono uppercase">
-                <span>MatrixPortfolio // ONLINE</span>
+                <span>Matrix Portföy // AKTİF</span>
                 <span>SYNC: {new Date().toLocaleTimeString()}</span>
             </div>
 

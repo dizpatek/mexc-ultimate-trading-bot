@@ -19,6 +19,7 @@ import { AssetIcon } from './AssetIcon';
 import { SmartChart } from './SmartChart';
 import { createSmartTrade, api } from '@/services/api';
 import { SmartTradeOrder } from './ActiveSmartTrades';
+import { useTrade } from '@/context/TradeContext';
 
 type OrderType = 'LIMIT' | 'MARKET' | 'CONDITIONAL';
 type TPType = 'LIMIT' | 'MARKET';
@@ -68,6 +69,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     // 0. External Data
     const { data: holdingsRaw, refetch: refetchHoldings } = useHoldings();
     const holdings = React.useMemo(() => holdingsRaw || [], [holdingsRaw]);
+    const { unitsAnchorRef, tradeAnchorRef } = useTrade();
 
     // 1. Core State — mode supports controlled pattern from parent
     const [_mode, _setMode] = useState<'TRADE' | 'COVER'>('TRADE');
@@ -592,7 +594,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     // Removed active simulation block that caused TP, SL, and Potential Entry lines to jitter/snap towards market price when trailing was active.
 
     return (
-        <div id="trade-top-anchor">
+        <div id="trade-top-anchor" ref={(el) => { if (tradeAnchorRef) tradeAnchorRef.current = el; }}>
             <HorizonCard className={cn(
                 "bg-[#020617]/40 backdrop-blur-xl border-slate-800/50 shadow-2xl overflow-hidden group/smart",
                 compact ? "p-2 border-0 shadow-none bg-transparent" : "p-4"
@@ -603,7 +605,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                     <div className="flex items-center gap-2">
                         <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_rgba(34,211,238,0.6)]" />
                         <span className="text-xs font-black text-cyan-400 uppercase tracking-widest">
-                            {editingTrade ? `İŞLEM DÜZENLEME MODU: ${editingTrade.symbol} (ID: ${editingTrade.id})` : 'SmartTrade'}
+                            {editingTrade ? `İŞLEM DÜZENLEME MODU: ${editingTrade.symbol} (ID: ${editingTrade.id})` : 'Akıllı İşlem'}
                         </span>
                     </div>
                     {onCancelEdit && (
@@ -760,15 +762,18 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                  </div>
              )}
 
-             {/* Main Grid: 3 Columns or Flex Column if Compact - Hidden when editing */}
-              {!editingTrade && (<div id="smart-trade-controls" className={cn("gap-5 mt-2", compact ? "flex flex-col gap-1.5" : "grid grid-cols-1 lg:grid-cols-3")}>
+             {/* Main Grid: 3 Columns or Flex Column if Compact */}
+              <div id="smart-trade-controls" className={cn("gap-5 mt-2 transition-all duration-500", compact ? "flex flex-col gap-1.5" : "grid grid-cols-1 lg:grid-cols-3")}>
                  
                  {/* COLUMN 1: UNITS & BUY PRICE */}
                  <div className={cn("flex flex-col gap-4")}>
                      {/* Units Section */}
                      <div 
                         id="units-section" 
-                        ref={unitsSectionRef}
+                        ref={(el) => {
+                            unitsSectionRef.current = el;
+                            if (unitsAnchorRef) unitsAnchorRef.current = el;
+                        }}
                         className={cn("bg-slate-950/40 border border-white/5 rounded-2xl flex flex-col", compact ? "gap-1 p-0 bg-transparent border-0" : "p-5 gap-4 shadow-lg relative overflow-hidden")}
                       >
                          {!compact && <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-500/0 via-cyan-500/20 to-cyan-500/0 opacity-50"></div>}
@@ -857,7 +862,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                         {/* MINI AMOUNT SLIDER (ALWAYS VISIBLE IN COMPACT) */}
                         {compact && (
                             <div className="flex items-center gap-2 px-1">
-                                <span className="text-[8px] font-bold text-slate-600 uppercase">Ratio</span>
+                                <span className="text-[8px] font-bold text-slate-600 uppercase">Oran</span>
                                 <input 
                                     type="range" 
                                     min="0" max="100" step="1" 
@@ -1196,7 +1201,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                                 <div className="flex items-center gap-1.5 min-w-0">
                                     <TrendingUp className={cn("w-3 h-3 flex-shrink-0", tpEnabled ? "text-emerald-400" : "text-slate-500")} />
                                     <span className={cn("text-[9px] font-black uppercase tracking-tighter truncate", tpEnabled ? "text-emerald-400" : "text-slate-500")}>
-                                        TAKE PROFIT
+                                         KAR AL
                                     </span>
                                 </div>
                                 <button 
@@ -1221,7 +1226,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                                 <div className="flex items-center gap-1.5 min-w-0">
                                     <ShieldAlert className={cn("w-3 h-3 flex-shrink-0", slEnabled ? "text-rose-400" : "text-slate-500")} />
                                     <span className={cn("text-[9px] font-black uppercase tracking-tighter truncate", slEnabled ? "text-rose-400" : "text-slate-500")}>
-                                        STOP LOSS
+                                         ZARAR DURDUR
                                     </span>
                                 </div>
                                 <button 
@@ -1488,7 +1493,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                                     </div>
                                     <div className="flex items-center justify-between relative z-10 mb-4">
                                         <h3 className="font-black text-rose-400 uppercase tracking-widest flex items-center gap-2 text-[11px]">
-                                            <ShieldAlert className="w-4 h-4" /> {mode === 'COVER' ? 'SL' : 'Stop Loss'}
+                                            <ShieldAlert className="w-4 h-4" /> {mode === 'COVER' ? 'SL' : 'Zarar Durdur'}
                                         </h3>
                                         <button 
                                             onClick={() => setSlEnabled(!slEnabled)}
@@ -1643,7 +1648,6 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                     )}
                 </div>
             </div>
-            )}
 
             {/* ACTION BUTTON (MOVED TO BOTTOM) */}
             <div className={cn(compact ? "pt-3 mt-2 border-t border-white/5" : "mt-6")}>
@@ -1654,7 +1658,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                         "w-full rounded-xl font-black uppercase tracking-[0.2em] transition-all relative overflow-hidden group/submit shadow-xl",
                         compact ? "py-2.5 text-[11px]" : "py-4 text-[13px]",
                         mode === 'COVER' 
-                            ? "bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20" 
+                            ? "bg-rose-500 hover:bg-rose-600 shadow-rose-500/20" 
                             : "bg-cyan-500 hover:bg-cyan-600 shadow-cyan-500/20",
                         isLoading && "opacity-50 cursor-wait"
                     )}

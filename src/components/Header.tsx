@@ -8,7 +8,10 @@ import {
     Settings,
     User,
     LogOut,
-    BookOpen
+    BookOpen,
+    ChevronUp,
+    ChevronDown,
+    Minus
 } from 'lucide-react';
 import { MatrixLogo } from './MatrixLogo';
 import { useAuth } from '@/hooks/useAuth';
@@ -196,6 +199,56 @@ export const Header = ({ }: HeaderProps) => {
                     )}
                 </Link>
             </nav>
+
+            {/* SCROLL NAVIGATION SECTION */}
+            <div className="flex flex-col items-center gap-3 py-4 border-t border-b border-slate-800/30 my-4 bg-slate-900/20">
+                <button
+                    onClick={() => {
+                        const main = document.querySelector('main');
+                        if (main) {
+                            main.scrollTo({ top: 0, behavior: 'smooth' });
+                        } else {
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }
+                    }}
+                    title="SCROLL TO TOP"
+                    className="p-2 rounded-lg text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all group/sc"
+                >
+                    <ChevronUp className="w-5 h-5 group-hover/sc:-translate-y-0.5 transition-transform" />
+                </button>
+                
+                <button
+                    onClick={() => {
+                        const main = document.querySelector('main');
+                        if (main) {
+                            const height = main.scrollHeight;
+                            main.scrollTo({ top: height / 2, behavior: 'smooth' });
+                        } else {
+                            const height = document.documentElement.scrollHeight;
+                            window.scrollTo({ top: height / 2, behavior: 'smooth' });
+                        }
+                    }}
+                    title="SCROLL TO MIDDLE"
+                    className="p-2 rounded-lg text-cyan-500 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all group/sc"
+                >
+                    <Minus className="w-5 h-5 group-hover/sc:scale-125 transition-transform" />
+                </button>
+
+                <button
+                    onClick={() => {
+                        const main = document.querySelector('main');
+                        if (main) {
+                            main.scrollTo({ top: main.scrollHeight, behavior: 'smooth' });
+                        } else {
+                            window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+                        }
+                    }}
+                    title="SCROLL TO BOTTOM"
+                    className="p-2 rounded-lg text-rose-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all group/sc"
+                >
+                    <ChevronDown className="w-5 h-5 group-hover/sc:translate-y-0.5 transition-transform" />
+                </button>
+            </div>
 
             {/* TIMEFRAME SELECTOR */}
             <TimeframeBar />

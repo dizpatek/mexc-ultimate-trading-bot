@@ -12,21 +12,22 @@ const _lastSavePromises = new Map<number, Promise<void>>();
 export async function syncSimulator(userId: number, simulator: TradingSimulator) {
     if (typeof window !== 'undefined') return;
     try {
+        // One-time migration: Force reset old balances to new $70k defaults
+        const migrated = await getSetting('SIM_V2_MIGRATED', userId);
+        if (!migrated) {
+            console.log(`[Simulator] Migrating user ${userId} to V2 ($70k portfolio)...`);
+            simulator.reset(); // This calls initializeTestBalance() with new values
+            await setSetting('SIMULATED_BALANCES', JSON.stringify(simulator.getAllBalances()), userId);
+            await setSetting('SIM_V2_MIGRATED', 'true', userId);
+            return;
+        }
+
         const saved = await getSetting('SIMULATED_BALANCES', userId);
         if (saved) {
             const balances = JSON.parse(saved);
-            const usdt = balances.find((b: { asset: string; free: number }) => b.asset === 'USDT');
-            if (usdt && parseFloat(String(usdt.free)) > 200000) {
-                 console.warn(`[Simulator] Corruption detected for user ${userId} (${usdt.free} USDT). Resetting.`);
-                 simulator.reset();
-                 simulator.setBalance('USDT', 80000);
-                 queueBalancePersistence(userId, simulator);
-            } else {
-                 simulator.loadBalances(balances);
-            }
+            simulator.loadBalances(balances);
         } else {
             simulator.reset();
-            simulator.setBalance('USDT', 80000);
             await setSetting('SIMULATED_BALANCES', JSON.stringify(simulator.getAllBalances()), userId);
         }
     } catch (err) {

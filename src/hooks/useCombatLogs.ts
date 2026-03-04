@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { api } from '@/services/api';
 import { AxiosError } from 'axios';
+import { normalizeSymbol, extractBaseAsset } from '@/lib/symbol-utils';
 
 export interface LogEntry {
     id: string;
@@ -100,7 +101,7 @@ export function useCombatLogs() {
                         message,
                         details: detailText,
                         // Pre-parse and store assetSymbol for O(1) portfolio filtering later
-                        assetSymbol: isSystem ? undefined : sig.symbol?.replace('/', '').toUpperCase(),
+                        assetSymbol: isSystem ? undefined : normalizeSymbol(sig.symbol),
                         sentiment: sig.type === 'BUY' || sig.type === 'F4_CONFIRMED_BUY' || sig.type === 'F4_EARLY_BUY' ? 'POSITIVE' : 
                                    sig.type === 'SELL' || sig.type === 'F4_CONFIRMED_SELL' || sig.type === 'F4_EARLY_SELL' ? 'NEGATIVE' : 'NEUTRAL',
                         level: isSystem ? sig.type : undefined
@@ -128,9 +129,19 @@ export function useCombatLogs() {
             setScanStatus('done');
             await fetchLogs();
         } catch (err: unknown) {
-            if (err instanceof AxiosError && err.response?.status === 429) {
-                // Ignore rate limit 429 errors
-                setScanStatus('idle');
+            if (err instanceof AxiosError) {
+                if (err.response?.status === 429) {
+                    // Ignore rate limit 429 errors silently
+                    setScanStatus('idle');
+                } else if (err.response?.status === 400) {
+                    // User errors (like missing keys) should be shown
+                    const msg = err.response.data?.error || 'Geçersiz İstek';
+                    setError(msg);
+                    setScanStatus('idle');
+                } else {
+                    console.error('Signal Scan Error:', err);
+                    setScanStatus('idle');
+                }
             } else {
                 console.error('Signal Scan Error:', err);
                 setScanStatus('idle');
@@ -180,14 +191,21 @@ export function filterSignalsByHoldings(
     // returning an empty array prevents the "popping" effect where all signals appear briefly then disappear
     if (holdings === null || holdings === undefined) return [];
     
-    if (holdings.length === 0) return [];
-    
-    const heldSymbols = new Set(
-        holdings.map(h => h.symbol.replace('/', '').toUpperCase())
+    // Normalize held symbols: remove slashes and USDT suffix if any, then upper
+    // Filter out stablecoins to avoid noise
+    const heldBases = new Set(
+        holdings
+            .filter(h => h.symbol !== 'USDT' && h.symbol !== 'USDC')
+            .map(h => extractBaseAsset(h.symbol))
     );
-    // O(N): uses pre-parsed assetSymbol — no runtime regex needed
+    
     return tradeLogs.filter(l => {
         if (!l.assetSymbol) return false;
-        return heldSymbols.has(l.assetSymbol) || heldSymbols.has(l.assetSymbol.replace('USDT', ''));
+        // Always include global signals as they are relevant to everyone
+        if (l.assetSymbol === 'GLOBAL') return true;
+        
+        // Normalize log symbol using extractBaseAsset
+        const logBase = extractBaseAsset(l.assetSymbol);
+        return heldBases.has(logBase);
     });
 }

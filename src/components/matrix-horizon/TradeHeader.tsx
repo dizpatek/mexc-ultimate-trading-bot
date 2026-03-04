@@ -44,13 +44,13 @@ export const TradeHeader: React.FC<TradeHeaderProps> = ({
                 </div>
                 <div>
                     <h2 className="text-sm font-black text-white uppercase tracking-[0.3em] flex items-center gap-2 group-hover:text-cyan-400 transition-colors">
-                        ActiveSmartTrades 
+                        AKILLI İŞLEMLER 
                         {isSectionExpanded ? <ChevronUp className="w-4 h-4 ml-1 text-slate-500" /> : <ChevronDown className="w-4 h-4 ml-1 text-slate-500" />}
                     </h2>
                     <div className="flex items-center gap-2 mt-0.5">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                         <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
-                            Neuro-Engine Integrated {" // "} {tradesCount} Positions {" // "} Last Pulse: {new Date(lastFetchTime).toLocaleTimeString([], { hour12: false, second: '2-digit' })}
+                            Nöro-Motor Entegre {" // "} {tradesCount} Pozisyon {" // "} Son Sinyal: {new Date(lastFetchTime).toLocaleTimeString([], { hour12: false, second: '2-digit' })}
                         </span>
                     </div>
                 </div>
@@ -64,7 +64,7 @@ export const TradeHeader: React.FC<TradeHeaderProps> = ({
                             className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-xs font-bold animate-pulse cursor-pointer hover:bg-yellow-500/20 transition-colors"
                         >
                             <ShieldAlert className="w-3.5 h-3.5" />
-                            CONFIGURATION REQUIRED: CLICK TO FIX KEYS
+                            KONFİGÜRASYON GEREKLİ: ANAHTARLARI DÜZELTMEK İÇİN TIKLAYIN
                         </div>
                     ) : (
                         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-bold animate-pulse">
@@ -80,7 +80,7 @@ export const TradeHeader: React.FC<TradeHeaderProps> = ({
                         title="YENİ İŞLEM OLUŞTUR"
                     >
                         <Zap className="w-3 h-3" />
-                        NEW TRADE
+                        YENİ İŞLEM
                     </button>
                     <button 
                         onClick={() => setActiveTab('AKTIF')}

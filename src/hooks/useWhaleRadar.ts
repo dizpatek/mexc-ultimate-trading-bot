@@ -1,4 +1,4 @@
-import { useReducer, useEffect, useCallback, useRef } from 'react';
+import { useReducer, useEffect, useCallback, useRef, useState } from 'react';
 
 export interface WhaleAlert {
     id: string;
@@ -12,15 +12,17 @@ export interface WhaleAlert {
 export type ConnectionStatus = 'connecting' | 'connected' | 'error' | 'disconnected';
 
 const TWO_DAYS_MS = 48 * 60 * 60 * 1000;
-const MAX_HISTORY = 100;
+const MAX_HISTORY = 500;
 const CLEANUP_INTERVAL_MS = 30_000;
+const STORAGE_KEY = 'matrix_whale_history';
 
 // --- Reducer for idiomatic high-frequency state updates ---
 
 type AlertState = { latest: WhaleAlert | null; history: WhaleAlert[] };
 type AlertAction =
     | { type: 'ADD'; payload: WhaleAlert }
-    | { type: 'CLEANUP' };
+    | { type: 'CLEANUP' }
+    | { type: 'LOAD'; payload: WhaleAlert[] };
 
 function alertReducer(state: AlertState, action: AlertAction): AlertState {
     switch (action.type) {
@@ -36,6 +38,11 @@ function alertReducer(state: AlertState, action: AlertAction): AlertState {
             // Return same reference if nothing changed – avoids unnecessary re-renders
             return filtered.length === state.history.length ? state : { ...state, history: filtered };
         }
+        case 'LOAD':
+            return {
+                ...state,
+                history: action.payload.filter(a => a.time > Date.now() - TWO_DAYS_MS).slice(0, MAX_HISTORY)
+            };
         default:
             return state;
     }
@@ -46,11 +53,39 @@ export function useWhaleRadar() {
         latest: null,
         history: [],
     });
-    const [status, setStatus] = useReducer<React.Reducer<ConnectionStatus, ConnectionStatus>>(
-        (_prev, next) => next,
-        'disconnected'
-    );
+    const [status, setStatus] = useState<ConnectionStatus>('disconnected');
     const wsRef = useRef<WebSocket | null>(null);
+    const isFirstRun = useRef(true);
+
+    // Initial load from localStorage
+    useEffect(() => {
+        if (!isFirstRun.current) return;
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed)) {
+                    dispatch({ type: 'LOAD', payload: parsed });
+                }
+            }
+        } catch (e) {
+            console.error('[WhaleRadar] Failed to load history:', e);
+        }
+        isFirstRun.current = false;
+    }, []);
+
+    // Save to localStorage on change with 5s debounce to prevent UI jank
+    useEffect(() => {
+        if (alerts.length === 0) return;
+        const timeoutId = setTimeout(() => {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(alerts));
+            } catch (e) {
+                console.error('[WhaleRadar] Persistence failed:', e);
+            }
+        }, 5000);
+        return () => clearTimeout(timeoutId);
+    }, [alerts]);
 
     // Periodic cleanup — runs every 30s, not on every WS message
     useEffect(() => {

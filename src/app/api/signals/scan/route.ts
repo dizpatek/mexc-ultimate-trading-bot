@@ -38,7 +38,23 @@ export async function GET(request: Request) {
         }
         scanRateMap.set(userId, now); // Use 'now' for setting the current scan time
 
-        const scanSymbols = await SignalScanner.resolveScanSymbols(userId);
+        // Get mode from cookies
+        const { cookies } = await import('next/headers');
+        const cookieStore = await cookies();
+        const mode = (cookieStore.get('TRADING_MODE')?.value as 'test' | 'production') || 'test';
+        
+        // P3.1: Key presence check for production mode
+        if (mode === 'production') {
+            const { getMexcCredentials } = await import('@/lib/settings');
+            const { apiKey, apiSecret } = await getMexcCredentials(userId, 'production');
+            if (!apiKey || !apiSecret) {
+                return NextResponse.json({ 
+                    error: 'API anahtarları eksik. Lütfen Ayarlar sayfasından MEXC API anahtarlarınızı tanımlayın.' 
+                }, { status: 400 });
+            }
+        }
+
+        const scanSymbols = await SignalScanner.resolveScanSymbols(userId, mode);
         const scanStartTime = Date.now();
         const allResults = await SignalScanner.runScan(scanSymbols);
         const scanDuration = Date.now() - scanStartTime;

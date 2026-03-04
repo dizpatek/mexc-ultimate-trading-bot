@@ -304,7 +304,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit, on
         return (
             <div className="bg-slate-900/40 backdrop-blur-md border border-slate-800 rounded-xl p-8 flex flex-col items-center justify-center gap-4 mt-6">
                 <RefreshCw className="w-8 h-8 text-cyan-500 animate-spin" />
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Neural Logic Core Initializing...</span>
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Nöral Mantık Çekirdeği Başlatılıyor...</span>
             </div>
         );
     }
@@ -333,14 +333,14 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit, on
                 <div className="bg-[#0f172a]/20 backdrop-blur-xl border border-slate-800/60 rounded-2xl overflow-hidden shadow-[0_0_50px_-12px_rgba(0,0,0,0.5)]">
                     {/* HEADERS */}
                     <div className="grid grid-cols-[0.7fr_0.8fr_0.5fr_0.6fr_2fr_1.4fr_0.7fr_0.7fr_28px] gap-1.5 px-3 py-2.5 border-b border-white/5 bg-slate-950/60 text-[9px] font-black text-slate-500 uppercase tracking-widest text-center">
-                    <div className="flex items-center justify-center gap-1">PAIR</div>
-                    <div className="flex items-center justify-center gap-1">ENTRY / MKT</div>
-                    <div className="flex items-center justify-center gap-1">LIVE AI</div>
-                    <div className="flex items-center justify-center gap-1">STATUS</div>
-                    <div className="flex items-center justify-center gap-1">SMART TARGETS</div>
-                    <div className="flex items-center justify-center gap-1">MTF ANALYSIS</div>
-                    <div className="flex items-center justify-center gap-1">MTF SIGNAL</div>
-                    <div className="flex items-center justify-center gap-1">PNL</div>
+                    <div className="flex items-center justify-center gap-1">PARİTE</div>
+                    <div className="flex items-center justify-center gap-1">GİRİŞ / PİYASA</div>
+                    <div className="flex items-center justify-center gap-1">CANLI AI</div>
+                    <div className="flex items-center justify-center gap-1">DURUM</div>
+                    <div className="flex items-center justify-center gap-1">AKILLI HEDEFLER</div>
+                    <div className="flex items-center justify-center gap-1">MTF ANALİZİ</div>
+                    <div className="flex items-center justify-center gap-1">MTF SİNYALİ</div>
+                    <div className="flex items-center justify-center gap-1">KAR/ZARAR</div>
                     <div></div>
                 </div>
 
@@ -408,11 +408,11 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit, on
 
 
                             // Label logic
-                            let opLabel = "STANDARD TRADE";
-                            if (meta.smartTrade) opLabel = "SMART TRADE";
-                            else if (meta.mode === 'TRADE') opLabel = "STANDARD BUY";
-                            else if (meta.mode === 'COVER') opLabel = "STANDARD SELL";
-                            else if (meta.dca) opLabel = "DCA BOT";
+                            let opLabel = "STANDART İŞLEM";
+                            if (meta.smartTrade) opLabel = "AKILLI İŞLEM";
+                            else if (meta.mode === 'TRADE') opLabel = "STANDART ALIM";
+                            else if (meta.mode === 'COVER') opLabel = "STANDART SATIŞ";
+                            else if (meta.dca) opLabel = "DCA BOTU";
 
                             const isBuyExit = trade.side === 'BUY' && isClosed;
                             const isSellExit = trade.side === 'SELL' && isClosed;
@@ -465,8 +465,8 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit, on
                                                 <div className="text-xs font-black uppercase tracking-widest mt-0.5 flex items-center gap-1.5">
                                                     <span className={cn(
                                                         "px-1.5 py-0.5 rounded-sm text-[10px]",
-                                                        opLabel === "SMART TRADE" ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20" :
-                                                        opLabel === "DCA BOT" ? "bg-purple-500/10 text-purple-400 border border-purple-500/20" :
+                                                        opLabel === "AKILLI İŞLEM" ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20" :
+                                                        opLabel === "DCA BOTU" ? "bg-purple-500/10 text-purple-400 border border-purple-500/20" :
                                                         "bg-slate-800 text-slate-400 border border-white/5"
                                                     )}>
                                                         {opLabel}

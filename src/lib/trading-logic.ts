@@ -49,7 +49,7 @@ export interface F4Data {
     mtfConsensus?: string;
     zScoreValue?: number;
     deathRisk?: boolean;
-
+    
     // SMC & Structure (V5)
     smc?: {
         swingTrend: string;
@@ -310,7 +310,7 @@ export function interpretTradingStatus(
     
     const liveAiScore = liveData ? Math.round(liveData.aiScore) : Math.round(staticAiScore);
     
-    let statusText = "SCANNING";
+    let statusText = "SİNYAL...";
     let statusColor = "text-cyan-400";
 
     // 1. TP/SL Yakınlık Kontrolü
@@ -319,10 +319,10 @@ export function interpretTradingStatus(
             ? ((tp - currentPrice) / currentPrice) * 100
             : ((currentPrice - tp) / currentPrice) * 100;
         if (dist < 0) {
-            statusText = "TP HIT";
+            statusText = "TP VURULDU";
             statusColor = "text-emerald-500 animate-pulse";
         } else if (dist < 2) {
-            statusText = "NEAR TP";
+            statusText = "TP YAKIN";
             statusColor = "text-emerald-400";
         }
     }
@@ -332,16 +332,16 @@ export function interpretTradingStatus(
             : ((sl - currentPrice) / currentPrice) * 100;
         
         if (distSl < 0) {
-            statusText = "SL HIT";
+            statusText = "SL VURULDU";
             statusColor = "text-rose-500 animate-pulse";
         } else if (distSl < 2) {
-            statusText = "NEAR SL";
+            statusText = "SL YAKIN";
             statusColor = "text-rose-400";
         }
     }
 
     // 2. Canlı Sinyal Yorumlama
-    if (statusText === "SCANNING" && !isClosed && liveData) {
+    if (statusText === "SİNYAL..." && !isClosed && liveData) {
         const upP = liveData.prediction?.upProb ?? 50;
         const isBull = liveData.trend === 'BULLISH';
         const isBear = liveData.trend === 'BEARISH';
@@ -361,10 +361,10 @@ export function interpretTradingStatus(
             statusText = "AYI MOD 📉";
             statusColor = "text-rose-400";
         } else if (liveData.whaleDetected && (liveData.whaleStatus === 'BUY_ACTIVE' || liveData.whaleStatus === 'ALIM_AKTİF')) {
-            statusText = "BALINA AL 🐋";
+            statusText = "BALİNA AL 🐋"; // Fixed spelling
             statusColor = "text-amber-400";
         } else if (liveData.whaleDetected && (liveData.whaleStatus === 'SELL_ACTIVE' || liveData.whaleStatus === 'SATIM_AKTİF')) {
-            statusText = "BALINA SAT 🐋";
+            statusText = "BALİNA SAT 🐋"; // Fixed spelling
             statusColor = "text-amber-400";
         } else if (isBull) {
             statusText = "BOĞA EĞİLİM";
@@ -376,7 +376,7 @@ export function interpretTradingStatus(
             statusText = "YATAY ↔";
             statusColor = "text-amber-400";
         }
-    } else if (statusText === "SCANNING" && !isClosed && !liveData) {
+    } else if (statusText === "SİNYAL..." && !isClosed && !liveData) {
         statusText = "SİNYAL ARANIYOR...";
         statusColor = "text-cyan-400";
     }

@@ -9,6 +9,31 @@ import { useWhaleRadar, WhaleAlert } from '../hooks/useWhaleRadar';
 import { useNewsData, NewsItem } from '../hooks/useNewsData';
 import { useNewsAnalytics } from '../hooks/useNewsAnalytics';
 
+// --- Generic Ticker Component ---
+const Ticker = <T,>({ items, speed = '30s', gap = 'gap-8', children }: { 
+    items: T[], 
+    speed?: string, 
+    gap?: string,
+    children: (item: T, idx: number) => React.ReactNode 
+}) => {
+    if (items.length === 0) return null;
+    const copies = items.length < 5 ? 3 : 2;
+    const loopItems = Array.from({ length: copies }).flatMap((_, loopIdx) => 
+        items.map((item, itemIdx) => ({ ...item, _keyIdx: `${loopIdx}-${itemIdx}` }))
+    );
+    
+    return (
+        <div className="flex-1 overflow-hidden relative">
+            <div 
+                className={cn("flex items-center whitespace-nowrap", gap)} 
+                style={{ animation: `ticker ${speed} linear infinite` }}
+            >
+                {loopItems.map((item, idx) => children(item, idx))}
+            </div>
+        </div>
+    );
+};
+
 // --- UI Components ---
 
 const SentimentBar = ({ score, confidence }: { score: number; confidence: number }) => {
@@ -52,8 +77,7 @@ const NewsTicker = ({ items }: { items: NewsItem[] }) => {
     [items]);
 
     if (highImpact.length === 0) return null;
-    // Duplicate items for seamless looping - need at least ~6 items
-    const loopItems = highImpact.length < 3 ? [...highImpact, ...highImpact, ...highImpact] : [...highImpact, ...highImpact];
+    if (highImpact.length === 0) return null;
 
     return (
         <div className="relative overflow-hidden bg-gradient-to-r from-amber-950/40 via-amber-900/20 to-amber-950/40 border-b border-amber-500/20 py-1.5">
@@ -63,24 +87,33 @@ const NewsTicker = ({ items }: { items: NewsItem[] }) => {
                     <AlertTriangle className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
                     <span className="text-[10px] uppercase tracking-[0.2em]">FLAŞ</span>
                 </div>
-                {/* Ticker wrapper: must have exact width set so animation works */}
-                <div className="flex-1 overflow-hidden relative">
-                    <div className="flex items-center gap-8 whitespace-nowrap" style={{ animation: 'ticker 30s linear infinite' }}>
-                        {loopItems.map((item, idx) => (
-                            <span key={`${item.id}-${idx}`} className="inline-flex items-center gap-2 text-[11px]">
-                                <span className={cn(
-                                    "font-black text-xs",
-                                    item.sentiment === 'BULLISH' ? 'text-emerald-400' : item.sentiment === 'BEARISH' ? 'text-rose-400' : 'text-slate-400'
-                                )}>
-                                    {item.sentiment === 'BULLISH' ? '▲' : item.sentiment === 'BEARISH' ? '▼' : '●'}
-                                </span>
-                                <span className="font-black text-amber-200 uppercase tracking-wider">{item.relatedAsset}</span>
-                                <span className="text-slate-300 font-bold drop-shadow-sm">{item.title}</span>
-                                <span className="text-slate-700 mx-3">│</span>
+                
+                <Ticker items={highImpact} speed="15s" gap="gap-8">
+                    {(item: NewsItem, idx) => (
+                        <span key={`${item.id}-${idx}`} className="inline-flex items-center gap-2 text-[11px]">
+                            <span className={cn(
+                                "font-black text-xs",
+                                item.sentiment === 'BULLISH' ? 'text-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.4)]' : 
+                                item.sentiment === 'BEARISH' ? 'text-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.4)]' : 'text-slate-400'
+                            )}>
+                                {item.sentiment === 'BULLISH' ? '▲' : item.sentiment === 'BEARISH' ? '▼' : '●'}
                             </span>
-                        ))}
-                    </div>
-                </div>
+                            <span className={cn(
+                                "font-black uppercase tracking-wider",
+                                item.sentiment === 'BULLISH' ? 'text-emerald-500/80' : 
+                                item.sentiment === 'BEARISH' ? 'text-rose-500/80' : 'text-amber-200'
+                            )}>{item.relatedAsset}</span>
+                            <span className={cn(
+                                "font-bold drop-shadow-sm transition-colors",
+                                item.sentiment === 'BULLISH' ? 'text-emerald-400' : 
+                                item.sentiment === 'BEARISH' ? 'text-rose-400' : 'text-slate-300'
+                            )}>
+                                {item.title}
+                            </span>
+                            <span className="text-slate-700 mx-3">│</span>
+                        </span>
+                    )}
+                </Ticker>
             </div>
         </div>
     );
@@ -211,7 +244,7 @@ export const IntelligenceHub = () => {
         trade.setSlEnabled(true);
         trade.setIsPanelOpen(true);
         // scrollToTrade handles pending case via context state - no setTimeout needed
-        trade.scrollToTrade();
+        trade.scrollToTrade('UNITS');
     }, [trade]);
 
     // Auto scroll whale history to left when new alert comes in

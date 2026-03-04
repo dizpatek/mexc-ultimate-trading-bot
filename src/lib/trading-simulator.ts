@@ -36,11 +36,11 @@ export class TradingSimulator {
     }
 
     public initializeTestBalance() {
-        // Start with $100,000 USDT and ample test crypto for large trades
-        this.balances.set('USDT', { asset: 'USDT', free: 100000, locked: 0 });
-        this.balances.set('BTC', { asset: 'BTC', free: 10, locked: 0 });
-        this.balances.set('ETH', { asset: 'ETH', free: 100, locked: 0 });
-        this.balances.set('SOL', { asset: 'SOL', free: 1000, locked: 0 });
+        // Start with ~$70,000 total portfolio (proportionally scaled)
+        this.balances.set('USDT', { asset: 'USDT', free: 5000, locked: 0 });
+        this.balances.set('BTC', { asset: 'BTC', free: 0.5, locked: 0 });
+        this.balances.set('ETH', { asset: 'ETH', free: 5, locked: 0 });
+        this.balances.set('SOL', { asset: 'SOL', free: 50, locked: 0 });
     }
 
     public loadBalances(balances: SimulatedBalance[]) {

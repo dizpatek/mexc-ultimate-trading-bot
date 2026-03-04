@@ -1,7 +1,7 @@
 import { MatrixV5Engine } from '@/lib/matrix-v5-engine';
 import { fetchKlines } from '@/lib/mexc';
 import { createStrategySignalsBulk, getRecentSignalsBulk, StrategySignalInput } from '@/lib/db';
-import { getAccountInfo, getTradingMode } from '@/lib/mexc-wrapper';
+import { getAccountInfo } from '@/lib/mexc-wrapper';
 
 const engine = new MatrixV5Engine();
 
@@ -43,8 +43,7 @@ interface EngineResult {
 }
 
 export class SignalScanner {
-    static async resolveScanSymbols(userId: number): Promise<string[]> {
-        const mode = getTradingMode();
+    static async resolveScanSymbols(userId: number, mode: 'test' | 'production' = 'test'): Promise<string[]> {
         const account = await getAccountInfo(userId, mode);
         const holdingsSymbols = (account?.balances || [])
             .filter((b: { free: string; locked: string }) => parseFloat(b.free) + parseFloat(b.locked) > 0)

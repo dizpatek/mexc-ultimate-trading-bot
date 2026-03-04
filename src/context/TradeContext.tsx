@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useRef, useCallback, ReactNode, MutableRefObject } from 'react';
+import React, { createContext, useContext, useState, useRef, useCallback, ReactNode } from 'react';
 import { SmartTradeOrder } from '@/components/ActiveSmartTrades';
 
 interface TradeContextType {
@@ -22,12 +22,14 @@ interface TradeContextType {
     setEditingTrade: (trade: SmartTradeOrder | null) => void;
     isPanelOpen: boolean;
     setIsPanelOpen: (open: boolean) => void;
+    /** Ref to be attached to the SmartTrade 'Units' section for specific scrolling */
+    unitsAnchorRef: React.MutableRefObject<HTMLElement | null>;
     /** Ref to be attached to the SmartTrade panel element for scrolling */
-    tradeAnchorRef: MutableRefObject<HTMLElement | null>;
+    tradeAnchorRef: React.MutableRefObject<HTMLElement | null>;
     /** Scroll to the trade panel. Sets pendingScroll if element is not yet mounted. */
-    scrollToTrade: () => void;
+    scrollToTrade: (targetSelection?: 'TOP' | 'UNITS') => void;
     /** True when a scroll was requested but the panel element was not found yet */
-    pendingScroll: boolean;
+    pendingScroll: boolean | 'UNITS';
     /** Call from inside the trade panel after it mounts to consume the pending scroll */
     consumePendingScroll: () => void;
 }
@@ -44,25 +46,28 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
     const [mode, setMode] = useState<'TRADE' | 'COVER'>('TRADE');
     const [editingTrade, setEditingTrade] = useState<SmartTradeOrder | null>(null);
     const [isPanelOpen, setIsPanelOpen] = useState(false);
-    const [pendingScroll, setPendingScroll] = useState(false);
+    const [pendingScroll, setPendingScroll] = useState<boolean | 'UNITS'>(false);
     const tradeAnchorRef = useRef<HTMLElement | null>(null);
+    const unitsAnchorRef = useRef<HTMLElement | null>(null);
 
-    const scrollToTrade = useCallback(() => {
-        const el = tradeAnchorRef.current;
+    const scrollToTrade = useCallback((targetSelection: 'TOP' | 'UNITS' = 'TOP') => {
+        const el = targetSelection === 'UNITS' ? unitsAnchorRef.current : tradeAnchorRef.current;
         if (el) {
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         } else {
             // Ref not attached yet — set flag for panel to consume on mount
-            setPendingScroll(true);
+            setPendingScroll(targetSelection === 'UNITS' ? 'UNITS' : true);
         }
     }, []);
 
     const consumePendingScroll = useCallback(() => {
         if (pendingScroll) {
+            const target = pendingScroll;
             setPendingScroll(false);
             // Small defer to let sidebar transition actually start/mount 
             setTimeout(() => {
-                tradeAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                const el = target === 'UNITS' ? unitsAnchorRef.current : tradeAnchorRef.current;
+                el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }, 100);
         }
     }, [pendingScroll]);
@@ -79,6 +84,7 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
             editingTrade, setEditingTrade,
             isPanelOpen, setIsPanelOpen,
             tradeAnchorRef,
+            unitsAnchorRef,
             scrollToTrade,
             pendingScroll,
             consumePendingScroll,

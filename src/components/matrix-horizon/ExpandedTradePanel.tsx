@@ -86,7 +86,7 @@ export const ExpandedTradePanel: React.FC<ExpandedTradePanelProps> = ({
                             </div>
                         )}
                         <div className="text-[10px] font-mono text-cyan-400 uppercase bg-cyan-400/5 px-2 py-1 rounded flex items-center gap-1 border border-cyan-500/10">
-                            <Brain className="w-2.5 h-2.5" /> AI Skoru: {aiScore}% Peak Güven
+                            <Brain className="w-2.5 h-2.5" /> AI Skoru: {aiScore}% Tepe Güven
                         </div>
                         
                         {isClosed ? (
@@ -136,7 +136,7 @@ export const ExpandedTradePanel: React.FC<ExpandedTradePanelProps> = ({
                                      title="TBY beklemeden hemen piyasa fiyatından işleme gir"
                                  >
                                      <Zap className="w-4 h-4" />
-                                     FLASH OPEN
+                                     HIZLI GİRİŞ
                                  </button>
                              )}
                              <button
@@ -167,7 +167,7 @@ export const ExpandedTradePanel: React.FC<ExpandedTradePanelProps> = ({
                              >
                                  <div className="flex items-center gap-2">
                                      <RefreshCw className="w-4 h-4 text-slate-500 group-hover/silent:text-slate-300 group-hover/silent:rotate-180 transition-all duration-700" />
-                                     <span className="text-xs font-black text-slate-500 group-hover/silent:text-slate-300 uppercase tracking-[0.2em]">CLOSE ORDER (SESSİZ ARŞİV)</span>
+                                     <span className="text-xs font-black text-slate-500 group-hover/silent:text-slate-300 uppercase tracking-[0.2em]">EMRİ KAPAT (SESSİZ ARŞİV)</span>
                                  </div>
                              </button>
                         </div>
@@ -194,9 +194,9 @@ export const ExpandedTradePanel: React.FC<ExpandedTradePanelProps> = ({
                                     <span className="text-[9px] font-black text-slate-500 uppercase tracking-tighter">KAPANIŞ TETİKLEYİCİ</span>
                                     <span className={cn(
                                         "text-[11px] font-black uppercase",
-                                        meta.exitReason?.startsWith('MANUAL') ? "text-amber-400" : "text-emerald-400"
+                                        meta.exitReason?.includes('MANUAL') || meta.exitReason?.includes('MANUEL') ? "text-amber-400" : "text-emerald-400"
                                     )}>
-                                        {meta.exitReason?.startsWith('MANUAL') ? '● KULLANICI KOMUTU (MANUEL)' : '● MATRIX AI MONİTÖR'}
+                                        {meta.exitReason?.includes('MANUAL') || meta.exitReason?.includes('MANUEL') ? '● KULLANICI KOMUTU (MANUEL)' : '● MATRIX AI MONİTÖR'}
                                     </span>
                                 </div>
                                 <div className="flex flex-col gap-1">
@@ -205,8 +205,8 @@ export const ExpandedTradePanel: React.FC<ExpandedTradePanelProps> = ({
                                         {meta.exitReason ? (
                                             meta.exitReason === 'MANUAL_PANIC_EXIT' ? 'PANİK SATIŞ TETİKLENDİ' :
                                             meta.exitReason === 'MANUAL_SILENT_EXIT' ? 'SESSİZ ARŞİV (POZİSYON KORUNDU)' :
-                                            meta.exitReason.replace(/ HIT$/, '').replace('TRAILING TP', 'TTP').replace('TRAILING SL', 'TSL').replace('TRAILING BUY', 'TBY')
-                                        ) : 'BİLİNMEYEN_SİSTEM_ÇIKIŞI'}
+                                            meta.exitReason
+                                        ) : 'BİLİNMEYEN SİSTEM ÇIKIŞI'}
                                     </span>
                                 </div>
                                 <div className="flex flex-col gap-1">

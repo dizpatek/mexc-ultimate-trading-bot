@@ -205,7 +205,7 @@ export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: 
                 highestPrice: avgPrice, 
                 lowestPrice: avgPrice,
                 lastUpdate: Date.now(),
-                exitReason: initialStatus === 'CLOSED' ? 'STANDALONE_MARKET_EXIT' : undefined,
+                exitReason: initialStatus === 'CLOSED' ? 'TP/SL olmayan tek seferlik işlem' : undefined,
                 closedAt: initialStatus === 'CLOSED' ? Date.now() : undefined,
                 initialQty: qty
             }

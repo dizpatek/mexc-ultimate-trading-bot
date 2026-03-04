@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useRef, useState } from 'react';
+import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { CyberMarkdown } from './CyberMarkdown';
 import { LucideIcon } from 'lucide-react';
@@ -79,10 +80,14 @@ export const HologramCard: React.FC<HologramCardProps> = ({ title, content, icon
                 {/* 3D Visual Content (CSS/SVG Visualization) OR AI Image */}
                 {image ? (
                     <div className="mb-8 relative w-full aspect-video rounded-2xl overflow-hidden border border-white/10 group/img">
-                        <img 
+                        <Image 
                             src={image} 
                             alt={title} 
-                            className="w-full h-full object-cover transition-transform duration-700 group-hover/img:scale-110" 
+                            fill
+                            style={{ 
+                                objectFit: 'cover'
+                            }}
+                            className="transition-transform duration-700 group-hover/img:scale-110" 
                         />
                         <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity" />
                     </div>

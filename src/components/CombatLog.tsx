@@ -3,6 +3,7 @@
 import { useRef, useEffect, useMemo, useState } from 'react';
 import { Terminal, Activity, Crosshair, Zap, Radar, Target, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { extractBaseAsset } from '@/lib/symbol-utils';
 import { useTrade } from '@/context/TradeContext';
 import { useHoldings } from '../hooks/usePortfolio';
 import { useCombatLogs, LogEntry, deduplicateSystemLogs, filterSignalsByHoldings } from '../hooks/useCombatLogs';
@@ -27,7 +28,7 @@ export const CombatLog = () => {
     // Filter mode: 'ALL' or 'ASSETS' (only signals related to held assets)
     const [signalFilter, setSignalFilter] = useState<'ALL' | 'ASSETS'>('ASSETS');
 
-    const tradeLogs = useMemo(() => logs.filter(l => l.type !== 'SYSTEM'), [logs]);
+    const tradeLogs = useMemo(() => logs.filter((l: LogEntry) => l.type !== 'SYSTEM'), [logs]);
     
     const filteredTradeLogs = useMemo(() => {
         if (signalFilter === 'ALL') return tradeLogs;
@@ -156,8 +157,12 @@ export const CombatLog = () => {
                                 <div>{scanStatus === 'scanning' ? 'SİNYALLER TARANIYOR...' : signalFilter === 'ASSETS' ? 'VARLIKLARINIZLA EŞLEŞMEDİ' : 'SİNYAL HATTI ANALİZ EDİLİYOR...'}</div>
                                 <div className="text-[8px] text-slate-800/50 mt-1">Dinamik Tarama · 1dk aralık · 60sn döngü</div>
                             </div>
-                        ) : filteredTradeLogs.map((log) => {
-                            const isHeld = holdings?.some(h => log.message.includes(h.symbol));
+                        ) : filteredTradeLogs.map((log: LogEntry) => {
+                            const isHeld = holdings?.some(h => 
+                                h.symbol !== 'USDT' && 
+                                h.symbol !== 'USDC' && 
+                                log.assetSymbol && extractBaseAsset(log.assetSymbol) === extractBaseAsset(h.symbol)
+                            );
                             return (
                                 <LogLine key={log.id} log={log} icon={getIcon(log.type)} isHeld={!!isHeld} trade={trade} />
                             );
@@ -236,7 +241,7 @@ const LogLine = ({ log, icon, isHeld, trade }: { log: LogEntry; icon: React.Reac
         trade.setSlEnabled(true);
         trade.setIsPanelOpen(true);
         // scrollToTrade handles pending case via context state - no setTimeout needed
-        trade.scrollToTrade();
+        trade.scrollToTrade('UNITS');
     };
 
     return (

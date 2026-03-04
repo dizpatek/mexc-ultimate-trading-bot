@@ -61,7 +61,7 @@ export default function SettingsPage() {
 
     useEffect(() => {
         setMode(getTradingModeSync());
-        if (user?.id === 1) {
+        if (user?.is_admin || user?.id === 1) {
             fetchAdminData();
         }
     }, [user, fetchAdminData]);
@@ -245,7 +245,7 @@ export default function SettingsPage() {
                     </div>
 
                     {/* Admin Modules */}
-                    {user?.id === 1 && (
+                    {(user?.is_admin || user?.id === 1) && (
                         <>
                              {/* User List Management - Fits in 1 col */}
                             <div className="stat-card border-primary/10 h-full">
@@ -257,7 +257,7 @@ export default function SettingsPage() {
                                                 <p className="font-bold text-xs tracking-tight">{u.username.toUpperCase()}</p>
                                                 <p className="text-[9px] text-muted-foreground font-mono">{u.email}</p>
                                             </div>
-                                            {u.id !== 1 && (
+                                            {u.id !== 1 && !u.is_admin && (
                                                 <button 
                                                     onClick={() => handleDeleteUser(u.id)}
                                                     className="text-[9px] font-black text-red-500/50 hover:text-red-500 transition-colors uppercase"

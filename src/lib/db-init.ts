@@ -48,6 +48,7 @@ async function createCoreTables() {
             username TEXT UNIQUE NOT NULL,
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
+            is_admin BOOLEAN DEFAULT FALSE,
             created_at BIGINT NOT NULL,
             updated_at BIGINT NOT NULL
         );
@@ -255,6 +256,13 @@ async function createBotTables() {
 }
 
 async function runSchemaMigrations() {
+    // User migrations
+    try {
+        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE`;
+        // Ensure the FIRST user is always an admin as a fallback safety
+        await sql`UPDATE users SET is_admin = TRUE WHERE id = 1`;
+    } catch { /* ignore */ }
+
     // Strategy signals migrations
     await sql`ALTER TABLE strategy_signals ALTER COLUMN strategy_id DROP NOT NULL;`.catch(() => {});
     await sql`ALTER TABLE strategy_signals ADD COLUMN IF NOT EXISTS symbol TEXT;`.catch(() => {});

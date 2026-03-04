@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server';
 import { getBotConfig, updateBotConfig } from '@/lib/db';
 import { getSessionUser } from '@/lib/auth-utils';
 import { ensureTablesExist } from '@/lib/db-init';
+import type { User } from '@/lib/db';
 
 export async function GET(request: Request) {
-    const user = await getSessionUser(request);
-    if (!user || user.id !== 1) {
+    const user = await getSessionUser(request) as User | null;
+    if (!user || !user.is_admin) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -20,8 +21,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-    const user = await getSessionUser(request);
-    if (!user || user.id !== 1) {
+    const user = await getSessionUser(request) as User | null;
+    if (!user || !user.is_admin) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

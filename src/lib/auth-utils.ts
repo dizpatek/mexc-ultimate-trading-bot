@@ -8,12 +8,14 @@ interface User {
     id: number;
     email: string;
     username: string;
+    is_admin?: boolean;
 }
 
 interface JwtPayload {
     id: number;
     email: string;
     username: string;
+    is_admin?: boolean;
 }
 
 export async function hashPassword(password: string): Promise<string> {
@@ -25,9 +27,9 @@ export async function comparePassword(password: string, hash: string): Promise<b
     return bcrypt.compare(password, hash);
 }
 
-export function generateToken(user: { id: number; email: string; username: string }): string {
+export function generateToken(user: User): string {
     return jwt.sign(
-        { id: user.id, email: user.email, username: user.username },
+        { id: user.id, email: user.email, username: user.username, is_admin: user.is_admin },
         JWT_SECRET,
         { expiresIn: '24h' }
     );
@@ -57,24 +59,25 @@ export async function registerUser(username: string, email: string, password: st
         username,
         email,
         password_hash: passwordHash
-    });
+    }) as number;
 
-    const user = await getUserById(userId);
-    const token = generateToken(user as User);
+    const user = await getUserById(userId) as unknown as User;
+    const token = generateToken(user);
 
     return {
         success: true,
         user: {
             id: user.id,
             username: user.username,
-            email: user.email
+            email: user.email,
+            is_admin: user.is_admin
         },
         token
     };
 }
 
 export async function authenticateUser(email: string, password: string) {
-    const user = await getUserByEmail(email);
+    const user = await getUserByEmail(email) as unknown as (User & { password_hash: string }) | undefined;
     if (!user) {
         return { success: false, message: 'Invalid email or password' };
     }
@@ -91,7 +94,8 @@ export async function authenticateUser(email: string, password: string) {
         user: {
             id: user.id,
             username: user.username,
-            email: user.email
+            email: user.email,
+            is_admin: user.is_admin
         },
         token
     };
@@ -103,7 +107,7 @@ export async function getCurrentUser(token: string) {
         return { success: false, message: 'Invalid token' };
     }
 
-    const user = await getUserById(decoded.id);
+    const user = await getUserById(decoded.id) as unknown as User;
     if (!user) {
         return { success: false, message: 'User not found' };
     }
@@ -113,7 +117,8 @@ export async function getCurrentUser(token: string) {
         user: {
             id: user.id,
             username: user.username,
-            email: user.email
+            email: user.email,
+            is_admin: user.is_admin
         }
     };
 }

@@ -120,6 +120,22 @@ export async function marketBuyByQuote(userId: number, symbol: string, quoteQty:
     return mexcBuy(userId, symbol, quoteQty);
 }
 
+export async function marketBuyByQty(userId: number, symbol: string, qty: string, modeOverride?: TradingMode): Promise<OrderResult> {
+    const mode = modeOverride || getTradingMode();
+    if (mode === 'test') {
+        const simulator = getSimulator(userId);
+        await syncSimulator(userId, simulator);
+        const currentPrice = await getPrice(symbol);
+        // Simulator buy with qty (calculates cost internally)
+        const cost = parseFloat(qty) * currentPrice;
+        const res = await simulator.executeMarketBuy(symbol, cost, currentPrice);
+        queueBalancePersistence(userId, simulator);
+        return res as unknown as OrderResult;
+    }
+    const { marketBuyByQty: mexcBuy } = await getMexcModule();
+    return mexcBuy(userId, symbol, qty);
+}
+
 export async function marketSellByQty(userId: number, symbol: string, qty: string, modeOverride?: TradingMode): Promise<OrderResult> {
     const mode = modeOverride || getTradingMode();
     if (mode === 'test') {

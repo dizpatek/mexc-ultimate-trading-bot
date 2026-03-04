@@ -66,10 +66,20 @@ export const UnifiedControlStrip = ({
         slPrice, setSlPrice,
         tpEnabled, setTpEnabled,
         slEnabled, setSlEnabled,
-        mode, setMode
+        mode, setMode,
+        tradeAnchorRef,
+        consumePendingScroll,
+        pendingScroll
     } = useTrade();
-
     const [isOpen, setIsOpen] = useState(false);
+
+    // Consume any pending scroll request when the panel is visible
+    useEffect(() => {
+        if (isOpen && pendingScroll) {
+            consumePendingScroll();
+        }
+    }, [isOpen, pendingScroll, consumePendingScroll]);
+
 
     // Guard against infinite loop: only notify parent when symbol actually changes
     const prevSymbolRef = useRef<string>(symbol);
@@ -150,7 +160,11 @@ export const UnifiedControlStrip = ({
                 {/* Items moved to Giga Komuta Kokpiti */}
 
                 {/* COMPACT SMART TRADE PANEL */}
-                <div className="px-2 pt-1 pb-8 flex flex-col gap-2">
+                <div
+                    id="trade-top-anchor"
+                    ref={(el) => { tradeAnchorRef.current = el; }}
+                    className="px-2 pt-1 pb-8 flex flex-col gap-2"
+                >
                     <SmartTrade 
                         compact={true} 
                         controlledSymbol={symbol}

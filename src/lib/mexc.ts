@@ -433,6 +433,18 @@ export async function marketBuyByQuote(userId: number, pair: string, quoteAmount
     });
 }
 
+/**
+ * Market BUY by QUANTITY (used for closing shorts/selling quote to get base)
+ */
+export async function marketBuyByQty(userId: number, pair: string, quantity: string): Promise<OrderResult> {
+    return postOrder(userId, {
+        symbol: pair,
+        side: 'BUY',
+        type: 'MARKET',
+        quantity: String(quantity)
+    });
+}
+
 export async function marketSellByQty(userId: number, pair: string, quantity: string): Promise<OrderResult> {
     return postOrder(userId, {
         symbol: pair,

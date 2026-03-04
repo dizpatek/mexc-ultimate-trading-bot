@@ -4,21 +4,28 @@ import { monitorSmartTrades } from '@/lib/smart-trade-monitor';
 import { handleSmartTrade } from '@/lib/smart-trade';
 import { sql } from '@/lib/postgres';
 import axios from 'axios';
-import { getPrice, marketBuyByQuote, marketSellByQty, type TradingMode } from '@/lib/mexc-wrapper';
+import { marketBuyByQuote, marketBuyByQty, marketSellByQty, type TradingMode } from '@/lib/mexc-wrapper';
 import { getMexcCredentials } from '@/lib/settings';
 import { cookies } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
 
+// Monitoring cooldown to prevent resource exhaustion during frequent polling (P4.2 fix)
+let lastMonitorTime = 0;
+const MONITOR_COOLDOWN_MS = 60000; // 1 minute
+
 export async function GET(request: Request) {
     try {
-        // Trigger monitoring in the background whenever trades are fetched
-        // This ensures prices are checked even if the cron job is pending
-        void monitorSmartTrades();
-        
         const user = await getSessionUser(request);
         if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        // Trigger monitoring if cooldown has passed
+        const now = Date.now();
+        if (now - lastMonitorTime > MONITOR_COOLDOWN_MS) {
+            lastMonitorTime = now;
+            void monitorSmartTrades();
         }
 
         // Check mode and credentials for GET too (since we fetch prices)
@@ -26,7 +33,7 @@ export async function GET(request: Request) {
         const mode = cookieStore.get('TRADING_MODE')?.value as TradingMode || 'test';
         
         if (mode === 'production') {
-            const { apiKey, apiSecret } = await getMexcCredentials(user.id, mode);
+            const { apiKey, apiSecret } = await getMexcCredentials(Number(user.id), mode);
             if (!apiKey || !apiSecret) {
                 // Return 400 BUT also empty list to avoid breaking UI if not strict
                 // Actually better to error so user knows why prices are 0 or missing
@@ -71,49 +78,21 @@ export async function GET(request: Request) {
             };
         }).filter(row => row.meta.smartTrade === true);
 
-        // Fetch current prices in parallel using MEXC V3 API
-        const symbols = [...new Set(smartTradesRaw.map(t => t.symbol).filter(s => typeof s === 'string'))];
-        const priceMap: Record<string, number> = {};
-        
-        if (symbols.length > 0) {
-            await Promise.all(symbols.map(async (sym) => {
-                try {
-                    const cleanSymbol = sym.replace('/', '').toUpperCase();
-                    // Use a short timeout for fetch
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 2000);
-                    
-                    const res = await fetch(`https://api.mexc.com/api/v3/ticker/price?symbol=${cleanSymbol}`, {
-                        signal: controller.signal
-                    });
-                    clearTimeout(timeoutId);
-
-                    if (res.ok) {
-                        const data = await res.json();
-                        if (data && data.price) {
-                            priceMap[sym] = parseFloat(data.price);
-                        }
-                    }
-                } catch (err) {
-                    // Suppress per-symbol errors to allow partial success
-                    console.warn(`[SmartTrade] Price fetch failed for ${sym}:`, err instanceof Error ? err.message : String(err));
-                }
-            }));
-        }
+        // Efficiently fetch all current prices in a single batch call to avoid rate limits and sequential delay
+        const allPrices = await fetchAllPrices();
 
         const smartTrades = smartTradesRaw.map(trade => ({
             ...trade,
-            currentPrice: priceMap[trade.symbol] || trade.price,
+            currentPrice: allPrices[trade.symbol] || trade.price, // Use fetched price or original trade price
             created_at: typeof trade.created_at === 'string' ? parseInt(trade.created_at) || Date.now() : (Number(trade.created_at) || Date.now())
         }));
 
         return NextResponse.json(smartTrades);
     } catch (error: unknown) {
-        console.error('SmartTrade GET Error Trace:', error);
+        console.error('SmartTrade GET Error:', error);
         return NextResponse.json({ 
             error: 'Internal Server Error', 
-            details: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined
+            details: error instanceof Error ? error.message : 'Unknown error occurred'
         }, { status: 500 });
     }
 }
@@ -136,6 +115,43 @@ async function fetchCurrentPrice(symbol: string): Promise<number | undefined> {
     } catch (e) {
         console.error(`Failed to fetch current price for ${symbol}`, e);
         return undefined;
+    }
+}
+
+// New function to fetch all ticker prices in a single batch call
+async function fetchAllPrices(): Promise<Record<string, number>> {
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout for batch call
+        
+        const res = await fetch(`https://api.mexc.com/api/v3/ticker/price`, {
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
+        if (!res.ok) {
+            console.error('Failed to fetch all ticker prices:', res.status, res.statusText);
+            return {};
+        }
+        const data: Array<{ symbol: string; price: string }> = await res.json();
+        const priceMap: Record<string, number> = {};
+        for (const item of data) {
+            const p = parseFloat(item.price);
+            if (!isNaN(p) && p > 0) {
+                // Store BOTH BTCUSDT and BTC/USDT formats to ensure compatibility with various symbol storage styles
+                priceMap[item.symbol] = p;
+                
+                // If it's a USDT pair, also store with / format
+                if (item.symbol.endsWith('USDT')) {
+                    const base = item.symbol.replace('USDT', '');
+                    priceMap[`${base}/USDT`] = p;
+                }
+            }
+        }
+        return priceMap;
+    } catch (e) {
+        console.error('Failed to fetch all ticker prices:', e);
+        return {};
     }
 }
 
@@ -171,18 +187,18 @@ export async function DELETE(request: Request) {
             // Fetch all prices in parallel with a local cache to avoid duplicates
             const symbolCache = new Map<string, Promise<number | undefined>>();
             const priceResults = await Promise.all(smartRows.map(async (row) => {
-                if (!symbolCache.has(row.symbol)) {
-                    symbolCache.set(row.symbol, fetchCurrentPrice(row.symbol));
+                if (!symbolCache.has(row.symbol as string)) {
+                    symbolCache.set(row.symbol as string, fetchCurrentPrice(row.symbol as string));
                 }
-                const price = await symbolCache.get(row.symbol);
+                const price = await symbolCache.get(row.symbol as string);
                 return { 
-                    id: row.id, 
+                    id: row.id as number, 
                     price, 
-                    meta: row.meta,
-                    side: row.side,
-                    qty: row.qty,
-                    symbol: row.symbol
-                };
+                    meta: row.meta as unknown,
+                    side: row.side as string,
+                    qty: row.qty as number,
+                    symbol: row.symbol as string
+                } as CloseParams;
             }));
 
             // Process in chunks of 5 to avoid overwhelming DB/API (P4.2 fix)
@@ -191,10 +207,14 @@ export async function DELETE(request: Request) {
             
             for (let i = 0; i < priceResults.length; i += CHUNK_SIZE) {
                 const chunk = priceResults.slice(i, i + CHUNK_SIZE);
-                const chunkOutcomes = await Promise.all(chunk.map(async (res) => {
-                    return closeSingleSmartTrade(user.id, res, now, silent);
-                }));
-                outcomes.push(...chunkOutcomes);
+                const results = await Promise.all(chunk.map(async (trade) => {
+                try {
+                    return await closeSingleSmartTrade(String(user.id), trade as CloseParams, now, silent);
+                } catch (e) {
+                    return { id: trade.id, success: false, error: String(e) };
+                }
+            }));
+            outcomes.push(...results);
             }
 
             const successCount = outcomes.filter(o => o.success).length;
@@ -226,13 +246,13 @@ export async function DELETE(request: Request) {
             if (tradeRows.length === 0) return NextResponse.json({ error: 'Trade not found' }, { status: 404 });
             
             const trade = tradeRows[0];
-            const currentPrice = await fetchCurrentPrice(trade.symbol);
+            const currentPrice = await fetchCurrentPrice(String(trade.symbol));
             
-            const result = await closeSingleSmartTrade(user.id, {
-                id: trade.id,
-                symbol: trade.symbol,
-                side: trade.side,
-                qty: trade.qty,
+            const result = await closeSingleSmartTrade(String(user.id), {
+                id: trade.id as number,
+                symbol: trade.symbol as string,
+                side: trade.side as string,
+                qty: trade.qty as number,
                 price: currentPrice,
                 meta: trade.meta
             }, now, silent);
@@ -266,8 +286,11 @@ export async function PUT(req: Request) {
             return NextResponse.json({ error: 'Trade ID is required' }, { status: 400 });
         }
 
-        // Fetch existing trade to get current meta
-        const { rows } = await sql`SELECT * FROM orders WHERE id = ${id}`;
+        // Fetch existing trade to get current meta (with user isolation)
+        const user = await getSessionUser(req);
+        if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+        const { rows } = await sql`SELECT * FROM orders WHERE id = ${id} AND user_id = ${user.id}`; // User isolation verified
         if (rows.length === 0) {
             return NextResponse.json({ error: 'Trade not found' }, { status: 404 });
         }
@@ -277,17 +300,11 @@ export async function PUT(req: Request) {
         
         // Handle Flash Open - force immediate execution at market price
         if (payload.forceExecute === true) {
-            const currentPrice = await fetchCurrentPrice(trade.symbol);
+            const currentPrice = await fetchCurrentPrice(String(trade.symbol));
             if (!currentPrice) {
                 return NextResponse.json({ error: 'Could not fetch current price' }, { status: 400 });
             }
             
-            // Get user info
-            const user = await getSessionUser(req);
-            if (!user) {
-                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-            }
-
             // Disable trailingBuy and update payload
             const updatedPayload = {
                 ...existingMeta.payload,
@@ -306,10 +323,10 @@ export async function PUT(req: Request) {
                 if (trade.side === 'BUY') {
                     const qty = parseFloat(String(trade.qty));
                     const cost = qty * currentPrice;
-                    await marketBuyByQuote(Number(user.id), trade.symbol, cost.toFixed(2));
+                    await marketBuyByQuote(Number(user.id), trade.symbol as string, cost.toFixed(2));
                 } else {
                     const qty = parseFloat(String(trade.qty)).toFixed(8).replace(/\.?0+$/, '');
-                    await marketSellByQty(Number(user.id), trade.symbol, qty);
+                    await marketSellByQty(Number(user.id), trade.symbol as string, qty);
                 }
             } catch (execError: unknown) {
                 console.error('[FlashOpen] Execution failed:', execError);
@@ -323,7 +340,7 @@ export async function PUT(req: Request) {
             await sql`
                 UPDATE orders 
                 SET status = 'FILLED', price = ${currentPrice}, meta = ${JSON.stringify(newMeta)}, updated_at = ${Date.now()}
-                WHERE id = ${id}
+                WHERE id = ${id} AND user_id = ${user.id}
             `;
 
             return NextResponse.json({ success: true, message: 'Flash open executed', price: currentPrice });
@@ -341,8 +358,8 @@ export async function PUT(req: Request) {
 
         await sql`
             UPDATE orders 
-            SET meta = ${JSON.stringify(newMeta)}
-            WHERE id = ${id}
+            SET meta = ${JSON.stringify(newMeta)}, updated_at = ${Date.now()}
+            WHERE id = ${id} AND user_id = ${user.id}
         `;
 
         return NextResponse.json({ success: true });
@@ -413,11 +430,16 @@ export async function POST(request: Request) {
         }
 
         let status = 500;
+        // Map common user/execution errors to 400 (Bad Request) instead of 500
         if (message.includes('Insufficient') || 
+            message.includes('Balance') ||
             message.includes('configured') || 
             message.includes('credentials') ||
             message.includes('Invalid') ||
             message.includes('Limit') ||
+            message.includes('Precision') ||
+            message.includes('Minimum amount') ||
+            message.includes('Filter') ||
             message.includes('determined')) {
             status = 400;
         }
@@ -452,18 +474,23 @@ async function closeSingleSmartTrade(userId: string | number, res: CloseParams, 
         if (!silent) {
             try {
                 if (res.side === 'BUY') {
+                    // Standardized: Use marketSellByQty wrapper for long closure
                     const sellQty = parseFloat(String(res.qty)).toFixed(8).replace(/\.?0+$/, '');
                     await marketSellByQty(uid, res.symbol, sellQty);
                 } else if (res.side === 'SELL') {
-                    const p = res.price || await getPrice(res.symbol);
-                    if (p) {
-                        const cost = parseFloat(String(res.qty)) * p;
-                        await marketBuyByQuote(uid, res.symbol, cost.toFixed(6));
-                    }
+                    // Standardized: Use marketBuyByQty wrapper for short closure
+                    const buyQty = parseFloat(String(res.qty)).toFixed(8).replace(/\.?0+$/, '');
+                    await marketBuyByQty(uid, res.symbol, buyQty);
                 }
             } catch (execError: unknown) {
                 const msg = execError instanceof Error ? execError.message : String(execError);
-                console.error(`[CloseTrade] Exchange execution failed for ${id} (${res.symbol}):`, msg);
+                console.error(`[CloseTrade] exchange execution attempt failed for ${id} (${res.symbol}):`, msg);
+                
+                // P4.1: If NOT silent, we must throw to prevent DB archival of a trade that failed to exit on exchange.
+                // If silent=true, we ignore exchange errors because the user usually has already closed the trade manually.
+                if (!silent) {
+                    throw execError;
+                }
             }
         }
 

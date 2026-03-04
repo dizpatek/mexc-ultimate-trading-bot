@@ -477,12 +477,12 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                         data?: { 
                             message?: string; 
                             error?: string; 
-                            details?: { message?: string; error?: string }
+                            details?: string | { message?: string; error?: string }
                         } 
                     } 
                 };
-                // Prioritize 'message' which is where our custom errors usually land
                 const data = axiosError.response?.data;
+                console.log('Full Backend Error Data:', data);
                 errorDetail = data?.message || data?.error || (typeof data?.details === 'string' ? data.details : data?.details?.message) || 'Backend hatası';
             } else if (error instanceof Error) {
                 errorDetail = error.message;

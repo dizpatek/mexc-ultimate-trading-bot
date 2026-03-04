@@ -1,59 +1,14 @@
 import { NextResponse } from 'next/server';
-import axios from 'axios';
+import { fetchAndProcessNews } from '@/services/newsService';
 
-export const dynamic = 'force-dynamic';
-
-interface CryptoCompareArticle {
-    id: string;
-    title: string;
-    body: string;
-    source_info: { name: string };
-    published_on: number;
-    url: string;
-    imageurl: string;
-}
-
-async function translateToTurkish(text: string): Promise<string> {
-    try {
-        // Use a public translation endpoint (Lingva is a good free proxy for Google Translate)
-        const res = await axios.get(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=tr&dt=t&q=${encodeURIComponent(text)}`);
-        if (res.data && res.data[0] && res.data[0][0]) {
-            return res.data[0][0][0];
-        }
-        return text;
-    } catch (e) {
-        console.warn('Translation error:', e);
-        return text;
-    }
-}
+export const revalidate = 300; // Cache the response for 5 minutes (300 seconds)
 
 export async function GET() {
     try {
-        const response = await axios.get('https://min-api.cryptocompare.com/data/v2/news/?lang=EN');
-
-        const rawNews: CryptoCompareArticle[] = response.data.Data.slice(0, 50);
-        
-        // Translate only the first 15 titles to avoid rate limits and high latency
-        const news = await Promise.all(rawNews.map(async (article: CryptoCompareArticle, index: number) => {
-            const shouldTranslate = index < 15;
-            const translatedTitle = shouldTranslate ? await translateToTurkish(article.title) : article.title;
-            
-            return {
-                id: article.id,
-                title: article.title,
-                translatedTitle: translatedTitle,
-                excerpt: article.body.length > 150 ? article.body.substring(0, 150) + '...' : article.body,
-                source: article.source_info.name,
-                time: new Date(article.published_on * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                publishedOn: article.published_on,
-                url: article.url,
-                imageUrl: article.imageurl
-            };
-        }));
-
+        const news = await fetchAndProcessNews();
         return NextResponse.json(news);
     } catch (error) {
-        console.error('Error fetching news:', error);
+        console.error('API Route Error fetching news:', error);
         return NextResponse.json({ error: 'Failed to fetch news' }, { status: 500 });
     }
 }

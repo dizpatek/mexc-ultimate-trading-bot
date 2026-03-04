@@ -27,8 +27,8 @@ export const usePortfolioSummary = () => {
  * Hook to consume Holdings from the Core
  */
 export const useHoldings = () => {
-    const [data, setData] = useState<Holding[]>(core.portfolio.getData()?.holdings || []);
-    const [isLoading, setIsLoading] = useState(data.length === 0);
+    const [data, setData] = useState<Holding[] | null>(core.portfolio.getData()?.holdings || null);
+    const [isLoading, setIsLoading] = useState(!data);
 
     useEffect(() => {
         // Fail-safe: ensure kernel is running if it stalled

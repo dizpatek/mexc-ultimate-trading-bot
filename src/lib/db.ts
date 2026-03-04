@@ -1,4 +1,5 @@
 import { sql, pool } from '@/lib/postgres';
+import type { Pool } from 'pg';
 
 export interface Order {
     id: number;
@@ -289,6 +290,39 @@ export async function deleteStrategy(id: number, userId: number = DEFAULT_UID) {
     await sql`DELETE FROM strategies WHERE id = ${id} AND user_id = ${userId}`;
 }
 
+export interface StrategySignalInput {
+    strategy_id?: number | null;
+    symbol: string;
+    signal_type: string;
+    price: number;
+    volume?: number;
+    timestamp: number;
+    executed: boolean;
+    execution_result: Record<string, unknown>;
+}
+
+export async function createStrategySignalsBulk(signals: StrategySignalInput[]) {
+    if (signals.length === 0) return;
+    
+    const values: unknown[] = [];
+    const placeholders = signals.map((s, i) => {
+        const offset = i * 8;
+        values.push(
+            s.strategy_id || null, s.symbol, s.signal_type, s.price, 
+            s.volume || null, s.timestamp, s.executed || false, 
+            JSON.stringify(s.execution_result || {})
+        );
+        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8})`;
+    }).join(', ');
+
+    const query = `
+        INSERT INTO strategy_signals (strategy_id, symbol, signal_type, price, volume, timestamp, executed, execution_result)
+        VALUES ${placeholders}
+    `;
+    
+    await (pool as Pool).query(query, values);
+}
+
 export async function createStrategySignal(signalData: { 
     strategy_id?: number; 
     symbol?: string;
@@ -311,6 +345,17 @@ export async function createStrategySignal(signalData: {
 export async function getStrategySignals(strategyId: number, limit = 100) {
     const { rows } = await sql`SELECT * FROM strategy_signals WHERE strategy_id = ${strategyId} ORDER BY timestamp DESC LIMIT ${limit}`;
     return rows.map((s) => ({ ...s, execution_result: s.execution_result ? JSON.parse(s.execution_result as string) : null }));
+}
+
+export async function getRecentSignalsBulk(symbols: string[], windowMs: number): Promise<Array<{ symbol: string, signal_type: string }>> {
+    if (symbols.length === 0) return [];
+    const cutoff = Date.now() - windowMs;
+    // Note: Using ANY(ARRAY[...]) for efficient batch lookup
+    const { rows } = await (pool as Pool).query(`
+        SELECT symbol, signal_type FROM strategy_signals 
+        WHERE symbol = ANY($1) AND timestamp > $2
+    `, [symbols, cutoff]);
+    return rows;
 }
 
 // --- BOT CONFIG ---
@@ -365,7 +410,7 @@ export async function flushSystemLogs() {
             VALUES ${placeholders}
         `;
 
-        await pool.query(queryText, values);
+        await (pool as Pool).query(queryText, values);
         
     } catch (err) {
         console.error('[DB] Failed to flush system logs batch. Logs dropped to prevent ordering inversion.', err);

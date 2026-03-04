@@ -1,134 +1,13 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import { TrendingUp, TrendingDown, Activity, RefreshCw, Target, ExternalLink, AlertTriangle } from 'lucide-react';
 import { useHoldings } from '../hooks/usePortfolio';
 import { useTrade } from '@/context/TradeContext';
-import { analyzeSentiment } from '@/lib/sentiment';
 import { cn } from '@/lib/utils';
-
-// --- Types ---
-
-interface NewsItem {
-    id: string;
-    title: string;
-    originalTitle?: string;
-    translatedTitle?: string;
-    excerpt: string;
-    source: string;
-    time: string;
-    url: string;
-    sentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
-    impact: 'HIGH' | 'MEDIUM' | 'LOW';
-    relatedAsset: string;
-    sentimentScore: number;
-    sentimentConfidence: number;
-    publishedOn: number;
-    isNew?: boolean;
-}
-
-interface NewsApiResponse {
-    id: string;
-    title: string;
-    translatedTitle?: string;
-    excerpt?: string;
-    source: string;
-    time: string;
-    url: string;
-    publishedOn: number;
-}
-
-// --- Specialized Hooks ---
-
-/**
- * Hook for raw news data acquisition and 24h filtering
- */
-function useNewsData() {
-    const [rawNews, setRawNews] = useState<NewsItem[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-
-    const fetchNews = useCallback(async () => {
-        try {
-            setLoading(true);
-            const res = await fetch('/api/news');
-            if (!res.ok) throw new Error('API request failed');
-            const data = await res.json();
-
-            if (Array.isArray(data)) {
-                const now = Math.floor(Date.now() / 1000);
-                const cutoff = now - 86400; // 24 hours ago
-
-                const mapped = data
-                    .map((item: NewsApiResponse) => {
-                        const analysis = analyzeSentiment(item.title);
-                        return {
-                            ...item,
-                            title: item.translatedTitle || item.title,
-                            originalTitle: item.title,
-                            sentiment: analysis.sentiment,
-                            impact: analysis.impact,
-                            relatedAsset: analysis.asset,
-                            sentimentScore: analysis.score,
-                            sentimentConfidence: analysis.confidence,
-                        } as NewsItem;
-                    })
-                    .filter(item => item.publishedOn > cutoff);
-
-                setRawNews(mapped);
-                setError(null);
-            }
-        } catch (err) {
-            console.error('News Data Error:', err);
-            setError('Veri Alınamadı');
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchNews();
-        const interval = setInterval(fetchNews, 60000);
-        return () => clearInterval(interval);
-    }, [fetchNews]);
-
-    return { rawNews, loading, error, fetchNews };
-}
-
-/**
- * Hook for UI-state management (new item detection) and analytics
- */
-function useNewsAnalytics(rawNews: NewsItem[]) {
-    const seenIdsRef = useRef<Set<string>>(new Set());
-    
-    // Enrich news with local UI state (isNew flag)
-    const intel = useMemo(() => {
-        const processed = rawNews.map(item => ({
-            ...item,
-            isNew: seenIdsRef.current.size > 0 && !seenIdsRef.current.has(item.id)
-        }));
-
-        // Update seen IDs for next render
-        const currentIds = rawNews.map(i => i.id);
-        if (currentIds.length > 0) {
-            seenIdsRef.current = new Set([...Array.from(seenIdsRef.current), ...currentIds]);
-        }
-        
-        return processed;
-    }, [rawNews]);
-
-    const aggregateSentiment = useMemo(() => {
-        if (intel.length === 0) return 0;
-        return Math.round(intel.reduce((sum, i) => sum + i.sentimentScore, 0) / intel.length);
-    }, [intel]);
-
-    const stats = useMemo(() => ({
-        bullCount: intel.filter(i => i.sentiment === 'BULLISH').length,
-        bearCount: intel.filter(i => i.sentiment === 'BEARISH').length,
-    }), [intel]);
-
-    return { intel, aggregateSentiment, stats };
-}
+import { useWhaleRadar, WhaleAlert } from '../hooks/useWhaleRadar';
+import { useNewsData, NewsItem } from '../hooks/useNewsData';
+import { useNewsAnalytics } from '../hooks/useNewsAnalytics';
 
 // --- UI Components ---
 
@@ -173,18 +52,21 @@ const NewsTicker = ({ items }: { items: NewsItem[] }) => {
     [items]);
 
     if (highImpact.length === 0) return null;
+    // Duplicate items for seamless looping - need at least ~6 items
+    const loopItems = highImpact.length < 3 ? [...highImpact, ...highImpact, ...highImpact] : [...highImpact, ...highImpact];
 
     return (
-        <div className="relative overflow-hidden bg-gradient-to-r from-amber-950/40 via-amber-900/20 to-amber-950/40 border-b border-amber-500/20 px-0 py-1.5">
+        <div className="relative overflow-hidden bg-gradient-to-r from-amber-950/40 via-amber-900/20 to-amber-950/40 border-b border-amber-500/20 py-1.5">
             <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent,rgba(245,158,11,0.05),transparent)] animate-pulse" />
             <div className="flex items-center gap-2 text-xs">
                 <div className="shrink-0 flex items-center gap-1.5 px-3 py-1 bg-amber-500/20 border-r border-amber-500/30 font-black text-amber-500 uppercase z-10">
                     <AlertTriangle className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
                     <span className="text-[10px] uppercase tracking-[0.2em]">FLAŞ</span>
                 </div>
-                <div className="flex-1 overflow-hidden">
-                    <div className="animate-[ticker_30s_linear_infinite] flex items-center gap-8 whitespace-nowrap">
-                        {[...highImpact, ...highImpact].map((item, idx) => (
+                {/* Ticker wrapper: must have exact width set so animation works */}
+                <div className="flex-1 overflow-hidden relative">
+                    <div className="flex items-center gap-8 whitespace-nowrap" style={{ animation: 'ticker 30s linear infinite' }}>
+                        {loopItems.map((item, idx) => (
                             <span key={`${item.id}-${idx}`} className="inline-flex items-center gap-2 text-[11px]">
                                 <span className={cn(
                                     "font-black text-xs",
@@ -282,15 +164,44 @@ const NewsItemRow = ({
     );
 };
 
+// Oval pill bubble for whale radar history
+const WhaleBubble = ({ whale, isLatest, isDimmed }: { whale: WhaleAlert; isLatest: boolean; isDimmed: boolean }) => {
+    const isBuy = whale.side === 'BUY';
+    const valueK = (whale.valueUsd / 1000).toFixed(0);
+    const timeStr = new Date(whale.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    return (
+        <div className={cn(
+            "inline-flex items-center gap-1.5 px-3 py-1 rounded-full border shrink-0 whitespace-nowrap text-[9px] font-black transition-all",
+            isBuy
+                ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400"
+                : "bg-rose-500/15 border-rose-500/30 text-rose-400",
+            isLatest && "shadow-[0_0_12px_rgba(34,211,238,0.5)] border-cyan-500/40 animate-pulse",
+            isDimmed && "opacity-40 grayscale-[0.3]"
+        )}>
+            <span className={cn("w-1.5 h-1.5 rounded-full", isBuy ? "bg-emerald-400" : "bg-rose-400")} />
+            <span className="font-black text-white/80">{whale.symbol}</span>
+            <span className="font-mono">{whale.amount.toFixed(2)}</span>
+            <span className="text-[8px] opacity-70">(${valueK}K)</span>
+            <span className={cn("uppercase tracking-wider text-[8px]", isBuy ? "text-emerald-300" : "text-rose-300")}>
+                {isBuy ? '▲ AL' : '▼ SAT'}
+            </span>
+            <span className="text-[7px] opacity-50 font-mono ml-1">{timeStr}</span>
+        </div>
+    );
+};
+
 // --- Main Component ---
 
 export const IntelligenceHub = () => {
     const { data: holdings } = useHoldings();
     const trade = useTrade();
+    const whaleScrollRef = useRef<HTMLDivElement>(null);
     
     // De-coupled hooks
     const { rawNews, loading, error, fetchNews } = useNewsData();
     const { intel, aggregateSentiment, stats } = useNewsAnalytics(rawNews);
+    const { alert: latestWhaleAlert, alerts: whaleHistory } = useWhaleRadar();
 
     const handleNewsTrade = useCallback((item: NewsItem, direction: 'BUY' | 'SELL') => {
         const assetSymbol = item.relatedAsset === 'GLOBAL' ? 'BTC/USDT' : `${item.relatedAsset}/USDT`;
@@ -299,7 +210,16 @@ export const IntelligenceHub = () => {
         trade.setTpEnabled(true);
         trade.setSlEnabled(true);
         trade.setIsPanelOpen(true);
+        // scrollToTrade handles pending case via context state - no setTimeout needed
+        trade.scrollToTrade();
     }, [trade]);
+
+    // Auto scroll whale history to left when new alert comes in
+    React.useEffect(() => {
+        if (whaleScrollRef.current && latestWhaleAlert) {
+            whaleScrollRef.current.scrollLeft = 0;
+        }
+    }, [latestWhaleAlert]);
 
     return (
         <div className="flex flex-col h-full bg-gradient-to-br from-[#020617] to-[#0f172a]/90 backdrop-blur-xl border border-blue-500/30 rounded-xl overflow-hidden shadow-[0_0_40px_rgba(59,130,246,0.15)] relative group/hub">
@@ -320,7 +240,7 @@ export const IntelligenceHub = () => {
                         aggregateSentiment < -5 ? "bg-rose-500/10 border-rose-500/30 text-rose-400" : "bg-slate-800 border-slate-700 text-slate-400"
                     )}>
                         {aggregateSentiment > 5 ? <TrendingUp className="w-2.5 h-2.5" /> : aggregateSentiment < -5 ? <TrendingDown className="w-2.5 h-2.5" /> : <Activity className="w-2.5 h-2.5" />}
-                        {aggregateSentiment > 0 ? '+' : ''}{aggregateSentiment}
+                        24S SKOR: {aggregateSentiment > 0 ? '+' : ''}{aggregateSentiment}
                     </div>
                 </div>
             </div>
@@ -371,19 +291,44 @@ export const IntelligenceHub = () => {
                 )}
             </div>
 
-            {/* Whale Watch Mini-Feed */}
-            <div className="p-2.5 bg-gradient-to-r from-slate-950 to-slate-900 border-t border-blue-500/30 relative overflow-hidden group/whale z-10">
+            {/* Whale Watch — History Feed */}
+            <div className="p-2.5 bg-gradient-to-r from-slate-950 to-slate-900 border-t border-blue-500/30 relative overflow-hidden group/whale z-10 shrink-0">
                 <div className="absolute top-0 bottom-0 left-[-100%] w-1/2 bg-gradient-to-r from-transparent via-cyan-500/10 to-transparent group-hover/whale:animate-[sweep_2s_ease-in-out_infinite]" />
                 <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-[0.25em] mb-1.5 relative z-10">
-                    <span className="flex items-center gap-1.5 text-blue-400 drop-shadow-[0_0_3px_rgba(96,165,250,0.6)]"><Activity className="w-3.5 h-3.5" /> BALİNA RADARI</span>
-                    <span className="animate-pulse text-cyan-500 tracking-widest">TARANIYOR...</span>
+                    <span className="flex items-center gap-1.5 text-blue-400 drop-shadow-[0_0_3px_rgba(96,165,250,0.6)]">
+                        <Activity className="w-3.5 h-3.5" /> BALİNA RADARI
+                    </span>
+                    <span className={cn(
+                        "tracking-widest text-[9px]",
+                        latestWhaleAlert ? "text-emerald-400" : "text-cyan-500 animate-pulse"
+                    )}>
+                        {latestWhaleAlert ? 'AKTİF' : 'TARANIYOR...'}
+                    </span>
                 </div>
-                <div className="flex items-center gap-1.5 text-[10px] relative z-10 bg-[#020617]/70 rounded-lg p-1.5 border border-blue-500/20">
-                    <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.9)] animate-[pulse_1.5s_ease-in-out_infinite]" />
-                    <span className="font-black text-white/90">BTC</span>
-                    <span className="text-slate-400 line-clamp-1 font-mono text-[9px]">1.250 BTC MEXC Soğuk Cüzdanına Aktarıldı</span>
-                    <div className="ml-auto px-1.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-black text-[8px] tracking-widest">GÜVENLİ</div>
-                </div>
+
+                {/* Scrollable oval bubble history */}
+                {whaleHistory.length > 0 ? (
+                    <div
+                        ref={whaleScrollRef}
+                        className="flex gap-2 overflow-x-auto pb-1 relative z-10 scrollbar-hide"
+                        style={{ scrollbarWidth: 'none' }}
+                    >
+                        {whaleHistory.map((w, idx) => (
+                            <WhaleBubble 
+                                key={w.id} 
+                                whale={w} 
+                                isLatest={idx === 0} 
+                                isDimmed={idx >= 3}
+                            />
+                        ))}
+                    </div>
+                ) : (
+                    <div className="flex items-center gap-1.5 text-[10px] relative z-10 bg-[#020617]/70 rounded-lg p-1.5 border border-blue-500/20">
+                        <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.9)] animate-pulse" />
+                        <span className="font-black text-slate-500">AĞ</span>
+                        <span className="text-slate-600 font-mono text-[9px]">Sıradışı işlem bekleniyor...</span>
+                    </div>
+                )}
             </div>
         </div>
     );

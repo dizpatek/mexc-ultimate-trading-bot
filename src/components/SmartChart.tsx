@@ -200,9 +200,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     // Local prices for ultra-smooth dragging
     const [localPrices, setLocalPrices] = useState({ buy: Number(buyPrice), tp: Number(tpPrice), sl: slPrice ? Number(slPrice) : 0 });
     const localPricesRef = useRef(localPrices);
-    const draggingLineRef = useRef<'buy' | 'tp' | 'sl' | null>(null);
     useEffect(() => { localPricesRef.current = localPrices; }, [localPrices]);
-    useEffect(() => { draggingLineRef.current = draggingLine; }, [draggingLine]);
 
     // Sync local prices when props change (but NOT when dragging)
     useEffect(() => {
@@ -222,15 +220,21 @@ export const SmartChart: React.FC<SmartChartProps> = ({
         propsRef.current = { buyPrice, tpPrice, slPrice, tpEnabled, slEnabled, trailingBuy, onPricesChange };
     }, [buyPrice, tpPrice, slPrice, tpEnabled, slEnabled, trailingBuy, onPricesChange]);
 
-    // Track market price locally only (Parent SmartTrade already handles its own priceSync)
+    // Track market price for buy line when trailingBuy is OFF
     useEffect(() => {
         if (!isEditingExisting && !trailingBuy && currentPrice > 0) {
+            // Keep local price updated without spamming parent
             setLocalPrices(prev => {
                 if (prev.buy === currentPrice) return prev;
                 return { ...prev, buy: currentPrice };
             });
+            
+            // Update the parent occasionally or when TP/SL is being set, but prevent infinite loops
+            if (Number(propsRef.current.buyPrice) !== currentPrice) {
+                onPricesChange({ buy: currentPrice });
+            }
         }
-    }, [isEditingExisting, trailingBuy, currentPrice]);
+    }, [isEditingExisting, trailingBuy, currentPrice, onPricesChange]);
 
     // Initialize Chart Instance (Once)
     useEffect(() => {
@@ -818,17 +822,14 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                     if (price !== null) {
                         const rounded = Number(price.toFixed(6));
                         
-                        const draggingLineRefLocal = draggingLineRef.current;
-                        if (!draggingLineRefLocal) return;
-
-                        localPricesRef.current = { ...localPricesRef.current, [draggingLineRefLocal]: rounded };
+                        localPricesRef.current = { ...localPricesRef.current, [draggingLine]: rounded };
                         
                         // Update visual line immediately for 60fps drag
-                        if (draggingLineRefLocal === 'buy' && buyPriceLineRef.current) {
+                        if (draggingLine === 'buy' && buyPriceLineRef.current) {
                             buyPriceLineRef.current.applyOptions({ price: rounded });
-                        } else if (draggingLineRefLocal === 'tp' && tpPriceLineRef.current) {
+                        } else if (draggingLine === 'tp' && tpPriceLineRef.current) {
                             tpPriceLineRef.current.applyOptions({ price: rounded });
-                        } else if (draggingLineRefLocal === 'sl' && slPriceLineRef.current) {
+                        } else if (draggingLine === 'sl' && slPriceLineRef.current) {
                             slPriceLineRef.current.applyOptions({ price: rounded });
                         }
 
@@ -845,7 +846,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                     
                     const distY = (y: number) => Math.abs(param.point!.y - y);
                     const over = distY(buyY) < 30 || distY(tpY) < 30 || distY(slY) < 30;
-                    chartContainerRef.current.style.cursor = over || draggingLineRef.current ? 'ns-resize' : 'crosshair';
+                    chartContainerRef.current.style.cursor = over || draggingLine ? 'ns-resize' : 'crosshair';
                 }
             } finally {
                 isProcessing.current = false;
@@ -855,12 +856,10 @@ export const SmartChart: React.FC<SmartChartProps> = ({
         chart.subscribeClick(onMouseDown);
         chart.subscribeCrosshairMove(onMouseMove);
         const onMouseUp = () => {
-            if (draggingLineRef.current) {
-                const line = draggingLineRef.current;
+            if (draggingLine) {
                 // Send final coordinate to parent on drop
-                propsRef.current.onPricesChange({ [line]: localPricesRef.current[line] });
+                propsRef.current.onPricesChange({ [draggingLine]: localPricesRef.current[draggingLine] });
                 setDraggingLine(null);
-                draggingLineRef.current = null;
             }
         };
         window.addEventListener('mouseup', onMouseUp);
@@ -870,7 +869,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
             chart.unsubscribeCrosshairMove(onMouseMove);
             window.removeEventListener('mouseup', onMouseUp);
         };
-    }, [isChartReady, isEditingExisting]);
+    }, [isChartReady, draggingLine, isEditingExisting]);
 
     // Helper: % distance from current price
     const pctFromCurrent = (price: number) => {

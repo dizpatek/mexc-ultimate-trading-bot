@@ -183,18 +183,25 @@ export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: 
             console.log(`[SmartTrade] Standalone ${mode} detected for ${pair}. Marking as CLOSED immediately.`);
         }
 
-        dbId = await insertOrder({
+        // Parse execution values, defaulting to 0 for safety if null/NaN
+        const qtyToRecord = entryResult?.executedQty ? parseFloat(entryResult.executedQty) : 0;
+        const quoteToRecord = entryResult?.cummulativeQuoteQty ? parseFloat(entryResult.cummulativeQuoteQty) : 0;
+        
+        const recordId = await insertOrder({
             user_id,
+            mexc_order_id: (entryResult?.orderId || entryResult?.id || undefined) as string | undefined,
             symbol: pair,
-            side: mode === 'TRADE' ? 'BUY' : 'SELL',
-            type: 'MARKET',
-            qty: qty,
+            side: entryResult?.side || (mode === 'TRADE' ? 'BUY' : 'SELL'),
+            type: entryResult?.type || 'MARKET',
+            qty: isNaN(qtyToRecord) ? 0 : qtyToRecord,
+            quote: isNaN(quoteToRecord) ? 0 : quoteToRecord,
             price: avgPrice,
-            status: initialStatus,
-            meta: { 
+            status: entryResult?.status || 'NEW',
+            meta: {
+                initial_result: entryResult,
+                payload,
                 smartTrade: true, 
                 mode, 
-                payload, 
                 highestPrice: avgPrice, 
                 lowestPrice: avgPrice,
                 lastUpdate: Date.now(),
@@ -203,6 +210,7 @@ export async function handleSmartTrade(payload: SmartTradePayload, forcedMode?: 
                 initialQty: qty
             }
         });
+        dbId = recordId as number;
     } catch (dbError: unknown) {
         console.warn('[SmartTrade] DB recording failed (continuing):', dbError instanceof Error ? dbError.message : String(dbError));
     }

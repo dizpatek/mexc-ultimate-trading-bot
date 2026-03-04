@@ -12,8 +12,11 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        // Auto-migrate if needed
+        // Ensure tables exist (optimized with isInitialized internal flag)
         await ensureTablesExist();
+
+        // 48-hour (2 days) log limit requirement
+        const fortyEightHoursAgo = Date.now() - (48 * 60 * 60 * 1000);
 
         // Fetch both trade signals and system logs for a complete CombatLog feel
         const { rows } = await sql`
@@ -29,6 +32,8 @@ export async function GET(request: Request) {
                     s.execution_result::text as detail
                 FROM strategy_signals s
                 LEFT JOIN strategies st ON s.strategy_id = st.id
+                WHERE (s.strategy_id IS NULL OR st.user_id = ${user.id})
+                AND s.timestamp > ${fortyEightHoursAgo}
             )
             UNION ALL
             (
@@ -42,9 +47,11 @@ export async function GET(request: Request) {
                     true as executed,
                     message || ': ' || COALESCE(details, '') as detail
                 FROM system_logs
+                WHERE (user_id = ${user.id} OR user_id IS NULL)
+                AND timestamp > ${fortyEightHoursAgo}
             )
             ORDER BY timestamp DESC
-            LIMIT 50
+            LIMIT 500
         `;
 
         return NextResponse.json(rows);

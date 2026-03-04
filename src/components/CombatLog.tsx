@@ -1,138 +1,43 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useRef, useEffect, useMemo, useState } from 'react';
 import { Terminal, Activity, Crosshair, Zap, Radar, Target, AlertTriangle } from 'lucide-react';
-import { api } from '@/services/api';
 import { cn } from '@/lib/utils';
 import { useTrade } from '@/context/TradeContext';
 import { useHoldings } from '../hooks/usePortfolio';
+import { useCombatLogs, LogEntry, deduplicateSystemLogs, filterSignalsByHoldings } from '../hooks/useCombatLogs';
 
-interface LogEntry {
-    id: string;
-    timestamp: number;
-    type: 'EXECUTION' | 'SYSTEM' | 'AI_DECISION' | 'WHALE_ALERT' | 'STRUCTURE' | 'F4_SIGNAL';
-    message: string;
-    details?: string;
-    sentiment?: 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL';
-    level?: string;
-}
+const DEFAULT_SYSTEM_LOGS: LogEntry[] = [
+    { id: 'def-1', timestamp: Date.now() - 5000, type: 'SYSTEM', message: 'Veri akışı optimize edildi, ağ senkronizasyonu tamamlandı.', level: 'SUCCESS' },
+    { id: 'def-2', timestamp: Date.now() - 15000, type: 'SYSTEM', message: 'Yedek sunucular bekleme konumuna alındı.', level: 'INFO' },
+    { id: 'def-3', timestamp: Date.now() - 25000, type: 'SYSTEM', message: 'API hız sınırları kontrol edildi: Optimal.', level: 'INFO' },
+    { id: 'def-4', timestamp: Date.now() - 35000, type: 'SYSTEM', message: 'Güvenlik duvarı güncellendi, yeni protokoller devrede.', level: 'WARN' },
+    { id: 'def-5', timestamp: Date.now() - 45000, type: 'SYSTEM', message: 'Piyasa dalgalanma analizi arka planda algılandı.', level: 'INFO' },
+    { id: 'def-6', timestamp: Date.now() - 55000, type: 'SYSTEM', message: 'Veritabanı bağlantısı kuruldu, gecikme < 5ms.', level: 'SUCCESS' },
+    { id: 'def-7', timestamp: Date.now() - 65000, type: 'SYSTEM', message: 'Matrix Engine v5.3.4 ALPHA sistem başlangıcı yapıldı.', level: 'INFO' }
+];
+
 
 export const CombatLog = () => {
-    const [logs, setLogs] = useState<LogEntry[]>([]);
-    const [scanStatus, setScanStatus] = useState<'idle' | 'scanning' | 'done'>('idle');
-    const [lastScanTime, setLastScanTime] = useState<number | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const { logs, scanStatus, lastScanTime, isLoading, error, fetchLogs, triggerScan } = useCombatLogs();
     const tradeScrollRef = useRef<HTMLDivElement>(null);
     const systemScrollRef = useRef<HTMLDivElement>(null);
     const trade = useTrade();
-    const { data: holdings } = useHoldings();
+    const { data: holdings, isLoading: isLoadingHoldings } = useHoldings();
+    // Filter mode: 'ALL' or 'ASSETS' (only signals related to held assets)
+    const [signalFilter, setSignalFilter] = useState<'ALL' | 'ASSETS'>('ASSETS');
 
-    const fetchLogs = useCallback(async () => {
-        try {
-            const response = await api.get('/logs/signals');
-            const data = response.data;
-            setError(null);
-            
-            if (Array.isArray(data)) {
-                const formattedLogs: LogEntry[] = data.map((sig: { id: string; symbol: string; strategy_name: string; type: string; price: string; timestamp: string; executed: boolean; detail: string }) => {
-                    const isTrade = sig.type === 'BUY' || sig.type === 'SELL';
-                    const isWhale = sig.type === 'WHALE';
-                    const isSystem = sig.symbol === 'SYSTEM';
-                    const isStructure = sig.type === 'BOS' || sig.type === 'CHoCH';
-                    const isF4 = sig.type.startsWith('F4_');
-                    
-                    let logType: LogEntry['type'] = 'AI_DECISION';
-                    if (isTrade) logType = 'EXECUTION';
-                    else if (isWhale) logType = 'WHALE_ALERT';
-                    else if (isSystem) logType = 'SYSTEM';
-                    else if (isStructure) logType = 'STRUCTURE';
-                    else if (isF4) logType = 'F4_SIGNAL';
+    const tradeLogs = useMemo(() => logs.filter(l => l.type !== 'SYSTEM'), [logs]);
+    
+    const filteredTradeLogs = useMemo(() => {
+        if (signalFilter === 'ALL') return tradeLogs;
+        return filterSignalsByHoldings(tradeLogs, holdings ?? undefined);
+    }, [tradeLogs, signalFilter, holdings]);
 
-                    let message: string;
-                    if (isSystem) {
-                        message = sig.detail;
-                    } else if (isWhale) {
-                        message = `🐋 WHALE: ${sig.symbol}`;
-                    } else if (isTrade) {
-                        message = `${sig.type}: ${sig.symbol} @ ${sig.price}`;
-                    } else if (isStructure) {
-                        message = `📐 ${sig.type}: ${sig.symbol}`;
-                    } else if (isF4) {
-                        message = `⚡ ${sig.type.replace(/_/g, ' ')}: ${sig.symbol}`;
-                    } else {
-                        message = `🎯 AI: ${sig.symbol}`;
-                    }
-
-                    // Safe detail parsing
-                    let detailText: string | undefined;
-                    if (!isSystem && sig.detail) {
-                        try {
-                            const raw = sig.detail;
-                            if (typeof raw === 'object') {
-                                detailText = (raw as Record<string, unknown>)?.detail ? String((raw as Record<string, unknown>).detail) : undefined;
-                            } else if (typeof raw === 'string' && raw.startsWith('{')) {
-                                const parsed = JSON.parse(raw);
-                                detailText = parsed?.detail ? String(parsed.detail) : undefined;
-                            } else {
-                                detailText = sig.executed ? `ONAYLANDI: ${sig.strategy_name}` : String(raw);
-                            }
-                        } catch {
-                            detailText = sig.executed ? `ONAYLANDI: ${sig.strategy_name}` : String(sig.detail);
-                        }
-                    }
-
-                    return {
-                        id: sig.id,
-                        timestamp: Number(sig.timestamp),
-                        type: logType,
-                        message,
-                        details: detailText,
-                        sentiment: sig.type === 'BUY' || sig.type === 'F4_CONFIRMED_BUY' || sig.type === 'F4_EARLY_BUY' ? 'POSITIVE' : 
-                                   sig.type === 'SELL' || sig.type === 'F4_CONFIRMED_SELL' || sig.type === 'F4_EARLY_SELL' ? 'NEGATIVE' : 'NEUTRAL',
-                        level: isSystem ? sig.type : undefined
-                    };
-                });
-                setLogs(formattedLogs);
-            }
-        } catch (err) {
-            console.error('Fetch Logs Error:', err);
-            setError('Veri Çekilemedi');
-        } finally {
-            setIsLoading(false);
-        }
-    }, []);
-
-    // Signal scanner trigger
-    const triggerScan = useCallback(async () => {
-        try {
-            setScanStatus('scanning');
-            await api.get('/signals/scan');
-            setLastScanTime(Date.now());
-            setScanStatus('done');
-            // Re-fetch logs after scan to show new signals
-            await fetchLogs();
-        } catch (err) {
-            console.error('Signal Scan Error:', err);
-            setScanStatus('idle');
-        }
-    }, [fetchLogs]);
-
-    useEffect(() => {
-        fetchLogs();
-        const interval = setInterval(fetchLogs, 3000);
-        return () => clearInterval(interval);
-    }, [fetchLogs]);
-
-    // Trigger scanner every 60 seconds
-    useEffect(() => {
-        triggerScan();
-        const scanInterval = setInterval(triggerScan, 60000);
-        return () => clearInterval(scanInterval);
-    }, [triggerScan]);
-
-    const tradeLogs = logs.filter(l => l.type !== 'SYSTEM');
-    const systemLogs = logs.filter(l => l.type === 'SYSTEM' && !l.message.includes('Matrix Engine Online: Kullanıcı oturumu başlatıldı, tüm modüller senkronize ediliyor.'));
+    const systemLogs = useMemo(
+        () => deduplicateSystemLogs(logs, DEFAULT_SYSTEM_LOGS),
+        [logs]
+    );
 
     const tradeLogsLength = tradeLogs.length;
     const systemLogsLength = systemLogs.length;
@@ -178,16 +83,20 @@ export const CombatLog = () => {
                     <h3 className="text-[10px] font-black text-cyan-100 uppercase tracking-[0.3em]">Combat Dual Terminal v2.4</h3>
                 </div>
                 <div className="flex items-center gap-4">
-                    {/* Scan Status */}
-                    <div className={cn(
-                        "flex items-center gap-1.5 px-2 py-0.5 rounded border text-[9px] font-black uppercase tracking-wider transition-colors",
-                        scanStatus === 'scanning' ? "bg-amber-500/10 border-amber-500/30 text-amber-400" :
-                        scanStatus === 'done' ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" :
-                        "bg-slate-950 border-white/5 text-slate-600"
-                    )}>
+                    {/* Interactive Scan Button (P3 Fix) */}
+                    <button
+                        onClick={() => triggerScan()}
+                        disabled={scanStatus === 'scanning'}
+                        className={cn(
+                            "flex items-center gap-1.5 px-2 py-0.5 rounded border text-[9px] font-black uppercase tracking-wider transition-all shadow-inner",
+                            scanStatus === 'scanning' ? "bg-amber-500/10 border-amber-500/30 text-amber-400 cursor-wait" :
+                            scanStatus === 'done' ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20 active:scale-95" :
+                            "bg-slate-900 border-slate-700 text-slate-500 hover:border-slate-500 hover:text-slate-300 active:scale-95"
+                        )}
+                    >
                         <Radar className={cn("w-3 h-3", scanStatus === 'scanning' && 'animate-spin')} />
-                        {scanStatus === 'scanning' ? 'TARANIYOR' : scanStatus === 'done' ? 'TARAMA OK' : 'BEKLEME'}
-                    </div>
+                        {scanStatus === 'scanning' ? 'TARANIYOR' : 'TARA'}
+                    </button>
                     <div className="flex items-center gap-2 px-2 py-0.5 rounded bg-slate-950 border border-white/5">
                         <span className="relative flex h-1.5 w-1.5">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -206,20 +115,48 @@ export const CombatLog = () => {
                         <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
                              <Zap size={10} className="text-yellow-400" /> Sinyal Akışı
                         </span>
-                        {lastScanTime && (
-                            <span className="text-[8px] text-slate-700 font-mono">
-                                Son: {new Date(lastScanTime).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                        )}
+                        <div className="flex items-center gap-1.5">
+                            {lastScanTime && (
+                                <span className="text-[8px] text-slate-700 font-mono">
+                                    Son: {new Date(lastScanTime).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                            )}
+                            {/* Filter Toggle */}
+                            <span className="text-[8px] text-slate-700 font-black ml-1">link:</span>
+                            <button
+                                onClick={() => setSignalFilter('ASSETS')}
+                                className={cn(
+                                    "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider transition-all border",
+                                    signalFilter === 'ASSETS'
+                                        ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-400"
+                                        : "bg-slate-900 border-slate-700 text-slate-500 hover:border-slate-600"
+                                )}
+                            >Assets</button>
+                            <button
+                                onClick={() => setSignalFilter('ALL')}
+                                className={cn(
+                                    "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider transition-all border",
+                                    signalFilter === 'ALL'
+                                        ? "bg-slate-700 border-slate-500 text-slate-300"
+                                        : "bg-slate-900 border-slate-700 text-slate-500 hover:border-slate-600"
+                                )}
+                            >All</button>
+                        </div>
                     </div>
                     <div ref={tradeScrollRef} className="flex-1 overflow-y-auto p-3 space-y-2.5 font-mono text-[11px] custom-scrollbar">
-                        {tradeLogs.length === 0 ? (
+                        {isLoadingHoldings && signalFilter === 'ASSETS' ? (
+                            <div className="flex flex-col items-center justify-center h-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2">
+                                <Activity size={12} className="opacity-20 animate-spin" />
+                                <div>VARLIKLAR SENKRONİZE EDİLİYOR...</div>
+                                <div className="text-[8px] text-slate-800/50 mt-1">Lütfen Bekleyin · Canlı Senkronizasyon</div>
+                            </div>
+                        ) : filteredTradeLogs.length === 0 ? (
                             <div className="flex flex-col items-center justify-center h-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2">
                                 <Radar className={cn("w-6 h-6 opacity-30", scanStatus === 'scanning' && 'animate-spin')} />
-                                <div>{scanStatus === 'scanning' ? 'SİNYALLER TARANIYOR...' : 'SİNYAL HATTI ANALİZ EDİLİYOR...'}</div>
-                                <div className="text-[8px] text-slate-800/50 mt-1">8 coin · 1dk aralık · 60sn döngü</div>
+                                <div>{scanStatus === 'scanning' ? 'SİNYALLER TARANIYOR...' : signalFilter === 'ASSETS' ? 'VARLIKLARINIZLA EŞLEŞMEDİ' : 'SİNYAL HATTI ANALİZ EDİLİYOR...'}</div>
+                                <div className="text-[8px] text-slate-800/50 mt-1">Dinamik Tarama · 1dk aralık · 60sn döngü</div>
                             </div>
-                        ) : tradeLogs.map((log) => {
+                        ) : filteredTradeLogs.map((log) => {
                             const isHeld = holdings?.some(h => log.message.includes(h.symbol));
                             return (
                                 <LogLine key={log.id} log={log} icon={getIcon(log.type)} isHeld={!!isHeld} trade={trade} />
@@ -250,7 +187,7 @@ export const CombatLog = () => {
                         ) : systemLogs.length === 0 ? (
                             <div className="flex flex-col items-center justify-center h-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2">
                                 <Activity size={12} className="opacity-20 h-3" />
-                                <div>SISTEM BEKLEMEDE</div>
+                                <div>SİSTEM BEKLEMEDE</div>
                             </div>
                         ) : systemLogs.map((log) => {
                             const style = getSystemLogStyle(log.level);
@@ -259,7 +196,7 @@ export const CombatLog = () => {
                                     <span className="text-slate-600 shrink-0 select-none opacity-70">
                                         [{new Date(log.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second:'2-digit' })}]
                                     </span>
-                                    <span className={cn("shrink-0 select-none font-bold", style.icon)}>{'>'}_</span>
+                                    <span className={cn("shrink-0 select-none font-bold", style.icon)}>{'>'}_ </span>
                                     <span className={cn("flex-1 break-word drop-shadow-sm", style.text)}>
                                         {log.message}
                                     </span>
@@ -294,12 +231,12 @@ const LogLine = ({ log, icon, isHeld, trade }: { log: LogEntry; icon: React.Reac
         if (!asset) return;
         const assetSymbol = `${asset.replace('USDT', '')}/USDT`;
         trade.setSymbol(assetSymbol);
-        
-        // Note: Using 'COVER' for sell/liquidation to maintain consistency with IntelligenceHub.tsx
         trade.setMode(direction === 'BUY' ? 'TRADE' : 'COVER');
-        
         trade.setTpEnabled(true);
         trade.setSlEnabled(true);
+        trade.setIsPanelOpen(true);
+        // scrollToTrade handles pending case via context state - no setTimeout needed
+        trade.scrollToTrade();
     };
 
     return (

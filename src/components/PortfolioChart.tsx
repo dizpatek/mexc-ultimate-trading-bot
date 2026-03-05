@@ -2,8 +2,10 @@
 
 import { useEffect, useState, memo, useCallback, useRef } from 'react';
 import { Activity, Globe, LogIn, Cookie, RefreshCw, AlertCircle, CheckCircle, ExternalLink, List } from 'lucide-react';
-import { CryptoRankWatchlist } from './CryptoRankWatchlist';
 import { useTimeframe } from '@/context/TimeframeContext';
+import { cn } from '@/lib/utils';
+import { SmartChart } from './SmartChart';
+import type { Holding } from '@/services/api';
 
 // Type definitions
 interface LoginStatus {
@@ -71,14 +73,63 @@ const TF_TO_TV: Record<string, string> = {
     '1M': 'M',
 };
 
-interface TradingViewWidgetProps {
+interface PortfolioChartProps {
     symbol?: string;
+    // SmartChart Props
+    buyPrice?: number;
+    tpPrice?: number;
+    slPrice?: number;
+    onPricesChange?: (prices: { buy?: number; tp?: number; sl?: number }) => void;
+    tpEnabled?: boolean;
+    slEnabled?: boolean;
+    trailingBuy?: boolean;
+    onTrailingBuyChange?: (v: boolean) => void;
+    trailingSl?: boolean;
+    onTrailingSlChange?: (v: boolean) => void;
+    trailingTp?: boolean;
+    onTrailingTpChange?: (v: boolean) => void;
+    currentMarketPrice?: number;
+    onMarketPriceUpdate?: (price: number) => void;
+    mode?: 'TRADE' | 'COVER';
+    assets?: Holding[];
+    onAssetChange?: (asset: Holding) => void;
+    potentialEntry?: number;
+    compact?: boolean;
+    isEditingExisting?: boolean;
 }
 
-function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
+function TradingViewWidget({ 
+    symbol = 'BTCUSDT',
+    buyPrice = 0,
+    tpPrice = 0,
+    slPrice = 0,
+    onPricesChange = () => {},
+    tpEnabled = false,
+    slEnabled = false,
+    trailingBuy = false,
+    onTrailingBuyChange = () => {},
+    trailingSl = false,
+    onTrailingSlChange = () => {},
+    trailingTp = false,
+    onTrailingTpChange = () => {},
+    currentMarketPrice,
+    onMarketPriceUpdate,
+    mode = 'TRADE',
+    assets = [],
+    onAssetChange,
+    potentialEntry,
+    compact = false,
+    isEditingExisting = false
+}: PortfolioChartProps) {
     const containerId = 'tv-widget-portfolio-chart';
     const { timeframe } = useTimeframe();
     const tvInterval = TF_TO_TV[timeframe] || '60';
+
+    // Clean symbol for TradingView (remove slashes)
+    const cleanSymbol = symbol.replace(/\//g, '');
+    
+    // TAB STATE: 'TV' or 'SMART'
+    const [activeTab, setActiveTab] = useState<'TV' | 'SMART'>('SMART');
     
     // Load initial states from localStorage
     const [isWebMode, setIsWebMode] = useState(() => {
@@ -178,7 +229,7 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
                     break;
             }
         }
-    }, [checkLoginStatus, showMessage]); // Removed loginStatus from dependencies
+    }, [checkLoginStatus, showMessage]);
 
     // Listen for app-wide logout events
     useEffect(() => {
@@ -199,7 +250,6 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
         window.addEventListener('message', handleExtensionMessage);
         
         // Initial check
-        // Initial discovery: Send a ping and ask for session restore
         const initDiscovery = () => {
             console.log('[PortfolioChart] Searching for Matrix Bridge...');
             window.postMessage({
@@ -208,8 +258,6 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
             }, '*');
         };
 
-        // Efficient Polling: Check every 500ms for the first 5 seconds, then stop
-        // This makes detection much snappier on page load
         let attempts = 0;
         const pollInterval = setInterval(() => {
             if (!extensionInstalledRef.current && attempts < 10) {
@@ -220,12 +268,10 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
             }
         }, 500);
         
-        // Set checked to true after initial delay to show missing notice if no reply
         const checkTimer = setTimeout(() => {
             setExtensionChecked(true);
         }, 3000);
 
-        // Small delay to ensure bridge is ready
         const timer = setTimeout(initDiscovery, 1000);
         
         return () => {
@@ -238,7 +284,7 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
 
     // Initialize TradingView widget
     useEffect(() => {
-        if (isWebMode) return;
+        if (isWebMode || activeTab === 'SMART') return;
 
         let script: HTMLScriptElement | null = null;
         
@@ -246,7 +292,7 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
              if (typeof window.TradingView !== 'undefined') {
                 new window.TradingView.widget({
                     autosize: true,
-                    symbol: symbol.includes(':') ? symbol : `MEXC:${symbol}`,
+                    symbol: cleanSymbol.includes(':') ? cleanSymbol : `MEXC:${cleanSymbol}`,
                     interval: tvInterval,
                     timezone: "Etc/UTC",
                     theme: "dark",
@@ -306,14 +352,12 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
                 return () => clearInterval(checkInterval);
             }
         }
-    }, [isWebMode, symbol, tvInterval]);
+    }, [isWebMode, cleanSymbol, tvInterval, activeTab]);
 
     // Check login status after popup closes
     const checkLoginAfterPopup = useCallback(async () => {
-        // Wait a bit for cookies to be set
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        // Check if extension has stored session
         if (extensionInstalledRef.current) {
             window.postMessage({
                 source: 'matrix-bridge-page',
@@ -324,7 +368,6 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
         showMessage('Giris tamamlandi. Web modu etkinlestiriliyor...', 'info');
         setShowLoginModal(false);
         
-        // Assume login was successful and switch to web mode
         setLoginStatus({ isLoggedIn: true });
         setIsWebMode(true);
     }, [showMessage]);
@@ -332,7 +375,6 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
     // Handle web mode toggle
     const handleWebModeToggle = useCallback(() => {
         if (!isWebMode) {
-            // Switching to web mode - check if logged in first
             if (!loginStatus?.isLoggedIn) {
                 setShowLoginModal(true);
                 return;
@@ -347,25 +389,15 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
         setMessage(null);
         
         try {
-            // Open TradingView login in a popup window
             const loginUrl = 'https://www.tradingview.com/accounts/signin/?legacy_signup=true#/signin';
-            
-            // Open popup
-            const popup = window.open(
-                loginUrl,
-                'TradingViewLogin',
-                'width=500,height=700,scrollbars=yes,resizable=yes'
-            );
+            const popup = window.open(loginUrl, 'TradingViewLogin', 'width=500,height=700,scrollbars=yes,resizable=yes');
             
             if (popup) {
                 showMessage('Giris penceresi acildi. Lutfen Google hesabinizi secin ve giris yapin.', 'info');
-                
-                // Monitor popup for completion
                 const checkClosed = setInterval(() => {
                     if (popup.closed) {
                         clearInterval(checkClosed);
                         setIsLoading(false);
-                        // Check if login was successful by trying to access TradingView
                         checkLoginAfterPopup();
                     }
                 }, 500);
@@ -382,8 +414,8 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
 
     // Open TradingView directly
     const openProChart = useCallback(() => {
-        window.open('https://www.tradingview.com/chart/?symbol=MEXC:BTCUSDT', '_blank');
-    }, []);
+        window.open(`https://www.tradingview.com/chart/?symbol=${cleanSymbol.includes(':') ? cleanSymbol : `MEXC:${cleanSymbol}`}`, '_blank');
+    }, [cleanSymbol]);
 
     // Close login modal
     const closeLoginModal = useCallback(() => {
@@ -398,7 +430,6 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
 
     // Logout
     const handleLogout = useCallback(() => {
-        // Send command to extension to clear its session
         if (extensionInstalledRef.current) {
             window.postMessage({
                 source: 'matrix-bridge-page',
@@ -412,23 +443,47 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
         showMessage('Cikis yapildi ve Bridge verileri temizlendi.', 'info');
     }, [showMessage]);
 
+
+
     return (
-        <div className="h-full w-full flex flex-col bg-slate-950 border border-slate-800 rounded-t-xl overflow-hidden shadow-2xl relative">
-            {/* Header/Toolbar */}
-            <div className="flex items-center justify-between px-3 py-1 bg-slate-900 border-b border-slate-800 z-50 rounded-t-xl">
+        <div id="portfolio-chart-section" className="h-full w-full flex flex-col bg-slate-950 border border-slate-800 rounded-t-xl overflow-hidden shadow-2xl relative">
+            {/* Header/Toolbar [HIDDEN in COMPACT - Standalone view] */}
+            {!compact && (
+            <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900 border-b border-slate-800 z-50 rounded-t-xl">
                 <div className="flex items-center gap-3">
                     <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-black tracking-widest text-slate-500 uppercase">PortfolioChart</span>
-                        {extensionChecked && !extensionInstalled && (
+                        {/* Tab Switcher */}
+                        <div className="flex bg-slate-800/50 p-0.5 rounded-lg ml-2 border border-slate-700/50">
+                            <button 
+                                onClick={() => setActiveTab('SMART')}
+                                className={cn(
+                                    "px-3 py-1 rounded text-[9px] font-black tracking-widest uppercase transition-all",
+                                    activeTab === 'SMART' ? "bg-cyan-500 text-slate-950 shadow-[0_0_10px_rgba(6,182,212,0.4)]" : "text-slate-500 hover:text-slate-300"
+                                )}
+                            >
+                                Matrix Smart
+                            </button>
+                            <button 
+                                onClick={() => setActiveTab('TV')}
+                                className={cn(
+                                    "px-3 py-1 rounded text-[9px] font-black tracking-widest uppercase transition-all",
+                                    activeTab === 'TV' ? "bg-blue-500 text-slate-950 shadow-[0_0_10px_rgba(59,130,246,0.4)]" : "text-slate-500 hover:text-slate-300"
+                                )}
+                            >
+                                TradingView
+                            </button>
+                        </div>
+
+                        {activeTab === 'TV' && extensionChecked && !extensionInstalled && (
                             <div 
                                 onClick={() => setShowLoginModal(true)}
                                 className="flex items-center gap-1.5 px-2 py-0.5 bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[9px] font-black rounded cursor-pointer hover:bg-rose-500/20 transition-all animate-pulse"
                             >
                                 <AlertCircle className="w-3 h-3" />
-                                <span>@ [.matrix-extension] BULUNAMADI</span>
+                                <span>BRIDGE BULUNAMADI</span>
                             </div>
                         )}
-                        {extensionInstalled && (
+                        {activeTab === 'TV' && extensionInstalled && (
                             <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[9px] font-black rounded">
                                 <CheckCircle className="w-3 h-3" />
                                 <span>BRIDGE AKTIF</span>
@@ -453,7 +508,7 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
 
                 <div className="flex items-center gap-2">
                     {/* Cookies Status */}
-                    {loginStatus?.isLoggedIn && (
+                    {activeTab === 'TV' && loginStatus?.isLoggedIn && (
                         <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 bg-slate-800/50 rounded border border-slate-700/50 text-[10px] text-slate-400 font-medium h-8">
                             <Cookie className="w-3 h-3 text-purple-400" />
                             <span>{loginStatus.cookies?.length || 0} Senkron Veri</span>
@@ -464,17 +519,19 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
 
                     {/* Actions */}
                     <div className="flex items-center gap-1">
-                        <button 
-                            onClick={handleWebModeToggle}
-                            className={`group h-8 px-3 rounded flex items-center gap-2 transition-all border text-[10px] font-bold ${
-                                isWebMode 
-                                    ? 'bg-purple-600/10 text-purple-400 border-purple-500/30 hover:bg-purple-600/20' 
-                                    : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700'
-                            }`}
-                        >
-                            {isWebMode ? <Activity className="w-3.5 h-3.5" /> : <Globe className="w-3.5 h-3.5" />}
-                            <span>{isWebMode ? "Widget Moduna Don" : "Web Modunu Ac"}</span>
-                        </button>
+                        {activeTab === 'TV' && (
+                            <button 
+                                onClick={handleWebModeToggle}
+                                className={`group h-8 px-3 rounded flex items-center gap-2 transition-all border text-[10px] font-bold ${
+                                    isWebMode 
+                                        ? 'bg-purple-600/10 text-purple-400 border-purple-500/30 hover:bg-purple-600/20' 
+                                        : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700'
+                                }`}
+                            >
+                                {isWebMode ? <Activity className="w-3.5 h-3.5" /> : <Globe className="w-3.5 h-3.5" />}
+                                <span>{isWebMode ? "Widget Modu" : "Web Modu"}</span>
+                            </button>
+                        )}
 
                         <button 
                             onClick={openProChart}
@@ -490,17 +547,16 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
                             title="CryptoRank Watchlist"
                         >
                             <List className="w-3.5 h-3.5" />
-                            <span>Watchlist</span>
-                            <ExternalLink className="w-3 h-3" />
+                            <span>Watch</span>
                         </button>
 
-                        {loginStatus?.isLoggedIn ? (
+                        {activeTab === 'TV' && (loginStatus?.isLoggedIn ? (
                             <button
                                 onClick={handleLogout}
                                 className="h-8 px-3 rounded flex items-center gap-2 bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20 transition-all text-[10px] font-bold"
                             >
                                 <LogIn className="w-3.5 h-3.5 rotate-180" />
-                                <span className="hidden sm:inline">Çıkış</span>
+                                <span className="hidden sm:inline">Cikis</span>
                             </button>
                         ) : (
                             <button
@@ -508,45 +564,75 @@ function TradingViewWidget({ symbol = 'BTCUSDT' }: TradingViewWidgetProps) {
                                 className="h-8 px-3 rounded flex items-center gap-2 bg-green-600/10 text-green-500 border border-green-500/20 hover:bg-green-600/20 transition-all text-[10px] font-bold"
                             >
                                 <LogIn className="w-3.5 h-3.5" />
-                                <span>Giriş Yap</span>
+                                <span>Giris</span>
                             </button>
-                        )}
+                        ))}
                     </div>
                 </div>
             </div>
+            )}
 
             {/* Chart Area */}
             <div className="flex-1 w-full bg-[#020617] relative overflow-hidden flex flex-col">
-                {isWebMode ? (
-                    <iframe 
-                        src={`https://www.tradingview.com/chart/?symbol=MEXC:${symbol}&interval=${tvInterval}&theme=dark`}
-                        className="w-full h-full border-0 flex-1"
-                        allowFullScreen
-                        title="TradingView Pro Web"
-                        sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-top-navigation"
-                    />
+                {activeTab === 'SMART' ? (
+                    <div className="flex-1 w-full overflow-hidden pt-0">
+                        <SmartChart 
+                            symbol={symbol}
+                            buyPrice={buyPrice}
+                            tpPrice={tpPrice}
+                            slPrice={slPrice}
+                            onPricesChange={onPricesChange}
+                            tpEnabled={tpEnabled}
+                            slEnabled={slEnabled}
+                            trailingBuy={trailingBuy}
+                            onTrailingBuyChange={onTrailingBuyChange}
+                            trailingSl={trailingSl}
+                            onTrailingSlChange={onTrailingSlChange}
+                            trailingTp={trailingTp}
+                            onTrailingTpChange={onTrailingTpChange}
+                            currentMarketPrice={currentMarketPrice}
+                            onMarketPriceUpdate={onMarketPriceUpdate}
+                            mode={mode}
+                            assets={assets}
+                            onAssetChange={onAssetChange}
+                            potentialEntry={potentialEntry}
+                            compact={compact}
+                            isEditingExisting={isEditingExisting}
+                        />
+                    </div>
                 ) : (
-                    <div id={containerId} className="h-full w-full flex-1" />
-                )}
+                    <div className="flex-1 w-full relative">
+                        {isWebMode ? (
+                            <iframe 
+                                src={`https://www.tradingview.com/chart/?symbol=${cleanSymbol.includes(':') ? cleanSymbol : `MEXC:${cleanSymbol}`}&interval=${tvInterval}&theme=dark`}
+                                className="absolute inset-0 w-full h-full border-0"
+                                allowFullScreen
+                                title="TradingView Pro Web"
+                                sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-top-navigation"
+                            />
+                        ) : (
+                            <div id={containerId} className="w-full h-full" />
+                        )}
 
-                {/* Overlays */}
-                {isWebMode && !loginStatus?.isLoggedIn && (
-                    <div className="absolute bottom-4 left-4 right-4 animate-in fade-in slide-in-from-bottom-4 duration-500 z-40">
-                        <div className="px-4 py-3 bg-slate-900/95 border border-yellow-500/30 text-slate-300 rounded-xl shadow-2xl backdrop-blur-md">
-                            <div className="flex items-start gap-3">
-                                <AlertCircle className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
-                                <div className="flex-1">
-                                    <p className="text-xs font-bold text-yellow-400 mb-1">Oturum Açılmadı</p>
-                                    <p className="text-[10px] leading-relaxed opacity-80">
-                                        TradingView kısıtlı çalışabilir. Tam erişim için{' '}
-                                        <button onClick={() => setShowLoginModal(true)} className="text-yellow-400 underline hover:no-underline font-bold">Giriş Yapın</button>.
-                                    </p>
+                        {/* Overlays */}
+                        {isWebMode && !loginStatus?.isLoggedIn && (
+                            <div className="absolute bottom-4 left-4 right-4 animate-in fade-in slide-in-from-bottom-4 duration-500 z-40">
+                                <div className="px-4 py-3 bg-slate-900/95 border border-yellow-500/30 text-slate-300 rounded-xl shadow-2xl backdrop-blur-md">
+                                    <div className="flex items-start gap-3">
+                                        <AlertCircle className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
+                                        <div className="flex-1">
+                                            <p className="text-xs font-bold text-yellow-400 mb-1">Oturum Açılmadı</p>
+                                            <p className="text-[10px] leading-relaxed opacity-80">
+                                                TradingView kısıtlı çalışabilir. Tam erişim için{' '}
+                                                <button onClick={() => setShowLoginModal(true)} className="text-yellow-400 underline hover:no-underline font-bold">Giriş Yapın</button>.
+                                            </p>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        )}
                     </div>
                 )}
-
             </div>
             
             {/* Login Modal */}

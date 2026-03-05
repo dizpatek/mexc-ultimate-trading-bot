@@ -219,16 +219,21 @@ export const Header = ({ }: HeaderProps) => {
                 
                 <button
                     onClick={() => {
-                        const main = document.querySelector('main');
-                        if (main) {
-                            const height = main.scrollHeight;
-                            main.scrollTo({ top: height / 2, behavior: 'smooth' });
+                        const target = document.getElementById('portfolio-chart-section');
+                        if (target) {
+                            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
                         } else {
-                            const height = document.documentElement.scrollHeight;
-                            window.scrollTo({ top: height / 2, behavior: 'smooth' });
+                            const main = document.querySelector('main');
+                            if (main) {
+                                const height = main.scrollHeight;
+                                main.scrollTo({ top: height / 2, behavior: 'smooth' });
+                            } else {
+                                const height = document.documentElement.scrollHeight;
+                                window.scrollTo({ top: height / 2, behavior: 'smooth' });
+                            }
                         }
                     }}
-                    title="SCROLL TO MIDDLE"
+                    title="SCROLL TO CHART"
                     className="p-2 rounded-lg text-cyan-500 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all group/sc"
                 >
                     <Minus className="w-5 h-5 group-hover/sc:scale-125 transition-transform" />

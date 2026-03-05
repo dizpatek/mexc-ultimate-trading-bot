@@ -55,7 +55,7 @@ const updateRegistry = (asset: string, url: string) => {
     }, 1000);
 };
 
-export const AssetIcon = ({ symbol, className = "w-7 h-7", size = 28 }: AssetIconProps) => {
+export const AssetIcon = ({ symbol, className = "", size = 28 }: AssetIconProps) => {
     // Intelligent base asset extraction
     const asset = useMemo(() => {
         if (!symbol) return '';
@@ -112,7 +112,10 @@ export const AssetIcon = ({ symbol, className = "w-7 h-7", size = 28 }: AssetIco
     }
 
     return (
-        <div className={`relative ${className} flex-shrink-0 flex items-center justify-center`}>
+        <div 
+            className={`relative ${className} flex-shrink-0 flex items-center justify-center overflow-hidden`}
+            style={{ width: size, height: size }}
+        >
             {/* Soft glow matching TV aesthetics */}
             <div className="absolute inset-0 bg-white/5 rounded-full blur-[1px]" />
             <Image 

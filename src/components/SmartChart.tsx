@@ -250,7 +250,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
             layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#94a3b8' },
             grid: { vertLines: { color: 'rgba(30, 41, 59, 0.3)' }, horzLines: { color: 'rgba(30, 41, 59, 0.3)' } },
             width: container.clientWidth || 800,
-            height: compact ? (container.clientHeight || 250) : 500,
+            height: compact ? (container.clientHeight || 250) : (container.clientHeight || 800),
             timeScale: { borderColor: '#1e293b', timeVisible: true },
             rightPriceScale: { borderColor: '#1e293b', autoScale: true },
             crosshair: {
@@ -288,7 +288,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
             if (chartRef.current && chartContainerRef.current) {
                 chartRef.current.applyOptions({ 
                     width: chartContainerRef.current.clientWidth,
-                    height: chartContainerRef.current.clientHeight || (compact ? 250 : 500) 
+                    height: chartContainerRef.current.clientHeight || (compact ? 250 : 800) 
                 });
             }
         };
@@ -884,7 +884,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     };
 
     return (
-        <div className={cn("w-full select-none", compact ? "space-y-0" : "space-y-1")}>
+        <div className={cn("w-full select-none flex flex-col", compact ? "h-auto space-y-0" : "h-full space-y-1")}>
             <SmartChartHeader
                 compact={compact}
                 symbol={symbol}
@@ -899,10 +899,10 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                 assetScrollRef={assetScrollRef}
             />
 
-            <div className="relative group/chart">
+            <div className="relative group/chart flex-1 flex flex-col">
                 <div ref={chartContainerRef} className={cn(
                     "w-full bg-slate-950/20 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl transition-all",
-                    compact ? "h-[250px]" : "h-[500px]"
+                    compact ? "h-[250px]" : "flex-1 min-h-[800px]"
                 )} />
             {syncError && allKlinesRef.current.length > 0 && (
                 <div className="absolute top-4 right-4 z-30 px-3 py-1 bg-rose-500/20 border border-rose-500/40 backdrop-blur-md rounded-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
@@ -964,7 +964,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                     const isDisabledBuy = key === 'buy' && isEditingExisting;
                     
                     return (
-                        <div key={key} className="absolute inset-x-0 transition-all duration-150" style={{ top: Math.max(20, Math.min(480, coord)) }}>
+                        <div key={key} className="absolute inset-x-0 transition-all duration-150" style={{ top: Math.max(20, Math.min(compact ? 230 : 780, coord)) }}>
                             {/* Full-width dashed horizontal line */}
                             <div className={`absolute left-0 right-0 border-t border-dashed ${lineColor}`} style={{ top: 0 }} />
                             

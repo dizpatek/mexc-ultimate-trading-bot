@@ -22,6 +22,8 @@ interface TradeContextType {
     setEditingTrade: (trade: SmartTradeOrder | null) => void;
     isPanelOpen: boolean;
     setIsPanelOpen: (open: boolean) => void;
+    isTradeFormOpen: boolean;
+    setIsTradeFormOpen: (open: boolean) => void;
     /** Ref to be attached to the SmartTrade 'Units' section for specific scrolling */
     unitsAnchorRef: React.MutableRefObject<HTMLElement | null>;
     /** Ref to be attached to the SmartTrade panel element for scrolling */
@@ -46,6 +48,7 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
     const [mode, setMode] = useState<'TRADE' | 'COVER'>('TRADE');
     const [editingTrade, setEditingTrade] = useState<SmartTradeOrder | null>(null);
     const [isPanelOpen, setIsPanelOpen] = useState(false);
+    const [isTradeFormOpen, setIsTradeFormOpen] = useState(false);
     const [pendingScroll, setPendingScroll] = useState<boolean | 'UNITS'>(false);
     const tradeAnchorRef = useRef<HTMLElement | null>(null);
     const unitsAnchorRef = useRef<HTMLElement | null>(null);
@@ -83,6 +86,7 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
             mode, setMode,
             editingTrade, setEditingTrade,
             isPanelOpen, setIsPanelOpen,
+            isTradeFormOpen, setIsTradeFormOpen,
             tradeAnchorRef,
             unitsAnchorRef,
             scrollToTrade,

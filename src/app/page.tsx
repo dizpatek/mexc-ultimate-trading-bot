@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { useHoldings } from '@/hooks/usePortfolio';
 import { Header } from '@/components/Header';
-import { PortfolioChart } from '@/components/PortfolioChart';
 import { CombatLog } from '@/components/CombatLog';
 import { IntelligenceHub } from '@/components/IntelligenceHub';
 import { SmartOperationCenter } from '@/components/SmartOperationCenter';
@@ -68,18 +67,6 @@ export default function Dashboard() {
       <Header />
 
       <main className="flex-1 min-w-0 p-2 md:p-4 lg:p-6 space-y-6 overflow-y-auto max-w-full mx-auto w-full pb-24 no-scrollbar">
-        {/* MIDDLE ROW: WIDE CHART */}
-        <div className="grid grid-cols-12 gap-4 h-[900px] -mt-2 md:-mt-4 lg:-mt-6">
-            {/* MAIN CHART - FULL WIDTH */}
-            <div className="col-span-12 mt-0">
-                <HorizonCard className="h-full bg-slate-900/30 backdrop-blur-sm border-slate-800 mt-0 rounded-t-none" glowColor="emerald">
-                     <div className="absolute top-3 left-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <span className="px-2 py-1 bg-slate-950/80 backdrop-blur text-[10px] uppercase font-bold rounded text-emerald-400 border border-emerald-500/20">PortfolioChart</span>
-                    </div>
-                    <PortfolioChart symbol={activeSymbol} />
-                </HorizonCard>
-            </div>
-        </div>
 
         {/* MATRIX MISSION CONTROL (Full Width) */}
         <div className="w-full min-h-[400px]">

@@ -16,7 +16,8 @@ export const SmartOperationCenter = () => {
         tpEnabled, setTpEnabled, 
         slEnabled, setSlEnabled,
         editingTrade, setEditingTrade,
-        isPanelOpen, setIsPanelOpen
+        setIsTradeFormOpen,
+        scrollToTrade
     } = useTrade();
     
     useEffect(() => {
@@ -31,19 +32,21 @@ export const SmartOperationCenter = () => {
 
     const handleSaveSuccess = () => {
         setEditingTrade(null);
-        setIsPanelOpen(false);
+        setIsTradeFormOpen(false);
         activeTradesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
 
     const handleCancelEdit = () => {
         setEditingTrade(null);
-        setIsPanelOpen(false);
+        setIsTradeFormOpen(false);
     };
 
     const handleNew = () => {
         setEditingTrade(null);
-        setIsPanelOpen(true);
-        terminalRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setIsTradeFormOpen(true);
+        setTimeout(() => {
+            scrollToTrade('UNITS');
+        }, 100);
     };
 
     const handleEdit = (trade: SmartTradeOrder) => {
@@ -55,15 +58,15 @@ export const SmartOperationCenter = () => {
         setSlPrice(p.stopLoss?.price?.toString() || "0");
         setTpEnabled(!!p.takeProfit);
         setSlEnabled(!!p.stopLoss);
-        setIsPanelOpen(true);
+        setIsTradeFormOpen(true);
         setTimeout(() => {
-            terminalRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            scrollToTrade('UNITS');
         }, 100);
     };
 
     if (!isClient) {
         return (
-            <div className="w-full h-[600px] bg-slate-950/20 border border-slate-800 rounded-2xl flex flex-col items-center justify-center gap-3">
+            <div className="w-full h-[900px] bg-slate-950/20 border border-slate-800 rounded-2xl flex flex-col items-center justify-center gap-3">
                 <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
                 <span className="text-xs font-black text-cyan-500 uppercase tracking-widest">Başlatılıyor...</span>
             </div>
@@ -79,28 +82,26 @@ export const SmartOperationCenter = () => {
                 />
             </div>
 
-            {/* Unified Terminal Module (Chart + Trade) - Hidden by default, shown only during Edit or if explicitly opened */}
-            {(isPanelOpen || editingTrade) && (
-                <div ref={terminalRef} className="animate-in fade-in slide-in-from-top-4 duration-500">
-                    <SmartTrade 
-                        controlledSymbol={symbol}
-                        onSymbolChange={setSymbol}
-                        controlledBuyPrice={buyPrice}
-                        onBuyPriceChange={setBuyPrice}
-                        controlledTpPrice={tpPrice}
-                        onTpPriceChange={setTpPrice}
-                        controlledSlPrice={slPrice}
-                        onSlPriceChange={setSlPrice}
-                        controlledTpEnabled={tpEnabled}
-                        onTpEnabledChange={setTpEnabled}
-                        controlledSlEnabled={slEnabled}
-                        onSlEnabledChange={setSlEnabled}
-                        editingTrade={editingTrade ?? undefined}
-                        onCancelEdit={handleCancelEdit}
-                        onSaveSuccess={handleSaveSuccess}
-                    />
-                </div>
-            )}
+            {/* Unified Terminal Module (Chart + Trade) - Chart is always visible, controls are collapsible */}
+            <div ref={terminalRef} className="animate-in fade-in slide-in-from-top-4 duration-500">
+                <SmartTrade 
+                    controlledSymbol={symbol}
+                    onSymbolChange={setSymbol}
+                    controlledBuyPrice={buyPrice}
+                    onBuyPriceChange={setBuyPrice}
+                    controlledTpPrice={tpPrice}
+                    onTpPriceChange={setTpPrice}
+                    controlledSlPrice={slPrice}
+                    onSlPriceChange={setSlPrice}
+                    controlledTpEnabled={tpEnabled}
+                    onTpEnabledChange={setTpEnabled}
+                    controlledSlEnabled={slEnabled}
+                    onSlEnabledChange={setSlEnabled}
+                    editingTrade={editingTrade ?? undefined}
+                    onCancelEdit={handleCancelEdit}
+                    onSaveSuccess={handleSaveSuccess}
+                />
+            </div>
         </div>
     );
 };

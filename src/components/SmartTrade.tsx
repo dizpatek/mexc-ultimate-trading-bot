@@ -10,13 +10,14 @@ import {
     Trash2,
     RefreshCw,
     ChevronDown,
-    Activity
+    Activity,
+    X
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { HorizonCard } from './matrix-horizon/HorizonCard';
 import { useHoldings } from '@/hooks/usePortfolio';
 import { AssetIcon } from './AssetIcon';
-import { SmartChart } from './SmartChart';
+import { PortfolioChart } from './PortfolioChart';
 import { createSmartTrade, api } from '@/services/api';
 import { SmartTradeOrder } from './ActiveSmartTrades';
 import { useTrade } from '@/context/TradeContext';
@@ -69,7 +70,12 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     // 0. External Data
     const { data: holdingsRaw, refetch: refetchHoldings } = useHoldings();
     const holdings = React.useMemo(() => holdingsRaw || [], [holdingsRaw]);
-    const { unitsAnchorRef, tradeAnchorRef } = useTrade();
+    const { 
+        unitsAnchorRef, 
+        tradeAnchorRef, 
+        isTradeFormOpen, 
+        setIsTradeFormOpen 
+    } = useTrade();
 
     // 1. Core State — mode supports controlled pattern from parent
     const [_mode, _setMode] = useState<'TRADE' | 'COVER'>('TRADE');
@@ -630,10 +636,10 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                 </div>
             )}
             
-            {/* Integrated SmartChart Section (Shown by default in full mode) */}
+             {/* Integrated PortfolioChart Section (Shown by default in full mode) */}
              {!compact && (
-                <div className={cn("mb-1 transition-all duration-500 overflow-hidden", compact ? "h-[260px] opacity-100" : "h-auto opacity-100")}>
-                    <SmartChart 
+                <div className={cn("mb-1 transition-all duration-500 overflow-hidden", compact ? "h-[310px] opacity-100" : "h-[900px] opacity-100")}>
+                    <PortfolioChart 
                         compact={compact}
                         symbol={symbol}
                         buyPrice={buyP}
@@ -663,7 +669,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
               {compact && !editingTrade && (
                  <div id="compact-top-anchor" className="flex flex-col gap-1.5 mb-2 relative z-50">
                      {/* Mode Switcher at the very top */}
-                     <div className="flex bg-slate-950/60 p-0.5 rounded-lg border border-slate-800/50 backdrop-blur-md w-full">
+                      <div className="flex bg-slate-950/60 p-0.5 rounded-lg border border-slate-800/50 backdrop-blur-md w-full relative">
                          <button 
                              onClick={() => {
                                  setMode('TRADE');
@@ -698,6 +704,19 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                              <ArrowRightLeft className="w-2.5 h-2.5" />
                              Cover
                          </button>
+                         
+                         {editingTrade && compact && (
+                             <button
+                                 onClick={(e) => {
+                                     e.stopPropagation();
+                                     onCancelEdit?.();
+                                 }}
+                                 className="absolute -right-1 -top-1 w-4 h-4 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-lg border-2 border-[#020617] hover:scale-110 transition-all z-[60]"
+                                 title="Düzenlemeyi İptal Et"
+                             >
+                                 <X className="w-2.5 h-2.5" />
+                             </button>
+                         )}
                      </div>
 
                      {/* Asset Selector */}
@@ -774,7 +793,10 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
              )}
 
              {/* Main Grid: 3 Columns or Flex Column if Compact */}
-              <div id="smart-trade-controls" className={cn("gap-5 mt-2 transition-all duration-500", compact ? "flex flex-col gap-1.5" : "grid grid-cols-1 lg:grid-cols-3")}>
+                {(isTradeFormOpen || !!editingTrade || compact) && (
+                  <>
+                    <div id="smart-trade-controls" 
+className={cn("gap-5 mt-2 transition-all duration-500 animate-in fade-in slide-in-from-top-4", compact ? "flex flex-col gap-1.5" : "grid grid-cols-1 lg:grid-cols-3")}>
                  
                  {/* COLUMN 1: UNITS & BUY PRICE */}
                  <div className={cn("flex flex-col gap-4")}>
@@ -1038,9 +1060,9 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                 <div className={cn("flex flex-col h-full", compact ? "gap-1.5" : "gap-5")}>
 
                     {/* MOVED MODE SWITCHER HERE */}
-                    {!compact && (
+                    {(isTradeFormOpen || !!editingTrade || compact) && !compact && (
                         <div className="flex flex-col items-center gap-1.5 w-full animate-in fade-in slide-in-from-top-4 relative z-20">
-                            <div className="flex bg-slate-950/60 p-1.5 rounded-2xl border border-slate-800/80 backdrop-blur-md w-full shadow-xl">
+                            <div className="flex bg-slate-950/60 p-1.5 rounded-2xl border border-slate-800/80 backdrop-blur-md w-full shadow-xl relative">
                                 <button 
                                     onClick={() => {
                                         setMode('TRADE');
@@ -1071,6 +1093,21 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                                     <ArrowRightLeft className="w-4 h-4" />
                                     Cover
                                 </button>
+
+                                {/* Close Button for Form in Main Terminal */}
+                                <button
+                                    onClick={() => {
+                                        if (editingTrade) {
+                                            onCancelEdit?.();
+                                        } else {
+                                            setIsTradeFormOpen(false);
+                                        }
+                                    }}
+                                    className="absolute -right-3 -top-3 w-8 h-8 rounded-full bg-slate-900 border border-slate-800 text-slate-400 flex items-center justify-center hover:bg-rose-500 hover:text-white transition-all shadow-xl z-30 group"
+                                    title="Paneli Kapat"
+                                >
+                                    <X className="w-4 h-4 transition-transform group-hover:rotate-90" />
+                                </button>
                             </div>
                             <div className="text-center h-4 mt-0.5">
                                 {mode === 'TRADE' ? (
@@ -1096,68 +1133,71 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                             </div>
                         )}
 
-                        <div className={cn("flex flex-col relative z-10 w-full", compact ? "gap-1" : "gap-6")}>
-                            <div className={cn("flex flex-col items-center justify-center relative border-white/10", compact ? "pb-1" : "border-b pb-4")}>
-                                <h3 className={cn("font-black text-cyan-500/80 uppercase tracking-[0.2em] flex items-center justify-center gap-2 w-full text-center", compact ? "text-[9px]" : "text-sm")}>
-                                    <Activity className="w-4 h-4" /> {mode === 'COVER' ? 'VARLIK BİRİKTİRME' : 'NİHAİ SONUÇ'}
-                                </h3>
-                                {statusMsg && (
-                                    <div className={cn(
-                                        "absolute -top-3 w-full text-center px-3 py-1 rounded border text-[10px] font-black uppercase animate-in fade-in slide-in-from-top-2 duration-300 z-30 shadow-lg",
-                                        statusMsg.type === 'success' ? "bg-emerald-500/90 text-white border-emerald-500" : "bg-rose-500/90 text-white border-rose-500"
-                                    )}>
-                                        {statusMsg.text}
+                            {/* [HİDDEN in COMPACT] Hedefler/Özet kısmını compact modda gizle */}
+                            {!compact && (
+                            <div className={cn("flex flex-col relative z-10 w-full", compact ? "gap-1" : "gap-6")}>
+                                <div className={cn("flex flex-col items-center justify-center relative border-white/10", compact ? "pb-1" : "border-b pb-4")}>
+                                    <h3 className={cn("font-black text-cyan-500/80 uppercase tracking-[0.2em] flex items-center justify-center gap-2 w-full text-center", compact ? "text-[9px]" : "text-sm")}>
+                                        <Activity className="w-4 h-4" /> {mode === 'COVER' ? 'VARLIK BİRİKTİRME' : 'NİHAİ SONUÇ'}
+                                    </h3>
+                                    {statusMsg && (
+                                        <div className={cn(
+                                            "absolute -top-3 w-full text-center px-3 py-1 rounded border text-[10px] font-black uppercase animate-in fade-in slide-in-from-top-2 duration-300 z-30 shadow-lg",
+                                            statusMsg.type === 'success' ? "bg-emerald-500/90 text-white border-emerald-500" : "bg-rose-500/90 text-white border-rose-500"
+                                        )}>
+                                            {statusMsg.text}
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                {compact ? (
+                                    <div className="flex flex-col gap-0.5 border-t border-white/5 pt-1 mt-1">
+                                        <div className="flex justify-between items-center px-1">
+                                            <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-tighter">Tahmini Kar</span>
+                                            <span className="text-[10px] font-black text-emerald-400 font-mono">
+                                                ${profitUsdt.toFixed(2)} ({profitUsdt >= 0 ? '+' : ''}{tpPercent.toFixed(1)}%)
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center px-1">
+                                            <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-tighter">Max Risk</span>
+                                            <span className="text-[10px] font-black text-rose-400 font-mono">
+                                                -${riskUsdt.toFixed(2)} ({slPercent.toFixed(1)}%)
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center px-1">
+                                            <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-tighter">Risk/Ödül</span>
+                                            <span className="text-[10px] font-black text-white font-mono">1:{riskReward}</span>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 gap-4 w-full">
+                                        <div className="rounded-xl bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 border border-emerald-500/20 flex items-center justify-between p-5 shadow-[0_0_15px_rgba(16,185,129,0.05)]">
+                                            <div className="text-[10px] font-black text-emerald-500/80 uppercase tracking-widest whitespace-nowrap">
+                                                {mode === 'COVER' ? 'TAHMİNİ KAZANÇ' : 'HESAPLANAN KAR'}
+                                            </div>
+                                            <div className="font-black text-emerald-400 font-mono text-2xl tracking-tighter shadow-emerald-400/20 drop-shadow-md">
+                                                +${profitUsdt.toFixed(2)}
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="rounded-xl bg-gradient-to-br from-rose-500/10 to-rose-500/5 border border-rose-500/20 flex items-center justify-between p-5 shadow-[0_0_15px_rgba(244,63,94,0.05)]">
+                                            <div className="text-[10px] font-black text-rose-500/80 uppercase tracking-widest whitespace-nowrap">
+                                                {mode === 'COVER' ? 'TAHMİNİ KAYIP' : 'MAKSİMUM RİSK'}
+                                            </div>
+                                            <div className="font-black text-rose-400 font-mono text-xl tracking-tighter shadow-rose-400/20 drop-shadow-md">
+                                                -${riskUsdt.toFixed(2)}
+                                            </div>
+                                        </div>
+ 
+                                        <div className="rounded-xl flex items-center justify-center transition-all bg-slate-900/60 border border-white/5 p-4 mt-2 gap-4">
+                                            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">RİSK / ÖDÜL ORANI</div>
+                                            <div className="h-4 w-[1px] bg-white/10" />
+                                            <div className="font-black text-white font-mono text-xl tracking-tighter">1 : {riskReward}</div>
+                                        </div>
                                     </div>
                                 )}
                             </div>
-                            
-                            {compact ? (
-                                <div className="flex flex-col gap-0.5 border-t border-white/5 pt-1 mt-1">
-                                    <div className="flex justify-between items-center px-1">
-                                        <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-tighter">Tahmini Kar</span>
-                                        <span className="text-[10px] font-black text-emerald-400 font-mono">
-                                            ${profitUsdt.toFixed(2)} ({profitUsdt >= 0 ? '+' : ''}{tpPercent.toFixed(1)}%)
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between items-center px-1">
-                                        <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-tighter">Max Risk</span>
-                                        <span className="text-[10px] font-black text-rose-400 font-mono">
-                                            -${riskUsdt.toFixed(2)} ({slPercent.toFixed(1)}%)
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between items-center px-1">
-                                        <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-tighter">Risk/Ödül</span>
-                                        <span className="text-[10px] font-black text-white font-mono">1:{riskReward}</span>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-1 gap-4 w-full">
-                                    <div className="rounded-xl bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 border border-emerald-500/20 flex items-center justify-between p-5 shadow-[0_0_15px_rgba(16,185,129,0.05)]">
-                                        <div className="text-[10px] font-black text-emerald-500/80 uppercase tracking-widest whitespace-nowrap">
-                                            {mode === 'COVER' ? 'TAHMİNİ KAZANÇ' : 'HESAPLANAN KAR'}
-                                        </div>
-                                        <div className="font-black text-emerald-400 font-mono text-2xl tracking-tighter shadow-emerald-400/20 drop-shadow-md">
-                                            +${profitUsdt.toFixed(2)}
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="rounded-xl bg-gradient-to-br from-rose-500/10 to-rose-500/5 border border-rose-500/20 flex items-center justify-between p-5 shadow-[0_0_15px_rgba(244,63,94,0.05)]">
-                                        <div className="text-[10px] font-black text-rose-500/80 uppercase tracking-widest whitespace-nowrap">
-                                            {mode === 'COVER' ? 'TAHMİNİ KAYIP' : 'MAKSİMUM RİSK'}
-                                        </div>
-                                        <div className="font-black text-rose-400 font-mono text-xl tracking-tighter shadow-rose-400/20 drop-shadow-md">
-                                            -${riskUsdt.toFixed(2)}
-                                        </div>
-                                    </div>
-
-                                    <div className="rounded-xl flex items-center justify-center transition-all bg-slate-900/60 border border-white/5 p-4 mt-2 gap-4">
-                                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">RİSK / ÖDÜL ORANI</div>
-                                        <div className="h-4 w-[1px] bg-white/10" />
-                                        <div className="font-black text-white font-mono text-xl tracking-tighter">1 : {riskReward}</div>
-                                    </div>
-                                </div>
                             )}
-                        </div>
 
 
                     </div>
@@ -1260,14 +1300,13 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                         </div>
                     )}
 
-                     {/* Compact Mode SmartChart - Contextual Placement under TP/SL Toggles */}
-                     {compact && showAdvanced && !editingTrade && (
-                         <div 
-                             className="animate-in fade-in slide-in-from-top-2 duration-500 overflow-hidden border border-white/5 rounded-xl mb-1 mt-0.5 z-[40] relative w-full"
-                             style={{ height: 'clamp(200px, 40vh, 280px)' }}
-                             // USER requested no auto-scroll when SmartChart is opened
-                         >
-                             <SmartChart 
+                      {/* Compact Mode PortfolioChart - Contextual Placement under TP/SL Toggles */}
+                      {compact && showAdvanced && !editingTrade && (
+                          <div 
+                              className="animate-in fade-in slide-in-from-top-2 duration-500 overflow-hidden border border-white/5 rounded-xl mb-1 mt-0.5 z-[40] relative w-full h-[310px]"
+                              // USER requested no auto-scroll when SmartChart is opened
+                          >
+                             <PortfolioChart 
                                 compact={true}
                                 symbol={symbol}
                                 buyPrice={buyP}
@@ -1366,6 +1405,8 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                                                 </div>
                                             )}
 
+                                            {/* [HIDDEN in COMPACT] Hedefleri Böl butonu compact modda gizlendi */}
+                                            {!compact && (
                                             <button 
                                                 onClick={() => {
                                                     setIsSplitTp(true);
@@ -1376,6 +1417,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                                                 <Split className="w-3 h-3 text-emerald-400 group-hover/split:rotate-12 transition-transform" />
                                                 <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">Hedefleri Böl</span>
                                             </button>
+                                            )}
                                         </div>
                                     ) : (
                                         <div className="space-y-1.5 animate-in fade-in slide-in-from-top-2">
@@ -1669,6 +1711,8 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                     </span>
                 </button>
             </div>
+                  </>
+                )}
             </HorizonCard>
         </div>
     );

@@ -42,20 +42,20 @@ export const SmartChartHeader: React.FC<SmartChartHeaderProps> = ({
     if (compact) return null;
 
     return (
-        <div className="flex items-end gap-4 w-full px-1 overflow-hidden">
+        <div className="flex items-center gap-4 w-full px-1 py-0">
             {/* Current Price Indicator & Assets List */}
             <div className="flex-1 flex items-center gap-4 min-w-0">
                 {currentPrice > 0 ? (
                     <div className="flex items-center gap-3 pr-6 border-r border-slate-800/50">
                         <div className="relative group/asset">
                             <div className="absolute -inset-2 bg-gradient-to-tr from-amber-500/20 to-transparent rounded-full blur-md opacity-0 group-hover/asset:opacity-100 transition-opacity duration-500" />
-                            <AssetIcon symbol={symbol} size={42} className="relative z-10 shadow-2xl" />
+                            <AssetIcon symbol={symbol} size={28} className="relative z-10 shadow-lg" />
                         </div>
                         <div className="flex flex-col">
-                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">{symbol}</span>
-                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 backdrop-blur-xl">
+                            <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest leading-none mb-0">{symbol}</span>
+                            <div className="flex items-center gap-1.5 px-2 py-0 rounded-lg bg-amber-500/10 border border-amber-500/20 backdrop-blur-xl">
                                 <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.4)]" />
-                                <span className="text-base font-black text-amber-400 font-mono">
+                                <span className="text-sm font-black text-amber-400 font-mono leading-tight">
                                     {currentPrice > 0 
                                         ? (currentPrice < 1 ? currentPrice.toFixed(4) : currentPrice < 100 ? currentPrice.toFixed(2) : currentPrice.toFixed(0))
                                         : '---'}
@@ -90,14 +90,14 @@ export const SmartChartHeader: React.FC<SmartChartHeaderProps> = ({
                                 key={asset.id}
                                 onClick={() => onAssetChange?.(asset)}
                                 className={cn(
-                                    "flex items-center gap-3 p-1.5 pr-4 rounded-xl border transition-all relative group h-[44px] min-w-fit flex-shrink-0",
+                                    "flex items-center gap-3 p-1 rounded-xl border transition-all relative group h-[36px] min-w-fit flex-shrink-0",
                                     symbol.split('/')[0] === asset.symbol 
                                         ? "bg-cyan-500/10 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.1)]" 
                                         : "bg-slate-900/40 border-slate-800/50 hover:border-slate-700 hover:bg-slate-800/50"
                                 )}
                             >
                                 <div className="relative">
-                                    <AssetIcon symbol={asset.symbol} size={28} />
+                                    <AssetIcon symbol={asset.symbol} size={22} />
                                     {symbol.startsWith(asset.symbol) && (
                                         <div className="absolute -top-1 -right-1">
                                             <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee]" />

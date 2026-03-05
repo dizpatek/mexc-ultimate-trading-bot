@@ -1,13 +1,13 @@
-import { NextResponse } from 'next/server';
-import { checkDcaBots } from '@/lib/dca-engine';
-import { sql } from '@/lib/postgres';
+import { NextResponse } from "next/server";
+import { checkDcaBots } from "@/lib/dca-engine";
+import { sql } from "@/lib/postgres";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 export async function GET() {
-    try {
-        // Ensure table exists
-        await sql`
+  try {
+    // Ensure table exists
+    await sql`
             CREATE TABLE IF NOT EXISTS dca_bots (
                 id SERIAL PRIMARY KEY,
                 user_id TEXT NOT NULL,
@@ -25,12 +25,12 @@ export async function GET() {
             );
         `;
 
-        await checkDcaBots();
+    await checkDcaBots();
 
-        return NextResponse.json({ success: true, timestamp: Date.now() });
-    } catch (error: unknown) {
-        console.error('DCA Cron Failed:', error);
-        const message = error instanceof Error ? error.message : 'Unknown error';
-        return NextResponse.json({ error: message }, { status: 500 });
-    }
+    return NextResponse.json({ success: true, timestamp: Date.now() });
+  } catch (error: unknown) {
+    console.error("DCA Cron Failed:", error);
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

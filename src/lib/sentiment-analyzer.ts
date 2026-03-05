@@ -4,69 +4,112 @@
  */
 
 const BULLISH_KEYWORDS = [
-    'soar', 'surge', 'jump', 'rally', 'bull', 'bullish', 'high', 'record', 'gain',
-    'adoption', 'approve', 'launch', 'partnership', 'growth', 'positive', 'buy',
-    'accumulate', 'upgrade', 'success', 'breakout', 'moon', 'profit'
+  "soar",
+  "surge",
+  "jump",
+  "rally",
+  "bull",
+  "bullish",
+  "high",
+  "record",
+  "gain",
+  "adoption",
+  "approve",
+  "launch",
+  "partnership",
+  "growth",
+  "positive",
+  "buy",
+  "accumulate",
+  "upgrade",
+  "success",
+  "breakout",
+  "moon",
+  "profit",
 ];
 
 const BEARISH_KEYWORDS = [
-    'plunge', 'drop', 'crash', 'bear', 'bearish', 'low', 'loss', 'ban', 'hack',
-    'stolen', 'fraud', 'regulation', 'lawsuit', 'crackdown', 'negative', 'sell',
-    'dump', 'fail', 'bankruptcy', 'panic', 'fear', 'risk', 'crisis'
+  "plunge",
+  "drop",
+  "crash",
+  "bear",
+  "bearish",
+  "low",
+  "loss",
+  "ban",
+  "hack",
+  "stolen",
+  "fraud",
+  "regulation",
+  "lawsuit",
+  "crackdown",
+  "negative",
+  "sell",
+  "dump",
+  "fail",
+  "bankruptcy",
+  "panic",
+  "fear",
+  "risk",
+  "crisis",
 ];
 
 export interface SentimentResult {
-    score: number; // -100 to 100
-    label: 'Aşırı Korku' | 'Korku' | 'Nötr' | 'Açgözlülük' | 'Aşırı Açgözlülük';
-    bullishCount: number;
-    bearishCount: number;
-    analyzedCount: number;
+  score: number; // -100 to 100
+  label: "Aşırı Korku" | "Korku" | "Nötr" | "Açgözlülük" | "Aşırı Açgözlülük";
+  bullishCount: number;
+  bearishCount: number;
+  analyzedCount: number;
 }
 
 export function analyzeSentiment(headlines: string[]): SentimentResult {
-    let bullishCount = 0;
-    let bearishCount = 0;
-    let totalScore = 0;
+  let bullishCount = 0;
+  let bearishCount = 0;
+  let totalScore = 0;
 
-    headlines.forEach(headline => {
-        const lower = headline.toLowerCase();
+  headlines.forEach((headline) => {
+    const lower = headline.toLowerCase();
 
-        // Simple word matching
-        const bullMatches = BULLISH_KEYWORDS.filter(w => lower.includes(w)).length;
-        const bearMatches = BEARISH_KEYWORDS.filter(w => lower.includes(w)).length;
+    // Simple word matching
+    const bullMatches = BULLISH_KEYWORDS.filter((w) =>
+      lower.includes(w),
+    ).length;
+    const bearMatches = BEARISH_KEYWORDS.filter((w) =>
+      lower.includes(w),
+    ).length;
 
-        if (bullMatches > bearMatches) {
-            bullishCount++;
-            totalScore += 1;
-        } else if (bearMatches > bullMatches) {
-            bearishCount++;
-            totalScore -= 1;
-        }
-    });
-
-    // Normalize score (-100 to 100)
-    // If we have 10 headlines, and all represent extreme views, score could be +/- 10
-    // We scale it.
-    let normalizedScore = 0;
-    if (headlines.length > 0) {
-        normalizedScore = (totalScore / headlines.length) * 100;
+    if (bullMatches > bearMatches) {
+      bullishCount++;
+      totalScore += 1;
+    } else if (bearMatches > bullMatches) {
+      bearishCount++;
+      totalScore -= 1;
     }
+  });
 
-    // Clamp
-    normalizedScore = Math.max(-100, Math.min(100, normalizedScore));
+  // Normalize score (-100 to 100)
+  // If we have 10 headlines, and all represent extreme views, score could be +/- 10
+  // We scale it.
+  let normalizedScore = 0;
+  if (headlines.length > 0) {
+    normalizedScore = (totalScore / headlines.length) * 100;
+  }
 
-    // Determine Label
-    let label: SentimentResult['label'] = 'Nötr';
-    if (normalizedScore <= -60) label = 'Aşırı Korku';
-    else if (normalizedScore <= -20) label = 'Korku';
-    else if (normalizedScore >= 60) label = 'Aşırı Açgözlülük';
-    else if (normalizedScore >= 20) label = 'Açgözlülük';
+  // Clamp
+  normalizedScore = Math.max(-100, Math.min(100, normalizedScore));
 
-    return {
-        score: Math.round(normalizedScore),
-        label,
-        bullishCount,
-        bearishCount,
-        analyzedCount: headlines.length
-    };
+  // Determine Label
+  let label: SentimentResult["label"] = "Nötr";
+  if (normalizedScore <= -60) label = "Aşırı Korku";
+  else if (normalizedScore <= -20) label = "Korku";
+  else if (normalizedScore >= 60) label = "Aşırı Açgözlülük";
+  else if (normalizedScore >= 20) label = "Açgözlülük";
+
+  return {
+    score: Math.round(normalizedScore),
+    label,
+    bullishCount,
+    bearishCount,
+    analyzedCount: headlines.length,
+  };
 }

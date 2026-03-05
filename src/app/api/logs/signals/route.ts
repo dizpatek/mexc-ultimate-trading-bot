@@ -1,28 +1,28 @@
-import { NextResponse } from 'next/server';
-import { sql } from '@/lib/postgres';
-import { getSessionUser } from '@/lib/auth-utils';
-import { ensureTablesExist } from '@/lib/db-init';
+import { NextResponse } from "next/server";
+import { sql } from "@/lib/postgres";
+import { getSessionUser } from "@/lib/auth-utils";
+import { ensureTablesExist } from "@/lib/db-init";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-    try {
-        const user = await getSessionUser(request);
-        if (!user) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+  try {
+    const user = await getSessionUser(request);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-        const { searchParams } = new URL(request.url);
-        const timeframe = searchParams.get('timeframe') || '1m';
+    const { searchParams } = new URL(request.url);
+    const timeframe = searchParams.get("timeframe") || "1m";
 
-        // Ensure tables exist (optimized with isInitialized internal flag)
-        await ensureTablesExist();
+    // Ensure tables exist (optimized with isInitialized internal flag)
+    await ensureTablesExist();
 
-        // 48-hour (2 days) log limit requirement
-        const fortyEightHoursAgo = Date.now() - (48 * 60 * 60 * 1000);
+    // 48-hour (2 days) log limit requirement
+    const fortyEightHoursAgo = Date.now() - 48 * 60 * 60 * 1000;
 
-        // Fetch both trade signals and system logs for a complete CombatLog feel
-        const { rows } = await sql`
+    // Fetch both trade signals and system logs for a complete CombatLog feel
+    const { rows } = await sql`
             (
                 SELECT 
                     s.id::text,
@@ -60,9 +60,9 @@ export async function GET(request: Request) {
             LIMIT 500
         `;
 
-        return NextResponse.json(rows);
-    } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
-        return NextResponse.json({ error: message }, { status: 500 });
-    }
+    return NextResponse.json(rows);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

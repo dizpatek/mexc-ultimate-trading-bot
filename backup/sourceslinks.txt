@@ -1,7 +1,0 @@
-https://help.3commas.io/en/articles/3108937-how-trailing-buy-works?q=trailing
-https://help.3commas.io/en/articles/3108981-how-take-profit-works-smarttrade-and-dca-bots-trailing-feature-explained
-https://help.3commas.io/en/articles/3108977-smarttrade-dca-bots-how-stop-loss-works
-https://help.3commas.io/en/articles/10391785-smarttrade-on-3commas-how-to-create-a-short-trade
-https://help.3commas.io/en/articles/3108955-smart-cover-sell-now-buy-back-later-using-advanced-tools
-https://help.3commas.io/en/articles/5185327-troubleshooting-price-moved-below-profitable-area-too-fast
-https://help.3commas.io/en/articles/3692315-troubleshooting-why-didn-t-my-trade-take-profit-or-open

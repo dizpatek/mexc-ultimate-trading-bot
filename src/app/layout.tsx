@@ -6,10 +6,10 @@ import Providers from "../components/Providers";
 const inter = Inter({ subsets: ["latin"] });
 
 export const viewport: Viewport = {
-  width: 'device-width',
+  width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  themeColor: '#09090b',
+  themeColor: "#09090b",
 };
 
 export const metadata: Metadata = {
@@ -31,9 +31,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={inter.className}>
-        <Providers>
-          {children}
-        </Providers>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

@@ -1,8 +1,8 @@
-import { NextResponse } from 'next/server';
-import { sql } from '@/lib/postgres';
-import { getTopAssets } from '@/lib/mexc';
+import { NextResponse } from "next/server";
+import { sql } from "@/lib/postgres";
+import { getTopAssets } from "@/lib/mexc";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 /**
  * Price History Tracking Cron Job
@@ -11,36 +11,36 @@ export const dynamic = 'force-dynamic';
  */
 
 export async function GET(request: Request) {
-    try {
-        // Verify cron secret
-        const authHeader = request.headers.get('authorization');
-        const expectedAuth = `Bearer ${process.env.CRON_SECRET || 'dev-secret'}`;
+  try {
+    // Verify cron secret
+    const authHeader = request.headers.get("authorization");
+    const expectedAuth = `Bearer ${process.env.CRON_SECRET || "dev-secret"}`;
 
-        if (authHeader !== expectedAuth) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+    if (authHeader !== expectedAuth) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-        console.log('[Cron] Starting price history tracking...');
+    console.log("[Cron] Starting price history tracking...");
 
-        // Get top trading pairs
-        const topAssets = await getTopAssets(50); // Top 50 by volume
-        const timestamp = Date.now();
-        let recordedCount = 0;
+    // Get top trading pairs
+    const topAssets = await getTopAssets(50); // Top 50 by volume
+    const timestamp = Date.now();
+    let recordedCount = 0;
 
-        for (const asset of topAssets) {
-            try {
-                const ticker = asset;
-                const symbol = ticker.symbol;
-                const currentPrice = parseFloat(ticker.lastPrice);
-                const volume24h = parseFloat(ticker.quoteVolume);
-                const change24hPercent = parseFloat(ticker.priceChangePercent);
+    for (const asset of topAssets) {
+      try {
+        const ticker = asset;
+        const symbol = ticker.symbol;
+        const currentPrice = parseFloat(ticker.lastPrice);
+        const volume24h = parseFloat(ticker.quoteVolume);
+        const change24hPercent = parseFloat(ticker.priceChangePercent);
 
-                // Calculate historical prices based on percentage changes
-                // This is an approximation until we have real historical data
-                const price24hAgo = currentPrice / (1 + (change24hPercent / 100));
+        // Calculate historical prices based on percentage changes
+        // This is an approximation until we have real historical data
+        const price24hAgo = currentPrice / (1 + change24hPercent / 100);
 
-                // Insert or update price history
-                await sql`
+        // Insert or update price history
+        await sql`
                     INSERT INTO asset_price_history (
                         symbol, 
                         price, 
@@ -64,27 +64,32 @@ export async function GET(request: Request) {
                         volume_24h = EXCLUDED.volume_24h
                 `;
 
-                recordedCount++;
-            } catch (error: unknown) {
-                const message = error instanceof Error ? error.message : 'Unknown error';
-                console.warn(`[Cron] Failed to record price for ${asset.symbol}:`, message);
-            }
-        }
-
-        console.log(`[Cron] Price history tracking completed: ${recordedCount} assets recorded`);
-
-        return NextResponse.json({
-            success: true,
-            recordedCount,
-            timestamp
-        });
-
-    } catch (error: unknown) {
-        console.error('[Cron] Error tracking price history:', error);
-        const message = error instanceof Error ? error.message : 'Unknown error';
-        return NextResponse.json(
-            { error: 'Failed to track price history', details: message },
-            { status: 500 }
+        recordedCount++;
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        console.warn(
+          `[Cron] Failed to record price for ${asset.symbol}:`,
+          message,
         );
+      }
     }
+
+    console.log(
+      `[Cron] Price history tracking completed: ${recordedCount} assets recorded`,
+    );
+
+    return NextResponse.json({
+      success: true,
+      recordedCount,
+      timestamp,
+    });
+  } catch (error: unknown) {
+    console.error("[Cron] Error tracking price history:", error);
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json(
+      { error: "Failed to track price history", details: message },
+      { status: 500 },
+    );
+  }
 }

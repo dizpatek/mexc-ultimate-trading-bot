@@ -1,14 +1,14 @@
-import { NextResponse } from 'next/server';
-import { checkTrailingStops } from '@/lib/trailing-stop';
-import { monitorSmartTrades } from '@/lib/smart-trade-monitor';
-import { sql } from '@/lib/postgres';
+import { NextResponse } from "next/server";
+import { checkTrailingStops } from "@/lib/trailing-stop";
+import { monitorSmartTrades } from "@/lib/smart-trade-monitor";
+import { sql } from "@/lib/postgres";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 export async function GET() {
-    try {
-        // Ensure table exists (Lazy initialization)
-        await sql`
+  try {
+    // Ensure table exists (Lazy initialization)
+    await sql`
             CREATE TABLE IF NOT EXISTS trailing_stops (
                 id SERIAL PRIMARY KEY,
                 user_id TEXT NOT NULL,
@@ -24,12 +24,15 @@ export async function GET() {
             );
         `;
 
-        await checkTrailingStops();
-        await monitorSmartTrades();
+    await checkTrailingStops();
+    await monitorSmartTrades();
 
-        return NextResponse.json({ success: true, timestamp: Date.now() });
-    } catch (error: unknown) {
-        console.error('Trailing Stop Cron Failed:', error);
-        return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
-    }
+    return NextResponse.json({ success: true, timestamp: Date.now() });
+  } catch (error: unknown) {
+    console.error("Trailing Stop Cron Failed:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : String(error) },
+      { status: 500 },
+    );
+  }
 }

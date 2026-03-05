@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json}\" \"*.{ts,js,json}\"",
     "db:init": "node scripts/init-db.mjs",
     "telegram:start": "python telegram_signal_listener.py",
     "telegram:dev": "python telegram_signal_listener.py"
@@ -54,6 +55,7 @@
     "eslint-config-next": "15.1.8",
     "playwright": "^1.58.2",
     "postcss": "^8.5.6",
+    "prettier": "^3.8.1",
     "tailwindcss": "^3.4.19",
     "typescript": "^5"
   }

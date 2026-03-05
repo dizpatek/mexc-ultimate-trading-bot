@@ -1,48 +1,48 @@
-import { sql } from '@/lib/postgres';
+import { sql } from "@/lib/postgres";
 
 let isInitialized = false;
 let initPromise: Promise<boolean> | null = null;
 
 export async function ensureTablesExist(): Promise<boolean> {
-    if (isInitialized) return true;
+  if (isInitialized) return true;
 
-    // Use a single promise to handle concurrent calls (P4.3 race condition fix)
-    if (!initPromise) {
-        initPromise = (async () => {
-            try {
-                console.log('[DB-Init] Checking and creating all necessary tables...');
+  // Use a single promise to handle concurrent calls (P4.3 race condition fix)
+  if (!initPromise) {
+    initPromise = (async () => {
+      try {
+        console.log("[DB-Init] Checking and creating all necessary tables...");
 
-                await createCoreTables();
-                await createTradeTables();
-                await createPortfolioTables();
-                await createBotTables();
-                await runSchemaMigrations();
-                await createDefaultConfigs();
-                await createIndexes();
+        await createCoreTables();
+        await createTradeTables();
+        await createPortfolioTables();
+        await createBotTables();
+        await runSchemaMigrations();
+        await createDefaultConfigs();
+        await createIndexes();
 
-                console.log('[DB-Init] All tables verified successfully.');
-                isInitialized = true;
-                return true;
-            } catch (error) {
-                console.error('[DB-Init] Error initializing database tables:', error);
-                initPromise = null; // Clear promise on error to allow real retry on next call (P4.1 fix)
-                throw error;
-            }
-        })();
-    }
+        console.log("[DB-Init] All tables verified successfully.");
+        isInitialized = true;
+        return true;
+      } catch (error) {
+        console.error("[DB-Init] Error initializing database tables:", error);
+        initPromise = null; // Clear promise on error to allow real retry on next call (P4.1 fix)
+        throw error;
+      }
+    })();
+  }
 
-    try {
-        return await initPromise;
-    } catch (err) {
-        // If it failed, help subsequent concurrent calls by ensuring the promise is null
-        initPromise = null;
-        throw err;
-    }
+  try {
+    return await initPromise;
+  } catch (err) {
+    // If it failed, help subsequent concurrent calls by ensuring the promise is null
+    initPromise = null;
+    throw err;
+  }
 }
 
 async function createCoreTables() {
-    // 1. Users Table (Must be created FIRST for foreign key references)
-    await sql`
+  // 1. Users Table (Must be created FIRST for foreign key references)
+  await sql`
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
             username TEXT UNIQUE NOT NULL,
@@ -54,8 +54,8 @@ async function createCoreTables() {
         );
     `;
 
-    // System logs table for generic status updates
-    await sql`
+  // System logs table for generic status updates
+  await sql`
         CREATE TABLE IF NOT EXISTS system_logs (
             id SERIAL PRIMARY KEY,
             user_id INTEGER REFERENCES users(id),
@@ -68,8 +68,8 @@ async function createCoreTables() {
 }
 
 async function createTradeTables() {
-    // 2. Orders Table (Now with user_id)
-    await sql`
+  // 2. Orders Table (Now with user_id)
+  await sql`
         CREATE TABLE IF NOT EXISTS orders (
             id SERIAL PRIMARY KEY,
             user_id INTEGER REFERENCES users(id),
@@ -87,8 +87,8 @@ async function createTradeTables() {
         );
     `;
 
-    // 3. Trade History Table (Standardized name, now with user_id)
-    await sql`
+  // 3. Trade History Table (Standardized name, now with user_id)
+  await sql`
         CREATE TABLE IF NOT EXISTS trade_history (
             id SERIAL PRIMARY KEY,
             user_id INTEGER REFERENCES users(id),
@@ -109,8 +109,8 @@ async function createTradeTables() {
 }
 
 async function createPortfolioTables() {
-    // 4. Portfolio Table (For direct balance tracking)
-    await sql`
+  // 4. Portfolio Table (For direct balance tracking)
+  await sql`
         CREATE TABLE IF NOT EXISTS portfolio (
             id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL REFERENCES users(id),
@@ -123,8 +123,8 @@ async function createPortfolioTables() {
         );
     `;
 
-    // 5. Portfolio Snapshots (Now with user_id)
-    await sql`
+  // 5. Portfolio Snapshots (Now with user_id)
+  await sql`
         CREATE TABLE IF NOT EXISTS portfolio_snapshots (
             id SERIAL PRIMARY KEY,
             user_id INTEGER REFERENCES users(id),
@@ -135,8 +135,8 @@ async function createPortfolioTables() {
         );
     `;
 
-    // 6. Performance Metrics (Per user per date)
-    await sql`
+  // 6. Performance Metrics (Per user per date)
+  await sql`
         CREATE TABLE IF NOT EXISTS performance_metrics (
             id SERIAL PRIMARY KEY,
             user_id INTEGER REFERENCES users(id),
@@ -156,8 +156,8 @@ async function createPortfolioTables() {
 }
 
 async function createBotTables() {
-    // 7. DCA Bots
-    await sql`
+  // 7. DCA Bots
+  await sql`
         CREATE TABLE IF NOT EXISTS dca_bots (
             id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL REFERENCES users(id),
@@ -176,8 +176,8 @@ async function createBotTables() {
         );
     `;
 
-    // 8. Strategies
-    await sql`
+  // 8. Strategies
+  await sql`
         CREATE TABLE IF NOT EXISTS strategies (
             id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL REFERENCES users(id),
@@ -191,8 +191,8 @@ async function createBotTables() {
         );
     `;
 
-    // 9. Strategy Signals
-    await sql`
+  // 9. Strategy Signals
+  await sql`
         CREATE TABLE IF NOT EXISTS strategy_signals (
             id SERIAL PRIMARY KEY,
             strategy_id INTEGER NOT NULL REFERENCES strategies(id),
@@ -205,8 +205,8 @@ async function createBotTables() {
         );
     `;
 
-    // 10. Alarms
-    await sql`
+  // 10. Alarms
+  await sql`
         CREATE TABLE IF NOT EXISTS alarms (
             id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL REFERENCES users(id), 
@@ -220,8 +220,8 @@ async function createBotTables() {
         );
     `;
 
-    // 11. Alarm Logs
-    await sql`
+  // 11. Alarm Logs
+  await sql`
         CREATE TABLE IF NOT EXISTS alarm_logs (
             id SERIAL PRIMARY KEY,
             alarm_id INTEGER REFERENCES alarms(id),
@@ -232,8 +232,8 @@ async function createBotTables() {
         );
     `;
 
-    // 12. Panic Snapshots
-    await sql`
+  // 12. Panic Snapshots
+  await sql`
         CREATE TABLE IF NOT EXISTS panic_snapshots (
             id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL REFERENCES users(id),
@@ -243,8 +243,8 @@ async function createBotTables() {
         );
     `;
 
-    // 13. System Settings (Per User)
-    await sql`
+  // 13. System Settings (Per User)
+  await sql`
         CREATE TABLE IF NOT EXISTS system_settings (
             user_id INTEGER REFERENCES users(id),
             key VARCHAR(50) NOT NULL,
@@ -256,60 +256,88 @@ async function createBotTables() {
 }
 
 async function runSchemaMigrations() {
-    // User migrations
-    try {
-        await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE`;
-        // Ensure the FIRST user is always an admin as a fallback safety
-        await sql`UPDATE users SET is_admin = TRUE WHERE id = 1`;
-    } catch { /* ignore */ }
+  // User migrations
+  try {
+    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE`;
+    // Ensure the FIRST user is always an admin as a fallback safety
+    await sql`UPDATE users SET is_admin = TRUE WHERE id = 1`;
+  } catch {
+    /* ignore */
+  }
 
-    // Strategy signals migrations
-    await sql`ALTER TABLE strategy_signals ALTER COLUMN strategy_id DROP NOT NULL;`.catch(() => {});
-    await sql`ALTER TABLE strategy_signals ADD COLUMN IF NOT EXISTS symbol TEXT;`.catch(() => {});
-    await sql`ALTER TABLE strategy_signals ALTER COLUMN price DROP NOT NULL;`.catch(() => {});
+  // Strategy signals migrations
+  await sql`ALTER TABLE strategy_signals ALTER COLUMN strategy_id DROP NOT NULL;`.catch(
+    () => {},
+  );
+  await sql`ALTER TABLE strategy_signals ADD COLUMN IF NOT EXISTS symbol TEXT;`.catch(
+    () => {},
+  );
+  await sql`ALTER TABLE strategy_signals ALTER COLUMN price DROP NOT NULL;`.catch(
+    () => {},
+  );
 
-    // DCA bot migrations
-    try {
-        await sql`ALTER TABLE dca_bots ADD COLUMN IF NOT EXISTS meta TEXT`;
-    } catch { /* ignore */ }
+  // DCA bot migrations
+  try {
+    await sql`ALTER TABLE dca_bots ADD COLUMN IF NOT EXISTS meta TEXT`;
+  } catch {
+    /* ignore */
+  }
 
-    // Bot Config migrations
-    try {
-        await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS auto_trade BOOLEAN DEFAULT FALSE`;
-    } catch { /* ignore */ }
-    try {
-        await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS defense_mode BOOLEAN DEFAULT FALSE`;
-    } catch { /* ignore */ }
-    try {
-        await sql`ALTER TABLE bot_configs DROP COLUMN IF EXISTS timeframe`;
-        await sql`ALTER TABLE bot_configs DROP COLUMN IF EXISTS timeframe_locked`;
-    } catch { /* ignore */ }
+  // Bot Config migrations
+  try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS auto_trade BOOLEAN DEFAULT FALSE`;
+  } catch {
+    /* ignore */
+  }
+  try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS defense_mode BOOLEAN DEFAULT FALSE`;
+  } catch {
+    /* ignore */
+  }
+  try {
+    await sql`ALTER TABLE bot_configs DROP COLUMN IF EXISTS timeframe`;
+    await sql`ALTER TABLE bot_configs DROP COLUMN IF EXISTS timeframe_locked`;
+  } catch {
+    /* ignore */
+  }
 
-    // Pilot Configuration migrations
-    try {
-        await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_trailing_buy BOOLEAN DEFAULT TRUE`;
-    } catch { /* ignore */ }
-    try {
-        await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_trailing_buy_dev NUMERIC DEFAULT 0.3`;
-    } catch { /* ignore */ }
-    try {
-        await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_tp_trailing BOOLEAN DEFAULT TRUE`;
-    } catch { /* ignore */ }
-    try {
-        await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_tp_deviation NUMERIC DEFAULT 0.5`;
-    } catch { /* ignore */ }
-    try {
-        await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_sl_trailing BOOLEAN DEFAULT TRUE`;
-    } catch { /* ignore */ }
-    try {
-        await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_sl_deviation NUMERIC DEFAULT 0.5`;
-    } catch { /* ignore */ }
+  // Pilot Configuration migrations
+  try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_trailing_buy BOOLEAN DEFAULT TRUE`;
+  } catch {
+    /* ignore */
+  }
+  try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_trailing_buy_dev NUMERIC DEFAULT 0.3`;
+  } catch {
+    /* ignore */
+  }
+  try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_tp_trailing BOOLEAN DEFAULT TRUE`;
+  } catch {
+    /* ignore */
+  }
+  try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_tp_deviation NUMERIC DEFAULT 0.5`;
+  } catch {
+    /* ignore */
+  }
+  try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_sl_trailing BOOLEAN DEFAULT TRUE`;
+  } catch {
+    /* ignore */
+  }
+  try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_sl_deviation NUMERIC DEFAULT 0.5`;
+  } catch {
+    /* ignore */
+  }
 }
 
 async function createDefaultConfigs() {
-    // 14. Bot Config (Global)
-    try {
-        await sql`
+  // 14. Bot Config (Global)
+  try {
+    await sql`
             CREATE TABLE IF NOT EXISTS bot_configs (
                 id INTEGER PRIMARY KEY,
                 f4_length INTEGER DEFAULT 10,
@@ -320,31 +348,31 @@ async function createDefaultConfigs() {
                 updated_at BIGINT NOT NULL
             );
         `;
-    } catch (e) {
-        console.warn('[DB-Init] bot_configs table creation warning:', e);
-    }
+  } catch (e) {
+    console.warn("[DB-Init] bot_configs table creation warning:", e);
+  }
 
-    try {
-        const { rowCount } = await sql`SELECT 1 FROM bot_configs WHERE id = 1`;
-        if (rowCount === 0) {
-            await sql`
+  try {
+    const { rowCount } = await sql`SELECT 1 FROM bot_configs WHERE id = 1`;
+    if (rowCount === 0) {
+      await sql`
                 INSERT INTO bot_configs (id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, updated_at, 
                                         pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation)
                 VALUES (1, 10, 1.8, 65, false, false, ${Date.now()}, 
                         true, 0.3, true, 0.5, true, 0.5)
             `;
-            console.log('[DB-Init] Default bot config inserted.');
-        }
-    } catch (e) {
-        console.error('[DB-Init] default config check/insert error:', e);
+      console.log("[DB-Init] Default bot config inserted.");
     }
+  } catch (e) {
+    console.error("[DB-Init] default config check/insert error:", e);
+  }
 }
 
 async function createIndexes() {
-    // 15. Performance Indexes
-    await sql`CREATE INDEX IF NOT EXISTS idx_strategy_signals_timestamp ON strategy_signals(timestamp);`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_strategy_signals_symbol ON strategy_signals(symbol);`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_system_logs_timestamp ON system_logs(timestamp);`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_system_logs_user_id ON system_logs(user_id);`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_strategies_user_id ON strategies(user_id);`;
+  // 15. Performance Indexes
+  await sql`CREATE INDEX IF NOT EXISTS idx_strategy_signals_timestamp ON strategy_signals(timestamp);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_strategy_signals_symbol ON strategy_signals(symbol);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_system_logs_timestamp ON system_logs(timestamp);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_system_logs_user_id ON system_logs(user_id);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_strategies_user_id ON strategies(user_id);`;
 }

@@ -728,7 +728,8 @@ async function handlePendingTrade(
 
   if (entryTriggered && isTrailing) {
     const trailingTgt = calculateTrailingBuyTarget(payload.mode || "TRADE", newHighest, newLowest, entryPrice, dev);
-    if (side === "BUY") {
+    // mode: TRADE (Longs, tracking lowest, wait for rise to target)
+    if (payload.mode !== "COVER") {
         newLowest = Math.min(newLowest, currentPrice);
         metaUpdates.lowestPrice = newLowest;
         if (currentPrice >= trailingTgt) {
@@ -736,10 +737,10 @@ async function handlePendingTrade(
             exitReason = `Trailing buy gerçekleşti @ ${currentPrice}`;
         }
     } else {
+        // mode: COVER (Shorts, tracking highest, wait for drop to target)
         newHighest = Math.max(newHighest, currentPrice);
         metaUpdates.highestPrice = newHighest;
         if (currentPrice <= trailingTgt) {
-            // BUG FIX (Cover Trailing Exec): Short/Cover trailing should execute when price drops sufficiently from the local highest peak that followed the entry trigger
             shouldExit = true;
             exitReason = `Trailing Satış (Cover) gerçekleşti @ ${currentPrice}`;
         }

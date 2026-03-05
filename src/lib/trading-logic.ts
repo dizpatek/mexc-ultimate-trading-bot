@@ -583,7 +583,8 @@ export function calculateTrailingBuyTarget(
 ): number {
   const dev = devPercent / 100;
   if (mode === "COVER") {
-    // Trailing Short Entry: Track highest peak, enter short when drops dev% from peak
+    // Trailing Short Entry: wait for price to rise, track local `highestPrice`,
+    // enter short when drops dev% from peak
     const base = highestPrice > 0 ? highestPrice : entryPrice;
     return base * (1 - dev);
   } else {
@@ -606,9 +607,7 @@ export function interpretTradingStatus(
 ): { statusText: string; statusColor: string; liveAiScore: number } {
   // --- Interpret logic omitted to focus on new central function ---
   // Ensure we keep existing code. Only adding new function above it.
-  const liveAiScore = liveData
-    ? Math.round((liveData as any).aiScore)
-    : Math.round(aiScore);
+  const liveAiScore = Math.round((liveData as any)?.aiScore || aiScore || 0);
   const payload = meta?.payload || {};
 
   let statusText = "SİNYAL...";

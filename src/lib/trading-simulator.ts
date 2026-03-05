@@ -93,9 +93,11 @@ export class TradingSimulator {
         const baseAsset = extractBaseAsset(cleanSymbol);
 
         const quoteBalance = this.getBalance(quoteAsset);
-        if ((quoteBalance.free + 0.01) < quoteOrderQty) {
-            console.error(`[Simulator] REJECTED BUY: Insufficient ${quoteAsset}. Need: ${quoteOrderQty}, Have: ${quoteBalance.free}`);
-            throw new Error(`Insufficient ${quoteAsset} balance. Need: ${quoteOrderQty.toFixed(2)}, Have: ${quoteBalance.free.toFixed(2)}`);
+        const isInsufficient = (quoteBalance.free + 0.01) < quoteOrderQty;
+        
+        if (isInsufficient) {
+            const diff = quoteOrderQty - quoteBalance.free;
+            console.warn(`[Simulator/FORCE_BUY] ${symbol}: Insufficient ${quoteAsset}. Missing ${diff.toFixed(2)}. Procedding anyway.`);
         }
 
         // Calculate quantity with 0.1% taker fee
@@ -103,7 +105,7 @@ export class TradingSimulator {
         const netAmount = quoteOrderQty - fee;
         const quantity = netAmount / currentPrice;
 
-        // Update balances
+        // Update balances - allow negative in TEST mode (P1.1 Force Close logic)
         quoteBalance.free -= quoteOrderQty;
 
         const baseBalance = this.getBalance(baseAsset);

@@ -166,6 +166,20 @@ export async function DELETE(request: Request) {
         const silent = searchParams.get('silent') === 'true';
         const now = Date.now();
 
+        // P4.2: Ensure DELETE respects trading mode from cookies
+        const cookieStore = await cookies();
+        const mode = cookieStore.get('TRADING_MODE')?.value as TradingMode || 'test';
+
+        // P4.2: Production mode safety check
+        if (mode === 'production' && !silent) {
+            const { apiKey, apiSecret } = await getMexcCredentials(Number(user.id), mode);
+            if (!apiKey || !apiSecret) {
+                return NextResponse.json({ 
+                    error: 'Production mode requires API keys for panic close. Please configure them in Settings or use Silent Close.' 
+                }, { status: 400 });
+            }
+        }
+
         if (clearAll) {
             // Fetch all in-progress smart trades with full details for execution
             const { rows } = await sql`
@@ -209,7 +223,7 @@ export async function DELETE(request: Request) {
                 const chunk = priceResults.slice(i, i + CHUNK_SIZE);
                 const results = await Promise.all(chunk.map(async (trade) => {
                 try {
-                    return await closeSingleSmartTrade(String(user.id), trade as CloseParams, now, silent);
+                    return await closeSingleSmartTrade(String(user.id), trade as CloseParams, now, silent, mode);
                 } catch (e) {
                     return { id: trade.id, success: false, error: String(e) };
                 }
@@ -255,10 +269,18 @@ export async function DELETE(request: Request) {
                 qty: trade.qty as number,
                 price: currentPrice,
                 meta: trade.meta
-            }, now, silent);
+            }, now, silent, mode);
 
             if (!result.success) {
-                return NextResponse.json({ error: result.error || 'Failed' }, { status: 500 });
+                const message = result.error || 'Failed';
+                let status = 500;
+                if (message.includes('Insufficient') || message.includes('Balance') || message.includes('configured')) {
+                    status = 400;
+                }
+                return NextResponse.json({ 
+                    error: status === 400 ? 'Bad Request' : 'Internal Server Error',
+                    message: message 
+                }, { status });
             }
 
             return NextResponse.json({ 
@@ -298,8 +320,22 @@ export async function PUT(req: Request) {
         const trade = rows[0];
         const existingMeta = typeof trade.meta === 'string' ? JSON.parse(trade.meta) : trade.meta;
         
+        // P4.2: Ensure PUT respects trading mode from cookies
+        const cookieStore = await cookies();
+        const mode = cookieStore.get('TRADING_MODE')?.value as TradingMode || 'test';
+
         // Handle Flash Open - force immediate execution at market price
         if (payload.forceExecute === true) {
+            // P4.2: Production mode safety check
+            if (mode === 'production') {
+                const { apiKey, apiSecret } = await getMexcCredentials(Number(user.id), mode);
+                if (!apiKey || !apiSecret) {
+                    return NextResponse.json({ 
+                        error: 'Production mode requires API keys for flash open. Please configure them in Settings.' 
+                    }, { status: 400 });
+                }
+            }
+
             const currentPrice = await fetchCurrentPrice(String(trade.symbol));
             if (!currentPrice) {
                 return NextResponse.json({ error: 'Could not fetch current price' }, { status: 400 });
@@ -317,16 +353,16 @@ export async function PUT(req: Request) {
                 payload: updatedPayload,
                 lastEditedAt: Date.now()
             };
-
+ 
             // Execute the trade immediately at market price
             try {
                 if (trade.side === 'BUY') {
                     const qty = parseFloat(String(trade.qty));
                     const cost = qty * currentPrice;
-                    await marketBuyByQuote(Number(user.id), trade.symbol as string, cost.toFixed(2));
+                    await marketBuyByQuote(Number(user.id), trade.symbol as string, cost.toFixed(2), mode);
                 } else {
                     const qty = parseFloat(String(trade.qty)).toFixed(8).replace(/\.?0+$/, '');
-                    await marketSellByQty(Number(user.id), trade.symbol as string, qty);
+                    await marketSellByQty(Number(user.id), trade.symbol as string, qty, mode);
                 }
             } catch (execError: unknown) {
                 console.error('[FlashOpen] Execution failed:', execError);
@@ -465,7 +501,7 @@ interface CloseParams {
 /**
  * Helper to close a single smart trade: executing market order + DB update
  */
-async function closeSingleSmartTrade(userId: string | number, res: CloseParams, now: number, silent: boolean) {
+async function closeSingleSmartTrade(userId: string | number, res: CloseParams, now: number, silent: boolean, mode: TradingMode = 'test') {
     try {
         const id = Number(res.id);
         const uid = Number(userId);
@@ -476,11 +512,11 @@ async function closeSingleSmartTrade(userId: string | number, res: CloseParams, 
                 if (res.side === 'BUY') {
                     // Standardized: Use marketSellByQty wrapper for long closure
                     const sellQty = parseFloat(String(res.qty)).toFixed(8).replace(/\.?0+$/, '');
-                    await marketSellByQty(uid, res.symbol, sellQty);
+                    await marketSellByQty(uid, res.symbol, sellQty, mode);
                 } else if (res.side === 'SELL') {
                     // Standardized: Use marketBuyByQty wrapper for short closure
                     const buyQty = parseFloat(String(res.qty)).toFixed(8).replace(/\.?0+$/, '');
-                    await marketBuyByQty(uid, res.symbol, buyQty);
+                    await marketBuyByQty(uid, res.symbol, buyQty, mode);
                 }
             } catch (execError: unknown) {
                 const msg = execError instanceof Error ? execError.message : String(execError);

@@ -300,6 +300,7 @@ export interface StrategySignalInput {
     timestamp: number;
     executed: boolean;
     execution_result: Record<string, unknown>;
+    timeframe?: string;
 }
 
 export async function createStrategySignalsBulk(signals: StrategySignalInput[]) {
@@ -307,17 +308,18 @@ export async function createStrategySignalsBulk(signals: StrategySignalInput[]) 
     
     const values: unknown[] = [];
     const placeholders = signals.map((s, i) => {
-        const offset = i * 8;
+        const offset = i * 9;
+        const tf = s.timeframe || '1m';
         values.push(
             s.strategy_id || null, s.symbol, s.signal_type, s.price, 
             s.volume || null, s.timestamp, s.executed || false, 
-            JSON.stringify(s.execution_result || {})
+            JSON.stringify(s.execution_result || {}), tf
         );
-        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8})`;
+        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9})`;
     }).join(', ');
 
     const query = `
-        INSERT INTO strategy_signals (strategy_id, symbol, signal_type, price, volume, timestamp, executed, execution_result)
+        INSERT INTO strategy_signals (strategy_id, symbol, signal_type, price, volume, timestamp, executed, execution_result, timeframe)
         VALUES ${placeholders}
     `;
     
@@ -348,12 +350,12 @@ export async function getStrategySignals(strategyId: number, limit = 100) {
     return rows.map((s) => ({ ...s, execution_result: s.execution_result ? JSON.parse(s.execution_result as string) : null }));
 }
 
-export async function getRecentSignalsBulk(symbols: string[], windowMs: number): Promise<Array<{ symbol: string, signal_type: string }>> {
+export async function getRecentSignalsBulk(symbols: string[], windowMs: number): Promise<Array<{ symbol: string, signal_type: string, timeframe: string }>> {
     if (symbols.length === 0) return [];
     const cutoff = Date.now() - windowMs;
     // Note: Using ANY(ARRAY[...]) for efficient batch lookup
     const { rows } = await (pool as Pool).query(`
-        SELECT symbol, signal_type FROM strategy_signals 
+        SELECT symbol, signal_type, timeframe FROM strategy_signals 
         WHERE symbol = ANY($1) AND timestamp > $2
     `, [symbols, cutoff]);
     return rows;

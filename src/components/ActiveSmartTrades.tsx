@@ -81,6 +81,8 @@ export interface SmartTradeOrder {
         lowestPrice?: number;
         activeStopLoss?: number;
         activeTakeProfit?: number;
+        tpTriggered?: boolean;
+        tslActivated?: boolean;
         payload: {
             symbol: string;
             amount: string;
@@ -247,7 +249,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit, on
 
     useEffect(() => {
         fetchTrades();
-        const interval = setInterval(fetchTrades, 12000); // Reduced from 2s to 12s
+        const interval = setInterval(fetchTrades, 1000); // 1s refresh as requested
         return () => clearInterval(interval);
     }, []);
 
@@ -387,10 +389,11 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({ onEdit, on
                              const aiScoreStatic = meta.lastAiScore ? Number(meta.lastAiScore) : 0;
                              const hasTrailing = payload.takeProfit?.trailing || payload.stopLoss?.trailing;
  
-                             // Live trailing status
-                             const isBuyDir = trade.side === 'BUY';
-                             const isTtpActive = tp > 0 && payload.takeProfit?.trailing && !isClosed && (isBuyDir ? currentPrice >= tp : currentPrice <= tp);
-                             const isTslActive = sl > 0 && payload.stopLoss?.trailing && !isClosed && (isBuyDir ? currentPrice <= sl : currentPrice >= sl);
+                             // Live trailing status — use monitor's confirmation flags, not naive price checks
+                             // TTP is active only if the monitor has triggered tpTriggered (TP was reached and trailing started)
+                             const isTtpActive = tp > 0 && payload.takeProfit?.trailing && !isClosed && !!meta.tpTriggered;
+                             // TSL is active only if the monitor has activated TSL (TP was reached first, then trailing SL started)
+                             const isTslActive = sl > 0 && payload.stopLoss?.trailing && !isClosed && !!meta.tslActivated;
  
                              // CANLI sinyal verisinden AI Score ve STATUS — Shared Lib kullanılıyor
                              const symNorm = trade.symbol.replace('/', '');

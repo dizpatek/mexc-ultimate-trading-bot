@@ -56,30 +56,40 @@ export class SignalScanner {
     static async runScan(symbols: string[]): Promise<ScanResult[]> {
         const allResults: ScanResult[] = [];
         const allSignalsToInsert: StrategySignalInput[] = [];
-        const batchSize = 5;
+        const batchSize = 3; // Reduced batch size to accommodate multiple timeframes per symbol
+        const TIMEFRAMES = ['1m', '15m', '1h', '4h', '1d', '1w']; // 1M excluded to prevent insufficient klines
 
         // P4.1: Fetch all recent signals for the entire set in one go to prevent N+1 queries
         const recentSignals = await getRecentSignalsBulk(symbols, DEDUP_WINDOW_MS);
         
-        // Group by symbol for O(1) lookup
+        // Group by symbol_timeframe for O(1) lookup
         const recentSignalsMap = new Map<string, string[]>();
         recentSignals.forEach(s => {
-            const list = recentSignalsMap.get(s.symbol) || [];
+            const key = `${s.symbol}_${s.timeframe || '1m'}`;
+            const list = recentSignalsMap.get(key) || [];
             list.push(s.signal_type);
-            recentSignalsMap.set(s.symbol, list);
+            recentSignalsMap.set(key, list);
         });
 
         for (let i = 0; i < symbols.length; i += batchSize) {
             const batch = symbols.slice(i, i + batchSize);
-            const batchResults = await Promise.all(
-                batch.map(symbol => {
-                    const existingTypes = recentSignalsMap.get(symbol) || [];
-                    return this.scanSymbol(symbol, existingTypes).catch(err => {
-                        console.error(`[SignalScanner] Error scanning ${symbol}:`, err);
-                        return { results: [], signalsToInsert: [] };
-                    });
-                })
-            );
+            const batchPromises = [];
+
+            // For each symbol in the batch, scan ALL timeframes concurrently
+            for (const symbol of batch) {
+                for (const tf of TIMEFRAMES) {
+                    const key = `${symbol}_${tf}`;
+                    const existingTypes = recentSignalsMap.get(key) || [];
+                    batchPromises.push(
+                        this.scanSymbol(symbol, existingTypes, tf).catch(err => {
+                            console.error(`[SignalScanner] Error scanning ${symbol} on ${tf}:`, err.message);
+                            return { results: [], signalsToInsert: [] };
+                        })
+                    );
+                }
+            }
+
+            const batchResults = await Promise.all(batchPromises);
             
             for (const item of batchResults) {
                 allResults.push(...item.results);
@@ -150,7 +160,8 @@ export class SignalScanner {
                 volume: volume || 0,
                 timestamp: Date.now(),
                 executed: false,
-                execution_result: detailWithTimeframe
+                execution_result: detailWithTimeframe,
+                timeframe: interval
             };
         });
 

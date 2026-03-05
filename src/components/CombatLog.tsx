@@ -5,6 +5,7 @@ import { Terminal, Activity, Crosshair, Zap, Radar, Target, AlertTriangle } from
 import { cn } from '@/lib/utils';
 import { extractBaseAsset } from '@/lib/symbol-utils';
 import { useTrade } from '@/context/TradeContext';
+import { useTimeframe } from '@/context/TimeframeContext';
 import { useHoldings } from '../hooks/usePortfolio';
 import { useCombatLogs, LogEntry, deduplicateSystemLogs, filterSignalsByHoldings } from '../hooks/useCombatLogs';
 
@@ -18,9 +19,9 @@ const DEFAULT_SYSTEM_LOGS: LogEntry[] = [
     { id: 'def-7', timestamp: Date.now() - 65000, type: 'SYSTEM', message: 'Matrix Engine v5.3.4 ALPHA sistem başlangıcı yapıldı.', level: 'INFO' }
 ];
 
-
 export const CombatLog = () => {
-    const { logs, scanStatus, lastScanTime, isLoading, error, fetchLogs, triggerScan } = useCombatLogs();
+    const { timeframe } = useTimeframe();
+    const { logs, scanStatus, lastScanTime, isLoading, error, fetchLogs, triggerScan } = useCombatLogs(timeframe);
     const tradeScrollRef = useRef<HTMLDivElement>(null);
     const systemScrollRef = useRef<HTMLDivElement>(null);
     const trade = useTrade();

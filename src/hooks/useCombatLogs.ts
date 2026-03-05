@@ -17,7 +17,7 @@ export interface LogEntry {
 
 let globalLastScanTime = 0;
 
-export function useCombatLogs() {
+export function useCombatLogs(timeframe: string = '1m') {
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [scanStatus, setScanStatus] = useState<'idle' | 'scanning' | 'done'>('idle');
     const [lastScanTime, setLastScanTime] = useState<number | null>(null);
@@ -26,7 +26,7 @@ export function useCombatLogs() {
 
     const fetchLogs = useCallback(async () => {
         try {
-            const response = await api.get('/logs/signals');
+            const response = await api.get(`/logs/signals?timeframe=${timeframe}`);
             const data = response.data;
             setError(null);
             
@@ -115,7 +115,7 @@ export function useCombatLogs() {
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [timeframe]);
 
     const triggerScan = useCallback(async () => {
         const now = Date.now();

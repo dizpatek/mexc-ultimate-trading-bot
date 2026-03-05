@@ -68,18 +68,18 @@ export const UnifiedControlStrip = ({
         slEnabled, setSlEnabled,
         mode, setMode,
         tradeAnchorRef,
-        consumePendingScroll,
-        pendingScroll,
         isPanelOpen: isOpen,
         setIsPanelOpen: setIsOpen
     } = useTrade();
 
-    // Consume any pending scroll request when the panel is visible
+    // USER requested no auto-scroll when panel opens
+    /*
     useEffect(() => {
         if (isOpen && pendingScroll) {
             consumePendingScroll();
         }
     }, [isOpen, pendingScroll, consumePendingScroll]);
+    */
 
 
     // Guard against infinite loop: only notify parent when symbol actually changes

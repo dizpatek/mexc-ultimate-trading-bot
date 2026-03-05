@@ -146,7 +146,7 @@ export const Header = ({ }: HeaderProps) => {
     return (
         <aside className="sticky top-0 h-screen w-16 bg-[#020617]/80 backdrop-blur-xl border-r border-slate-800 shadow-xl flex flex-col z-50">
             {/* LOGO SECTION */}
-            <div className="py-6 flex flex-col items-center">
+            <div className="pt-6 pb-2 flex flex-col items-center">
                 <Link href="/" className="relative group">
                     <div className="absolute inset-0 bg-cyan-500 blur-md opacity-20 group-hover:opacity-40 transition-opacity" />
                     <div className="bg-slate-900 border border-slate-700 p-1.5 rounded-xl relative z-10 group-hover:border-cyan-500/50 transition-colors">
@@ -156,7 +156,7 @@ export const Header = ({ }: HeaderProps) => {
             </div>
 
             {/* NAV SECTION */}
-            <nav className="flex-1 px-2 space-y-6 mt-8 flex flex-col items-center">
+            <nav className="flex-1 px-2 space-y-6 mt-2 flex flex-col items-center">
                 <Link
                     href="/"
                     title="MISSION CONTROL"

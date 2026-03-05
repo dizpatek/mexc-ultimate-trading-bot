@@ -12,6 +12,9 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
+        const { searchParams } = new URL(request.url);
+        const timeframe = searchParams.get('timeframe') || '1m';
+
         // Ensure tables exist (optimized with isInitialized internal flag)
         await ensureTablesExist();
 
@@ -29,10 +32,12 @@ export async function GET(request: Request) {
                     s.price::text as price,
                     s.timestamp,
                     s.executed,
-                    s.execution_result::text as detail
+                    s.execution_result::text as detail,
+                    s.timeframe as timeframe
                 FROM strategy_signals s
                 LEFT JOIN strategies st ON s.strategy_id = st.id
                 WHERE (s.strategy_id IS NULL OR st.user_id = ${user.id})
+                AND (s.timeframe = ${timeframe} OR s.timeframe IS NULL)
                 AND s.timestamp > ${fortyEightHoursAgo}
             )
             UNION ALL
@@ -45,7 +50,8 @@ export async function GET(request: Request) {
                     '---' as price,
                     timestamp,
                     true as executed,
-                    message || ': ' || COALESCE(details, '') as detail
+                    message || ': ' || COALESCE(details, '') as detail,
+                    'SYSTEM' as timeframe
                 FROM system_logs
                 WHERE (user_id = ${user.id} OR user_id IS NULL)
                 AND timestamp > ${fortyEightHoursAgo}

@@ -315,7 +315,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                 setIsChartReady(false);
             }
         };
-    }, []);
+    }, [compact]);
 
     // Reset data refs and state when symbol or timeframe changes to prevent data "ghosting"
     useEffect(() => {
@@ -557,7 +557,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
         }
 
         fetchData(true); // Initial/Symbol change load: Focus
-        const refreshInterval = setInterval(() => fetchData(false), 15000); // Reduced from 5s to 15s to save Vercel usage limits
+        const refreshInterval = setInterval(() => fetchData(false), 15000); 
 
         // Real-time pulse from MarketKernel
         const formattedSym = symbol.replace('/', '');
@@ -565,20 +565,15 @@ export const SmartChart: React.FC<SmartChartProps> = ({
         const unsubscribeMarket = core.market.subscribe((updates) => {
             const update = updates[formattedSym];
             if (update && seriesRef.current && isMounted) {
-                const candlestickSeries = seriesRef.current;
                 const price = Number(update.price);
                 if (price > 0) {
                     setLastClose(price);
                     if (onMarketPriceUpdate) onMarketPriceUpdate(price);
                 }
 
-                // Update the very last candle visually
+                // Update candlestick logic...
                 const candlestickSeconds = TIMEFRAME_SECONDS[timeframe] || 3600;
                 const nowTotalSeconds = Math.floor(Date.now() / 1000);
-                
-                // Determine currentBarTime robustly: 
-                // We use the ideal alignment based on clock, BUT we respect the last known candle's offset
-                // (crucial for timeframes like 1w which might not start on Unix epoch boundaries)
                 const lastKnownTime = allKlinesRef.current.length > 0 
                     ? Number(allKlinesRef.current[allKlinesRef.current.length - 1].time) 
                     : 0;
@@ -594,24 +589,20 @@ export const SmartChart: React.FC<SmartChartProps> = ({
 
                 const lastCandle = lastCandleRef.current;
                 
-                if (isMounted) {
+                if (isMounted && seriesRef.current) {
                     if (lastCandle && Number(lastCandle.time) === currentBarTime) {
-                        // Update existing bar
                         const updatedCandle = {
                             ...lastCandle,
                             close: price,
                             high: Math.max(lastCandle.high, price),
                             low: Math.min(lastCandle.low, price),
                         };
-                        candlestickSeries.update(updatedCandle);
+                        seriesRef.current.update(updatedCandle);
                         lastCandleRef.current = updatedCandle;
-                        
-                        // Sync internal ref
                         if (allKlinesRef.current.length > 0 && Number(allKlinesRef.current[allKlinesRef.current.length-1].time) === currentBarTime) {
                             allKlinesRef.current[allKlinesRef.current.length - 1] = updatedCandle;
                         }
                     } else if (!lastCandle || currentBarTime > Number(lastCandle.time)) {
-                        // Create NEW bar born from pulses
                         const newBar = {
                             time: currentBarTime as Time,
                             open: price,
@@ -619,14 +610,9 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                             low: price,
                             close: price,
                         };
-                        candlestickSeries.update(newBar);
+                        seriesRef.current.update(newBar);
                         lastCandleRef.current = newBar;
-                        
-                        // Append to internal ref without duplicates
-                        allKlinesRef.current = [
-                            ...allKlinesRef.current.filter(k => Number(k.time) < currentBarTime), 
-                            newBar
-                        ];
+                        allKlinesRef.current = [...allKlinesRef.current.filter(k => Number(k.time) < currentBarTime), newBar];
                     }
                 }
             }
@@ -645,7 +631,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     // Unified Chart Update Function (Zones + Coords)
     const refreshChartOverlays = useCallback(() => {
         if (!chartRef.current || !seriesRef.current || !isChartReady || isUpdatingOverlaysRef.current) return;
-        if (allKlinesRef.current.length === 0) return; // FIX: Prevents Baseline baseValue coordinate conversion from crashing Lightweight Charts when empty
+        if (allKlinesRef.current.length === 0) return; 
         
         isUpdatingOverlaysRef.current = true;
         try {
@@ -678,17 +664,32 @@ export const SmartChart: React.FC<SmartChartProps> = ({
             
             if (!tFirst || !tLast) return;
 
-            // Generate valid timestamps stretching into the past and future
             const ONE_YEAR = 31536000;
             const tStart = Math.max(0, tFirst - ONE_YEAR * 5) as Time;
             const tEnd = (tLast + ONE_YEAR * 5) as Time;
 
+            const isCover = mode === 'COVER';
+
             if (tpFillRef.current && tpEnabled && !isNaN(tp) && tp > 0) {
-                tpFillRef.current.applyOptions({ baseValue: { type: 'price', price: buy } });
+                // UPDATE BASELINE COLORS ON MODE CHANGE
+                tpFillRef.current.applyOptions({ 
+                    baseValue: { type: 'price', price: buy },
+                    topFillColor1: isCover ? 'transparent' : 'rgba(16, 185, 129, 0.15)', 
+                    topFillColor2: isCover ? 'transparent' : 'rgba(16, 185, 129, 0.05)',
+                    bottomFillColor1: isCover ? 'rgba(16, 185, 129, 0.15)' : 'transparent', 
+                    bottomFillColor2: isCover ? 'rgba(16, 185, 129, 0.05)' : 'transparent',
+                });
                 tpFillRef.current.setData([{ time: tStart, value: tp }, { time: tEnd, value: tp }]);
             }
             if (slFillRef.current && slEnabled && !isNaN(sl) && sl > 0) {
-                slFillRef.current.applyOptions({ baseValue: { type: 'price', price: buy } });
+                // UPDATE BASELINE COLORS ON MODE CHANGE
+                slFillRef.current.applyOptions({ 
+                    baseValue: { type: 'price', price: buy },
+                    topFillColor1: isCover ? 'rgba(244, 63, 94, 0.15)' : 'transparent', 
+                    topFillColor2: isCover ? 'rgba(244, 63, 94, 0.05)' : 'transparent',
+                    bottomFillColor1: isCover ? 'transparent' : 'rgba(244, 63, 94, 0.15)', 
+                    bottomFillColor2: isCover ? 'transparent' : 'rgba(244, 63, 94, 0.05)',
+                });
                 slFillRef.current.setData([{ time: tStart, value: sl }, { time: tEnd, value: sl }]);
             }
         } catch (e) {
@@ -696,7 +697,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
         } finally {
             isUpdatingOverlaysRef.current = false;
         }
-    }, [isChartReady, tpEnabled, slEnabled]);
+    }, [isChartReady, tpEnabled, slEnabled, mode]);
 
     // Subscriptions for timescale changes to keep overlays in sync
     useEffect(() => {
@@ -752,12 +753,12 @@ export const SmartChart: React.FC<SmartChartProps> = ({
         updateMarkerLine(currentPriceLineRef, currentPrice, '#fbbf24', '', true, LineStyle.Dashed, false);
         
         const isCover = mode === 'COVER';
-        updateMarkerLine(buyPriceLineRef, localPrices.buy, isCover ? '#10b981' : '#06b6d2', '', !isEditingExisting);
-        updateMarkerLine(tpPriceLineRef, localPrices.tp, '#10b981', '', tpEnabled);
-        updateMarkerLine(slPriceLineRef, localPrices.sl, '#f43f5e', '', slEnabled);
+        updateMarkerLine(buyPriceLineRef, localPrices.buy, isCover ? '#10b981' : '#06b6d2', isCover ? 'ENTRY-S' : 'ENTRY-L', !isEditingExisting);
+        updateMarkerLine(tpPriceLineRef, localPrices.tp, '#10b981', 'TAKE PROFIT', tpEnabled);
+        updateMarkerLine(slPriceLineRef, localPrices.sl, '#f43f5e', 'STOP LOSS', slEnabled);
         
         // Potential Entry Marker (Visualization of Trailing)
-        updateMarkerLine(potentialEntryLineRef, potentialEntry || 0, isCover ? '#10b981' : '#06b6d2', '', !!potentialEntry, LineStyle.LargeDashed, false);
+        updateMarkerLine(potentialEntryLineRef, potentialEntry || 0, isCover ? '#10b981' : '#06b6d2', 'TRAILING...', !!potentialEntry, LineStyle.LargeDashed, false);
 
         // Manage Profit/Risk Area Series Lifecycle
         const chart = chartRef.current!;

@@ -106,6 +106,7 @@ interface StopLossPayload {
 
 interface TradePayload {
     symbol: string;
+    mode?: 'TRADE' | 'COVER';
     amount: string;
     buyPrice: string;
     buyType: string;
@@ -266,7 +267,7 @@ async function evaluateActiveTrade(trade: MonitoredTrade, currentPrice: number, 
     let newQty = qty;
 
     // 1. Evaluate Stop Loss
-    const slResult = evaluateStopLoss(trade.side, currentPrice, entryPrice, newHighest, newLowest, payload, meta);
+    const slResult = evaluateStopLoss(trade.id, trade.side, currentPrice, entryPrice, newHighest, newLowest, payload, meta);
     
     // BUG FIX: Her halükarda State'i güncelle (Timeout sayaçları ve dinamik TSL değerlerinin kaybolmaması için)
     Object.assign(metaUpdates, slResult.metaUpdates);
@@ -299,12 +300,13 @@ async function evaluateActiveTrade(trade: MonitoredTrade, currentPrice: number, 
     }
 
 
-function evaluateStopLoss(side: string, currentPrice: number, entryPrice: number, highest: number, lowest: number, payload: TradePayload, meta: TradeMeta) {
+function evaluateStopLoss(tradeId: number, side: string, currentPrice: number, entryPrice: number, highest: number, lowest: number, payload: TradePayload, meta: TradeMeta) {
     const isLong = side === 'BUY';
     const metaUpdates: Partial<TradeMeta> = {};
     let slPrice = payload.stopLoss?.price ? parseFloat(payload.stopLoss.price) : 0;
     const filledTargets = (meta.filledTargets as number[]) || [];
 
+    // Breakeven Logic
     if (payload.stopLoss?.breakeven && filledTargets.length > 0) {
         slPrice = entryPrice;
         metaUpdates.slMovedToBreakeven = true;
@@ -312,55 +314,89 @@ function evaluateStopLoss(side: string, currentPrice: number, entryPrice: number
         slPrice = entryPrice;
     }
 
-    if (payload.stopLoss?.trailing && payload.stopLoss?.deviation) {
-        // Trailing SL is calculated as a percentage deviation from the highest (for Longs) or lowest (for Shorts) price reached.
-        // This ensures the SL updates dynamically as the trade moves in a profitable direction.
-        const devPercent = payload.stopLoss.deviation / 100;
-        
-        // Sabitlik ilkesi (Monotonicity): TSL seviresi eski seviyesinden geriye/aşagiya (Long) düşemez. Cover (Short) icin de yukariya cikamaz.
+    // CRITICAL: Strictly check trailing is explicitly true (not truthy).
+    // The payload always includes `deviation` even when trailing is OFF,
+    // so we MUST check `trailing === true` to avoid false positive activation.
+    // Also handle legacy data where trailing might be stored as string "true"/"false".
+    const rawTrailing = payload.stopLoss?.trailing;
+    const isTrailingSLEnabled = (rawTrailing === true || rawTrailing === 'true' as unknown);
+
+    if (isTrailingSLEnabled && slPrice > 0) {
+        // NEW TRAILING SL PATH: Trails using the initial SL distance dynamically.
+        // It starts trailing instantly when the price favors the trade. No waiting for TP.
+        const sl = payload.stopLoss!;
+        const isCover = payload.mode === 'COVER';
+
+        // Calculate inherent TSL Deviation percentage based on Entry Price and SL Price
+        const distRatio = Math.abs((entryPrice - slPrice) / entryPrice);
+
         const prevSl = (meta.activeStopLoss as number) || slPrice; 
         
-        const trailSL = isLong ? (highest * (1 - devPercent)) : (lowest * (1 + devPercent));
-        const finalSL = prevSl > 0 
-            ? (isLong ? Math.max(trailSL, prevSl) : Math.min(trailSL, prevSl)) 
-            : trailSL;
+        let finalSL = prevSl;
+
+        // Cover modunda trailing buy gibi: fiyat DÜŞTÜKÇE takip et (lowest küçüldükçe SL'yi aşağı çek)
+        // Trade modunda bildiğimiz trailing stop: fiyat ÇIKTIKÇE takip et (highest büyüdükçe SL'yi yukarı çek)
+        if (isCover) {
+            // Şort/Cover: Fiyat düşerken kâr ediyoruz. StopLoss fiyatın üstündedir.
+            // Lowest kullanılarak STOP seviyesi (Alım/Zarar kapama) sürekli aşağı iniyor (trailing buy mantığı)
+            const trailSL = lowest * (1 + distRatio);
+            finalSL = prevSl > 0 ? Math.min(trailSL, prevSl) : trailSL;
+        } else {
+            // Long/Trade: Fiyat yükselirken kâr ediyoruz. StopLoss fiyatın altındadır.
+            // Highest kullanılarak STOP seviyesi güvence altına alınarak yukarı çıkıyor
+            const trailSL = highest * (1 - distRatio);
+            finalSL = prevSl > 0 ? Math.max(trailSL, prevSl) : trailSL;
+        }
+
+        // Log when TSL upgrades the stop explicitly
+        if (finalSL !== prevSl && !meta.tslActivated) {
+            console.log(`[SmartMonitor] TSL ACTIVATED: Trade ${tradeId} | Side: ${side} | Base SL: ${slPrice} | Dist: ${(distRatio*100).toFixed(2)}% | New SL: ${finalSL}`);
+            metaUpdates.tslActivated = true;
+        }
         
         metaUpdates.activeStopLoss = finalSL;
         
-        const slHit = isLong ? (currentPrice <= finalSL) : (currentPrice >= finalSL);
+        const slHit = finalSL > 0 && (isLong ? (currentPrice <= finalSL) : (currentPrice >= finalSL));
 
-        // Tanısal Log: TSL Yakını
-        if (Math.abs(currentPrice - finalSL) / finalSL < 0.01 || slHit) {
-            console.log(`[SmartMonitor] TSL EVAL: ${side} | Price: ${currentPrice} | TSL: ${finalSL} | Hit: ${slHit}`);
+        // Diagnostic Log: When price is near SL or hit
+        if (finalSL > 0 && (Math.abs(currentPrice - finalSL) / finalSL < 0.01 || slHit)) {
+            console.log(`[SmartMonitor] SL EVAL (TSL-PATH): Trade ${tradeId} | ${side} | Price: ${currentPrice} | SL: ${finalSL.toFixed(2)} | Hit: ${slHit}`);
         }
 
         if (slHit) {
-            const timeoutSeconds = payload.stopLoss.timeoutSeconds as number;
-            if (payload.stopLoss.timeout && timeoutSeconds) {
+            const timeoutSeconds = sl.timeoutSeconds ? Number(sl.timeoutSeconds) : 0;
+            if (sl.timeout && timeoutSeconds > 0) {
                 if (!meta.slTimeoutStart) {
                     metaUpdates.slTimeoutStart = Date.now();
-                    console.log(`[SmartMonitor] SL TIMEOUT START: Trade ${meta.id || 'unknown'} @ ${currentPrice}`);
+                    console.log(`[SmartMonitor] SL TIMEOUT START: Trade ${tradeId} @ ${currentPrice}`);
                     return { shouldExit: false, reason: '', metaUpdates };
                 }
                 const slTimeoutStart = meta.slTimeoutStart as number;
                 if (Date.now() - slTimeoutStart >= timeoutSeconds * 1000) {
-                    return { shouldExit: true, reason: `TSL + Timeout sonrası kapandı`, metaUpdates };
+                    return { shouldExit: true, reason: `Trailing SL + Timeout sonrası kapandı ($${finalSL.toFixed(2)})`, metaUpdates };
                 }
-            } else return { shouldExit: true, reason: `Trailing Stop Loss vuruldu`, metaUpdates };
+            } else {
+                console.log(`[SmartMonitor] 🚨 TSL EXIT: Trade ${tradeId} | ${side} | Price: ${currentPrice} | TSL: ${finalSL.toFixed(2)} | Highest: ${highest} | Lowest: ${lowest}`);
+                return { shouldExit: true, reason: `Trailing Stop Loss vuruldu (TSL: $${finalSL.toFixed(2)})`, metaUpdates };
+            }
         } else if (meta.slTimeoutStart) {
             metaUpdates.slTimeoutStart = null;
         }
+
+
     } else if (slPrice > 0) {
+        // FIXED (NON-TRAILING) SL PATH
         metaUpdates.activeStopLoss = slPrice;
         const slHit = isLong ? (currentPrice <= slPrice) : (currentPrice >= slPrice);
 
-        // Tanısal Log: Sabit SL Yakını
+        // Diagnostic Log: When price is near fixed SL
         if (Math.abs(currentPrice - slPrice) / slPrice < 0.01 || slHit) {
-            console.log(`[SmartMonitor] SL EVAL: ${side} | Price: ${currentPrice} | SL: ${slPrice} | Hit: ${slHit}`);
+            console.log(`[SmartMonitor] FIXED SL EVAL: Trade ${tradeId} | ${side} | Price: ${currentPrice} | SL: ${slPrice} | Hit: ${slHit}`);
         }
 
         if (slHit) {
-            return { shouldExit: true, reason: `Sabit Stop Loss'a ulaşıldı`, metaUpdates };
+            console.log(`[SmartMonitor] 🛑 FIXED SL EXIT: Trade ${tradeId} | ${side} | Price: ${currentPrice} | SL: ${slPrice}`);
+            return { shouldExit: true, reason: `Sabit Stop Loss'a ulaşıldı ($${slPrice.toFixed(2)})`, metaUpdates };
         }
     }
     return { shouldExit: false, reason: '', metaUpdates };
@@ -385,21 +421,24 @@ function evaluateTakeProfit(trade: MonitoredTrade, currentPrice: number, entryPr
         const tpPrice = parseFloat(target.price);
         const isLast = i === sorted.length - 1;
 
-        const isTrailingActive = isLast && payload.takeProfit.trailing && payload.takeProfit.deviation && tpTriggered;
+        const rawTpTrailing = payload.takeProfit.trailing;
+        const isTpTrailingEnabled = (rawTpTrailing === true || rawTpTrailing === 'true' as unknown) && typeof payload.takeProfit.deviation === 'number' && payload.takeProfit.deviation !== 0;
+        
+        const isTrailingActive = isLast && isTpTrailingEnabled && tpTriggered;
         const priceCrossedTp = isLong ? (currentPrice >= tpPrice) : (currentPrice <= tpPrice);
 
         if (priceCrossedTp || isTrailingActive) {
-            if (payload.takeProfit.trailing && payload.takeProfit.deviation && isLast) {
+            if (isTpTrailingEnabled && isLast) {
                 if (!tpTriggered) {
                     tpTriggered = metaUpdates.tpTriggered = true;
-                    console.log(`[SmartMonitor] TP TRAILING TRIGGERED: Trade ${trade.id} @ ${currentPrice}`);
+                    console.log(`[SmartMonitor] TP TRAILING TRIGGERED: Trade ${trade.id} | ${side} | Price: ${currentPrice} | TP Target: ${tpPrice}`);
                 }
                 
                 const prevTp = (meta.activeTakeProfit as number) || tpPrice;
-                const devPercent = payload.takeProfit.deviation / 100;
+                const devPercent = Math.abs(payload.takeProfit.deviation!) / 100;
                 const trailExit = isLong ? (highest * (1 - devPercent)) : (lowest * (1 + devPercent));
                 
-                // Sabitlik ilkesi (Monotonicity) for TP:
+                // Monotonicity for TP:
                 const finalTp = prevTp > 0 
                     ? (isLong ? Math.max(trailExit, prevTp) : Math.min(trailExit, prevTp))
                     : trailExit;
@@ -407,14 +446,15 @@ function evaluateTakeProfit(trade: MonitoredTrade, currentPrice: number, entryPr
                 metaUpdates.activeTakeProfit = finalTp;
                 const tpExited = isLong ? (currentPrice <= finalTp) : (currentPrice >= finalTp);
 
-                // Tanısal Log: TTP Yakını
+                // Diagnostic Log
                 if (Math.abs(currentPrice - finalTp) / finalTp < 0.01 || tpExited) {
-                    console.log(`[SmartMonitor] TTP EVAL: ${side} | Price: ${currentPrice} | TTP Exit: ${finalTp} | trigger: ${tpExited}`);
+                    console.log(`[SmartMonitor] TTP EVAL: Trade ${trade.id} | ${side} | Price: ${currentPrice} | TTP Exit: ${finalTp.toFixed(2)} | Hit: ${tpExited}`);
                 }
 
                 if (tpExited) {
-                    return { shouldExit: true, reason: `Trailing TP vuruldu`, tpTriggered, newQty, metaUpdates };
+                    return { shouldExit: true, reason: `Trailing TP vuruldu (TTP: $${finalTp.toFixed(2)})`, tpTriggered, newQty, metaUpdates };
                 }
+
             } else if (payload.takeProfit.isSplit && !isLast) {
                 const sellQty = Math.min(parseFloat(meta.initialQty || String(qty)) * (parseFloat(String(target.volume)) / 100), newQty);
                 console.log(`[SmartMonitor] PARTIAL TP: Trade ${trade.id} | Qty: ${sellQty} | Target: ${i}`);

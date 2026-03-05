@@ -94,11 +94,8 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                 // Focus on input WITHOUT browser auto-scroll
                 buyPriceInputRef.current?.focus({ preventScroll: true });
                 buyPriceInputRef.current?.select();
-
-                // Precision scroll - Positioning Units Section exactly in the center of the screen
-                if (unitsSectionRef.current) {
-                    unitsSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
+                
+                // USER requested no auto-scroll when editing starts
             }, 400);
             return () => clearTimeout(timer);
         }
@@ -201,7 +198,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
 
 
     const [trailingSl, setTrailingSl] = useState(false);
-    const [trailingSlDev, setTrailingSlDev] = useState(-1.0);
+
     const [moveToBreakeven, setMoveToBreakeven] = useState(false);
     const [slTimeout, setSlTimeout] = useState(false);
     const [showAdvanced, setShowAdvanced] = useState(false);
@@ -352,7 +349,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                 setSlEnabled(true);
                 setSlPrice(p.stopLoss.price);
                 setTrailingSl(!!p.stopLoss.trailing);
-                setTrailingSlDev(p.stopLoss.deviation || -1.0);
+
                 setMoveToBreakeven(!!p.stopLoss.breakeven);
             } else {
                 setSlEnabled(false);
@@ -436,13 +433,13 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                         volume: t.volume
                     })) : null,
                     trailing: trailingTp,
-                    deviation: tpDeviation
+                    deviation: trailingTp ? tpDeviation : undefined
                 } : null,
                 stopLoss: slEnabled ? {
                     type: slType,
                     price: slPrice,
                     trailing: trailingSl,
-                    deviation: trailingSlDev,
+                    deviation: undefined, // TSL no longer uses a separate deviation, it derives from the SL distance
                     breakeven: moveToBreakeven,
                     timeout: slTimeout,
                     timeoutSeconds: slTimeout ? 10 : undefined
@@ -569,25 +566,39 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     // Only swaps if current targets are 'illogical' for the selected mode
     const lastSwappedModeRef = useRef<string | null>(null);
     useEffect(() => {
-        // Skip if we're in edit mode (don't override existing trades' targets)
-        if (editingTrade || !hasInitialized || buyP <= 0 || tpP <= 0 || slP <= 0) return;
-        
-        // Prevent infinite loop: only swap once per mode change
-        if (lastSwappedModeRef.current === mode) return;
-        
-        const currentTpPercent = ((tpP / buyP) - 1) * 100;
+        // Skip if we're in edit mode
+        if (editingTrade || !hasInitialized || buyP <= 0) return;
         
         // Logical check: Trade TP should be above entry (>0), Cover TP should be below entry (<0)
-        const isTradeAndTpLow = (mode === 'TRADE' && currentTpPercent < 0);
-        const isCoverAndTpHigh = (mode === 'COVER' && currentTpPercent > 0);
+        // We only attempt swap if at least one target is set (> 0)
+        const hasTargets = tpP > 0 || slP > 0;
+        if (!hasTargets) {
+            // If no targets are set yet, we don't mark as "swapped" because user might add them later
+            // and we'll want to check if they are in the right place then.
+            return;
+        }
+
+        // Prevent infinite loop/spam: only swap if mode changed since last valid check
+        if (lastSwappedModeRef.current === mode) return;
         
-        if (isTradeAndTpLow || isCoverAndTpHigh) {
+        const currentTpPercent = tpP > 0 ? ((tpP / buyP) - 1) * 100 : 0;
+        const currentSlPercent = slP > 0 ? ((slP / buyP) - 1) * 100 : 0;
+        
+        const isTradeAndTpLow = (mode === 'TRADE' && tpP > 0 && currentTpPercent < 0);
+        const isTradeAndSlHigh = (mode === 'TRADE' && slP > 0 && currentSlPercent > 0);
+        const isCoverAndTpHigh = (mode === 'COVER' && tpP > 0 && currentTpPercent > 0);
+        const isCoverAndSlLow = (mode === 'COVER' && slP > 0 && currentSlPercent < 0);
+        
+        if (isTradeAndTpLow || isCoverAndTpHigh || isTradeAndSlHigh || isCoverAndSlLow) {
             lastSwappedModeRef.current = mode;
             // Reciprocal swap
             const oldTp = tpPrice;
             const oldSl = slPrice;
             setTpPrice(oldSl);
             setSlPrice(oldTp);
+        } else {
+            // Logic is already sound for current mode, mark as checked
+            lastSwappedModeRef.current = mode;
         }
     }, [mode, buyP, tpP, slP, tpPrice, slPrice, setTpPrice, setSlPrice, editingTrade, hasInitialized]);
 
@@ -1166,15 +1177,19 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                                         setTpEnabled(true);
                                         setSlEnabled(true);
                                         
-                                        // Calculate default +10% TP and -5% SL based on effective buy price
+                                        // User request: Default to TP 1%, SL 1%, TTP 0.3%
                                         const currentP = parseFloat(buyPrice) || 0;
                                         if (currentP > 0) {
                                             const isCover = mode === 'COVER';
-                                            const defaultTp = isCover ? currentP * 0.90 : currentP * 1.10; // +10% / -10% target
-                                            const defaultSl = isCover ? currentP * 1.05 : currentP * 0.95; // -5% / +5% risk
+                                            const defaultTp = isCover ? currentP * 0.99 : currentP * 1.01; // +/- 1% target
+                                            const defaultSl = isCover ? currentP * 1.01 : currentP * 0.99; // -/+ 1% risk
                                             
                                             setTpPrice(defaultTp.toFixed(4));
                                             setSlPrice(defaultSl.toFixed(4));
+                                            
+                                            // Enable Trailing TP to 0.3% by default
+                                            setTrailingTp(true);
+                                            setTpDeviation(-0.3);
                                         }
                                     }
                                 }}
@@ -1245,20 +1260,14 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                         </div>
                     )}
 
-                    {/* Compact Mode SmartChart - Contextual Placement under TP/SL Toggles */}
-                    {compact && showAdvanced && !editingTrade && (
-                        <div 
-                            className="animate-in fade-in slide-in-from-top-2 duration-500 overflow-hidden border border-white/5 rounded-xl mb-1 mt-0.5 z-[40] relative w-full"
-                            style={{ height: 'clamp(200px, 40vh, 280px)' }}
-                            ref={(el) => {
-                                if (el) {
-                                    setTimeout(() => {
-                                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                    }, 300);
-                                }
-                            }}
-                        >
-                            <SmartChart 
+                     {/* Compact Mode SmartChart - Contextual Placement under TP/SL Toggles */}
+                     {compact && showAdvanced && !editingTrade && (
+                         <div 
+                             className="animate-in fade-in slide-in-from-top-2 duration-500 overflow-hidden border border-white/5 rounded-xl mb-1 mt-0.5 z-[40] relative w-full"
+                             style={{ height: 'clamp(200px, 40vh, 280px)' }}
+                             // USER requested no auto-scroll when SmartChart is opened
+                         >
+                             <SmartChart 
                                 compact={true}
                                 symbol={symbol}
                                 buyPrice={buyP}
@@ -1570,22 +1579,6 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                                                     )} />
                                                 </button>
                                             </div>
-                                            
-                                            {trailingSl && (
-                                                <div className="flex items-center gap-3 animate-in slide-in-from-left-2 duration-300">
-                                                    <div className="flex flex-col items-end -space-y-1 pr-1">
-                                                        <span className="text-[7px] font-black text-slate-500 uppercase tracking-tighter opacity-60">Sapma</span>
-                                                        <span className="text-[9px] font-black text-rose-400 font-mono leading-none tracking-tighter">{trailingSlDev.toFixed(1)}%</span>
-                                                    </div>
-                                                    <input 
-                                                        type="range" 
-                                                        min="-9.9" max="-0.1" step="0.1" 
-                                                        value={trailingSlDev}
-                                                        onChange={(e) => setTrailingSlDev(parseFloat(e.target.value))}
-                                                        className="w-32 h-1 rounded-full cursor-pointer accent-rose-400 hover:accent-rose-300 bg-slate-800/50 appearance-none transition-all"
-                                                    />
-                                                </div>
-                                            )}
                                         </div>
                                     </div>
 

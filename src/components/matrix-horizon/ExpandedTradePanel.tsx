@@ -649,13 +649,13 @@ const ActionSegment: React.FC<ActionSegmentProps> = ({
     {!isClosed ? (
       <div className="grid grid-cols-2 gap-px bg-white/[0.03] flex-1">
         <A
-          icon={<ExternalLink className="w-3.5 h-3.5" />}
+          icon={<ExternalLink className="w-5 h-5" />}
           label="MEXC"
           href={`https://www.mexc.com/exchange/${trade.symbol.replace("/", "_")}`}
           bg="bg-slate-900/40 hover:bg-slate-800"
         />
         <A
-          icon={<TrendingUp className="w-3.5 h-3.5" />}
+          icon={<TrendingUp className="w-5 h-5" />}
           label="EDİT"
           onClick={(e) => {
             e.stopPropagation();
@@ -667,9 +667,9 @@ const ActionSegment: React.FC<ActionSegmentProps> = ({
           <A
             icon={
               loadingAction === "flash" ? (
-                <Loader2 className="animate-spin w-3.5 h-3.5" />
+                <Loader2 className="animate-spin w-5 h-5" />
               ) : (
-                <Zap className="w-3.5 h-3.5" />
+                <Zap className="w-5 h-5" />
               )
             }
             label="FLASH"
@@ -680,9 +680,9 @@ const ActionSegment: React.FC<ActionSegmentProps> = ({
         <A
           icon={
             loadingAction === "sync" ? (
-              <Loader2 className="animate-spin w-3.5 h-3.5" />
+              <Loader2 className="animate-spin w-5 h-5" />
             ) : (
-              <RefreshCw className="w-3.5 h-3.5" />
+              <RefreshCw className="w-5 h-5" />
             )
           }
           label="SENK"
@@ -697,9 +697,9 @@ const ActionSegment: React.FC<ActionSegmentProps> = ({
         <A
           icon={
             loadingAction === "tp" ? (
-              <Loader2 className="animate-spin w-3.5 h-3.5" />
+              <Loader2 className="animate-spin w-5 h-5" />
             ) : (
-              <Target className="w-3.5 h-3.5" />
+              <Target className="w-5 h-5" />
             )
           }
           label="TP FIX"
@@ -709,9 +709,9 @@ const ActionSegment: React.FC<ActionSegmentProps> = ({
         <A
           icon={
             loadingAction === "sl" ? (
-              <Loader2 className="animate-spin w-3.5 h-3.5" />
+              <Loader2 className="animate-spin w-5 h-5" />
             ) : (
-              <Shield className="w-3.5 h-3.5" />
+              <Shield className="w-5 h-5" />
             )
           }
           label="SL FIX"
@@ -721,18 +721,18 @@ const ActionSegment: React.FC<ActionSegmentProps> = ({
         <div className="col-span-2 flex flex-col divide-y divide-white/5 mt-auto bg-slate-950/20">
           <button
             onClick={(e) => handlePanicClose(e, trade)}
-            className="flex items-center justify-center gap-1.5 py-2.5 bg-rose-500/5 hover:bg-rose-500/15 text-rose-500/60 hover:text-rose-500 transition-all border-t border-rose-500/10 border-dashed"
+            className="flex items-center justify-center gap-1.5 py-3 bg-rose-500/5 hover:bg-rose-500/15 text-rose-500/60 hover:text-rose-500 transition-all border-t border-rose-500/10 border-dashed"
           >
-            <ZapOff className="w-4 h-4" />
-            <span className="text-[8px] font-black uppercase tracking-[0.2em]">
+            <ZapOff className="w-5 h-5" />
+            <span className="text-[10px] font-black uppercase tracking-[0.2em]">
               PANİK {isTradeMode ? "SAT" : "AL"}
             </span>
           </button>
           <button
             onClick={(e) => handleSilentClose(e, trade)}
-            className="flex items-center justify-center gap-1.5 py-1.5 bg-slate-900/60 hover:bg-white/5 text-slate-700 hover:text-slate-400 transition-all"
+            className="flex items-center justify-center gap-1.5 py-2.5 bg-slate-900/60 hover:bg-white/5 text-slate-700 hover:text-slate-400 transition-all"
           >
-            <span className="text-[7px] font-black uppercase tracking-widest leading-none">
+            <span className="text-[9px] font-black uppercase tracking-widest leading-none">
               SESSİZ ARŞİV
             </span>
           </button>
@@ -793,9 +793,9 @@ const A: React.FC<{
   href?: string;
 }> = ({ icon, label, bg, onClick, href }) => {
   const inner = (
-    <div className="flex flex-col items-center justify-center gap-1 h-full min-h-[50px]">
+    <div className="flex flex-col items-center justify-center gap-2 h-full min-h-[64px] py-1.5">
       {icon}
-      <span className="text-[7px] font-black uppercase tracking-[0.1em]">
+      <span className="text-[10px] font-black uppercase tracking-[0.1em]">
         {label}
       </span>
     </div>

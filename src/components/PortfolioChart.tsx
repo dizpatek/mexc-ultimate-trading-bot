@@ -559,8 +559,8 @@ function TradingViewWidget({
               )}
             </div>
 
-            {/* Notification Pill */}
-            {message && (
+            {/* Notification Pill (HIDDEN in SMART mode to make room for extended header) */}
+            {activeTab !== "SMART" && message && (
               <div
                 className={`flex items-center gap-2 px-2.5 py-1 rounded-full text-[10px] font-bold animate-in fade-in slide-in-from-left-2 duration-300 ${
                   message.type === "success"
@@ -582,6 +582,9 @@ function TradingViewWidget({
                 <span>{message.text}</span>
               </div>
             )}
+
+            {/* Extendable Header Portal Target */}
+            <div id="smart-chart-header-portal" className="flex-1 min-w-0" />
           </div>
 
           <div className="flex items-center gap-2">
@@ -661,9 +664,9 @@ function TradingViewWidget({
       )}
 
       {/* Chart Area */}
-      <div className="flex-1 w-full bg-[#020617] relative overflow-hidden flex flex-col">
+      <div className="flex-1 w-full bg-[#020617] relative overflow-visible flex flex-col">
         {activeTab === "SMART" ? (
-          <div className="flex-1 w-full overflow-hidden pt-0">
+          <div className="flex-1 w-full overflow-visible pt-0 flex flex-col">
             <SmartChart
               symbol={symbol}
               buyPrice={buyPrice}

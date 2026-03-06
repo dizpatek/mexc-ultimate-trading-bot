@@ -21,9 +21,13 @@ interface SmartChartHeaderProps {
 }
 
 export const TIMEFRAMES = [
+  { label: "1m", value: "1m" },
   { label: "15m", value: "15m" },
   { label: "1h", value: "1h" },
   { label: "4h", value: "4h" },
+  { label: "1d", value: "1d" },
+  { label: "1w", value: "1w" },
+  { label: "1M", value: "1M" },
 ];
 
 export const SmartChartHeader: React.FC<SmartChartHeaderProps> = ({
@@ -42,26 +46,22 @@ export const SmartChartHeader: React.FC<SmartChartHeaderProps> = ({
   if (compact) return null;
 
   return (
-    <div className="flex items-center gap-4 w-full px-1 py-0">
+    <div className="flex items-center gap-3 w-full px-1 py-0">
       {/* Current Price Indicator & Assets List */}
       <div className="flex-1 flex items-center gap-4 min-w-0">
         {currentPrice > 0 ? (
-          <div className="flex items-center gap-3 pr-6 border-r border-slate-800/50">
-            <div className="relative group/asset">
-              <div className="absolute -inset-2 bg-gradient-to-tr from-amber-500/20 to-transparent rounded-full blur-md opacity-0 group-hover/asset:opacity-100 transition-opacity duration-500" />
-              <AssetIcon
-                symbol={symbol}
-                size={28}
-                className="relative z-10 shadow-lg"
-              />
-            </div>
+          <div className="flex items-center gap-2 pr-4 border-r border-slate-800/50">
+            <AssetIcon
+              symbol={symbol}
+              size={24}
+              className="relative z-10 shadow-lg"
+            />
             <div className="flex flex-col">
-              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest leading-none mb-0">
+              <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none mb-0">
                 {symbol}
               </span>
-              <div className="flex items-center gap-1.5 px-2 py-0 rounded-lg bg-amber-500/10 border border-amber-500/20 backdrop-blur-xl">
-                <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.4)]" />
-                <span className="text-sm font-black text-amber-400 font-mono leading-tight">
+              <div className="flex items-center gap-1.5 px-1.5 py-0 rounded-lg bg-amber-500/10 border border-amber-500/20 backdrop-blur-xl">
+                <span className="text-xs font-black text-amber-400 font-mono leading-tight">
                   {currentPrice > 0
                     ? currentPrice < 1
                       ? currentPrice.toFixed(4)
@@ -100,30 +100,22 @@ export const SmartChartHeader: React.FC<SmartChartHeaderProps> = ({
                 key={asset.id}
                 onClick={() => onAssetChange?.(asset)}
                 className={cn(
-                  "flex items-center gap-3 p-1 rounded-xl border transition-all relative group h-[36px] min-w-fit flex-shrink-0",
+                  "flex items-center gap-2 p-1 rounded-xl border transition-all relative group h-[32px] min-w-fit flex-shrink-0",
                   symbol.split("/")[0] === asset.symbol
                     ? "bg-cyan-500/10 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.1)]"
                     : "bg-slate-900/40 border-slate-800/50 hover:border-slate-700 hover:bg-slate-800/50",
                 )}
               >
                 <div className="relative">
-                  <AssetIcon symbol={asset.symbol} size={22} />
-                  {symbol.startsWith(asset.symbol) && (
-                    <div className="absolute -top-1 -right-1">
-                      <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee]" />
-                    </div>
-                  )}
+                  <AssetIcon symbol={asset.symbol} size={18} />
                 </div>
                 <div className="flex flex-col items-start">
-                  <div className="text-[10px] font-black text-white leading-none mb-1">
+                  <div className="text-[9px] font-black text-white leading-none mb-0.5">
                     {asset.symbol}
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">
-                      {asset.holding.toFixed(asset.holding < 1 ? 4 : 2)}
-                    </span>
-                    <span className="text-[9px] font-black text-emerald-400 font-mono group-hover:block hidden">
-                      ${asset.price.toLocaleString()}
+                  <div className="flex items-center gap-1">
+                    <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">
+                      {asset.holding.toFixed(asset.holding < 1 ? 2 : 1)}
                     </span>
                   </div>
                 </div>
@@ -145,15 +137,15 @@ export const SmartChartHeader: React.FC<SmartChartHeaderProps> = ({
 
       {/* Timeframe Selector & Focus */}
       <div className="flex flex-row items-center flex-shrink-0 gap-3">
-        <div className="flex gap-1 p-1 bg-slate-900/40 backdrop-blur-md border border-slate-800/50 rounded-xl">
+        <div className="flex gap-0.5 p-0.5 bg-slate-900/40 backdrop-blur-md border border-slate-800/50 rounded-lg">
           {TIMEFRAMES.map((tf) => (
             <button
               key={tf.value}
               onClick={() => setTimeframe(tf.value)}
               className={cn(
-                "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
+                "px-2 py-1 rounded text-[9px] font-black uppercase tracking-wider transition-all",
                 timeframe === tf.value
-                  ? "bg-cyan-500 text-white shadow-[0_0_15px_rgba(6,182,212,0.4)]"
+                  ? "bg-cyan-500 text-white"
                   : "text-slate-500 hover:text-white hover:bg-slate-800",
               )}
             >
@@ -163,10 +155,10 @@ export const SmartChartHeader: React.FC<SmartChartHeaderProps> = ({
         </div>
         <button
           onClick={focusOnPrices}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/40 border border-slate-800/50 text-[9px] font-black text-cyan-400 hover:bg-cyan-400/10 hover:border-cyan-400/30 transition-all backdrop-blur-md group/focus"
+          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-900/40 border border-slate-800/50 text-[8px] font-black text-cyan-400 hover:bg-cyan-400/10 transition-all group/focus"
         >
-          <Target className="w-3 h-3 group-hover/focus:scale-125 transition-transform" />
-          ODAKLA (FİYATA HİZALA)
+          <Target className="w-2.5 h-2.5" />
+          ODAKLA
         </button>
       </div>
     </div>

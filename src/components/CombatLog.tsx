@@ -447,10 +447,20 @@ const LogLine = ({
     const assetSymbol = `${asset.replace("USDT", "")}/USDT`;
     trade.setSymbol(assetSymbol);
     trade.setMode(direction === "BUY" ? "TRADE" : "COVER");
+    
+    if (direction === "SELL" && isHeld) {
+      trade.setUseExisting(true);
+      // We don't have the exact amount here, but setting useExisting(true) 
+      // will allow SmartTrade to show the 'MAX' button and existing balance.
+    } else {
+      trade.setUseExisting(false);
+      trade.setAmount("0");
+      trade.setAllocationPercent(0);
+    }
+
     trade.setTpEnabled(true);
     trade.setSlEnabled(true);
-    trade.setIsPanelOpen(true);
-    // scrollToTrade handles pending case via context state - no setTimeout needed
+    trade.setIsTradeFormOpen(true);
     trade.scrollToTrade("UNITS");
   };
 

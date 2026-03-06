@@ -365,15 +365,29 @@ export const IntelligenceHub = () => {
         item.relatedAsset === "GLOBAL"
           ? "BTC/USDT"
           : `${item.relatedAsset}/USDT`;
+
+      const isHeld = holdings?.some((h) => {
+        const hSym = h.symbol.replace("/", "").replace("USDT", "");
+        return hSym === item.relatedAsset;
+      });
+
       trade.setSymbol(assetSymbol);
       trade.setMode(direction === "BUY" ? "TRADE" : "COVER");
+
+      if (direction === "SELL" && isHeld) {
+        trade.setUseExisting(true);
+      } else {
+        trade.setUseExisting(false);
+        trade.setAmount("0");
+        trade.setAllocationPercent(0);
+      }
+
       trade.setTpEnabled(true);
       trade.setSlEnabled(true);
-      trade.setIsPanelOpen(true);
-      // scrollToTrade handles pending case via context state - no setTimeout needed
+      trade.setIsTradeFormOpen(true);
       trade.scrollToTrade("UNITS");
     },
-    [trade],
+    [trade, holdings],
   );
 
   // Auto scroll whale history to left when new alert comes in

@@ -41,6 +41,12 @@ interface SmartTradeProps {
   onSlEnabledChange?: (e: boolean) => void;
   controlledMode?: "TRADE" | "COVER";
   onModeChange?: (m: "TRADE" | "COVER") => void;
+  controlledAmount?: string;
+  onAmountChange?: (a: string) => void;
+  controlledAllocationPercent?: number;
+  onAllocationPercentChange?: (p: number) => void;
+  controlledUseExisting?: boolean;
+  onUseExistingChange?: (u: boolean) => void;
   editingTrade?: SmartTradeOrder;
   onCancelEdit?: () => void;
   onSaveSuccess?: () => void;
@@ -65,6 +71,12 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
   onSlEnabledChange,
   controlledMode,
   onModeChange,
+  controlledAmount,
+  onAmountChange,
+  controlledAllocationPercent,
+  onAllocationPercentChange,
+  controlledUseExisting,
+  onUseExistingChange,
   editingTrade,
   onCancelEdit,
   onSaveSuccess,
@@ -78,16 +90,24 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     tradeAnchorRef,
     isTradeFormOpen,
     setIsTradeFormOpen,
+    pendingScroll,
+    consumePendingScroll,
   } = useTrade();
 
   // 1. Core State — mode supports controlled pattern from parent
   const [_mode, _setMode] = useState<"TRADE" | "COVER">("TRADE");
   const mode = controlledMode ?? _mode;
   const setMode = onModeChange ?? _setMode;
-  const [useExisting, setUseExisting] = useState(false);
+  const [_useExisting, _setUseExisting] = useState(false);
+  const useExisting = controlledUseExisting ?? _useExisting;
+  const setUseExisting = onUseExistingChange ?? _setUseExisting;
   const [_symbol, _setSymbol] = useState("BTC/USDT");
-  const [amount, setAmount] = useState("0");
-  const [allocationPercent, setAllocationPercent] = useState(0);
+  const [_amount, _setAmount] = useState("0");
+  const amount = controlledAmount ?? _amount;
+  const setAmount = onAmountChange ?? _setAmount;
+  const [_allocationPercent, _setAllocationPercent] = useState(0);
+  const allocationPercent = controlledAllocationPercent ?? _allocationPercent;
+  const setAllocationPercent = onAllocationPercentChange ?? _setAllocationPercent;
   const [_buyPrice, _setBuyPrice] = useState("0");
   const [buyType] = useState<OrderType>("MARKET");
   const [trailingBuy, setTrailingBuy] = useState(false);
@@ -109,6 +129,13 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
       return () => clearTimeout(timer);
     }
   }, [editingTrade]);
+
+  // Handle auto-scroll when form opens from context (e.g. CombatLog/IntelligenceHub)
+  useEffect(() => {
+    if (isTradeFormOpen && pendingScroll) {
+      consumePendingScroll();
+    }
+  }, [isTradeFormOpen, pendingScroll, consumePendingScroll]);
 
   // Sync helpers
   const symbol = controlledSymbol ?? _symbol;
@@ -278,7 +305,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
       setAmount("0");
       setAllocationPercent(0);
     },
-    [setSymbol, setBuyPrice, setTpPrice, setSlPrice, mode],
+    [setSymbol, setBuyPrice, setTpPrice, setSlPrice, mode, setAmount, setAllocationPercent],
   );
 
   const [isLoading, setIsLoading] = useState(false);
@@ -294,6 +321,14 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
       return () => clearTimeout(timer);
     }
   }, [statusMsg]);
+
+  // Auto-fill buy price if it's 0 and marketPrice becomes available
+  // This helps when external components change the symbol and we want to auto-fill the current price.
+  useEffect(() => {
+    if ((buyPrice === "0" || buyPrice === "") && marketPrice && marketPrice > 0) {
+      setBuyPrice(marketPrice.toString());
+    }
+  }, [buyPrice, marketPrice, setBuyPrice]);
 
   // Sync buyPrice with marketPrice if we're using existing assets (or if buyPrice is empty)
   const [priceSync, setPriceSync] = useState(true);
@@ -436,6 +471,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     editingTrade,
     setMode,
     setSymbol,
+    setAmount,
     setBuyPrice,
     setTpEnabled,
     setTpPrice,
@@ -834,6 +870,50 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     hasInitialized,
   ]);
 
+  // Handle auto-syncing useExisting when mode changes (external or internal)
+  // Logic removed to allow explicit external control and UI-driven updates without overriding intent.
+
+  // Ref to ensure we only initialize default targets once per symbol transition to prevent annoying overwrites
+  const lastInitKey = useRef("");
+
+  // Initial target setup when symbol or mode changes externally
+  // User request: TP/SL should follow TBuy by default (+1%/-1%)
+  useEffect(() => {
+    // skip during active edits or if we don't have a valid price yet
+    if (editingTrade || !marketPrice || marketPrice <= 0) return;
+    
+    const key = `${symbol}-${mode}`;
+    // Only auto-initialize if we've switched symbols or modes
+    if (lastInitKey.current === key) return;
+    
+    // Check if targets are "fresh" (effective zero)
+    const tpNum = parseFloat(tpPrice) || 0;
+    const slNum = parseFloat(slPrice) || 0;
+    
+    if (tpNum === 0 && slNum === 0) {
+      lastInitKey.current = key;
+      const isCover = mode === "COVER";
+      const defaultTp = isCover ? marketPrice * 0.99 : marketPrice * 1.01;
+      const defaultSl = isCover ? marketPrice * 1.01 : marketPrice * 0.99;
+      
+      setTpPrice(defaultTp.toFixed(6));
+      setSlPrice(defaultSl.toFixed(6));
+      setBuyPrice(marketPrice.toString());
+      setAmount("0");
+    }
+  }, [
+    symbol, 
+    mode, 
+    marketPrice, 
+    editingTrade, 
+    tpPrice, 
+    slPrice, 
+    setTpPrice, 
+    setSlPrice, 
+    setBuyPrice, 
+    setAmount
+  ]);
+
   // Removed active simulation block that caused TP, SL, and Potential Entry lines to jitter/snap towards market price when trailing was active.
 
   return (
@@ -855,7 +935,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
           <div
             className={cn(
               "mb-1 transition-all duration-500 overflow-hidden",
-              compact ? "h-[215px] opacity-100" : "h-[630px] opacity-100",
+              compact ? "h-[280px] opacity-100" : "h-[630px] opacity-100",
             )}
           >
             <PortfolioChart
@@ -1805,7 +1885,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                 {/* Compact Mode PortfolioChart - Contextual Placement under TP/SL Toggles */}
                 {compact && showAdvanced && !editingTrade && (
                   <div
-                    className="animate-in fade-in slide-in-from-top-2 duration-500 overflow-hidden border border-white/5 rounded-xl mb-1 mt-0.5 z-[40] relative w-full h-[215px]"
+                    className="animate-in fade-in slide-in-from-top-2 duration-500 overflow-hidden border border-white/5 rounded-xl mb-1 mt-0.5 z-[40] relative w-full h-[280px]"
                     // USER requested no auto-scroll when SmartChart is opened
                   >
                     <PortfolioChart

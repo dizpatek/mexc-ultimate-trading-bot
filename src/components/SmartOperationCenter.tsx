@@ -23,6 +23,14 @@ export const SmartOperationCenter = () => {
     setSlEnabled,
     editingTrade,
     setEditingTrade,
+    amount,
+    setAmount,
+    allocationPercent,
+    setAllocationPercent,
+    useExisting,
+    setUseExisting,
+    mode,
+    setMode,
     setIsTradeFormOpen,
     scrollToTrade,
   } = useTrade();
@@ -51,6 +59,7 @@ export const SmartOperationCenter = () => {
 
   const handleNew = () => {
     setEditingTrade(null);
+    setMode("TRADE");
     setIsTradeFormOpen(true);
     setTimeout(() => {
       scrollToTrade("TOP");
@@ -66,6 +75,7 @@ export const SmartOperationCenter = () => {
     setSlPrice(p.stopLoss?.price?.toString() || "0");
     setTpEnabled(!!p.takeProfit);
     setSlEnabled(!!p.stopLoss);
+    setMode(trade.meta.mode as "TRADE" | "COVER");
     setIsTradeFormOpen(true);
     setTimeout(() => {
       scrollToTrade("TOP");
@@ -103,6 +113,14 @@ export const SmartOperationCenter = () => {
           onTpEnabledChange={setTpEnabled}
           controlledSlEnabled={slEnabled}
           onSlEnabledChange={setSlEnabled}
+          controlledMode={mode}
+          onModeChange={setMode}
+          controlledAmount={amount}
+          onAmountChange={setAmount}
+          controlledAllocationPercent={allocationPercent}
+          onAllocationPercentChange={setAllocationPercent}
+          controlledUseExisting={useExisting}
+          onUseExistingChange={setUseExisting}
           editingTrade={editingTrade ?? undefined}
           onCancelEdit={handleCancelEdit}
           onSaveSuccess={handleSaveSuccess}

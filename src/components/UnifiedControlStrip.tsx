@@ -83,6 +83,12 @@ export const UnifiedControlStrip = ({
     setSlEnabled,
     mode,
     setMode,
+    amount,
+    setAmount,
+    allocationPercent,
+    setAllocationPercent,
+    useExisting,
+    setUseExisting,
     tradeAnchorRef,
     isPanelOpen: isOpen,
     setIsPanelOpen: setIsOpen,
@@ -212,6 +218,12 @@ export const UnifiedControlStrip = ({
               onSlEnabledChange={setSlEnabled}
               controlledMode={mode}
               onModeChange={setMode}
+              controlledAmount={amount}
+              onAmountChange={setAmount}
+              controlledAllocationPercent={allocationPercent}
+              onAllocationPercentChange={setAllocationPercent}
+              controlledUseExisting={useExisting}
+              onUseExistingChange={setUseExisting}
             />
           </div>
         </div>

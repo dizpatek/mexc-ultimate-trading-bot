@@ -27,6 +27,12 @@ interface TradeContextType {
   setMode: (m: "TRADE" | "COVER") => void;
   editingTrade: SmartTradeOrder | null;
   setEditingTrade: (trade: SmartTradeOrder | null) => void;
+  amount: string;
+  setAmount: (amt: string) => void;
+  allocationPercent: number;
+  setAllocationPercent: (pct: number) => void;
+  useExisting: boolean;
+  setUseExisting: (use: boolean) => void;
   isPanelOpen: boolean;
   setIsPanelOpen: (open: boolean) => void;
   isTradeFormOpen: boolean;
@@ -56,6 +62,9 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
   const [editingTrade, setEditingTrade] = useState<SmartTradeOrder | null>(
     null,
   );
+  const [amount, setAmount] = useState("0");
+  const [allocationPercent, setAllocationPercent] = useState(0);
+  const [useExisting, setUseExisting] = useState(false);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [isTradeFormOpen, setIsTradeFormOpen] = useState(false);
   const [pendingScroll, setPendingScroll] = useState<boolean | "UNITS">(false);
@@ -110,6 +119,12 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
         setMode,
         editingTrade,
         setEditingTrade,
+        amount,
+        setAmount,
+        allocationPercent,
+        setAllocationPercent,
+        useExisting,
+        setUseExisting,
         isPanelOpen,
         setIsPanelOpen,
         isTradeFormOpen,

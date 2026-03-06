@@ -23,7 +23,6 @@ import { ExpandedTradePanel } from "./matrix-horizon/ExpandedTradePanel";
 import { TradeHeader } from "./matrix-horizon/TradeHeader";
 import { StatusBadge } from "./matrix-horizon/StatusBadge";
 import { TradeProgressBar } from "./matrix-horizon/TradeProgressBar";
-import { PilotConfirmationModal } from "./PilotConfirmationModal";
 
 // --- Pure Helper Functions (Extracted to reduce Component God-Object antipattern) ---
 
@@ -232,67 +231,6 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
   } = useTradingSignals();
 
   const [timeframe] = useModuleTimeframe("4h");
-
-  // ── PILOT MODE STATE ────────────────────────────────────────────────
-  const [pilotEnabled, setPilotEnabled] = useState(false);
-  const [showPilotModal, setShowPilotModal] = useState(false);
-
-  // Load pilot state from bot config on mount
-  useEffect(() => {
-    fetch("/api/bot/config")
-      .then((r) => r.json())
-      .then((cfg) => {
-        if (cfg && typeof cfg.auto_trade === "boolean") {
-          setPilotEnabled(cfg.auto_trade);
-        }
-      })
-      .catch(() => {/* silent */});
-  }, []);
-
-  const handlePilotToggle = useCallback(async () => {
-    if (!pilotEnabled) {
-      // Turning ON → show confirmation modal first
-      setShowPilotModal(true);
-      return;
-    }
-    // Turning OFF → just disable
-    const next = false;
-    setPilotEnabled(next);
-    try {
-      await fetch("/api/bot/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ auto_trade: next }),
-      });
-      logger.info(
-        "⏸ PİLOT KAPALI",
-        "Sadece manuel kontrol. Dış müdahale engellendi."
-      );
-    } catch {
-      // Revert on failure
-      setPilotEnabled(true);
-    }
-  }, [pilotEnabled]);
-
-  const handlePilotModalComplete = useCallback(async () => {
-    // Activate pilot mode after successful trade execution
-    setPilotEnabled(true);
-    try {
-      await fetch("/api/bot/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ auto_trade: true }),
-      });
-      logger.info(
-        "✈️ PİLOT MODU AKTİF",
-        "AI Monitor işlemlere müdahale edebilir."
-      );
-    } catch {
-      setPilotEnabled(false);
-    }
-    // Refresh trades list
-    fetchTrades();
-  }, []);
 
   const fetchTrades = async () => {
     try {
@@ -564,8 +502,6 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
               : t.status === "CLOSED",
           ).length > 0
         }
-        pilotEnabled={pilotEnabled}
-        onPilotToggle={handlePilotToggle}
       />
 
       {/* TABLE-LIKE LIST (ACCORDION EFFECT) */}
@@ -1268,13 +1204,6 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
           </div>
         </div>
       </div>
-      {/* ── Pilot Confirmation Modal ── */}
-      <PilotConfirmationModal
-        isOpen={showPilotModal}
-        onClose={() => setShowPilotModal(false)}
-        existingTrades={trades}
-        onComplete={handlePilotModalComplete}
-      />
     </div>
   );
 };

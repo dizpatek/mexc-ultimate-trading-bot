@@ -1,4 +1,4 @@
-import { api, Holding, PortfolioData, Trade } from "./api";
+import { api, Holding, PortfolioData, Trade } from "./api"; // Import standardized instance and types
 
 /**
  * Types for the Core System
@@ -79,10 +79,10 @@ class MarketKernel extends Kernel<
     try {
       const symbolsJson = JSON.stringify(Array.from(this.symbols));
       console.log(`[MarketKernel] Fetching: ${symbolsJson}`);
-      const response = await fetch(
-        `/api/market/ticker?symbols=${encodeURIComponent(symbolsJson)}`,
-      );
-      const data = await response.json();
+      const response = await api.get("/market/ticker", {
+        params: { symbols: symbolsJson },
+      });
+      const data = response.data;
 
       if (Array.isArray(data)) {
         console.log(`[MarketKernel] Received ${data.length} updates`);

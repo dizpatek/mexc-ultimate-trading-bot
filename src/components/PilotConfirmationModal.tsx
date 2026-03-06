@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   X,
   Plane,
@@ -76,7 +77,7 @@ function decidePilotAction(
 }
 
 // ─── Component ───────────────────────────────────────────────────
-export const PilotConfirmationModal: React.FC<PilotConfirmationModalProps> = ({
+export const PilotConfirmationModal = React.memo<PilotConfirmationModalProps>(({
   isOpen,
   timeframe,
   onClose,
@@ -187,7 +188,14 @@ export const PilotConfirmationModal: React.FC<PilotConfirmationModalProps> = ({
       setExecutionDone(false);
       setExecutionLog([]);
       buildRows();
+      // Scroll lock
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
     }
+    return () => {
+      document.body.style.overflow = "";
+    };
   }, [isOpen, buildRows]);
 
   // ── Execute trades ──
@@ -357,23 +365,23 @@ export const PilotConfirmationModal: React.FC<PilotConfirmationModalProps> = ({
     onComplete();
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === "undefined") return null;
 
   const actionableCount = rows.filter((r) => r.pilotAction !== "SKIP").length;
   const skipCount = rows.filter((r) => r.pilotAction === "SKIP").length;
   const tradeCount = rows.filter((r) => r.pilotAction === "TRADE").length;
   const coverCount = rows.filter((r) => r.pilotAction === "COVER").length;
 
-  return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+  return createPortal(
+    <div className="fixed inset-0 z-[20000] flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+        className="absolute inset-0 bg-[#020617]/95 backdrop-blur-xl"
         onClick={!isExecuting ? onClose : undefined}
       />
 
       {/* Modal Panel */}
-      <div className="relative w-full max-w-4xl max-h-[90vh] mx-4 bg-slate-950 border border-slate-700/50 rounded-2xl shadow-[0_0_80px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-300">
+      <div className="relative w-full max-w-4xl max-h-[85vh] bg-slate-950 border border-cyan-500/20 rounded-3xl shadow-[0_0_100px_rgba(6,182,212,0.15)] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-300">
         {/* ── Header ── */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800/60 bg-gradient-to-r from-slate-900 to-slate-950">
           <div className="flex items-center gap-3">
@@ -632,6 +640,9 @@ export const PilotConfirmationModal: React.FC<PilotConfirmationModalProps> = ({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
-};
+});
+
+PilotConfirmationModal.displayName = "PilotConfirmationModal";

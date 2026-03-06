@@ -308,7 +308,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     const fetchPrice = async () => {
       try {
         const res = await fetch(
-          `https://api.mexc.com/api/v3/ticker/price?symbol=${pair}`,
+          `/api/market/ticker?symbol=${pair}`,
         );
         if (res.ok && !cancelled) {
           const data = await res.json();

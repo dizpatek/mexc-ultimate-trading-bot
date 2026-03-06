@@ -27,10 +27,6 @@ interface TradeHeaderProps {
   setPendingClear: (val: "active" | "passive" | null) => void;
   handleClearAll: (type: "active" | "passive") => void;
   hasTradeItems: boolean;
-  /** PİLOT MODU: true = AI Monitor trade kapatabilir, false = sadece manuel */
-  pilotEnabled?: boolean;
-  /** PİLOT durumunu değiştir */
-  onPilotToggle?: () => void;
 }
 
 export const TradeHeader: React.FC<TradeHeaderProps> = ({
@@ -47,8 +43,6 @@ export const TradeHeader: React.FC<TradeHeaderProps> = ({
   setPendingClear,
   handleClearAll,
   hasTradeItems,
-  pilotEnabled = false,
-  onPilotToggle,
 }) => {
   return (
     <div
@@ -103,23 +97,6 @@ export const TradeHeader: React.FC<TradeHeaderProps> = ({
             </div>
           ))}
 
-        {/* ── PILOT MODE BADGE ── */}
-        <button
-          onClick={(e) => { e.stopPropagation(); onPilotToggle?.(); }}
-          title={pilotEnabled ? "PİLOT ON — AI Monitor aktif, işlemleri otomatik kapatabilir. Kapatmak için tıkla." : "PİLOT OFF — Manuel kontrol. Hiçbir dış etken işlemi kapatamaaz. Açmak için tıkla."}
-          className={cn(
-            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-widest transition-all",
-            pilotEnabled
-              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.2)] hover:bg-emerald-500/20"
-              : "bg-slate-900/50 border-slate-700/40 text-slate-500 hover:text-slate-300 hover:border-slate-600"
-          )}
-        >
-          <Power className={cn("w-3 h-3", pilotEnabled && "animate-pulse")} />
-          {pilotEnabled ? "PİLOT ON" : "PİLOT OFF"}
-          {pilotEnabled && (
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping ml-0.5" />
-          )}
-        </button>
         <div className="flex bg-slate-950/50 border border-slate-800 rounded-lg overflow-hidden p-0.5">
           <button
             onClick={onNewTrade}

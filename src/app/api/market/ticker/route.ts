@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -13,8 +16,10 @@ export async function GET(req: NextRequest) {
       url += `?symbols=${encodeURIComponent(symbols)}`;
     }
 
+    console.log(`[TickerAPI] Proxying request to MEXC: ${url}`);
     const response = await fetch(url, {
-      next: { revalidate: 0 }, // Disable caching for prices
+      cache: "no-store",
+      next: { revalidate: 0 },
     });
 
     if (!response.ok) {

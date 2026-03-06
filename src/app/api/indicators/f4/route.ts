@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 import { MatrixV5Engine } from "@/lib/matrix-v5-engine";
 import { fetchKlines } from "@/lib/mexc";
 import { getSessionUser } from "@/lib/auth-utils";
@@ -55,7 +58,10 @@ export async function GET(request: NextRequest) {
     console.log(
       `[IndicatorAPI/V5] Fetching klines for ${symbolUpper} (${interval})`,
     );
-    const klines = await fetchKlines(symbolUpper, interval, 500);
+    const klines = await fetchKlines(symbolUpper, interval, 500).catch(err => {
+      console.error(`[IndicatorAPI/V5] Mexc fetch failed for ${symbolUpper}:`, err.message);
+      throw err;
+    });
 
     if (!klines || klines.length < 20) {
       throw new Error("Insufficient data for analysis");

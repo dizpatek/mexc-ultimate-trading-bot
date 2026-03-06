@@ -11,6 +11,13 @@ import { fetchKlines } from "./mexc";
 import { calculateTrailingExitTarget, calculateTrailingBuyTarget } from "./trading-logic";
 import { getBotConfig } from "./db";
 
+// Cache for klines to avoid redundant API calls in the same monitor cycle
+interface KlineCacheItem {
+  klines: { close: number; high: number; low: number; volume: number }[];
+  timestamp: number;
+}
+type KlineCache = Record<string, KlineCacheItem>;
+
 let lastRun = 0;
 const MONITOR_INTERVAL = 5000; // Reduced from 12s to 5s to save Vercel CPU time
 const AI_ANALYSIS_INTERVAL = 60000;
@@ -49,6 +56,8 @@ export async function monitorSmartTrades() {
 
   console.log("[SmartMonitor] Starting monitoring cycle...");
 
+  const cycleCache: KlineCache = {};
+
   try {
     await ensureInitialized();
 
@@ -76,7 +85,7 @@ export async function monitorSmartTrades() {
       const chunk = trades.slice(i, i + CONCURRENCY_LIMIT);
       await Promise.allSettled(
         chunk.map((trade) =>
-          processTradeMonitoring(trade, pilotEnabled).catch((err) =>
+          processTradeMonitoring(trade, pilotEnabled, cycleCache).catch((err) =>
             console.error(`[SmartMonitor] Error for trade ${trade.id}:`, err),
           ),
         ),
@@ -132,6 +141,7 @@ interface TradePayload {
   trailingBuyDev?: number;
   takeProfit?: TakeProfitPayload | null;
   stopLoss?: StopLossPayload | null;
+  timeframe?: string;
 }
 
 interface TradeMeta extends Record<string, unknown> {
@@ -159,7 +169,7 @@ interface TradeMeta extends Record<string, unknown> {
   filledAt?: number;
 }
 
-async function processTradeMonitoring(trade: MonitoredTrade, pilotEnabled: boolean) {
+async function processTradeMonitoring(trade: MonitoredTrade, pilotEnabled: boolean, cycleCache: KlineCache) {
   const {
     id,
     symbol,
@@ -178,7 +188,7 @@ async function processTradeMonitoring(trade: MonitoredTrade, pilotEnabled: boole
     if (!currentPrice || isNaN(currentPrice)) return;
 
     let isDirty = false;
-    const aiResult = await runAiAnalysis(symbol, meta);
+    const aiResult = await runAiAnalysis(symbol, meta, cycleCache);
     if (aiResult) {
       meta.lastAiScore = aiResult.aiScore;
       meta.monitorLogs = aiResult.aiLogs;
@@ -287,19 +297,35 @@ async function handleMonitorError(id: number, msg: string) {
     `;
 }
 
-async function runAiAnalysis(symbol: string, meta: Record<string, unknown>) {
+async function runAiAnalysis(symbol: string, meta: Record<string, unknown>, cycleCache: KlineCache) {
   const lastAiRun = (meta.lastAiRunAt as number) || 0;
   if (Date.now() - lastAiRun <= AI_ANALYSIS_INTERVAL) return null;
 
+  // Extract timeframe from payload, default to 1m
+  const payload = meta.payload as TradePayload | undefined;
+  const timeframe = payload?.timeframe || "1m";
+
+  const cacheKey = `${symbol}-${timeframe}`;
+  const now = Date.now();
+  
   try {
-    const klines = await fetchKlines(symbol, "1m", 200);
+    let klines = cycleCache[cacheKey] ? cycleCache[cacheKey].klines : null;
+
+    if (!klines) {
+      klines = await fetchKlines(symbol, timeframe, 200);
+      if (klines) {
+        cycleCache[cacheKey] = { klines, timestamp: now };
+      }
+    }
+
     if (klines && klines.length >= 50) {
+      type KlineData = { close: number; high: number; low: number; volume: number };
       const res = sharedEngine.analyze(
-        klines.map((k) => k.close),
-        klines.map((k) => k.high),
-        klines.map((k) => k.low),
-        klines.map((k) => k.volume),
-        "1m",
+        klines.map((k: KlineData) => k.close),
+        klines.map((k: KlineData) => k.high),
+        klines.map((k: KlineData) => k.low),
+        klines.map((k: KlineData) => k.volume),
+        timeframe,
         "normal",
       );
       return {

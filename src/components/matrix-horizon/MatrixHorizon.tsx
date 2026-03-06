@@ -30,6 +30,8 @@ import { useTimeframe } from "@/context/TimeframeContext";
 import { analyzeSentiment, SentimentResult } from "@/lib/sentiment-analyzer";
 import { AIAnalysisSummary } from "../AIAnalysisSummary";
 import { logger } from "@/lib/logger";
+import { PilotConfirmationModal } from "../PilotConfirmationModal";
+import type { SmartTradeOrder } from "../ActiveSmartTrades";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 interface V5Indicator {
@@ -297,6 +299,8 @@ export const MatrixHorizon = () => {
   });
   const [showSettings, setShowSettings] = useState(false);
   const [isActionLoading, setIsActionLoading] = useState(false);
+  const [showPilotModal, setShowPilotModal] = useState(false);
+  const [existingTrades, setExistingTrades] = useState<SmartTradeOrder[]>([]);
 
   const [isPanicActive, setIsPanicActive] = useState(false);
   const [liveBtcPrice, setLiveBtcPrice] = useState<number | null>(null);
@@ -426,6 +430,16 @@ export const MatrixHorizon = () => {
       }
     };
     loadInitialConfig();
+  }, []);
+
+  // Fetch existing smart trades for pilot modal's open-order check
+  const fetchExistingTrades = useCallback(async () => {
+    try {
+      const res = await api.get("/trade/smart");
+      if (res.data && Array.isArray(res.data)) {
+        setExistingTrades(res.data);
+      }
+    } catch { /* silent */ }
   }, []);
 
   // Also sync the timeframe in the local config when the global one changes (No longer needed since it is removed from BotConfig)
@@ -603,6 +617,7 @@ export const MatrixHorizon = () => {
         : "BEKLE ❌";
 
   return (
+    <>
     <div className="w-full h-full min-h-[600px] bg-[#020617] relative px-4 py-1.5 flex flex-col gap-2 overflow-hidden rounded-xl border border-slate-800">
       {/* GRID BACKGROUND */}
       <div
@@ -707,7 +722,16 @@ export const MatrixHorizon = () => {
 
           <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-950 rounded-lg border border-slate-800">
             <button
-              onClick={() => saveConfig({ auto_trade: !config.auto_trade })}
+              onClick={() => {
+                if (!config.auto_trade) {
+                  // Turning ON → fetch trades and show confirmation modal
+                  fetchExistingTrades();
+                  setShowPilotModal(true);
+                } else {
+                  // Turning OFF → just disable
+                  saveConfig({ auto_trade: false });
+                }
+              }}
               className={cn(
                 "flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-black uppercase transition-all",
                 config.auto_trade
@@ -1659,5 +1683,18 @@ export const MatrixHorizon = () => {
         <MatrixPortfolio />
       </div>
     </div>
-  );
+
+    {/* ── Pilot Confirmation Modal ── */}
+    <PilotConfirmationModal
+      isOpen={showPilotModal}
+      timeframe={interval}
+      onClose={() => setShowPilotModal(false)}
+      existingTrades={existingTrades}
+      onComplete={() => {
+        setShowPilotModal(false);
+        saveConfig({ auto_trade: true });
+        fetchExistingTrades();
+      }}
+    />
+  </>);
 };

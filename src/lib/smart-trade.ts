@@ -33,6 +33,7 @@ export interface SmartTradePayload {
   trailingBuy?: boolean;
   trailingBuyDev?: number;
   user_id: number;
+  timeframe?: string;
 }
 
 export async function handleSmartTrade(

@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 import { DecisionBar } from "./DecisionBar";
 import { CentralCommand } from "./CentralCommand";
 import { MatrixPortfolio } from "../MatrixPortfolio";
+import { AssetIcon } from "../AssetIcon";
 import {
   RefreshCw,
   LayoutTemplate,
@@ -298,6 +299,38 @@ export const MatrixHorizon = () => {
   const [isActionLoading, setIsActionLoading] = useState(false);
 
   const [isPanicActive, setIsPanicActive] = useState(false);
+  const [liveBtcPrice, setLiveBtcPrice] = useState<number | null>(null);
+  const [prevLivePrice, setPrevLivePrice] = useState<number | null>(null);
+  const [microDigits, setMicroDigits] = useState("00");
+
+  // Real-time BTC Ticker (1 second refresh)
+  useEffect(() => {
+    const fetchLivePrice = async () => {
+      try {
+        const res = await axios.get("/api/market/ticker?symbol=BTCUSDT");
+        if (res.data && res.data.price) {
+          const newPrice = parseFloat(res.data.price);
+          setLiveBtcPrice((prev) => {
+            if (prev !== null) setPrevLivePrice(prev);
+            return newPrice;
+          });
+        }
+      } catch { /* silent */ }
+    };
+    
+    fetchLivePrice();
+    const interval = setInterval(fetchLivePrice, 1000);
+    
+    // Fast visual micro-digit oscillator for the "microsecond" feel
+    const microInterval = setInterval(() => {
+      setMicroDigits(Math.floor(Math.random() * 100).toString().padStart(2, "0"));
+    }, 150);
+
+    return () => {
+      clearInterval(interval);
+      clearInterval(microInterval);
+    };
+  }, []);
 
   useEffect(() => {
     if (
@@ -570,7 +603,7 @@ export const MatrixHorizon = () => {
         : "BEKLE ❌";
 
   return (
-    <div className="w-full h-full min-h-[600px] bg-[#020617] relative p-4 flex flex-col gap-4 overflow-hidden rounded-xl border border-slate-800">
+    <div className="w-full h-full min-h-[600px] bg-[#020617] relative px-4 py-1.5 flex flex-col gap-2 overflow-hidden rounded-xl border border-slate-800">
       {/* GRID BACKGROUND */}
       <div
         className="absolute inset-0 pointer-events-none opacity-20"
@@ -582,7 +615,7 @@ export const MatrixHorizon = () => {
       <div className="absolute inset-0 bg-gradient-to-t from-[#020617] via-transparent to-transparent pointer-events-none" />
 
       {/* HEADER BAR */}
-      <div className="relative z-20 flex items-center justify-between pb-4 border-b border-slate-800/50 mb-2 font-mono">
+      <div className="relative z-20 flex items-center justify-between pb-1 border-b border-slate-800/50 mb-1 font-mono">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
             <LayoutTemplate className="w-5 h-5 text-cyan-400" />
@@ -617,6 +650,51 @@ export const MatrixHorizon = () => {
               ⏱ {interval.toUpperCase()}
             </span>
           </div>
+        </div>
+
+        {/* CENTER: LIVE BTC TICKER (High Precision) */}
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-3">
+           <div className="flex flex-col items-center group cursor-crosshair">
+             <div className="flex items-center gap-2 px-2 py-1 relative">
+                <div className="relative flex items-center gap-3 perspective-1000">
+                    {/* 3D Rotating BTC Logo */}
+                    <div className="relative transform-gpu transition-transform duration-1000 group-hover:rotate-y-180 preserve-3d">
+                        {/* Outer Glow Circle */}
+                        <div className="absolute inset-0 bg-amber-500/20 rounded-full blur-md animate-pulse" />
+                        <AssetIcon 
+                            symbol="BTC" 
+                            size={24} 
+                            className="relative z-10 drop-shadow-[0_0_12px_rgba(247,147,26,0.8)] filter brightness-110 contrast-125" 
+                        />
+                    </div>
+                    
+                    <div className="flex items-baseline gap-1.5 font-mono relative">
+                      {/* Numbers with 3D Depth/Shadow */}
+                      <span className={cn(
+                        "text-2xl font-black tracking-[-0.05em] transition-all duration-300 transform-gpu hover:scale-110",
+                        "relative drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] [text-shadow:0_0_20px_var(--glow)]",
+                        !liveBtcPrice ? "text-cyan-400 [--glow:rgba(34,211,238,0.6)]" : 
+                        (prevLivePrice && liveBtcPrice >= prevLivePrice ? "text-emerald-400 [--glow:rgba(16,185,129,0.6)]" : "text-rose-400 [--glow:rgba(244,63,94,0.6)]")
+                      )}>
+                        {liveBtcPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || "00000.00"}
+                        
+                        {/* 3D Glass Reflection Overlay */}
+                        <div className="absolute inset-x-0 top-0 h-[40%] bg-gradient-to-b from-white/20 to-transparent pointer-events-none opacity-50 rounded-t" />
+                      </span>
+                      
+                      <span className="text-sm font-black text-slate-500/60 w-[20px] tabular-nums self-end mb-1">
+                        {microDigits}
+                      </span>
+                    </div>
+                </div>
+
+                {/* Status Pulse Node - Minimal */}
+                <div className={cn(
+                  "absolute -right-2 top-1 w-1 h-1 rounded-full",
+                  !liveBtcPrice ? "bg-cyan-500 animate-ping" : (prevLivePrice && liveBtcPrice >= prevLivePrice ? "bg-emerald-500 shadow-[0_0_8px_#10b981]" : "bg-rose-500 shadow-[0_0_8px_#f43f5e]")
+                )} />
+             </div>
+           </div>
         </div>
 
         <div className="flex items-center gap-3">

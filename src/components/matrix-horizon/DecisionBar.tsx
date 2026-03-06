@@ -26,7 +26,7 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
   return (
     <div
       className={cn(
-        "relative w-full min-h-[100px] h-auto rounded-[2rem] overflow-hidden flex flex-col lg:flex-row items-center justify-between p-4 lg:px-8 border-2 backdrop-blur-3xl shadow-[0_0_60px_rgba(0,0,0,0.6)] transition-all duration-1000 group/bar gap-6 lg:gap-2",
+        "relative w-full min-h-[64px] h-auto rounded-2xl overflow-hidden flex flex-col lg:flex-row items-center justify-between py-2 px-4 lg:px-8 border-2 backdrop-blur-3xl shadow-[0_0_60px_rgba(0,0,0,0.6)] transition-all duration-1000 group/bar gap-2",
         isLong
           ? "bg-emerald-950/30 border-emerald-500/50 shadow-emerald-500/10"
           : isShort
@@ -45,7 +45,7 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
 
       {/* LEFT: System Mode */}
       <div className="flex flex-col z-10 w-full lg:w-[22%] relative">
-        <div className="flex items-center gap-2 mb-1.5 justify-center lg:justify-start">
+        <div className="flex items-center gap-2 mb-0.5 justify-center lg:justify-start">
           <div className="flex h-2 w-2 relative">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
@@ -55,14 +55,14 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
           </span>
         </div>
         <div className="flex items-center gap-3 justify-center lg:justify-start">
-          <div className="p-2 rounded-xl bg-slate-900/80 border border-white/10 shadow-2xl">
-            <Shield className="w-5 h-5 text-cyan-400" />
+          <div className="p-1.5 rounded-lg bg-slate-900/80 border border-white/10 shadow-2xl">
+            <Shield className="w-4 h-4 text-cyan-400" />
           </div>
           <div className="flex flex-col">
-            <span className="text-base font-black text-white tracking-[0.1em] uppercase leading-none">
+            <span className="text-sm font-black text-white tracking-[0.1em] uppercase leading-none">
               {mode}
             </span>
-            <span className="text-[8px] font-bold text-slate-500 uppercase mt-1 tracking-widest hidden lg:block">
+            <span className="text-[8px] font-bold text-slate-500 uppercase mt-0.5 tracking-widest hidden lg:block">
               Matrix Online
             </span>
           </div>
@@ -73,7 +73,7 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
       <div className="flex flex-col items-center gap-2 z-20 w-full lg:flex-1 lg:absolute lg:left-1/2 lg:top-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 pointer-events-none">
         <div
           className={cn(
-            "w-full max-w-[280px] px-8 py-3.5 rounded-[2rem] border-2 transition-all duration-700 flex items-center justify-center gap-4 bg-slate-950/90 backdrop-blur-3x relative group/decision overflow-hidden shadow-2xl pointer-events-auto hover:scale-[1.02]",
+            "w-full max-w-[240px] px-6 py-2 rounded-full border-2 transition-all duration-700 flex items-center justify-center gap-3 bg-slate-950/90 backdrop-blur-3x relative group/decision overflow-hidden shadow-2xl pointer-events-auto hover:scale-[1.02]",
             isLong
               ? "border-emerald-500/60 text-emerald-400 shadow-[0_0_50px_rgba(16,185,129,0.3)] animate-pulse"
               : isShort
@@ -107,7 +107,7 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
             <Pause size={20} className="drop-shadow-[0_0_10px_currentColor]" />
           )}
 
-          <span className="text-2xl font-black font-mono tracking-[-0.05em] uppercase drop-shadow-lg leading-none">
+          <span className="text-lg font-black font-mono tracking-[-0.05em] uppercase drop-shadow-lg leading-none">
             {decision.split(" ")[0]}
           </span>
 
@@ -118,7 +118,7 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
             />
           )}
           {!isWait && (
-            <span className="text-2xl ml-1 drop-shadow-[0_0_15px_currentColor] leading-none">
+            <span className="text-lg ml-1 drop-shadow-[0_0_15px_currentColor] leading-none">
               {decision.split(" ")[1]}
             </span>
           )}
@@ -129,15 +129,15 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
       <div className="flex flex-col lg:flex-row items-center gap-6 lg:gap-8 z-10 w-full lg:w-[45%] justify-end">
         {/* AI Insight */}
         <div className="flex flex-col items-center lg:items-end text-center lg:text-right shrink-0">
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-[9px] uppercase font-black tracking-[0.25em] text-indigo-400/80 uppercase">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[8px] uppercase font-black tracking-[0.25em] text-indigo-400/80">
               AI ANALİZİ
             </span>
-            <Sparkles className="w-3 h-3 text-indigo-400 animate-pulse" />
+            <Sparkles className="w-2.5 h-2.5 text-indigo-400 animate-pulse" />
           </div>
           <div className="relative group/suggest">
-            <div className="bg-slate-950/90 border border-indigo-500/30 px-5 py-2 rounded-xl flex items-center justify-center min-w-[100px] shadow-inner">
-              <span className="text-[11px] font-black font-mono text-white tracking-widest uppercase">
+            <div className="bg-slate-950/90 border border-indigo-500/30 px-3 py-1 rounded-lg flex items-center justify-center min-w-[80px] shadow-inner">
+              <span className="text-[10px] font-black font-mono text-white tracking-widest uppercase">
                 {aiSuggestion}
               </span>
             </div>
@@ -145,7 +145,7 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
         </div>
 
         {/* RISK SWITCHES - More Compact */}
-        <div className="flex items-center gap-1.5 bg-slate-950/90 backdrop-blur-3xl border-2 border-slate-800/80 rounded-[1.25rem] p-1.5 shadow-2xl shrink-0">
+        <div className="flex items-center gap-1 bg-slate-950/90 backdrop-blur-3xl border border-slate-800/80 rounded-xl p-1 shadow-2xl shrink-0">
           {[
             {
               id: "safe",
@@ -174,7 +174,7 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
                 )
               }
               className={cn(
-                "flex items-center gap-2 px-3 py-2 rounded-xl transition-all duration-500 group relative overflow-hidden",
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-all duration-500 group relative overflow-hidden",
                 riskMode === strategy.id
                   ? "bg-slate-800 border border-slate-700 shadow-xl scale-[1.03] z-10"
                   : "hover:bg-white/5 opacity-25 hover:opacity-100",

@@ -232,6 +232,42 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
 
   const [timeframe] = useModuleTimeframe("4h");
 
+  // ── PILOT MODE STATE ────────────────────────────────────────────────
+  const [pilotEnabled, setPilotEnabled] = useState(false);
+
+  // Load pilot state from bot config on mount
+  useEffect(() => {
+    fetch("/api/bot/config")
+      .then((r) => r.json())
+      .then((cfg) => {
+        if (cfg && typeof cfg.auto_trade === "boolean") {
+          setPilotEnabled(cfg.auto_trade);
+        }
+      })
+      .catch(() => {/* silent */});
+  }, []);
+
+  const handlePilotToggle = useCallback(async () => {
+    const next = !pilotEnabled;
+    setPilotEnabled(next);
+    try {
+      await fetch("/api/bot/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auto_trade: next }),
+      });
+      logger.info(
+        next ? "✈️ PİLOT MODU AKTİF" : "⏸ PİLOT KAPALI",
+        next
+          ? "AI Monitor işlemlere müdahale edebilir."
+          : "Sadece manuel kontrol. Diş müdahale engellendi."
+      );
+    } catch {
+      // Revert on failure
+      setPilotEnabled(pilotEnabled);
+    }
+  }, [pilotEnabled]);
+
   const fetchTrades = async () => {
     try {
       const response = await api.get("/trade/smart");
@@ -480,7 +516,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
   }
 
   return (
-    <div className="mt-8 space-y-4">
+    <div className="mt-0 space-y-0.5">
       {/* FUTURISTIC HEADER */}
       <TradeHeader
         isSectionExpanded={isSectionExpanded}
@@ -502,6 +538,8 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
               : t.status === "CLOSED",
           ).length > 0
         }
+        pilotEnabled={pilotEnabled}
+        onPilotToggle={handlePilotToggle}
       />
 
       {/* TABLE-LIKE LIST (ACCORDION EFFECT) */}
@@ -568,10 +606,10 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                     : t.status === "CLOSED",
                 )
                 .map((trade) => {
+                  const meta = (trade.meta as any) || {};
+                  const payload = (meta.payload as any) || {};
                   const isExpanded = expandedTrade === trade.id;
-                  const payload = trade.meta.payload;
                   const isClosed = trade.status === "CLOSED";
-                  const meta = trade.meta;
                   const exitPriceNum = meta.exitPrice
                     ? parseFloat(String(meta.exitPrice))
                     : meta.exitResult?.price
@@ -609,25 +647,22 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                         effectiveQty,
                       );
 
-                  const aiScoreStatic = meta.lastAiScore
-                    ? Number(meta.lastAiScore)
-                    : 0;
                   const hasTrailing =
-                    payload.takeProfit?.trailing || payload.stopLoss?.trailing;
+                    (payload as any)?.takeProfit?.trailing || (payload as any)?.stopLoss?.trailing;
 
                   // Live trailing status — use monitor's confirmation flags, not naive price checks
                   // TTP is active only if the monitor has triggered tpTriggered (TP was reached and trailing started)
                   const isTtpActive =
                     tp > 0 &&
-                    payload.takeProfit?.trailing &&
+                    (payload as any).takeProfit?.trailing &&
                     !isClosed &&
-                    !!meta.tpTriggered;
+                    !!(meta as any).tpTriggered;
                   // TSL is active only if the monitor has activated TSL (TP was reached first, then trailing SL started)
                   const isTslActive =
                     sl > 0 &&
-                    payload.stopLoss?.trailing &&
+                    (payload as any).stopLoss?.trailing &&
                     !isClosed &&
-                    !!meta.tslActivated;
+                    !!(meta as any).tslActivated;
 
                   // CANLI sinyal verisinden AI Score ve STATUS — Shared Lib kullanılıyor
                   const symNorm = trade.symbol.replace("/", "");
@@ -644,7 +679,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                     currentPrice,
                     tp,
                     sl,
-                    liveData ? liveData.aiScore : Number(trade.aiScore) || 0,
+                    liveData ? (liveData as any).aiScore : Number((meta as any)?.lastAiScore) || 0,
                     trade.status,
                     meta,
                   );
@@ -877,48 +912,48 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                             pnlPercent={pnlPercent}
                             pnlUsdt={pnlUsdt}
                             isProfit={pnlPercent >= 0}
-                            trailingTpDev={payload.takeProfit?.deviation}
-                            trailingSlDev={payload.stopLoss?.deviation}
+                            trailingTpDev={(payload as any)?.takeProfit?.deviation}
+                            trailingSlDev={(payload as any)?.stopLoss?.deviation}
                             isTtpActive={!!isTtpActive}
                             isTslActive={!!isTslActive}
-                            trailingBuyDev={payload.trailingBuyDev}
+                            trailingBuyDev={(payload as any)?.trailingBuyDev}
                           />
                           {/* Compact feature badges */}
                           {!isClosed &&
-                            (payload.trailingBuy ||
-                              payload.takeProfit?.trailing ||
-                              payload.stopLoss?.trailing ||
-                              payload.stopLoss?.timeout ||
-                              payload.stopLoss?.breakeven) && (
+                            ((payload as any)?.trailingBuy ||
+                              (payload as any)?.takeProfit?.trailing ||
+                              (payload as any)?.stopLoss?.trailing ||
+                              (payload as any)?.stopLoss?.timeout ||
+                              (payload as any)?.stopLoss?.breakeven) && (
                               <div className="flex items-center gap-1 px-1.5 flex-wrap">
-                                {payload.trailingBuy && (
+                                 {(payload as any)?.trailingBuy && (
                                   <span className="px-1 py-0.5 rounded text-[8px] font-black bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
                                     TBY{" "}
-                                    {payload.trailingBuyDev
-                                      ? `${Math.abs(payload.trailingBuyDev)}%`
+                                    {(payload as any)?.trailingBuyDev
+                                      ? `${Math.abs((payload as any).trailingBuyDev)}%`
                                       : "AKTİF"}
                                   </span>
                                 )}
-                                {payload.takeProfit?.trailing && (
+                                {(payload as any)?.takeProfit?.trailing && (
                                   <span className="px-1 py-0.5 rounded text-[8px] font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                                    {payload.takeProfit.deviation
-                                      ? `TTP ${payload.takeProfit.deviation}%`
+                                    {(payload as any).takeProfit?.deviation
+                                      ? `TTP ${(payload as any).takeProfit.deviation}%`
                                       : "TTP"}
                                   </span>
                                 )}
-                                {payload.stopLoss?.trailing && (
+                                {(payload as any)?.stopLoss?.trailing && (
                                   <span className="px-1 py-0.5 rounded text-[8px] font-black bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                                    {payload.stopLoss.deviation
-                                      ? `TSL ${Math.abs(payload.stopLoss.deviation)}%`
+                                    {(payload as any).stopLoss?.deviation
+                                      ? `TSL ${Math.abs((payload as any).stopLoss.deviation)}%`
                                       : "TSL"}
                                   </span>
                                 )}
-                                {payload.stopLoss?.timeout && (
+                                {(payload as any)?.stopLoss?.timeout && (
                                   <span className="px-1 py-0.5 rounded text-[8px] font-black bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                                    ⏱{payload.stopLoss.timeoutSeconds || 10}s
+                                    ⏱{(payload as any).stopLoss?.timeoutSeconds || 10}s
                                   </span>
                                 )}
-                                {payload.stopLoss?.breakeven && (
+                                {(payload as any)?.stopLoss?.breakeven && (
                                   <span className="px-1 py-0.5 rounded text-[8px] font-black bg-violet-500/10 text-violet-400 border border-violet-500/20">
                                     BE✓
                                   </span>

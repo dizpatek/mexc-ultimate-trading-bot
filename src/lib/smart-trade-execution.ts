@@ -18,8 +18,9 @@ export async function executeEntry(
   trade: ExecutionTrade,
   currentPrice: number,
   reason: string,
+  metaParam: Record<string, unknown>
 ) {
-  const { id, user_id, symbol, qty: rawQty, meta } = trade;
+  const { id, user_id, symbol, qty: rawQty } = trade;
   const side = trade.side as string;
   const qty = Number(rawQty);
   try {
@@ -47,9 +48,10 @@ export async function executeEntry(
         parseFloat(result.cummulativeQuoteQty as string) /
         parseFloat(result.executedQty as string);
     }
-    await sql`UPDATE orders SET status = 'FILLED', price = ${avgPrice}, updated_at = ${Date.now()}, meta = ${JSON.stringify({ ...meta, entryReason: reason, entryResult: result, highestPrice: avgPrice, lowestPrice: avgPrice, filledAt: Date.now() })} WHERE id = ${id}`;
+    await sql`UPDATE orders SET status = 'FILLED', price = ${avgPrice}, updated_at = ${Date.now()}, meta = (meta::jsonb || ${JSON.stringify({ ...metaParam, entryReason: reason, entryResult: result, highestPrice: avgPrice, lowestPrice: avgPrice, filledAt: Date.now() })}::jsonb)::text WHERE id = ${id}`;
   } catch (err) {
     console.error(`[Entry Error]`, err);
+    throw err; // Re-throw so monitor catches it and records the monitorError correctly
   }
 }
 

@@ -81,7 +81,7 @@ export default function Dashboard() {
     <HorizonLayout>
       <Header />
 
-      <main className="flex-1 min-w-0 p-2 md:p-4 lg:p-6 space-y-6 overflow-y-auto max-w-full mx-auto w-full pb-24 no-scrollbar">
+      <main className="flex-1 min-w-0 px-2 md:px-4 lg:px-6 py-0.5 md:py-1 lg:py-1.5 space-y-1 overflow-y-auto max-w-full mx-auto w-full pb-24 no-scrollbar">
         {/* MATRIX MISSION CONTROL (Full Width) */}
         <div className="w-full min-h-[400px]">
           <HorizonCard
@@ -100,7 +100,7 @@ export default function Dashboard() {
         </div>
 
         {/* TERMINAL & NEWS (Side by Side) - F4 Terminal features merged into Portfolio*/}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 h-auto xl:h-[400px]">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 h-auto xl:h-[400px]">
           {/* TERMINAL (Combat Log) */}
           <div className="min-h-[300px] xl:min-h-0">
             <div className="h-full overflow-hidden flex flex-col rounded-xl shadow-2xl">

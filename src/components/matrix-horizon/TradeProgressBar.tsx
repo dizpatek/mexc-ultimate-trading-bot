@@ -99,45 +99,54 @@ const PriceThumb: React.FC<PriceThumbProps> = ({
   animate,
 }) => (
   <div
-    style={{
-      left: `${pos}%`,
-      ...(glowColor ? { boxShadow: `0 0 8px ${glowColor}` } : {}),
-    }}
+    style={{ left: `${pos}%` }}
     className={cn(
-      "absolute top-0 bottom-0 w-1.5 rounded-full z-20 transition-all duration-700 cursor-help group/thumb",
-      color,
-      animate && "animate-pulse",
+      "absolute top-1/2 -translate-y-1/2 z-40 flex flex-col items-center justify-center transition-all duration-700 cursor-help group/thumb"
     )}
   >
+    {/* Colored Dot (Point) */}
+    <div
+      style={{
+        ...(glowColor ? { boxShadow: `0 0 8px 1px ${glowColor}` } : {}),
+      }}
+      className={cn(
+        "w-2.5 h-2.5 rounded-full bg-current relative z-20",
+        color,
+        animate && "animate-pulse"
+      )}
+    />
+    
     {/* Price above */}
     <div
       className={cn(
-        "absolute -top-[26px] left-1/2 -translate-x-1/2 text-[8px] font-black whitespace-nowrap z-40",
+        "absolute bottom-[calc(100%+6px)] text-[9px] font-black whitespace-nowrap z-50",
         color,
       )}
     >
       ${fmt(price)}
     </div>
+    
     {/* Sub-label */}
     {label && (
       <div
         className={cn(
-          "absolute -top-[14px] left-1/2 -translate-x-1/2 text-[7px] font-bold whitespace-nowrap z-40",
+          "absolute top-[calc(100%+6px)] text-[8px] font-bold whitespace-nowrap z-50",
           color,
-          "opacity-70",
+          "opacity-80",
         )}
       >
         {label}
       </div>
     )}
+    
     {/* Hover tooltip */}
     {tooltip && (
       <div
         className={cn(
-          "absolute -top-[48px] left-1/2 -translate-x-1/2 px-1.5 py-1 rounded text-[9px] font-black whitespace-nowrap",
+          "absolute bottom-[calc(100%+22px)] px-1.5 py-1 rounded text-[9px] font-black whitespace-nowrap",
           "transition-all opacity-0 group-hover/thumb:opacity-100 scale-90 group-hover/thumb:scale-100 shadow-xl z-50",
           color,
-          "text-white",
+          "text-white bg-slate-900 border border-white/10",
         )}
       >
         {tooltip}
@@ -176,6 +185,27 @@ const EntryLabel: React.FC<{ pos: number; price: number }> = ({
   </div>
 );
 
+const TargetMarker: React.FC<{ pos: number; price: number; type: "TP" | "SL" }> = ({
+  pos,
+  price,
+  type,
+}) => {
+  const isTp = type === "TP";
+  return (
+    <div
+      style={{ left: `${Math.min(92, Math.max(8, pos))}%` }}
+      className={cn(
+        "absolute -top-[20px] -translate-x-1/2 px-1 py-[2px] rounded text-[9px] font-black whitespace-nowrap z-40 border shadow-sm",
+        isTp
+          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-[0_0_8px_rgba(16,185,129,0.2)]"
+          : "bg-rose-500/10 text-rose-400 border-rose-500/30 shadow-[0_0_8px_rgba(244,63,94,0.2)]"
+      )}
+    >
+      {type} {fmt(price)}
+    </div>
+  );
+};
+
 // ═══════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════
@@ -207,6 +237,8 @@ export const TradeProgressBar: React.FC<TradeProgressBarProps> = (props) => {
         trade={trade}
         entry={entry}
         currentPrice={currentPrice}
+        sl={sl}
+        tp={tp}
         dev={trailingBuyDev || meta.payload?.trailingBuyDev || 1}
       />
     );
@@ -250,8 +282,10 @@ const TbuyBar: React.FC<{
   trade: SmartTradeOrder;
   entry: number;
   currentPrice: number;
+  sl: number;
+  tp: number;
   dev: number;
-}> = ({ trade, entry, currentPrice, dev }) => {
+}> = ({ trade, entry, currentPrice, sl, tp, dev }) => {
   const data = useMemo(() => {
     const isCover = trade.meta.mode === "COVER";
     // For Trade (BUY): follows price DOWN. Trigger = lowest * (1 + dev)
@@ -268,7 +302,11 @@ const TbuyBar: React.FC<{
     const distFromTrigger =
       ((currentPrice - triggerPrice) / triggerPrice) * 100;
     const distFromEntry = ((currentPrice - entry) / entry) * 100;
-    const { lo, hi } = computeRange([entry, triggerPrice, currentPrice], 0.15);
+    
+    const prices = [entry, triggerPrice, currentPrice];
+    if (sl > 0) prices.push(sl);
+    if (tp > 0) prices.push(tp);
+    const { lo, hi } = computeRange(prices, 0.15);
 
     return {
       triggerPrice,
@@ -279,8 +317,10 @@ const TbuyBar: React.FC<{
       triggerPos: normalizePos(triggerPrice, lo, hi),
       currentPos: normalizePos(currentPrice, lo, hi),
       lowestPos: normalizePos(lowestSeen, lo, hi),
+      slPos: sl > 0 ? normalizePos(sl, lo, hi) : 0,
+      tpPos: tp > 0 ? normalizePos(tp, lo, hi) : 0,
     };
-  }, [entry, currentPrice, dev, trade.meta.lowestPrice, trade.meta.highestPrice, trade.meta.mode]);
+  }, [entry, currentPrice, dev, sl, tp, trade.meta.lowestPrice, trade.meta.highestPrice, trade.meta.mode]);
 
   return (
     <div className="px-1.5 py-1 flex items-center gap-2">
@@ -296,6 +336,20 @@ const TbuyBar: React.FC<{
           {/* Entry marker */}
           <VLine pos={data.entryPos} color="bg-amber-400/70" />
           <EntryLabel pos={data.entryPos} price={entry} />
+
+          {/* Planned Targets */}
+          {sl > 0 && (
+            <>
+              <VLine pos={data.slPos} color="bg-rose-500/30" height="h-2" />
+              <TargetMarker pos={data.slPos} price={sl} type="SL" />
+            </>
+          )}
+          {tp > 0 && (
+            <>
+              <VLine pos={data.tpPos} color="bg-emerald-500/30" height="h-2" />
+              <TargetMarker pos={data.tpPos} price={tp} type="TP" />
+            </>
+          )}
 
           {/* Trigger line */}
           <VLine
@@ -485,7 +539,7 @@ const ActiveTradeBar: React.FC<ActiveBarProps> = ({
       </div>
 
       {/* Progress bar track */}
-      <div className="h-1.5 w-full bg-slate-800/50 rounded-full relative border border-white/5 mt-1 mb-3">
+      <div className="h-1.5 w-full bg-slate-800/50 rounded-full relative border border-white/5 mt-6 mb-4">
         {/* SL markers */}
         {sl > 0 && (
           <>
@@ -496,6 +550,7 @@ const ActiveTradeBar: React.FC<ActiveBarProps> = ({
               height="h-2.5"
               glow="0 0 4px rgba(244,63,94,0.5)"
             />
+            <TargetMarker pos={data.dynSlPos} price={data.dynSl} type="SL" />
           </>
         )}
 
@@ -515,6 +570,7 @@ const ActiveTradeBar: React.FC<ActiveBarProps> = ({
                 glow="0 0 4px rgba(52,211,153,0.8)"
               />
             )}
+            <TargetMarker pos={isTtpActive ? data.dynTpPos : data.tpPos} price={isTtpActive ? data.dynTp : tp} type="TP" />
           </>
         )}
 
@@ -556,7 +612,7 @@ const MinimalBar: React.FC<{
 
   return (
     <div className="px-1.5 py-1 flex flex-col gap-0.5">
-      <div className="h-1.5 w-full bg-slate-800/50 rounded-full relative border border-white/5 mt-1 mb-3">
+      <div className="h-1.5 w-full bg-slate-800/50 rounded-full relative border border-white/5 mt-5 mb-4">
         <VLine pos={entryPos} color="bg-white/40" />
         <FillLine
           from={entryPos}

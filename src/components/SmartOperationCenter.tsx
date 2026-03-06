@@ -84,7 +84,7 @@ export const SmartOperationCenter = () => {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-1">
       {/* Unified Terminal Module (Chart + Trade) - Chart is always visible, controls are collapsible */}
       <div
         ref={terminalRef}

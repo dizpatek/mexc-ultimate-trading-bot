@@ -9,6 +9,7 @@ import {
 import { MatrixV5Engine } from "./matrix-v5-engine";
 import { fetchKlines } from "./mexc";
 import { calculateTrailingExitTarget, calculateTrailingBuyTarget } from "./trading-logic";
+import { getBotConfig } from "./db";
 
 let lastRun = 0;
 const MONITOR_INTERVAL = 5000; // Reduced from 12s to 5s to save Vercel CPU time
@@ -51,6 +52,16 @@ export async function monitorSmartTrades() {
   try {
     await ensureInitialized();
 
+    // ── Fetch bot config once per cycle (not per trade) ──
+    let pilotEnabled = true;
+    try {
+      const botConfig = await getBotConfig();
+      pilotEnabled = !!botConfig.auto_trade;
+    } catch {
+      // If config fetch fails, default to SAFE (no exit)
+      pilotEnabled = false;
+    }
+
     const { rows } = await sql`
             SELECT id, user_id, symbol, side, qty, price, meta, status 
             FROM orders 
@@ -65,7 +76,7 @@ export async function monitorSmartTrades() {
       const chunk = trades.slice(i, i + CONCURRENCY_LIMIT);
       await Promise.allSettled(
         chunk.map((trade) =>
-          processTradeMonitoring(trade).catch((err) =>
+          processTradeMonitoring(trade, pilotEnabled).catch((err) =>
             console.error(`[SmartMonitor] Error for trade ${trade.id}:`, err),
           ),
         ),
@@ -148,7 +159,7 @@ interface TradeMeta extends Record<string, unknown> {
   filledAt?: number;
 }
 
-async function processTradeMonitoring(trade: MonitoredTrade) {
+async function processTradeMonitoring(trade: MonitoredTrade, pilotEnabled: boolean) {
   const {
     id,
     symbol,
@@ -231,6 +242,16 @@ async function processTradeMonitoring(trade: MonitoredTrade) {
     }
 
     Object.assign(meta, { ...stateUpdates, lastUpdate: Date.now() });
+
+    // ── PILOT MODE GATE ──────────────────────────────────────────────────────
+    // pilotEnabled is resolved once per cycle in monitorSmartTrades().
+    if (!pilotEnabled && shouldExit) {
+      console.log(
+        `[SmartMonitor] ✈️ PİLOT KAPALI — Trade #${id} için "${exitReason}" tetiklenmeliydi, ancak dış müdahale devre dışı. Sadece fiyat güncelleniyor.`
+      );
+      shouldExit = false;
+      exitReason = "";
+    }
 
     // P4.3: Separate Persistence Side-Effects
     if (shouldExit) {
@@ -750,13 +771,13 @@ async function handlePendingTrade(
     if (!shouldExit && (newHighest !== meta.highestPrice || newLowest !== meta.lowestPrice)) {
        const pctChangeHigh = meta.highestPrice ? Math.abs(newHighest - (meta.highestPrice as number)) / (meta.highestPrice as number) : 1;
        const pctChangeLow = meta.lowestPrice ? Math.abs(newLowest - (meta.lowestPrice as number)) / (meta.lowestPrice as number) : 1;
-       if (pctChangeHigh > 0.001 || pctChangeLow > 0.001) { // 0.1% change threshold
+       if (pctChangeHigh > 0.005 || pctChangeLow > 0.005) { // 0.5% change threshold
          await saveTradeUpdate(trade.id, Number(meta.executedQty) || 0, { ...meta, ...metaUpdates });
        }
     }
   }
 
   metaUpdates.entryTriggered = entryTriggered;
-  if (shouldExit) await executeEntry(trade, currentPrice, exitReason);
+  if (shouldExit) await executeEntry(trade, currentPrice, exitReason, { ...meta, ...metaUpdates });
   return { newHighest, newLowest, shouldExit, exitReason, metaUpdates };
 }

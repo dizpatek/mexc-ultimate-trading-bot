@@ -10,84 +10,92 @@
 ![Vercel](https://img.shields.io/badge/Vercel-Postgres-000000?style=for-the-badge&logo=vercel)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge&logo=freebsd)
 
-An elite, institutional-grade automated trading ecosystem. Upgraded from the legacy V3 architecture to the **Matrix V5 Neural Core**, this system represents thousands of hours of optimization, featuring advanced Smart Money Concepts (SMC), high-frequency API consolidation, and a Bayesian-driven decision engine.
+An elite, high-performance institutional-grade automated trading ecosystem. This repository represents a comprehensive evolution from the legacy V3 architecture to a state-of-the-art **Matrix V5 Neural Core**, featuring deep Smart Money Concepts (SMC) integration, high-concurrency API proxying, and intensive algorithmic optimizations.
 
 ---
 
-## ⚡ Matrix V5 Neural Core: The Evolution
+## ⚡ Matrix V5 Neural Core: The Developmental Leap
 
-The V5 engine is not just an update; it is a complete rewrite of the trade execution and analysis pipeline.
+The V5 transformation involves **thousands of lines of new logic** across the entire stack, shifting from a simple script-based bot to a distributed neural architecture.
 
-### 🌐 Scalable API & Network Architecture
+### 🌐 Scalable API & Proxy Infrastructure (NEW)
 
-- **📡 Institutional Proxy Batching**: Every asset request in the `MarketKernel` is now intelligently consolidated. Instead of individual calls, the system executes bulk proxy requests, reducing MEXC API overhead by up to **85%**.
-- **⏱️ Global 500ms Throttle**: A strict, system-wide execution gate ensures that no API endpoint is overwhelmed, guaranteeing deterministic performance and zero rate-limit bans (429 errors).
-- **🔇 Noise-Free Sync**: Eliminated thousands of redundant background '1m' requests. The entire system—from scanner to UI—now synchronizes to a single **Global Timeframe Lock**.
+- **📡 Institutional Proxy Batching**: Optimized `MarketKernel` executes intelligent request consolidation. Instead of individual per-asset calls, a centralized proxy system handles thousands of data points via batched MEXC API requests, reducing overhead by **~85%**.
+- **⏱️ Deterministic Latency (500ms Throttle)**: A precision-engineered global throttle gate eliminates the risk of 429 (Rate Limit) errors while maintaining professional-grade execution speed.
+- **🔇 Noise-Free Data Stream**: Removed all redundant high-frequency background '1m' polling. The entire system now utilizes a **Global Timeframe Sync** architecture.
 
-### 🧠 Advanced Analysis Modules (Neural V5)
+### 🧠 Matrix V5 Neural Engine Architecture
 
-- **📊 6-Layer Confluence Engine**: Final decisions are mathematically weighted across Tech, Momentum, Volume, Trend, Market Regime, and Timing categories.
-- **🐋 Whale Radar v2**: TF-adaptive institutional volume detection that filters noise and identifies true accumulation/distribution zones.
-- **� Smart Money Concepts (SMC)**: Native detection of **BOS** (Break of Structure), **CHoCH** (Change of Character), **Order Blocks**, and **Fair Value Gaps (FVG)**.
-- **🔮 Prediction Engine**: Bayesian probability model that forecasts price direction based on asset drift (ADM) and volume-price analysis (VPA).
-
----
-
-## 🎮 The Matrix Dashboard (V5 Edition)
-
-A high-tech, "Single Pane of Glass" tactical interface for high-frequency trading.
-
-| Feature                 | Description                                                                                                      |
-| :---------------------- | :--------------------------------------------------------------------------------------------------------------- |
-| **Neural Portfolio**    | Real-time asset matrix with AI Score (0-100), MTF Consensus, and "Matrix Verdict" labels (e.g., EARLY_REVERSAL). |
-| **Tactical Order Flow** | Integrated SmartTrade execution with Trailing Take-Profit, Trailing Stop-Loss, and Smart Cover support.          |
-| **Intelligence Hub**    | Global news sentiment analysis (Positive/Negative/Neutral) paired with a live Whale Tracker feed.                |
-| **Matrix V5.4 Scan**    | Deep market scanner targeting ultra-high probability entries using the F4 Power Loss algorithm.                  |
-
-### 🔧 Matrix V5 vs Legacy V3
-
-| Feature             | Matrix V3 (Legacy) | Matrix V5 Neural   |
-| :------------------ | :----------------- | :----------------- |
-| **Indicator Count** | 3-4 Basic          | 12+ Advanced       |
-| **API Efficiency**  | Individual Calls   | Proxy Batching     |
-| **SMC Support**     | None               | Full (BOS/FVG)     |
-| **Adaptive Logic**  | Static Periods     | TF-Adaptive        |
-| **Decision Logic**  | Simple If-Then     | 6-Layer Confluence |
-| **Noise Level**     | High (1m spam)     | Zero (Locked Tf)   |
+- **🧬 6-Category Confluence Engine**: Final trading decisions are now determined by a weighted consensus across **Tech, Momentum, Volume, Trend, Market Regime, and Timing** categories.
+- **� 12+ Institutional Indicators**: Native port of advanced Pine Script v6 strategies including:
+  - **Trend**: SuperTrend, EMA Ribbon, Ichimoku Cloud.
+  - **Momentum**: ADX Trend Strength, StochRSI, MACD Histogram (Divergence aware).
+  - **Volume**: VPA (Volume Price Analysis), ADM (Asset Drift Model), Capital Flow Phase detection.
+- **📐 SMC (Smart Money Concepts)**: Professional-grade structure analysis detecting **BOS** (Break of Structure), **CHoCH** (Change of Character), **Order Blocks**, and **Fair Value Gaps (FVG)**.
+- **🔮 Probabilistic Forecasting**: Bayesian decision model providing directional probabilities (Up/Down/Flat) with confidence intervals.
 
 ---
 
-## 🛠️ High-Performance Setup
+## 🎮 tactical Dashboard (V5 Edition)
+
+The V5 UI is a "Single Pane of Glass" command center built for high-stakes trading.
+
+- **Neural Portfolio Matrix**: Live asset grid featuring **MTF Consensus**, AI Confidence scores (0-100), and the "Matrix Verdict" (e.g., _🔥 GÜÇLÜ AL — DİP ONAYLANMIŞ_).
+- **SmartTrade Execution Deck**: Professional order management supporting **Trailing Take-Profit (TTP)**, **Trailing Stop-Loss (TSL)**, **Smart Cover**, and **Trailing Buy**.
+- **Intelligence Hub (Global Feed)**: Aggregated news sentiment analysis paired with a real-time **Whale Radar v2** institutional tracking system.
+- **CombatLog 2.0**: High-fidelity event stream with sentiment-coded signals, whale alerts, and structural break notifications.
+- **🛡️ Automated Panic Switch**: Integrated emergency liquidation service that executes a one-click global exit and captures a database snapshot of current balances.
+
+---
+
+## 🚀 Full Technology Stack
+
+| Layer         | Technology                                 |
+| :------------ | :----------------------------------------- |
+| **Framework** | Next.js 15+ (App Router), React 19         |
+| **Logic**     | TypeScript 5.x (Strict Neural Engine)      |
+| **Styling**   | Tailwind CSS v4.0 (Modern Tactical Theme)  |
+| **Real-time** | High-Concurrency WebSocket Aggregator      |
+| **Database**  | Vercel Postgres / Neon SQL Architecture    |
+| **Security**  | Institutional HMAC-SHA256 MEXC API Signing |
+
+---
+
+## 🛠️ Configuration & Setup
 
 ### 📋 Prerequisites
 
-- Node.js 20+ (LTS recommended)
-- MEXC API Standard/Spot Keys
-- PostgreSQL (Vercel/Neon support native)
+- Node.js 20+ (LTS)
+- MEXC Standard/Spot API Keys
+- PostgreSQL Instance (Vercel/Neon)
 
-### 📦 Quick Start
+### 📦 Installation
 
 ```bash
-# Clone the Matrix
+# Clone the Matrix V5 repository
 git clone https://github.com/dizpatek/mexc-ultimate-trading-bot.git
 
-# Initialize Neural Core
+# Initialize Neural Environment
 npm install
 
-# Start Tactical Interface
+# Database Setup
+# Auto-initialization occurs on project launch via src/lib/db-init.ts
+
+# Start System
 npm run dev
 ```
 
 ---
 
-## 🇹🇷 Türkçe Özet – Matrix V5: Devrimsel Güncelleme
+## 🇹🇷 Türkçe Özet – Matrix V5 Neural: Geleceğin İşlem Teknolojisi
 
-**Matrix V5 Neural Engine**, eski V3 mimarisini tarihe gömerek binlerce optimizasyon ile profesyonel bir komuta merkezi sunar.
+**Matrix V5**, eski V3 yapısını tamamen geride bırakarak profesyonel bir komuta merkezi sunar. Bu güncelleme, sistemin her dosyasında binlerce optimizasyon ve yapısal yenilik barındırır.
 
-- **Ultra Verimli API:** İstekler birleştirilerek (Batching) borsa limitlerine takılmadan maksimum veri akışı sağlanır.
-- **SMC Desteği:** Kurumsal işlem stratejileri (BOS, CHoCH, Likidite Bölgeleri) artık sistemin bir parçası.
-- **Bayesian AI Skorları:** Rastgele kararlar yerine, olasılık tabanlı "Giga Master" skorlama sistemi kullanılır.
-- **Akıllı Takip:** Trailing TP/SL ve Smart Cover modülleriyle kârınızı korur, zararınızı minimize eder.
+- **Ultra-Verimli API:** "Proxy Batching" teknolojisi ile MEXC limitlerine takılmadan binlerce veriyi saniyeler içinde işler.
+- **Giga Master AI:** RSI, MACD ve Ichimoku gibi 12+ indikatörü Bayesyen olasılık modelleriyle birleştirerek en güvenli giriş noktalarını tespit eder.
+- **SMC Desteği:** Kurumsal "Smart Money" stratejilerini (BOS, CHoCH, Likidite Bölgeleri) yerel olarak destekler.
+- **SmartTrade Mekanizması:** Trailing Stop, Trailing TP ve Smart Cover algoritmalarıyla kârınızı korurken zarar riskini minimize eder.
+- **Panic Exit:** Tek tıkla tüm portföyü USDT'ye çeviren acil durum sistemi.
 
 ---
 

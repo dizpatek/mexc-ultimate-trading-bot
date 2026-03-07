@@ -1,108 +1,243 @@
-# 🤖 MexC Ultimate Trading Bot & Portfolio Matrix V5.4 Neural
+# ⚡ MEXC Ultimate Trading Bot 2026
 
-<p align="center">
-  <img src="public/readme-assets/banner_v5.png" alt="Matrix V5 Neural Engine Banner" width="800">
-</p>
+![MEXC Bot Banner](C:\Users\SNTRK.gemini\antigravity\brain\b28e712d-3bfd-4ec7-82d7-953b7c4ac4c8\mexc_bot_banner_1772867840544.png)
 
-![Next.js](https://img.shields.io/badge/Next.js-15+-black?style=for-the-badge&logo=next.js)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?style=for-the-badge&logo=typescript)
-![TailwindCSS](https://img.shields.io/badge/Tailwind-CSS%204.0-38B2AC?style=for-the-badge&logo=tailwind-css)
-![Vercel](https://img.shields.io/badge/Vercel-Postgres-000000?style=for-the-badge&logo=vercel)
-![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge&logo=freebsd)
-
-An elite, high-performance institutional-grade automated trading ecosystem. This repository represents a comprehensive evolution from the legacy V3 architecture to a state-of-the-art **Matrix V5 Neural Core**, featuring deep Smart Money Concepts (SMC) integration, high-concurrency API proxying, and intensive algorithmic optimizations.
+> **Unlock the Future of Automated Trading.** A high-performance, AI-driven, and hyper-scalable trading platform designed for MEXC Exchange.
 
 ---
 
-## ⚡ Matrix V5 Neural Core: The Developmental Leap
+## 🌟 Overview
 
-The V5 transformation involves **thousands of lines of new logic** across the entire stack, shifting from a simple script-based bot to a distributed neural architecture.
+The **MEXC Ultimate Trading Bot** is a sophisticated trading ecosystem built with **Next.js 15**, **React 19**, and a powerful **Node.js** backend engine. It integrates advanced technical analysis, real-time market sentiment, and machine learning models to execute high-precision trades on the MEXC exchange.
 
-### 🌐 Scalable API & Proxy Infrastructure (NEW)
-
-- **📡 Institutional Proxy Batching**: Optimized `MarketKernel` executes intelligent request consolidation. Instead of individual per-asset calls, a centralized proxy system handles thousands of data points via batched MEXC API requests, reducing overhead by **~85%**.
-- **⏱️ Deterministic Latency (500ms Throttle)**: A precision-engineered global throttle gate eliminates the risk of 429 (Rate Limit) errors while maintaining professional-grade execution speed.
-- **🔇 Noise-Free Data Stream**: Removed all redundant high-frequency background '1m' polling. The entire system now utilizes a **Global Timeframe Sync** architecture.
-
-### 🧠 Matrix V5 Neural Engine Architecture
-
-- **🧬 6-Category Confluence Engine**: Final trading decisions are now determined by a weighted consensus across **Tech, Momentum, Volume, Trend, Market Regime, and Timing** categories.
-- **� 12+ Institutional Indicators**: Native port of advanced Pine Script v6 strategies including:
-  - **Trend**: SuperTrend, EMA Ribbon, Ichimoku Cloud.
-  - **Momentum**: ADX Trend Strength, StochRSI, MACD Histogram (Divergence aware).
-  - **Volume**: VPA (Volume Price Analysis), ADM (Asset Drift Model), Capital Flow Phase detection.
-- **📐 SMC (Smart Money Concepts)**: Professional-grade structure analysis detecting **BOS** (Break of Structure), **CHoCH** (Change of Character), **Order Blocks**, and **Fair Value Gaps (FVG)**.
-- **🔮 Probabilistic Forecasting**: Bayesian decision model providing directional probabilities (Up/Down/Flat) with confidence intervals.
+Designed for professional traders and developers, this platform offers a seamless interface for managing automated strategies, monitoring portfolio growth, and analyzing market trends through a futuristic "Cyber" UI.
 
 ---
 
-## 🎮 tactical Dashboard (V5 Edition)
+## 🚀 Key Features
 
-The V5 UI is a "Single Pane of Glass" command center built for high-stakes trading.
+### 🛡️ Smart Trade Execution Engine
 
-- **Neural Portfolio Matrix**: Live asset grid featuring **MTF Consensus**, AI Confidence scores (0-100), and the "Matrix Verdict" (e.g., _🔥 GÜÇLÜ AL — DİP ONAYLANMIŞ_).
-- **SmartTrade Execution Deck**: Professional order management supporting **Trailing Take-Profit (TTP)**, **Trailing Stop-Loss (TSL)**, **Smart Cover**, and **Trailing Buy**.
-- **Intelligence Hub (Global Feed)**: Aggregated news sentiment analysis paired with a real-time **Whale Radar v2** institutional tracking system.
-- **CombatLog 2.0**: High-fidelity event stream with sentiment-coded signals, whale alerts, and structural break notifications.
-- **🛡️ Automated Panic Switch**: Integrated emergency liquidation service that executes a one-click global exit and captures a database snapshot of current balances.
+- **Automated Entry & Exit:** Execute trades based on complex multi-factor triggers including RSI, Bollinger Bands, and custom volume profiles.
+- **Multi-Level Take Profit:** Define up to 10 TP levels with customizable volume percentages. The bot automatically manages partial closures.
+- **Dynamic Trailing Stop Loss:** Protect your capital with an intelligent trailing mechanism that moves with the price, using either a fixed percentage or ATR-based volatility tracking.
+- **Panic Exit Button:** Liquidate positions instantly across multiple pairs in emergency scenarios with a single click from the Command Center.
+- **Laddered Orders:** Automatically spread your entries and exits to minimize slippage and average your price across high-volatility moves.
+
+### 🧠 Intelligence Hub & AI Analysis
+
+- **Sentiment Analyzer:** Real-time analysis of market sentiment by scraping and processing social signals, news feeds, and Whale Alert data.
+- **Price Prediction Models:** Next-gen prediction algorithms utilizing LSTM and Transformer models (via opencode-ai) for identifying high-probability setups.
+- **Intelligence Hub:** A centralized dashboard that synthesizes technical data, sentiment, and AI predictions into a single "Confidence Score."
+- **Combat Log:** A real-time event stream documenting every decision, signal, and execution performed by the bot. Think of it as a black box for your trading.
+
+### 📊 Advanced Matrix Analytics (V5)
+
+- **Strategy Engine:** Proprietary "Matrix V5" logic for trend identification. It uses a combination of hierarchical temporal memory and multi-timeframe analysis to filter out market noise.
+- **Interactive Charts:** High-performance charting using **Lightweight Charts** and **TradingView** embeds, featuring custom overlays for Buy/Sell signals and Order Blocks.
+- **Portfolio Breakdown:** Visualized asset allocation and performance tracking. See your "Win Rate," "Risk/Reward Ratio," and "Max Drawdown" in real-time.
+
+### ⚙️ Automation & Tools
+
+- **DCA (Dollar Cost Averaging) Manager:** Automate position building during market dips with customizable step-increase and volume-scaling.
+- **Alarm Engine:** Set custom alerts for price movements, RSI breakouts, volume surges, or specific pattern completions (e.g., Bull Flags).
+- **Telegram Integration:** Receive signals, PnL reports, and control your bot (Buy, Sell, Stop) directly via Telegram commands.
+- **Simulation Mode:** A full-featured paper trading environment that mimics MEXC's order book behavior exactly, allowing you to dry-run strategies with zero risk.
 
 ---
 
-## 🚀 Full Technology Stack
+## 🛠️ Tech Stack
 
-| Layer         | Technology                                 |
-| :------------ | :----------------------------------------- |
-| **Framework** | Next.js 15+ (App Router), React 19         |
-| **Logic**     | TypeScript 5.x (Strict Neural Engine)      |
-| **Styling**   | Tailwind CSS v4.0 (Modern Tactical Theme)  |
-| **Real-time** | High-Concurrency WebSocket Aggregator      |
-| **Database**  | Vercel Postgres / Neon SQL Architecture    |
-| **Security**  | Institutional HMAC-SHA256 MEXC API Signing |
+### Frontend & UI/UX
+
+- **Framework:** [Next.js 15](https://nextjs.org/) (App Router, Server Actions)
+- **UI Library:** [React 19](https://react.dev/) (utilizing the latest concurrent features)
+- **Styling:** [Tailwind CSS](https://tailwindcss.com/) with a custom "Cyber" design system.
+- **Animations:** [Framer Motion](https://www.framer.com/motion/) for fluid, high-performance transitions.
+- **Charts:** [Lightweight Charts](https://tradingview.github.io/lightweight-charts/) for execution, [Recharts](https://recharts.org/) for portfolio analytics.
+- **Icons:** [Lucide React](https://lucide.dev/)
+
+### Backend & Core Logic
+
+- **Runtime:** Node.js (with TypeScript for type safety)
+- **Database:** [PostgreSQL](https://www.postgresql.org/) managed via Vercel Postgres and Northflank.
+- **Caching:** In-memory caching for real-time order book data and ticker updates.
+- **State Management:** [React Query v5](https://tanstack.com/query/latest) for server state and optimistic UI updates.
+- **Security:** JWT-based authentication with high-entropy secrets and Bcrypt hashing.
+
+### Integrations & Infrastructure
+
+- **Exchange Connectivity:** High-speed MEXC API wrapper with automated rate-limit handling.
+- **Market Data:** Integration with CryptoRank for global market cap and dominance data.
+- **Communication:** Node-Telegram-Bot-API + Python-based Signal Listener for high-concurrency message processing.
+- **Deployment:** Vercel (Frontend/API) + Northflank (Database/Workers).
 
 ---
 
-## 🛠️ Configuration & Setup
+## 📂 Project Structure
 
-### 📋 Prerequisites
-
-- Node.js 20+ (LTS)
-- MEXC Standard/Spot API Keys
-- PostgreSQL Instance (Vercel/Neon)
-
-### 📦 Installation
-
-```bash
-# Clone the Matrix V5 repository
-git clone https://github.com/dizpatek/mexc-ultimate-trading-bot.git
-
-# Initialize Neural Environment
-npm install
-
-# Database Setup
-# Auto-initialization occurs on project launch via src/lib/db-init.ts
-
-# Start System
-npm run dev
+```text
+├── src/
+│   ├── app/                # Next.js App Router
+│   │   ├── api/            # REST & Webhook endpoints
+│   │   ├── dashboard/      # Main UI routes
+│   │   └── smart-trade/    # Trade configuration routes
+│   ├── components/         # Modular React Components
+│   │   ├── matrix-v5/      # Strategy visualization components
+│   │   ├── smart-trade/    # Order form and execution UI
+│   │   └── ui/             # Core design system components
+│   ├── lib/                # The Core "Engines"
+│   │   ├── matrix-v5-engine.ts  # Algorithm logic for strategy execution
+│   │   ├── trade-activity-log.ts # Comprehensive event logging
+│   │   ├── trading-simulator.ts  # Risk-free execution logic
+│   │   ├── mexc-wrapper.ts       # Low-level exchange communication
+│   │   └── smart-trade-monitor.ts # Background loop for order monitoring
+│   ├── context/            # Global state (TradingMode, Auth, Real-time Pricing)
+│   ├── hooks/              # Custom hooks for fetching data and calculating indicators
+│   ├── services/           # External service wrappers (Sentiment, Prediction)
+│   └── config/             # Environment-specific settings
+├── scripts/                # Database initialization and maintenance tasks
+├── public/                 # Optimized static assets and design tokens
+└── .env                    # Environment secrets (DO NOT COMMIT)
 ```
 
 ---
 
-## 🇹🇷 Türkçe Özet – Matrix V5 Neural: Geleceğin İşlem Teknolojisi
+## 🔌 Getting Started
 
-**Matrix V5**, eski V3 yapısını tamamen geride bırakarak profesyonel bir komuta merkezi sunar. Bu güncelleme, sistemin her dosyasında binlerce optimizasyon ve yapısal yenilik barındırır.
+### 1. System Requirements
 
-- **Ultra-Verimli API:** "Proxy Batching" teknolojisi ile MEXC limitlerine takılmadan binlerce veriyi saniyeler içinde işler.
-- **Giga Master AI:** RSI, MACD ve Ichimoku gibi 12+ indikatörü Bayesyen olasılık modelleriyle birleştirerek en güvenli giriş noktalarını tespit eder.
-- **SMC Desteği:** Kurumsal "Smart Money" stratejilerini (BOS, CHoCH, Likidite Bölgeleri) yerel olarak destekler.
-- **SmartTrade Mekanizması:** Trailing Stop, Trailing TP ve Smart Cover algoritmalarıyla kârınızı korurken zarar riskini minimize eder.
-- **Panic Exit:** Tek tıkla tüm portföyü USDT'ye çeviren acil durum sistemi.
+- **Hardware:** 2vCPU, 2GB RAM minimum (for the background workers).
+- **Environment:** Node.js v20.x+, npm v10+, Python 3.9+ (for Telegram Signal Listener).
+
+### 2. Configuration
+
+Create a `.env` file in the root directory. Use the template below:
+
+```env
+# --- DATABASE ---
+DATABASE_URL=postgresql://user:pass@host:port/dbname?sslmode=require
+PGHOST=your_host
+PGUSER=your_user
+PGDATABASE=your_db
+PGPASSWORD=your_pass
+PGPORT=your_port
+
+# --- AUTHENTICATION ---
+JWT_SECRET=your_32_char_secret_key
+
+# --- EXCHANGE KEYS ---
+MEXC_API_KEY=mx123456789...
+MEXC_SECRET=your_mexc_secret_key
+
+# --- EXTERNAL SERVICES ---
+CRYPTORANK_API_KEY=your_key
+WEBHOOK_SECRET=your_webhook_verification_token
+
+# --- TELEGRAM ---
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
+```
+
+### 3. Installation & Deployment
+
+```bash
+# 1. Clone the project
+git clone https://github.com/dizpatek/mexc-ultimate-trading-bot.git
+
+# 2. Install dependencies
+npm install
+
+# 3. Synchronize Database Schema
+npm run db:init
+
+# 4. (Optional) Start Telegram Listener
+npm run telegram:start
+```
+
+### 4. Launching the Platform
+
+```bash
+# Development Mode
+npm run dev
+
+# Production Build
+npm run build
+npm run start
+```
+
+---
+
+## 📋 Deep Dive: Trading Modules
+
+### 1. Matrix V5 Strategy Engine
+
+The Matrix V5 engine works on a **hierarchical decision tree**. It analyzes:
+
+- **Primary Trend:** Daily/4H timeframe RSI and EMA alignment.
+- **Entry Trigger:** 15m/5m timeframe OBV (On-Balance Volume) breakout.
+- **Validation:** AI Sentiment score > 70/100.
+  If all conditions are met, it initiates a **Smart Trade**.
+
+### 2. Smart Trade execution
+
+Once a trade is triggered, the `smart-trade-execution.ts` service takes over:
+
+- It places the initial entry order.
+- Simultaneously sets the **TP Ladder** and **Safety SL**.
+- Starts a `smart-trade-monitor` loop that updates the Trailing Stop as the price hits defined milestones.
+
+### 3. Intelligence Hub
+
+The hub aggregates data from:
+
+- **Technical Indicators:** MACD, RSI, ADX.
+- **On-Chain Data:** Exchange inflows/outflows.
+- **Social Media:** Sentiment polarity from curated feeds.
+  Resulting in a **Composite Confidence Level** displayed as a holographic gauge on the dashboard.
+
+---
+
+## 🐳 Docker Deployment (Recommended)
+
+For a stable 24/7 operation, use Docker:
+
+```bash
+docker build -t mexc-bot .
+docker run -d --name trading-engine --env-file .env mexc-bot
+```
+
+---
+
+## �️ Best Practices & Security
+
+- **API Permissions:** Ensure your MEXC API keys have `Spot Trading` enabled but `Withdrawal` **DISABLED**.
+- **IP Whitelisting:** Always whitelist your server IP on the MEXC dashboard for extra security.
+- **Monitoring:** Use the Combat Log to regularly check for any skipped orders or API timeouts.
+
+---
+
+## 🤝 Community & Support
+
+- **Bug Reports:** Open an issue in the [Issue Tracker](https://github.com/dizpatek/mexc-ultimate-trading-bot/issues).
+- **Discussions:** Join our developer community to share new strategies.
+- **Commercial Use:** This is open-source, but please credit the original repository for any modifications.
 
 ---
 
 ## 📄 License
 
-Licensed under the [MIT License](LICENSE).
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
-> **⚠️ DISCLOSURE:** This software is for educational and research purposes only. Trading cryptocurrencies carries high risk. Past performance does not guarantee future results.
+<div align="center">
+  <img src="https://img.shields.io/badge/Maintained%3F-yes-green.svg" alt="Maintained">
+  <img src="https://img.shields.io/badge/React-19.0.0-blue.svg" alt="React">
+  <img src="https://img.shields.io/badge/Next.js-15.1.8-black.svg" alt="Next.js">
+</div>
+
+<p align="center">
+  <b>Elevate your trading to the next dimension.</b><br>
+  <i>Crafted with precision by Antigravity © 2026</i>
+</p>

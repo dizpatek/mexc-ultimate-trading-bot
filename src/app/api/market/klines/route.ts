@@ -21,11 +21,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    console.log(
-      `[API] Fetching klines for ${symbol} (${interval}) limits: ${limit} range: ${startTime}-${endTime}`,
-    );
     const klines = await getKlines(symbol, interval, limit, startTime, endTime);
-    console.log(`[API] Received ${klines?.length || 0} klines for ${symbol}`);
 
     // Format klines for lightweight-charts
     // MEXC returns: [time, open, high, low, close, volume, closeTime, quoteAssetVolume]

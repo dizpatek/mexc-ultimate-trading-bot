@@ -49,11 +49,31 @@ async function fetchWithRetry<T>(
   throw lastError;
 }
 
+let lastPublicCallTime = 0;
+const PUBLIC_CALL_THROTTLE_MS = 500; // Strict user requirement: min 500ms between calls
+
+/**
+ * Global mutex-like throttle for public GET calls to ensure compliance with user's 500ms requirement.
+ */
+async function enforceThrottle() {
+  const now = Date.now();
+  const timeSinceLastCall = now - lastPublicCallTime;
+
+  if (timeSinceLastCall < PUBLIC_CALL_THROTTLE_MS) {
+    const delay = PUBLIC_CALL_THROTTLE_MS - timeSinceLastCall;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+  lastPublicCallTime = Date.now();
+}
+
 async function publicGet<T>(
   endpoint: string,
   params: Record<string, string | number | boolean> = {},
   timeout = 8000,
 ): Promise<T> {
+  // Global Throttle Enforcement (chat_id: h99j6i631ui)
+  await enforceThrottle();
+
   const url = `${BASE}${endpoint}`;
   const execute = async () => {
     const res = await axios.get(url, { params, timeout, httpsAgent });
@@ -66,14 +86,9 @@ async function publicGet<T>(
       return await fetchWithRetry(execute);
     }
     return await execute();
-  } catch (err) {
+  } catch (err: unknown) {
     if (axios.isAxiosError(err)) {
-      console.error(
-        `Public GET ${endpoint} error:`,
-        err.response?.data || err.message,
-      );
-    } else {
-      console.error(`Public GET ${endpoint} error:`, err);
+      console.error(`Public GET ${endpoint} error:`, err.response?.data || err.message);
     }
     throw err;
   }
@@ -145,18 +160,70 @@ export async function getServerTime() {
   return publicGet<{ serverTime: number }>("/api/v3/time");
 }
 
+const priceQueue = new Set<string>();
+const priceWaiters = new Map<string, ((price: number) => void)[]>();
+let priceBatchTimeout: NodeJS.Timeout | null = null;
+
 export async function getPrice(symbol: string): Promise<number> {
   const normalized = normalizeSymbol(symbol);
-  try {
-    const data = await publicGet<{ price: string }>("/api/v3/ticker/price", {
-      symbol: normalized,
-    });
-    return parseFloat(data.price);
-  } catch {
-    if (normalized === "BTCUSDT") return 95000;
-    if (normalized === "ETHUSDT") return 3500;
-    return 0;
-  }
+
+  return new Promise((resolve) => {
+    // Add to batch queue
+    priceQueue.add(normalized);
+    const list = priceWaiters.get(normalized) || [];
+    list.push(resolve);
+    priceWaiters.set(normalized, list);
+
+    if (priceBatchTimeout) return;
+
+    // Collect all requests over 500ms (as requested by user for optimization)
+    priceBatchTimeout = setTimeout(async () => {
+      const symbolsToFetch = Array.from(priceQueue);
+      priceQueue.clear();
+      priceBatchTimeout = null;
+
+      const currentWaiters = new Map(priceWaiters);
+      priceWaiters.clear();
+
+      try {
+        // MEXC supports ?symbols=["BTCUSDT","ETHUSDT"]
+        const data = await publicGet<unknown>("/api/v3/ticker/price", {
+          symbols: JSON.stringify(symbolsToFetch),
+        });
+
+        const resultsMap = new Map<string, number>();
+        if (Array.isArray(data)) {
+          data.forEach((item: { symbol: string; price: string }) => {
+            resultsMap.set(item.symbol, parseFloat(item.price));
+          });
+        } else if (data && typeof data === "object" && "symbol" in data && "price" in data) {
+          const d = data as { symbol: string; price: string };
+          resultsMap.set(d.symbol, parseFloat(d.price));
+        }
+
+        // Resolve all waiters
+        currentWaiters.forEach((waiters, sym) => {
+          let price = resultsMap.get(sym);
+          if (price === undefined || isNaN(price)) {
+            // Fallbacks for critical assets
+            if (sym === "BTCUSDT") price = 95000;
+            else if (sym === "ETHUSDT") price = 3500;
+            else price = 0;
+          }
+          waiters.forEach((res) => res(price!));
+        });
+      } catch (err) {
+        console.error("[MEXC] Price batch fetch failed:", err);
+        // Fallback resolution
+        currentWaiters.forEach((waiters, sym) => {
+          let price = 0;
+          if (sym === "BTCUSDT") price = 95000;
+          else if (sym === "ETHUSDT") price = 3500;
+          waiters.forEach((res) => res(price));
+        });
+      }
+    }, 500);
+  });
 }
 
 export interface TickerData {

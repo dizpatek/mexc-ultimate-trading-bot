@@ -15,9 +15,6 @@ export function useTradingSignals() {
   const [liveSignals, setLiveSignals] = useState<Record<string, F4Data>>({});
   const [isLoadingSignals, setIsLoadingSignals] = useState(false);
 
-  /**
-   * Map API response to F4Data structure consistently
-   */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapApiResponse = useCallback(
     (data: any, symbol: string, interval: string): F4Data => {
@@ -136,29 +133,35 @@ export function useTradingSignals() {
       const newFailures: Record<number, boolean> = {};
 
       try {
-        // Process sequentially to avoid rate limits
-        for (const trade of trades) {
-          const rawResults = await Promise.all(
-            MTF_INTERVALS.map(async (tf) => {
-              const d = await fetchSignal(trade.symbol, tf);
-              return { tf, d };
+        // P4.2: Process in small batches to avoid HTTP bursts/rate limits
+        const CHUNK_SIZE = 3;
+        for (let i = 0; i < trades.length; i += CHUNK_SIZE) {
+          const chunk = trades.slice(i, i + CHUNK_SIZE);
+          await Promise.all(
+            chunk.map(async (trade) => {
+              const rawResults = await Promise.all(
+                MTF_INTERVALS.map(async (tf) => {
+                  const d = await fetchSignal(trade.symbol, tf);
+                  return { tf, d };
+                }),
+              );
+
+              const map: Record<string, F4Data> = {};
+              let hasData = false;
+              rawResults.forEach(({ tf, d }) => {
+                if (d) {
+                  map[tf] = d;
+                  hasData = true;
+                }
+              });
+              if (hasData) {
+                updates[trade.id] = map;
+                newFailures[trade.id] = false;
+              } else {
+                newFailures[trade.id] = true;
+              }
             }),
           );
-
-          const map: Record<string, F4Data> = {};
-          let hasData = false;
-          rawResults.forEach(({ tf, d }) => {
-            if (d) {
-              map[tf] = d;
-              hasData = true;
-            }
-          });
-          if (hasData) {
-            updates[trade.id] = map;
-            newFailures[trade.id] = false;
-          } else {
-            newFailures[trade.id] = true;
-          }
         }
 
         setMtfData((prev) => ({ ...prev, ...updates }));
@@ -201,29 +204,43 @@ export function useTradingSignals() {
   );
 
   /**
-   * Fetch signals for all symbols at a specific interval (Portfolio View)
+   * Fetch signals for all symbols at a specific interval (Portfolio View) - BULK OPTIMIZED
    */
   const fetchIntervalForSymbols = useCallback(
     async (symbols: string[], interval: string) => {
       if (!symbols.length) return;
       setIsLoadingSignals(true);
       try {
-        const results = await Promise.all(
-          symbols.map(async (symbol) => {
-            const d = await fetchSignal(symbol, interval);
-            return { symbol, d };
+        const response = await fetch("/api/indicators/f4/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            symbols,
+            interval,
+            riskMode: "normal",
           }),
-        );
-        const newSignals: Record<string, F4Data> = {};
-        results.forEach((res) => {
-          if (res.d) newSignals[res.symbol] = res.d;
         });
-        setSignalDataMap((prev) => ({ ...prev, ...newSignals }));
+
+        if (!response.ok) throw new Error("Bulk fetch failed");
+        const data = await response.json();
+
+        if (data.results && Array.isArray(data.results)) {
+          const newSignals: Record<string, F4Data> = {};
+          data.results.forEach((res: any) => {
+            if (!res.error) {
+              const sym = res.symbol as string;
+              newSignals[sym] = mapApiResponse(res, sym, interval);
+            }
+          });
+          setSignalDataMap((prev) => ({ ...prev, ...newSignals }));
+        }
+      } catch (error) {
+        console.error("Failed to fetch bulk indicator data", error);
       } finally {
         setIsLoadingSignals(false);
       }
     },
-    [fetchSignal],
+    [mapApiResponse],
   );
 
   return {

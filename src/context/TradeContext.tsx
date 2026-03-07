@@ -6,6 +6,7 @@ import React, {
   useState,
   useRef,
   useCallback,
+  useEffect,
   ReactNode,
 } from "react";
 import { SmartTradeOrder } from "@/components/ActiveSmartTrades";
@@ -99,6 +100,16 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
       }, 100);
     }
   }, [pendingScroll]);
+
+  // Atomic reset of all trade parameters when the symbol changes
+  // This prevents stale BTC prices (e.g. 60k) from appearing on an ETH chart (2k)
+  useEffect(() => {
+    if (!editingTrade) {
+      setBuyPrice("0");
+      setTpPrice("0");
+      setSlPrice("0");
+    }
+  }, [symbol, editingTrade]);
 
   return (
     <TradeContext.Provider

@@ -16,7 +16,6 @@ export async function GET(req: NextRequest) {
       url += `?symbols=${encodeURIComponent(symbols)}`;
     }
 
-    console.log(`[TickerAPI] Proxying request to MEXC: ${url}`);
     const response = await fetch(url, {
       cache: "no-store",
       next: { revalidate: 0 },

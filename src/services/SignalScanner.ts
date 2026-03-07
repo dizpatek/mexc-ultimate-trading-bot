@@ -13,28 +13,6 @@ const DEFAULT_SCAN_SYMBOLS = [
   "BTCUSDT",
   "ETHUSDT",
   "SOLUSDT",
-  "XRPUSDT",
-  "DOGEUSDT",
-  "ADAUSDT",
-  "AVAXUSDT",
-  "BNBUSDT",
-  "DOTUSDT",
-  "LINKUSDT",
-  "POLUSDT",
-  "SHIBUSDT",
-  "LTCUSDT",
-  "TRXUSDT",
-  "UNIUSDT",
-  "ATOMUSDT",
-  "OPUSDT",
-  "ARBUSDT",
-  "APTUSDT",
-  "FILUSDT",
-  "NEARUSDT",
-  "HBARUSDT",
-  "ETCUSDT",
-  "AAVEUSDT",
-  "RENDERUSDT",
 ];
 
 const DEDUP_WINDOW_MS = 5 * 60 * 1000;
@@ -80,16 +58,23 @@ export class SignalScanner {
       .map((b: { asset: string }) => `${b.asset}USDT`)
       .filter((s: string) => !s.startsWith("USDT") && !s.startsWith("USDC"));
 
+    // Production mode optimization: Only scan what the user actually OWNS
+    if (mode === "production") {
+      return Array.from(new Set(holdingsSymbols)).slice(0, 50);
+    }
+
+    // Test/Demo mode: Scan holdings + major pairs
     return Array.from(
       new Set([...holdingsSymbols, ...DEFAULT_SCAN_SYMBOLS]),
     ).slice(0, 60);
   }
 
-  static async runScan(symbols: string[]): Promise<ScanResult[]> {
+  static async runScan(symbols: string[], targetTimeframe?: string): Promise<ScanResult[]> {
     const allResults: ScanResult[] = [];
     const allSignalsToInsert: StrategySignalInput[] = [];
-    const batchSize = 3; // Reduced batch size to accommodate multiple timeframes per symbol
-    const TIMEFRAMES = ["1m", "15m", "1h", "4h", "1d", "1w"]; // 1M excluded to prevent insufficient klines
+    
+    // Use targetTimeframe if provided, otherwise default to a conservative set
+    const TIMEFRAMES = targetTimeframe ? [targetTimeframe] : ["1h", "4h"];
 
     // P4.1: Fetch all recent signals for the entire set in one go to prevent N+1 queries
     const recentSignals = await getRecentSignalsBulk(symbols, DEDUP_WINDOW_MS);
@@ -97,38 +82,26 @@ export class SignalScanner {
     // Group by symbol_timeframe for O(1) lookup
     const recentSignalsMap = new Map<string, string[]>();
     recentSignals.forEach((s) => {
-      const key = `${s.symbol}_${s.timeframe || "1m"}`;
+      const key = `${s.symbol}_${s.timeframe || "1h"}`;
       const list = recentSignalsMap.get(key) || [];
       list.push(s.signal_type);
       recentSignalsMap.set(key, list);
     });
 
-    for (let i = 0; i < symbols.length; i += batchSize) {
-      const batch = symbols.slice(i, i + batchSize);
-      const batchPromises = [];
-
-      // For each symbol in the batch, scan ALL timeframes concurrently
-      for (const symbol of batch) {
-        for (const tf of TIMEFRAMES) {
-          const key = `${symbol}_${tf}`;
-          const existingTypes = recentSignalsMap.get(key) || [];
-          batchPromises.push(
-            this.scanSymbol(symbol, existingTypes, tf).catch((err) => {
-              console.error(
-                `[SignalScanner] Error scanning ${symbol} on ${tf}:`,
-                err.message,
-              );
-              return { results: [], signalsToInsert: [] };
-            }),
-          );
+    for (const symbol of symbols) {
+      for (const tf of TIMEFRAMES) {
+        const key = `${symbol}_${tf}`;
+        const existingTypes = recentSignalsMap.get(key) || [];
+        
+        try {
+          const item = await this.scanSymbol(symbol, existingTypes, tf);
+          allResults.push(...item.results);
+          allSignalsToInsert.push(...item.signalsToInsert);
+          
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          console.error(`[SignalScanner] Error scanning ${symbol} on ${tf}:`, errorMessage);
         }
-      }
-
-      const batchResults = await Promise.all(batchPromises);
-
-      for (const item of batchResults) {
-        allResults.push(...item.results);
-        allSignalsToInsert.push(...item.signalsToInsert);
       }
     }
 
@@ -142,7 +115,7 @@ export class SignalScanner {
   private static async scanSymbol(
     symbol: string,
     existingTypes: string[],
-    interval: string = "1m",
+    interval: string = "4h",
   ): Promise<{
     results: ScanResult[];
     signalsToInsert: StrategySignalInput[];

@@ -92,12 +92,6 @@ async function getMexcModule() {
 }
 
 export async function getPrice(symbol: string): Promise<number> {
-  const mode = getTradingMode();
-  if (mode === "test") {
-    const klines = await fetchKlines(symbol, "1m", 1);
-    return klines.length > 0 ? klines[0].close : 0;
-  }
-  // Production call with cached module
   const { getPrice: getMexcPrice } = await getMexcModule();
   return getMexcPrice(symbol);
 }

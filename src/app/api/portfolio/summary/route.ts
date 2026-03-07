@@ -35,9 +35,6 @@ export async function GET(request: Request) {
       }
     }
 
-    console.log(
-      `[PortfolioSummary] Fetching for user ${user.id} in ${mode} mode`,
-    );
 
     const accountInfo = await getAccountInfo(user.id, mode);
     const activeBalances = (accountInfo.balances || []).filter(

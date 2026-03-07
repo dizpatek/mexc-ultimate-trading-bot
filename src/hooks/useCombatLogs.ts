@@ -23,7 +23,7 @@ export interface LogEntry {
 
 let globalLastScanTime = 0;
 
-export function useCombatLogs(timeframe: string = "1m") {
+export function useCombatLogs(timeframe: string = "4h") {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [scanStatus, setScanStatus] = useState<"idle" | "scanning" | "done">(
     "idle",
@@ -158,7 +158,7 @@ export function useCombatLogs(timeframe: string = "1m") {
 
     try {
       setScanStatus("scanning");
-      await api.get("/signals/scan");
+      await api.get(`/signals/scan?timeframe=${timeframe}`);
       globalLastScanTime = Date.now();
       setLastScanTime(globalLastScanTime);
       setScanStatus("done");
@@ -182,7 +182,7 @@ export function useCombatLogs(timeframe: string = "1m") {
         setScanStatus("idle");
       }
     }
-  }, [fetchLogs]);
+  }, [fetchLogs, timeframe]);
 
   useEffect(() => {
     fetchLogs();

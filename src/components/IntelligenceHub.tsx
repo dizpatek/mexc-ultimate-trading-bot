@@ -300,11 +300,11 @@ const NewsItemRow = ({
 const WhaleBubble = ({
   whale,
   isLatest,
-  isDimmed,
+  isDeemphasized,
 }: {
   whale: WhaleAlert;
   isLatest: boolean;
-  isDimmed: boolean;
+  isDeemphasized: boolean;
 }) => {
   const isBuy = whale.side === "BUY";
   const valueK = (whale.valueUsd / 1000).toFixed(0);
@@ -322,7 +322,7 @@ const WhaleBubble = ({
           : "bg-rose-500/15 border-rose-500/30 text-rose-400",
         isLatest &&
           "shadow-[0_0_12px_rgba(34,211,238,0.5)] border-cyan-500/40 animate-pulse",
-        isDimmed && "opacity-40 grayscale-[0.3]",
+        isDeemphasized && "opacity-40",
       )}
     >
       <span
@@ -357,7 +357,20 @@ export const IntelligenceHub = () => {
   // De-coupled hooks
   const { rawNews, loading, error, fetchNews } = useNewsData();
   const { intel, aggregateSentiment, stats } = useNewsAnalytics(rawNews);
-  const { alert: latestWhaleAlert, alerts: whaleHistory } = useWhaleRadar();
+  
+  // Only watch whales for the top holding to save CPU/Bandwidth
+  const topAsset = useMemo(() => {
+    if (!holdings || holdings.length === 0) return undefined;
+    const tradable = holdings.filter(h => h.symbol !== 'USDT' && h.symbol !== 'USDC');
+    if (tradable.length === 0) return undefined;
+    return tradable.reduce((max, h) => (h.holding * h.price > max.holding * max.price ? h : max)).symbol;
+  }, [holdings]);
+
+  const {
+    alert: latestWhaleAlert,
+    alerts: whaleHistory,
+    status,
+  } = useWhaleRadar(topAsset);
 
   const handleNewsTrade = useCallback(
     (item: NewsItem, direction: "BUY" | "SELL") => {
@@ -508,12 +521,20 @@ export const IntelligenceHub = () => {
           <span
             className={cn(
               "tracking-widest text-[9px]",
-              latestWhaleAlert
+              status === "connected"
                 ? "text-emerald-400"
-                : "text-cyan-500 animate-pulse",
+                : status === "connecting"
+                  ? "text-cyan-500 animate-pulse"
+                  : "text-slate-600",
             )}
           >
-            {latestWhaleAlert ? "AKTİF" : "TARANIYOR..."}
+            {status === "connected"
+              ? "AKTİF"
+              : status === "connecting"
+                ? "TARANIYOR..."
+                : status === "error"
+                  ? "BAĞLANTI HATASI"
+                  : "BEKLEMEDE"}
           </span>
         </div>
 
@@ -529,7 +550,7 @@ export const IntelligenceHub = () => {
                 key={w.id}
                 whale={w}
                 isLatest={idx === 0}
-                isDimmed={idx >= 3}
+                isDeemphasized={idx >= 3}
               />
             ))}
           </div>

@@ -5,9 +5,7 @@ import {
   TrendingUp,
   ShieldAlert,
   Zap,
-  Split,
   ArrowRightLeft,
-  Trash2,
   RefreshCw,
   ChevronDown,
   Activity,
@@ -19,8 +17,11 @@ import { useHoldings } from "@/hooks/usePortfolio";
 import { AssetIcon } from "./AssetIcon";
 import { PortfolioChart } from "./PortfolioChart";
 import { createSmartTrade, api } from "@/services/api";
+import { core } from "@/services/ApiCore";
 import { SmartTradeOrder } from "./ActiveSmartTrades";
 import { useTrade } from "@/context/TradeContext";
+import { TakeProfitPanel } from "./smart-trade/TakeProfitPanel";
+import { StopLossPanel } from "./smart-trade/StopLossPanel";
 
 type OrderType = "LIMIT" | "MARKET" | "CONDITIONAL";
 type TPType = "LIMIT" | "MARKET";
@@ -115,6 +116,16 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
   const [assetDropdownOpen, setAssetDropdownOpen] = useState(false);
   const buyPriceInputRef = React.useRef<HTMLInputElement>(null);
   const unitsSectionRef = React.useRef<HTMLDivElement>(null);
+
+  // Snapshot for restoring prices when TBY is toggled off
+  const priceSnapBeforeTrailingRef = useRef<{
+    buy: string;
+    tp: string;
+    sl: string;
+  } | null>(null);
+
+  // Track previous trailingBuy value to detect toggle transitions
+  const prevTrailingBuyRef = useRef<boolean>(false);
 
   // Auto-focus & Scroll logic when editing starts
   useEffect(() => {
@@ -333,38 +344,24 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
   // Sync buyPrice with marketPrice if we're using existing assets (or if buyPrice is empty)
   const [priceSync, setPriceSync] = useState(true);
 
-  // COMPACT MODE: Fetch market price independently since SmartChart is not rendered
+  // HIGH-FREQUENCY MARKET PRICE SYNC (Unified across modes)
   useEffect(() => {
-    if (!compact) return; // SmartChart handles this in non-compact mode
-
-    const pair = symbol.replace("/", "").toUpperCase();
-    let cancelled = false;
-
-    const fetchPrice = async () => {
-      try {
-        const res = await fetch(
-          `/api/market/ticker?symbol=${pair}`,
-        );
-        if (res.ok && !cancelled) {
-          const data = await res.json();
-          const p = parseFloat(data.price);
-          if (!isNaN(p) && p > 0) {
-            setMarketPrice(p);
-          }
+    const formattedSym = symbol.replace("/", "").toUpperCase();
+    core.market.setSymbols([formattedSym]);
+    
+    // Subscribe to MarketKernel for 1s updates
+    const unsubscribe = core.market.subscribe((updates) => {
+      const update = updates[formattedSym];
+      if (update) {
+        const p = parseFloat(update.price);
+        if (!isNaN(p) && p > 0) {
+          setMarketPrice(p);
         }
-      } catch {
-        // Silently fail - will retry on next interval
       }
-    };
+    });
 
-    fetchPrice(); // Immediate fetch
-    const interval = setInterval(fetchPrice, 15000); // Reduced from 5s to 15s to save Vercel usage limits
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [compact, symbol]);
+    return unsubscribe;
+  }, [symbol, setMarketPrice]);
 
   useEffect(() => {
     // When priceSync is active, not using existing assets, AND trailingBuy is OFF, always sync with market price
@@ -386,6 +383,12 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     useExisting,
     trailingBuy,
   ]);
+
+  // When trailing buy is toggled OFF → snap buy back to market price proportionally
+  // (so TP/SL follow correctly and don't drift on next re-open)
+  // This MUST be defined after handlePricesChange, so we use a ref-based approach:
+  const handlePricesChangeRef = useRef<typeof handlePricesChange | null>(null);
+  // (handlePricesChangeRef.current is set below after handlePricesChange is defined)
 
   // Auto-select highest value asset on mount (by USDT value, not quantity)
   const [hasInitialized, setHasInitialized] = useState(false);
@@ -729,6 +732,23 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     ],
   );
 
+  // Keep the ref always pointing to the latest handlePricesChange (avoids stale closure in transition effect)
+  handlePricesChangeRef.current = handlePricesChange;
+
+  // Detect trailing buy OFF transition → snap buy to market proportionally so TP/SL don't drift
+  useEffect(() => {
+    const wasOn = prevTrailingBuyRef.current;
+    prevTrailingBuyRef.current = trailingBuy;
+
+    // Only act on the true → false edge
+    if (!wasOn || trailingBuy) return;
+    // Trailing just turned OFF: restore buy to market price and scale TP/SL proportionally
+    if (marketPrice && marketPrice > 0 && handlePricesChangeRef.current) {
+      handlePricesChangeRef.current({ buy: marketPrice });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trailingBuy]);
+
   // Dynamic calculations
   const buyP = parseFloat(buyPrice) || 0;
   const tpP = parseFloat(tpPrice) || 0;
@@ -759,35 +779,45 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
   // When active order (PENDING), only ratchets downward (tracks lowest seen).
   const isTradeActive = !!editingTrade && editingTrade.status === "PENDING";
   const lowestSeenRef = useRef<number>(Infinity);
+  const highestSeenRef = useRef<number>(-Infinity);
 
   // Reset lowest when trailing buy is toggled or mode changes
   useEffect(() => {
     lowestSeenRef.current = Infinity;
+    highestSeenRef.current = -Infinity;
   }, [trailingBuy, mode, symbol, isTradeActive]);
 
   // When trailing buy is ON and we are NOT in an active trade (Form Phase),
   // continuously auto-update buyPrice to track the 2-way deviation line.
-  // This allows TP/SL to maintain their proportional distance because they are
-  // calculated based on buyPrice.
   useEffect(() => {
     if (
       trailingBuy &&
       marketPrice &&
-      marketPrice > 0 &&
-      mode === "TRADE"
+      marketPrice > 0
     ) {
       let trailingSnap: number;
-      if (!isTradeActive) {
-        // Form Phase: 2-way tracking (following market price + deviation)
-        trailingSnap = marketPrice * (1 + trailingBuyDev / 100);
+      if (mode === "TRADE") {
+        if (!isTradeActive) {
+          // Form Phase: 2-way tracking (following market price + deviation)
+          trailingSnap = marketPrice * (1 + trailingBuyDev / 100);
+        } else {
+          // Active Order Phase: 1-way downward ratcheting
+          lowestSeenRef.current = Math.min(lowestSeenRef.current, marketPrice);
+          trailingSnap = lowestSeenRef.current * (1 + trailingBuyDev / 100);
+        }
       } else {
-        // Active Order Phase: 1-way downward ratcheting (following lowest seen + deviation)
-        lowestSeenRef.current = Math.min(lowestSeenRef.current, marketPrice);
-        trailingSnap = lowestSeenRef.current * (1 + trailingBuyDev / 100);
+        // mode === "COVER" (Trailing Sell)
+        // Follows market price upward, triggers on -% deviation (Trailing Sell/Take Profit)
+        highestSeenRef.current = Math.max(highestSeenRef.current, marketPrice);
+        trailingSnap = highestSeenRef.current * (1 - trailingBuyDev / 100);
       }
 
       // Proportional movement of TP and SL via handlePricesChange
-      if (Math.abs(buyP - trailingSnap) > 0.0001) {
+      // Performance: Only update if movement is significant (> 0.01% or absolute diff)
+      const diff = Math.abs(buyP - trailingSnap);
+      const threshold = buyP * 0.0001; // 0.01% threshold
+
+      if (diff > threshold && diff > 0.000001) {
         handlePricesChange({ buy: trailingSnap });
       }
     }
@@ -807,8 +837,10 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
         return lowestSeenRef.current * (1 + trailingBuyDev / 100);
       }
     } else {
-      // COVER mode: has built-in trailing, not relevant here
-      return undefined;
+      // COVER mode: Trailing Sell
+      // Note: peak tracking is handled in useEffect to keep useMemo pure
+      const peak = Math.max(highestSeenRef.current, marketPrice);
+      return peak * (1 - trailingBuyDev / 100);
     }
   }, [trailingBuy, marketPrice, trailingBuyDev, mode, isTradeActive]);
 
@@ -1431,7 +1463,26 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                       </h3>
                       {!useExisting && (
                         <button
-                          onClick={() => setTrailingBuy(!trailingBuy)}
+                          onClick={() => {
+                            if (!trailingBuy) {
+                              // Snapshot current prices before entering trailing mode
+                              priceSnapBeforeTrailingRef.current = {
+                                buy: buyPrice,
+                                tp: tpPrice,
+                                sl: slPrice,
+                              };
+                            } else if (priceSnapBeforeTrailingRef.current) {
+                              // Restore prices when disabling trailing
+                              const snap = priceSnapBeforeTrailingRef.current;
+                              handlePricesChange({
+                                buy: parseFloat(snap.buy),
+                                tp: parseFloat(snap.tp),
+                                sl: parseFloat(snap.sl),
+                              });
+                              priceSnapBeforeTrailingRef.current = null;
+                            }
+                            setTrailingBuy(!trailingBuy);
+                          }}
                           className={cn(
                             "w-8 h-4 rounded-full transition-all relative px-0.5 border border-white/10",
                             trailingBuy
@@ -1915,519 +1966,49 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
 
                 {/* TAKE PROFIT CONFIGURATION PANEL */}
                 {((tpEnabled && showAdvanced) || !compact) && (
-                  <div
-                    className={cn(
-                      "relative group/tp transition-all duration-300",
-                      compact
-                        ? "p-0 bg-transparent mb-1"
-                        : "flex flex-col flex-1",
-                      compact && !tpEnabled && "hidden",
-                    )}
-                  >
-                    {!compact && (
-                      <>
-                        <div className="absolute top-8 right-0 p-8 opacity-[0.03] pointer-events-none">
-                          <TrendingUp className="w-32 h-32 text-emerald-500" />
-                        </div>
-                        <div className="flex items-center justify-between relative z-10 mb-1">
-                          <h3 className="font-black text-emerald-400 uppercase tracking-widest flex items-center gap-2 text-[11px]">
-                            <TrendingUp className="w-4 h-4" />{" "}
-                            {mode === "COVER" ? "TP" : "Kar Al"}
-                          </h3>
-                          <button
-                            onClick={() => setTpEnabled(!tpEnabled)}
-                            className={cn(
-                              "w-8 h-4 rounded-full transition-all relative px-0.5",
-                              tpEnabled ? "bg-emerald-500" : "bg-slate-700",
-                            )}
-                          >
-                            <div
-                              className={cn(
-                                "w-3 h-3 bg-white rounded-full transition-all",
-                                tpEnabled ? "translate-x-4" : "translate-x-0",
-                              )}
-                            />
-                          </button>
-                        </div>
-                      </>
-                    )}
-
-                    <div
-                      className={cn(
-                        "transition-opacity duration-300 relative z-10",
-                        compact ? "space-y-1" : "space-y-1",
-                        !tpEnabled && "opacity-30 pointer-events-none",
-                      )}
-                    >
-                      <div className={cn(compact ? "space-y-1" : "space-y-2")}>
-                        <div className="flex justify-between items-end mb-0.5 leading-none">
-                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                            Hedef Fiyat
-                          </span>
-                          <span className="text-[10px] font-black text-emerald-400 font-mono tracking-tighter">
-                            {displayTpPercent >= 0 ? "+" : ""}
-                            {displayTpPercent.toFixed(2)}%
-                          </span>
-                        </div>
-
-                        {!isSplitTp ? (
-                          <div
-                            className={cn(
-                              "animate-in fade-in zoom-in-95",
-                              compact ? "space-y-2.5" : "space-y-2",
-                            )}
-                          >
-                            {compact ? (
-                              <div className="space-y-1.5 px-0.5">
-                                <input
-                                  type="range"
-                                  min="0.1"
-                                  max="100.0"
-                                  step="0.1"
-                                  value={Math.abs(tpPercent)}
-                                  onChange={(e) => {
-                                    const pct = parseFloat(e.target.value);
-                                    const targetPct =
-                                      mode === "COVER" ? -pct : pct;
-                                    const newPrice =
-                                      buyP * (1 + targetPct / 100);
-                                    setTpPrice(newPrice.toFixed(6));
-                                  }}
-                                  className="w-full h-1 rounded-full cursor-pointer accent-emerald-400 bg-slate-800/50 appearance-none transition-all"
-                                />
-                                <div className="flex justify-between items-center px-0.5">
-                                  <span className="text-[9px] font-black text-slate-600 uppercase tracking-tighter font-mono">
-                                    {tpPrice} USDT
-                                  </span>
-                                  <span className="text-[9px] font-black text-emerald-400 font-mono">
-                                    {tpPercent >= 0 ? "+" : ""}
-                                    {tpPercent.toFixed(1)}%
-                                  </span>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="relative">
-                                <input
-                                  type="text"
-                                  value={tpPrice}
-                                  onChange={(e) => setTpPrice(e.target.value)}
-                                  className={cn(
-                                    "w-full bg-slate-950/50 border border-slate-800 rounded-lg px-3 text-sm font-black text-white outline-none focus:border-emerald-500/50 transition-all",
-                                    compact ? "h-8 py-0" : "h-9 py-0",
-                                  )}
-                                />
-                                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-slate-600 uppercase tracking-widest">
-                                  USDT
-                                </div>
-                              </div>
-                            )}
-
-                            {/* [HIDDEN in COMPACT] Hedefleri Böl butonu compact modda gizlendi */}
-                            {!compact && (
-                              <button
-                                onClick={() => {
-                                  setIsSplitTp(true);
-                                  setTpTargets([
-                                    { id: "1", price: tpPrice, volume: 100 },
-                                  ]);
-                                }}
-                                className={cn(
-                                  "w-full rounded-lg border border-white/10 bg-white/5 hover:bg-emerald-500/10 transition-all flex items-center justify-center gap-2 group/split",
-                                  compact ? "py-1" : "py-1.5",
-                                )}
-                              >
-                                <Split className="w-3 h-3 text-emerald-400 group-hover/split:rotate-12 transition-transform" />
-                                <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">
-                                  Hedefleri Böl
-                                </span>
-                              </button>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="space-y-1.5 animate-in fade-in slide-in-from-top-2">
-                            <div className="flex items-center justify-between text-[9px] font-black text-slate-500 uppercase tracking-widest pb-1 border-b border-white/5">
-                              <span>Fiyat</span>
-                              <span>Miktar %</span>
-                            </div>
-                            <div
-                              className={cn(
-                                "space-y-1.5 custom-scrollbar pr-1",
-                                compact
-                                  ? "max-h-[160px]"
-                                  : "max-h-[320px] overflow-y-auto",
-                              )}
-                            >
-                              {tpTargets.map((target) => {
-                                const tP = parseFloat(target.price) || 0;
-                                const tPct =
-                                  buyP > 0 ? (tP / buyP - 1) * 100 : 0;
-                                const dPct = mode === "COVER" ? -tPct : tPct;
-                                return (
-                                  <div
-                                    key={target.id}
-                                    className="grid grid-cols-3 gap-1.5 items-center"
-                                  >
-                                    <input
-                                      type="text"
-                                      value={target.price}
-                                      onChange={(e) =>
-                                        updateTpTarget(target.id, {
-                                          price: e.target.value,
-                                        })
-                                      }
-                                      placeholder="0.0"
-                                      className="bg-slate-900/50 border border-slate-800 rounded px-1.5 py-1 text-[11px] font-mono text-white outline-none focus:border-cyan-500/50 col-span-2 h-7"
-                                    />
-                                    <div className="flex items-center justify-between">
-                                      <span
-                                        className={cn(
-                                          "text-[10px] font-black",
-                                          dPct >= 0
-                                            ? "text-emerald-400"
-                                            : "text-rose-400",
-                                        )}
-                                      >
-                                        {dPct.toFixed(1)}%
-                                      </span>
-                                      <button
-                                        onClick={() =>
-                                          removeTpTarget(target.id)
-                                        }
-                                        className="text-slate-700 hover:text-rose-400 transition-colors"
-                                      >
-                                        <Trash2 className="w-3 h-3" />
-                                      </button>
-                                    </div>
-                                    <div className="col-span-3 flex items-center gap-2">
-                                      <input
-                                        type="range"
-                                        min="1"
-                                        max="100"
-                                        value={target.volume}
-                                        onChange={(e) =>
-                                          updateTpTarget(target.id, {
-                                            volume: parseInt(e.target.value),
-                                          })
-                                        }
-                                        className="flex-1 accent-emerald-500 h-1 rounded-full bg-slate-800"
-                                      />
-                                      <span className="text-[8px] font-black text-white w-6 text-right">
-                                        {target.volume}%
-                                      </span>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            <div className="pt-1.5 flex items-center justify-between border-t border-white/5">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[9px] font-black text-slate-500 uppercase">
-                                  Toplam:
-                                </span>
-                                <span
-                                  className={cn(
-                                    "text-[9px] font-black",
-                                    totalTpVolume === 100
-                                      ? "text-emerald-400"
-                                      : "text-rose-400",
-                                  )}
-                                >
-                                  {totalTpVolume}%
-                                </span>
-                              </div>
-                              <div className="flex gap-1">
-                                <button
-                                  onClick={addTpTarget}
-                                  disabled={tpTargets.length >= 8}
-                                  className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/30 text-[8px] font-black text-emerald-400 uppercase disabled:opacity-30"
-                                >
-                                  + HEDEF
-                                </button>
-                                <button
-                                  onClick={() => setIsSplitTp(false)}
-                                  className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[8px] font-black text-slate-400 uppercase"
-                                >
-                                  İPTAL
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      <div
-                        className={cn(
-                          "pt-2 border-t border-white/5",
-                          compact ? "space-y-1" : "space-y-2 mt-2",
-                        )}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center gap-3 shrink-0">
-                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] w-7">
-                              TTP
-                            </span>
-                            <button
-                              onClick={() => setTrailingTp(!trailingTp)}
-                              className={cn(
-                                "w-8 h-4 rounded-full transition-all relative px-0.5 border border-white/10",
-                                trailingTp
-                                  ? "bg-emerald-500"
-                                  : "bg-slate-700/50 hover:bg-slate-600",
-                              )}
-                            >
-                              <div
-                                className={cn(
-                                  "w-3 h-3 bg-white rounded-full transition-all shadow-sm",
-                                  trailingTp
-                                    ? "translate-x-4"
-                                    : "translate-x-0",
-                                )}
-                              />
-                            </button>
-                          </div>
-
-                          {trailingTp && (
-                            <div className="flex items-center gap-3 animate-in slide-in-from-left-2 duration-300">
-                              <div className="flex flex-col items-end -space-y-1 pr-1">
-                                <span className="text-[7px] font-black text-slate-500 uppercase tracking-tighter opacity-60">
-                                  Sapma
-                                </span>
-                                <span className="text-[9px] font-black text-emerald-400 font-mono leading-none tracking-tighter">
-                                  {tpDeviation.toFixed(1)}%
-                                </span>
-                              </div>
-                              <input
-                                type="range"
-                                min="-9.9"
-                                max="-0.1"
-                                step="0.1"
-                                value={tpDeviation}
-                                onChange={(e) =>
-                                  setTpDeviation(parseFloat(e.target.value))
-                                }
-                                className="w-32 h-1 rounded-full cursor-pointer accent-emerald-400 hover:accent-emerald-300 bg-slate-800/50 appearance-none transition-all"
-                              />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <TakeProfitPanel
+                    compact={compact}
+                    mode={mode}
+                    tpEnabled={tpEnabled}
+                    setTpEnabled={setTpEnabled}
+                    tpPrice={tpPrice}
+                    setTpPrice={setTpPrice}
+                    tpPercent={tpPercent}
+                    displayTpPercent={displayTpPercent}
+                    buyP={buyP}
+                    isSplitTp={isSplitTp}
+                    setIsSplitTp={setIsSplitTp}
+                    tpTargets={tpTargets}
+                    updateTpTarget={updateTpTarget}
+                    removeTpTarget={removeTpTarget}
+                    addTpTarget={addTpTarget}
+                    totalTpVolume={totalTpVolume}
+                    trailingTp={trailingTp}
+                    setTrailingTp={setTrailingTp}
+                    tpDeviation={tpDeviation}
+                    setTpDeviation={setTpDeviation}
+                  />
                 )}
 
                 {/* STOP LOSS CONFIGURATION PANEL */}
                 {((slEnabled && showAdvanced) || !compact) && (
-                  <div
-                    className={cn(
-                      "relative group/sl transition-all duration-300",
-                      compact
-                        ? "p-0 bg-transparent border-t border-white/5 pt-2"
-                        : "pt-3 border-t border-white/10 flex flex-col flex-1",
-                      compact && !slEnabled && "hidden",
-                    )}
-                  >
-                    {!compact && (
-                      <>
-                        <div className="absolute top-8 right-0 p-8 opacity-[0.03] pointer-events-none">
-                          <ShieldAlert className="w-32 h-32 text-rose-500" />
-                        </div>
-                        <div className="flex items-center justify-between relative z-10 mb-1">
-                          <h3 className="font-black text-rose-400 uppercase tracking-widest flex items-center gap-2 text-[11px]">
-                            <ShieldAlert className="w-4 h-4" />{" "}
-                            {mode === "COVER" ? "SL" : "Zarar Durdur"}
-                          </h3>
-                          <button
-                            onClick={() => setSlEnabled(!slEnabled)}
-                            className={cn(
-                              "w-8 h-4 rounded-full transition-all relative px-0.5",
-                              slEnabled ? "bg-rose-500" : "bg-slate-700",
-                            )}
-                          >
-                            <div
-                              className={cn(
-                                "w-3 h-3 bg-white rounded-full transition-all",
-                                slEnabled ? "translate-x-4" : "translate-x-0",
-                              )}
-                            />
-                          </button>
-                        </div>
-                      </>
-                    )}
-
-                    <div
-                      className={cn(
-                        "transition-opacity duration-300 relative z-10",
-                        compact ? "space-y-1" : "space-y-1",
-                        !slEnabled && "opacity-30 pointer-events-none",
-                      )}
-                    >
-                      <div className={cn(compact ? "space-y-1" : "space-y-2")}>
-                        <div className="flex justify-between items-end mb-0.5 leading-none">
-                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                            Stop Seviyesi
-                          </span>
-                          <span className="text-[10px] font-black text-rose-400 font-mono tracking-tighter">
-                            {displaySlPercent >= 0 ? "+" : ""}
-                            {displaySlPercent.toFixed(2)}%
-                          </span>
-                        </div>
-                        {compact ? (
-                          <div className="space-y-1.5 px-0.5">
-                            <input
-                              type="range"
-                              min="0.1"
-                              max="20.0"
-                              step="0.1"
-                              value={Math.abs(slPercent)}
-                              onChange={(e) => {
-                                const pct = parseFloat(e.target.value);
-                                const targetPct = mode === "COVER" ? pct : -pct;
-                                const newPrice = buyP * (1 + targetPct / 100);
-                                setSlPrice(newPrice.toFixed(6));
-                              }}
-                              className="w-full h-1 rounded-full cursor-pointer accent-rose-400 bg-slate-800/50 appearance-none transition-all"
-                            />
-                            <div className="flex justify-between items-center px-0.5">
-                              <span className="text-[9px] font-black text-slate-600 uppercase tracking-tighter font-mono">
-                                {slPrice} USDT
-                              </span>
-                              <span className="text-[9px] font-black text-rose-400 font-mono">
-                                {slPercent >= 0 ? "+" : ""}
-                                {slPercent.toFixed(1)}%
-                              </span>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="relative">
-                            <input
-                              type="text"
-                              value={slPrice}
-                              onChange={(e) => setSlPrice(e.target.value)}
-                              className={cn(
-                                "w-full bg-slate-950/50 border border-slate-800 rounded-lg px-3 text-sm font-black text-white outline-none focus:border-rose-500/50",
-                                compact ? "h-8 py-0" : "h-9 py-0",
-                              )}
-                            />
-                            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-slate-600 uppercase tracking-widest">
-                              USDT
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      <div
-                        className={cn(
-                          "border-t border-white/5",
-                          compact ? "pt-1.5 space-y-2" : "pt-2 space-y-2 mt-2",
-                        )}
-                      >
-                        {/* Trailing Stop Loss */}
-                        <div className="space-y-1 pt-2">
-                          <div className="flex items-center gap-3">
-                            <div className="flex items-center gap-3 shrink-0">
-                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] w-7">
-                                TSL
-                              </span>
-                              <button
-                                onClick={() => setTrailingSl(!trailingSl)}
-                                className={cn(
-                                  "w-8 h-4 rounded-full transition-all relative px-0.5 border border-white/10",
-                                  trailingSl
-                                    ? "bg-rose-500"
-                                    : "bg-slate-700/50 hover:bg-slate-600",
-                                )}
-                              >
-                                <div
-                                  className={cn(
-                                    "w-3 h-3 bg-white rounded-full transition-all shadow-sm",
-                                    trailingSl
-                                      ? "translate-x-4"
-                                      : "translate-x-0",
-                                  )}
-                                />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* SL Timeout */}
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-                              SL Timeout (Wick)
-                            </span>
-                            <button
-                              onClick={() => setSlTimeout(!slTimeout)}
-                              className={cn(
-                                "w-8 h-4 rounded-full transition-all relative px-0.5",
-                                slTimeout ? "bg-amber-500" : "bg-slate-700",
-                              )}
-                            >
-                              <div
-                                className={cn(
-                                  "w-3 h-3 bg-white rounded-full transition-all",
-                                  slTimeout ? "translate-x-4" : "translate-x-0",
-                                )}
-                              />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Move to Breakeven */}
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between">
-                            <div className="flex flex-col gap-0.5">
-                              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-                                Maliyete Taşı (BE)
-                              </span>
-                              {compact &&
-                                !(isSplitTp && tpTargets.length >= 2) && (
-                                  <span className="text-[8px] text-slate-600">
-                                    2+ TP hedefi gerekli
-                                  </span>
-                                )}
-                            </div>
-                            <button
-                              onClick={() => {
-                                if (isSplitTp && tpTargets.length >= 2) {
-                                  setMoveToBreakeven(!moveToBreakeven);
-                                }
-                              }}
-                              className={cn(
-                                "w-8 h-4 rounded-full transition-all relative px-0.5",
-                                moveToBreakeven &&
-                                  isSplitTp &&
-                                  tpTargets.length >= 2
-                                  ? "bg-emerald-500"
-                                  : "bg-slate-700",
-                                !(isSplitTp && tpTargets.length >= 2) &&
-                                  "opacity-30 cursor-not-allowed",
-                              )}
-                              disabled={!(isSplitTp && tpTargets.length >= 2)}
-                            >
-                              <div
-                                className={cn(
-                                  "w-3 h-3 bg-white rounded-full transition-all",
-                                  moveToBreakeven &&
-                                    isSplitTp &&
-                                    tpTargets.length >= 2
-                                    ? "translate-x-4"
-                                    : "translate-x-0",
-                                )}
-                              />
-                            </button>
-                          </div>
-                          {moveToBreakeven &&
-                            isSplitTp &&
-                            tpTargets.length >= 2 && (
-                              <div className="text-[8px] text-emerald-400/80 bg-emerald-500/5 px-2 py-1 rounded border border-emerald-500/10">
-                                ✓ İlk hedefte SL maliyete taşınır
-                              </div>
-                            )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <StopLossPanel
+                    compact={compact}
+                    mode={mode}
+                    slEnabled={slEnabled}
+                    setSlEnabled={setSlEnabled}
+                    slPrice={slPrice}
+                    setSlPrice={setSlPrice}
+                    slPercent={slPercent}
+                    displaySlPercent={displaySlPercent}
+                    buyP={buyP}
+                    trailingSl={trailingSl}
+                    setTrailingSl={setTrailingSl}
+                    moveToBreakeven={moveToBreakeven}
+                    setMoveToBreakeven={setMoveToBreakeven}
+                    slTimeout={slTimeout}
+                    setSlTimeout={setSlTimeout}
+                  />
                 )}
               </div>
             </div>

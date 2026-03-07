@@ -55,9 +55,6 @@ export async function GET(request: NextRequest) {
 
   try {
     // Step 1: Fetch real data
-    console.log(
-      `[IndicatorAPI/V5] Fetching klines for ${symbolUpper} (${interval})`,
-    );
     const klines = await fetchKlines(symbolUpper, interval, 500).catch(err => {
       console.error(`[IndicatorAPI/V5] Mexc fetch failed for ${symbolUpper}:`, err.message);
       throw err;

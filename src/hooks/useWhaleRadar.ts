@@ -56,7 +56,7 @@ function alertReducer(state: AlertState, action: AlertAction): AlertState {
   }
 }
 
-export function useWhaleRadar() {
+export function useWhaleRadar(symbol?: string) {
   const [{ latest: alert, history: alerts }, dispatch] = useReducer(
     alertReducer,
     {
@@ -108,14 +108,31 @@ export function useWhaleRadar() {
   }, []);
 
   const connect = useCallback(() => {
+    // P4.1: Ensure no orphaned connection exists before starting a new one
     if (wsRef.current) {
+      wsRef.current.onopen = null;
+      wsRef.current.onmessage = null;
+      wsRef.current.onerror = null;
       wsRef.current.onclose = null;
-      wsRef.current.close();
+      try {
+        wsRef.current.close();
+      } catch {
+        /* ignore */
+      }
+      wsRef.current = null;
+    }
+
+    if (!symbol) {
+      setStatus("disconnected");
+      return;
     }
 
     setStatus("connecting");
+    const normalizedSym = symbol.replace("/", "").toLowerCase();
+    const activeSymbol = symbol; // P4.1: Capture the symbol for this connection's message handler
+
     const ws = new WebSocket(
-      "wss://stream.binance.com:9443/ws/btcusdt@aggTrade",
+      `wss://stream.binance.com:9443/ws/${normalizedSym}@aggTrade`,
     );
 
     ws.onopen = () => setStatus("connected");
@@ -127,11 +144,12 @@ export function useWhaleRadar() {
         const quantity = parseFloat(data.q);
         const valueUsd = price * quantity;
         if (valueUsd > 100000) {
+          // P4.1: Use CAPTURED activeSymbol instead of potentially changed outer symbol
           dispatch({
             type: "ADD",
             payload: {
               id: String(data.a),
-              symbol: "BTC",
+              symbol: activeSymbol.replace("USDT", "").replace("/", ""),
               amount: quantity,
               valueUsd,
               side: (data.m as boolean) ? "SELL" : "BUY",
@@ -152,7 +170,7 @@ export function useWhaleRadar() {
     ws.onclose = () => setStatus("disconnected");
 
     wsRef.current = ws;
-  }, []); // No outside dependencies — dispatch is stable
+  }, [symbol]); // Re-connect when symbol changes
 
   const disconnect = useCallback(() => {
     if (wsRef.current) {
@@ -164,8 +182,15 @@ export function useWhaleRadar() {
   }, []);
 
   useEffect(() => {
-    connect();
-    return () => disconnect();
+    // P4.2: Add small 1s debounce to avoid rapid re-connections when portfolio values fluctuate
+    const timeoutId = setTimeout(() => {
+      connect();
+    }, 1000);
+
+    return () => {
+      clearTimeout(timeoutId);
+      disconnect();
+    };
   }, [connect, disconnect]);
 
   return { alert, alerts, status, connect, disconnect };

@@ -82,7 +82,7 @@ export function MatrixPortfolio() {
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
   // 5. Signals Alarm Sync
-  const { logs: combatLogs } = useCombatLogs();
+  const { logs: combatLogs } = useCombatLogs(interval);
 
   // Fetch AI signals — Hook tarafından yönetiliyor
   useEffect(() => {

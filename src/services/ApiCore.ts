@@ -45,47 +45,81 @@ abstract class Kernel<T> {
   }
 }
 
-/**
- * Market Kernel: High-frequency pricing and market data
- */
 class MarketKernel extends Kernel<
   Record<string, { price: string; time: number }>
 > {
   private symbols: Set<string> = new Set();
+  private symbolRegistry: Map<string, Set<string>> = new Map(); // componentId -> symbols
+  private debounceTimeout: NodeJS.Timeout | null = null;
 
   constructor() {
-    super(1000); // Reduced from 3s to 1s for faster candle updates
-    this.symbols.add("BTCUSDT"); // Default seed
+    super(2000); // 2 seconds between automatic refreshes (conservative)
   }
 
-  public setSymbols(symbols: string[]) {
-    // Normalize symbols: BTC/USDT -> BTCUSDT, BTC -> BTCUSDT (unless it's already USDT)
+  /**
+   * Register symbols needed by a specific component or service.
+   * This allows multiple modules to request data without orverwriting each other.
+   */
+  public registerSymbols(componentId: string, symbols: string[]) {
     const normalized = symbols.map((s) => {
       let n = s.toUpperCase().replace("/", "");
       if (!n.endsWith("USDT") && n !== "USDT") n += "USDT";
       return n;
     });
-    this.symbols = new Set(normalized);
-    if (this.isRunning) {
-      this.fetch(); // Immediate fetch on symbol change
+
+    this.symbolRegistry.set(componentId, new Set(normalized));
+    this.recalculateSymbols();
+  }
+
+  public unregisterSymbols(componentId: string) {
+    this.symbolRegistry.delete(componentId);
+    this.recalculateSymbols();
+  }
+
+  private recalculateSymbols() {
+    const allSymbols = new Set<string>();
+    this.symbolRegistry.forEach((symbols) => {
+      symbols.forEach((s) => allSymbols.add(s));
+    });
+
+    // Check if anything actually changed
+    const changed =
+      allSymbols.size !== this.symbols.size ||
+      Array.from(allSymbols).some((s) => !this.symbols.has(s));
+
+    if (changed) {
+      this.symbols = allSymbols;
+      this.triggerDebouncedFetch();
     }
   }
 
+  private triggerDebouncedFetch() {
+    if (this.debounceTimeout) clearTimeout(this.debounceTimeout);
+    this.debounceTimeout = setTimeout(() => {
+      if (this.isRunning) this.fetch();
+      this.debounceTimeout = null;
+    }, 500); // Minimum 500ms as requested by user
+  }
+
+  /**
+   * Legacy support for overwriting everything (discouraged)
+   */
+  public setSymbols(symbols: string[]) {
+    this.registerSymbols("legacy_global", symbols);
+  }
+
   protected async fetch() {
-    if (this.symbols.size === 0) {
-      console.log("[MarketKernel] No symbols to fetch");
-      return;
-    }
+    if (this.symbols.size === 0) return;
     try {
-      const symbolsJson = JSON.stringify(Array.from(this.symbols));
-      console.log(`[MarketKernel] Fetching: ${symbolsJson}`);
+      const symbolsToFetch = Array.from(this.symbols);
+      const symbolsJson = JSON.stringify(symbolsToFetch);
+
       const response = await api.get("/market/ticker", {
         params: { symbols: symbolsJson },
       });
       const data = response.data;
 
       if (Array.isArray(data)) {
-        console.log(`[MarketKernel] Received ${data.length} updates`);
         const updates: Record<string, { price: string; time: number }> = {};
         const now = Date.now();
         data.forEach((item: { symbol: string; price: string }) => {
@@ -119,7 +153,6 @@ class PortfolioKernel extends Kernel<{
   }
 
   protected async fetch() {
-    console.log("[PortfolioKernel] Fetching portfolio data...");
     try {
       // Helper to handle individual fetch errors
       const safeFetch = async <R>(

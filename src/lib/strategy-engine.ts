@@ -200,13 +200,10 @@ async function runPilotCycle(botConfig: BotConfig) {
         ...holdings.map((h) =>
           h.asset ? `${h.asset}USDT` : String(h.symbol || "").replace("/", ""),
         ),
-        "BTCUSDT",
-        "ETHUSDT",
-        "SOLUSDT", // Default core pairs
       ]),
-    ).filter((s) => s !== "USDTUSDT" && s !== "USDT");
+    ).filter((s) => s !== "USDTUSDT" && s !== "USDT" && s !== "undefinedUSDT");
 
-    const scanTimeframe = "1m";
+    const scanTimeframe = "4h";
     console.log(
       `[PilotEngine] Monitoring ${coinsToMonitor.length} assets on ${scanTimeframe}...`,
     );
@@ -217,7 +214,8 @@ async function runPilotCycle(botConfig: BotConfig) {
       `${coinsToMonitor.length} varlık pilot taramasında (${scanTimeframe}).`,
     );
 
-    const analysisPromises = coinsToMonitor.map(async (symbol) => {
+
+    for (const symbol of coinsToMonitor) {
       try {
         const strategy = new MatrixV5Strategy(symbol, {
           timeframe: "1m",
@@ -225,37 +223,37 @@ async function runPilotCycle(botConfig: BotConfig) {
         });
 
         const signal = await strategy.analyze();
-        if (!signal) return;
+        if (signal) {
+          const isWhale = !!signal.indicators?.whaleDetected;
 
-        const isWhale = !!signal.indicators?.whaleDetected;
-
-        if (signal.signal) {
-          if (signal.signal === "BUY") {
-            await handleBuySignal({ pair: symbol, userId: DEFAULT_USER_ID });
-          } else if (signal.signal === "SELL") {
-            await handleSellSignal({ pair: symbol, userId: DEFAULT_USER_ID });
+          if (signal.signal) {
+            if (signal.signal === "BUY") {
+              await handleBuySignal({ pair: symbol, userId: DEFAULT_USER_ID });
+            } else if (signal.signal === "SELL") {
+              await handleSellSignal({ pair: symbol, userId: DEFAULT_USER_ID });
+            }
           }
-        }
 
-        // Log Signal/Event to database
-        await createStrategySignal({
-          strategy_id: undefined,
-          symbol: symbol,
-          signal_type: signal.signal || (isWhale ? "WHALE" : "INFO"),
-          price: signal.targets?.t1,
-          timestamp: Date.now(),
-          executed: !!signal.signal,
-          execution_result: {
-            message:
-              signal.reason || `Pilot ON: ${symbol} için analiz tamamlandı.`,
-          },
-        });
+          // Log Signal/Event to database
+          await createStrategySignal({
+            strategy_id: undefined,
+            symbol: symbol,
+            signal_type: signal.signal || (isWhale ? "WHALE" : "INFO"),
+            price: signal.targets?.t1,
+            timestamp: Date.now(),
+            executed: !!signal.signal,
+            execution_result: {
+              message:
+                signal.reason || `Pilot ON: ${symbol} için analiz tamamlandı.`,
+            },
+          });
+        }
+        
       } catch (err) {
         console.error(`[PilotEngine] Failed to analyze ${symbol}:`, err);
       }
-    });
+    }
 
-    await Promise.all(analysisPromises);
   } catch (error) {
     console.error("[PilotEngine] Critical error:", error);
   }

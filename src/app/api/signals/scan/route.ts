@@ -66,20 +66,23 @@ export async function GET(request: Request) {
       }
     }
 
+    const { searchParams } = new URL(request.url);
+    const targetTimeframe = searchParams.get("timeframe") || undefined;
+
     const scanSymbols = await SignalScanner.resolveScanSymbols(userId, mode);
     const scanStartTime = Date.now();
-    const allResults = await SignalScanner.runScan(scanSymbols);
+    const allResults = await SignalScanner.runScan(scanSymbols, targetTimeframe);
     const scanDuration = Date.now() - scanStartTime;
 
     console.log(
-      `[SignalScan] Completed scan for ${scanSymbols.length} symbols in ${scanDuration}ms`,
+      `[SignalScan] Completed scan for ${scanSymbols.length} symbols in ${scanDuration}ms (${targetTimeframe || "Default"})`,
     );
 
     return NextResponse.json({
       scanned: scanSymbols.length,
       signals: allResults.filter((r) => r.inserted).length,
       results: allResults,
-      timeframe: "1m",
+      timeframe: targetTimeframe || "1h",
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);

@@ -391,7 +391,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
 
   useEffect(() => {
     fetchTrades();
-    const interval = setInterval(fetchTrades, 1000); // 1s refresh as requested
+    const interval = setInterval(fetchTrades, 5000); // 5s — trade status/meta doesn't change every second; live prices come from MarketKernel
     return () => clearInterval(interval);
   }, []);
 

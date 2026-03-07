@@ -307,33 +307,48 @@ export const MatrixHorizon = () => {
   const [prevLivePrice, setPrevLivePrice] = useState<number | null>(null);
   const [microDigits, setMicroDigits] = useState("00");
 
-  // Real-time BTC Ticker (1 second refresh)
+  const [sentiment, setSentiment] = useState<SentimentResult | null>(null);
+  const [prediction, setPrediction] = useState<{
+    predictedPrice: number;
+    trend: "UP" | "DOWN" | "FLAT";
+    confidence: number;
+  } | null>(null);
+  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+
+  // Centralized BTC Ticker (using ApiCore for batching)
   useEffect(() => {
-    const fetchLivePrice = async () => {
-      try {
-        const res = await axios.get("/api/market/ticker?symbol=BTCUSDT");
-        if (res.data && res.data.price) {
-          const newPrice = parseFloat(res.data.price);
+    const COMPONENT_ID = "MatrixHorizon_Ticker";
+    // Register interest in BTCUSDT
+    import("@/services/ApiCore").then(({ core }) => {
+      core.market.registerSymbols(COMPONENT_ID, ["BTCUSDT"]);
+      
+      const unsub = core.market.subscribe((data) => {
+        if (data["BTCUSDT"]) {
+          const newPrice = parseFloat(data["BTCUSDT"].price);
           setLiveBtcPrice((prev) => {
             if (prev !== null) setPrevLivePrice(prev);
             return newPrice;
           });
+          setCurrentPrice(newPrice);
         }
-      } catch { /* silent */ }
-    };
-    
-    fetchLivePrice();
-    const interval = setInterval(fetchLivePrice, 1000);
-    
+      });
+
+      return () => {
+        core.market.unregisterSymbols(COMPONENT_ID);
+        unsub();
+      };
+    });
+
     // Fast visual micro-digit oscillator for the "microsecond" feel
     const microInterval = setInterval(() => {
-      setMicroDigits(Math.floor(Math.random() * 100).toString().padStart(2, "0"));
+      setMicroDigits(
+        Math.floor(Math.random() * 100)
+          .toString()
+          .padStart(2, "0"),
+      );
     }, 150);
 
-    return () => {
-      clearInterval(interval);
-      clearInterval(microInterval);
-    };
+    return () => clearInterval(microInterval);
   }, []);
 
   useEffect(() => {
@@ -345,21 +360,13 @@ export const MatrixHorizon = () => {
     }
   }, []);
 
-  const [sentiment, setSentiment] = useState<SentimentResult | null>(null);
-  const [prediction, setPrediction] = useState<{
-    predictedPrice: number;
-    trend: "UP" | "DOWN" | "FLAT";
-    confidence: number;
-  } | null>(null);
-  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
-
   useEffect(() => {
     const fetchSentiment = async () => {
       try {
-        const res = await axios.get(
+        const res = await fetch(
           "https://min-api.cryptocompare.com/data/v2/news/?lang=EN",
-        );
-        const news = res.data.Data || [];
+        ).then((r) => r.json());
+        const news = res.Data || [];
         setSentiment(
           analyzeSentiment(news.map((item: { title: string }) => item.title)),
         );
@@ -368,21 +375,6 @@ export const MatrixHorizon = () => {
       }
     };
     fetchSentiment();
-  }, []);
-
-  useEffect(() => {
-    const fetchCurrentPrice = async () => {
-      try {
-        const res = await axios.get(`/api/market/ticker?symbol=BTCUSDT`);
-        if (res.data && res.data.price)
-          setCurrentPrice(parseFloat(res.data.price));
-      } catch {
-        /* silent */
-      }
-    };
-    fetchCurrentPrice();
-    const priceId = setInterval(fetchCurrentPrice, 2000);
-    return () => clearInterval(priceId);
   }, []);
 
   useEffect(() => {

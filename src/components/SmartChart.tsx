@@ -83,6 +83,107 @@ const TIMEFRAME_SECONDS: Record<string, number> = {
   "1w": 604800,
 };
 
+// ─── Pure chart data utilities (extracted for testability) ─────────────────────
+
+/** Convert a lightweight-charts Time value to a Unix timestamp in seconds. */
+const toSeconds = (t: Time): number => {
+  if (t === null || t === undefined) return 0;
+  if (typeof t === "number") return t;
+  if (typeof t === "string") return Number(t) || 0;
+  if (typeof t === "object" && "timestamp" in t)
+    return (t as { timestamp: number }).timestamp;
+  return 0;
+};
+
+/** Strip invalid timestamps and normalise time field to numeric seconds. */
+const sanitizeChartData = <T extends { time: Time }>(data: T[]): T[] =>
+  data
+    .filter((d) => { const t = toSeconds(d.time); return !isNaN(t) && t > 0; })
+    .map((d) => ({ ...d, time: toSeconds(d.time) as Time }));
+
+const hasSignificantCandleChange = (a: CandleData, b: CandleData) =>
+  Math.abs(a.close - b.close) > 0.00000001 ||
+  Math.abs(a.high  - b.high)  > 0.00000001 ||
+  Math.abs(a.low   - b.low)   > 0.00000001;
+
+type VolumeBar = { time: Time; value: number; color: string };
+
+/**
+ * Full O(n) diff: compare every incoming candle against the cache.
+ * Returns {changedKlines, changedVolume, hasHistoricalChange, nextKlineMap, nextVolMap}.
+ */
+const fullDiffScan = (
+  existingKlines: CandleData[],
+  existingVolume: VolumeBar[],
+  incomingKlines: CandleData[],
+  incomingVolume: VolumeBar[],
+) => {
+  const lastExistingTime =
+    existingKlines.length > 0 ? toSeconds(existingKlines[existingKlines.length - 1].time) : 0;
+
+  const klineMap = new Map<number, CandleData>(existingKlines.map((k) => [toSeconds(k.time), k]));
+  const volMap   = new Map<number, VolumeBar>(existingVolume.map((v) => [toSeconds(v.time), v]));
+
+  const changedKlines: CandleData[] = [];
+  let hasHistoricalChange = false;
+
+  incomingKlines.forEach((k) => {
+    const t = toSeconds(k.time);
+    const existing = klineMap.get(t);
+    if (!existing || hasSignificantCandleChange(existing, k)) {
+      changedKlines.push(k);
+      klineMap.set(t, k);
+      if (t < lastExistingTime) hasHistoricalChange = true;
+    }
+  });
+
+  const changedVolume: VolumeBar[] = [];
+  incomingVolume.forEach((v) => {
+    const t = toSeconds(v.time);
+    const existing = volMap.get(t);
+    if (!existing || Math.abs(existing.value - v.value) > 0.1) {
+      changedVolume.push(v);
+      volMap.set(t, v);
+      if (t < lastExistingTime) hasHistoricalChange = true;
+    }
+  });
+
+  return { changedKlines, changedVolume, hasHistoricalChange, klineMap, volMap };
+};
+
+/**
+ * Fast O(k) diff: only compare tip candles (last 5) — used on every normal poll.
+ */
+const tipDiffScan = (
+  existingKlines: CandleData[],
+  existingVolume: VolumeBar[],
+  incomingKlines: CandleData[],
+  incomingVolume: VolumeBar[],
+) => {
+  const lastExistingTime =
+    existingKlines.length > 0 ? toSeconds(existingKlines[existingKlines.length - 1].time) : 0;
+
+  const tipMap = new Map<number, CandleData>(
+    existingKlines.slice(-5).map((k) => [toSeconds(k.time), k]),
+  );
+
+  const changedKlines: CandleData[] = [];
+  incomingKlines
+    .filter((k) => toSeconds(k.time) >= lastExistingTime)
+    .forEach((k) => {
+      const existing = tipMap.get(toSeconds(k.time));
+      if (!existing || hasSignificantCandleChange(existing, k)) changedKlines.push(k);
+    });
+
+  // For volume at the tip we accept whatever comes in (volume bars update frequently)
+  const changedVolume: VolumeBar[] = incomingVolume.filter(
+    (v) => toSeconds(v.time) >= lastExistingTime,
+  );
+
+  return { changedKlines, changedVolume };
+};
+// ──────────────────────────────────────────────────────────────────────────────
+
 export const SmartChart: React.FC<SmartChartProps> = ({
   symbol,
   buyPrice,
@@ -127,6 +228,8 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     [],
   );
   const isHistoryLoadingRef = useRef(false);
+  const lastCloseRef = useRef(0);
+  const lastFullScanRef = useRef<number>(0); // timestamp of last O(n) full diff scan
   const [timeframe, setTimeframe] = useModuleTimeframe("1h");
   const isUpdatingOverlaysRef = useRef(false);
 
@@ -308,10 +411,8 @@ export const SmartChart: React.FC<SmartChartProps> = ({
       const tp = Number(localPricesRef.current.tp);
       const sl = Number(localPricesRef.current.sl);
 
-      if (isNaN(buy) || buy <= 0) return;
-
       // 1. Sync Labels (React side)
-      const buyCoord = series.priceToCoordinate(buy);
+      const buyCoord = buy > 0 ? series.priceToCoordinate(buy) : null;
       const tpCoord =
         tpEnabled && !isNaN(tp) && tp > 0 ? series.priceToCoordinate(tp) : null;
       const slCoord =
@@ -505,138 +606,115 @@ export const SmartChart: React.FC<SmartChartProps> = ({
 
     let isMounted = true;
 
+    // ── Sync strategy: Full Reset ───────────────────────────────────────────────
+    const handleFullReset = (
+      cleanKlines: CandleData[],
+      cleanVolume: VolumeBar[],
+    ) => {
+      if (!seriesRef.current || !volumeSeriesRef.current) return;
+      cleanKlines.sort((a, b) => toSeconds(a.time) - toSeconds(b.time));
+      cleanVolume.sort((a, b) => toSeconds(a.time) - toSeconds(b.time));
+      allKlinesRef.current = cleanKlines;
+      allVolumeRef.current = cleanVolume;
+      seriesRef.current.setData(cleanKlines);
+      volumeSeriesRef.current.setData(cleanVolume);
+    };
+
+    // ── Sync strategy: Historical Prepend ──────────────────────────────────────
+    const handleHistoricalPrepend = (
+      cleanKlines: CandleData[],
+      cleanVolume: VolumeBar[],
+    ) => {
+      if (!seriesRef.current || !volumeSeriesRef.current) return;
+      const firstKnownTime = toSeconds(allKlinesRef.current[0].time);
+      const olderKlines = cleanKlines.filter((k) => toSeconds(k.time) < firstKnownTime);
+      const olderVolume = cleanVolume.filter((v) => toSeconds(v.time) < firstKnownTime);
+      if (olderKlines.length > 0) {
+        allKlinesRef.current = [...olderKlines, ...allKlinesRef.current];
+        allVolumeRef.current = [...olderVolume, ...allVolumeRef.current];
+        seriesRef.current.setData(allKlinesRef.current);
+        volumeSeriesRef.current.setData(allVolumeRef.current);
+      }
+    };
+
+    // ── Sync strategy: Incremental Update (tip-fast or periodic full-scan) ──────
+    const handleIncrementalUpdate = (
+      cleanKlines: CandleData[],
+      cleanVolume: VolumeBar[],
+    ) => {
+      if (!seriesRef.current || !volumeSeriesRef.current) return;
+      const now = Date.now() / 1000;
+      const shouldFullScan = now - lastFullScanRef.current > 30;
+
+      let changedKlines: CandleData[];
+      let changedVolume: VolumeBar[];
+      let hasHistoricalChange = false;
+
+      if (shouldFullScan) {
+        const result = fullDiffScan(
+          allKlinesRef.current, allVolumeRef.current,
+          cleanKlines, cleanVolume,
+        );
+        changedKlines = result.changedKlines;
+        changedVolume = result.changedVolume;
+        hasHistoricalChange = result.hasHistoricalChange;
+        if (changedKlines.length > 0 || hasHistoricalChange) {
+          allKlinesRef.current = Array.from(result.klineMap.values()).sort(
+            (a, b) => toSeconds(a.time) - toSeconds(b.time),
+          );
+          allVolumeRef.current = Array.from(result.volMap.values()).sort(
+            (a, b) => toSeconds(a.time) - toSeconds(b.time),
+          );
+        }
+        lastFullScanRef.current = now;
+      } else {
+        ({ changedKlines, changedVolume } = tipDiffScan(
+          allKlinesRef.current, allVolumeRef.current,
+          cleanKlines, cleanVolume,
+        ));
+      }
+
+      if (hasHistoricalChange) {
+        seriesRef.current.setData(allKlinesRef.current);
+        volumeSeriesRef.current.setData(allVolumeRef.current);
+      } else if (changedKlines.length > 0 || changedVolume.length > 0) {
+        changedKlines
+          .sort((a, b) => toSeconds(a.time) - toSeconds(b.time))
+          .forEach((k) => {
+            seriesRef.current?.update(k);
+            const idx = allKlinesRef.current.findIndex(
+              (c) => toSeconds(c.time) === toSeconds(k.time),
+            );
+            if (idx >= 0) allKlinesRef.current[idx] = k;
+            else allKlinesRef.current.push(k);
+          });
+        changedVolume
+          .sort((a, b) => toSeconds(a.time) - toSeconds(b.time))
+          .forEach((v) => volumeSeriesRef.current?.update(v));
+      }
+      // else: no changes → skip all chart API calls
+    };
+
+    // ── Dispatcher ─────────────────────────────────────────────────────────────
     const updateSeriesData = (
       newKlines: CandleData[],
-      newVolume: { time: Time; value: number; color: string }[],
-      mode: "reset" | "update" | "prepend" = "reset",
+      newVolume: VolumeBar[],
+      updateMode: "reset" | "update" | "prepend" = "reset",
     ) => {
-      if (!seriesRef.current || !volumeSeriesRef.current || !isChartReady)
-        return;
+      if (!seriesRef.current || !volumeSeriesRef.current || !isChartReady) return;
+      const cleanKlines = sanitizeChartData(newKlines);
+      const cleanVolume = sanitizeChartData(newVolume);
 
-      const toSeconds = (t: Time): number => {
-        if (t === null || t === undefined) return 0;
-        if (typeof t === "number") return t;
-        if (typeof t === "string") return Number(t) || 0;
-        if (typeof t === "object" && "timestamp" in t)
-          return (t as { timestamp: number }).timestamp;
-        return 0;
-      };
-
-      const sanitize = <T extends { time: Time }>(data: T[]): T[] => {
-        return data
-          .filter((d) => {
-            const t = toSeconds(d.time);
-            return !isNaN(t) && t > 0;
-          })
-          .map((d) => ({
-            ...d,
-            time: toSeconds(d.time) as Time,
-          }));
-      };
-
-      const cleanKlines = sanitize(newKlines);
-      const cleanVolume = sanitize(newVolume);
-
-      if (mode === "reset" || allKlinesRef.current.length === 0) {
-        // Full Reset Mode
-        cleanKlines.sort((a, b) => toSeconds(a.time) - toSeconds(b.time));
-        cleanVolume.sort((a, b) => toSeconds(a.time) - toSeconds(b.time));
-
-        allKlinesRef.current = cleanKlines;
-        allVolumeRef.current = cleanVolume;
-        seriesRef.current.setData(cleanKlines);
-        volumeSeriesRef.current.setData(cleanVolume);
-      } else if (mode === "prepend") {
-        // Prepend Mode (for history)
-        const firstKnownTime =
-          allKlinesRef.current.length > 0
-            ? toSeconds(allKlinesRef.current[0].time)
-            : Infinity;
-
-        const olderKlines = cleanKlines.filter(
-          (k) => toSeconds(k.time) < firstKnownTime,
-        );
-        const olderVolume = cleanVolume.filter(
-          (v) => toSeconds(v.time) < firstKnownTime,
-        );
-
-        if (olderKlines.length > 0) {
-          allKlinesRef.current = [...olderKlines, ...allKlinesRef.current];
-          allVolumeRef.current = [...olderVolume, ...allVolumeRef.current];
-          seriesRef.current.setData(allKlinesRef.current);
-          volumeSeriesRef.current.setData(allVolumeRef.current);
-        }
+      if (updateMode === "reset" || allKlinesRef.current.length === 0) {
+        handleFullReset(cleanKlines, cleanVolume);
+      } else if (updateMode === "prepend") {
+        handleHistoricalPrepend(cleanKlines, cleanVolume);
       } else {
-        // Smart Update Mode (Merge API data into existing ref)
-        const klineMap = new Map<number, CandleData>(
-          allKlinesRef.current.map((k) => [toSeconds(k.time), k]),
-        );
-        const volMap = new Map<
-          number,
-          { time: Time; value: number; color: string }
-        >(allVolumeRef.current.map((v) => [toSeconds(v.time), v]));
-
-        const hasSignificantChange = (a: number, b: number) =>
-          Math.abs(a - b) > 0.00000001;
-        let hasHistoricalChange = false;
-        const lastExistingTime =
-          allKlinesRef.current.length > 0
-            ? toSeconds(
-                allKlinesRef.current[allKlinesRef.current.length - 1].time,
-              )
-            : 0;
-
-        cleanKlines.forEach((k) => {
-          const t = toSeconds(k.time);
-          const existing = klineMap.get(t);
-          if (
-            !existing ||
-            hasSignificantChange(existing.close, k.close) ||
-            hasSignificantChange(existing.high, k.high) ||
-            hasSignificantChange(existing.low, k.low)
-          ) {
-            klineMap.set(t, k);
-            if (t < lastExistingTime) hasHistoricalChange = true;
-          }
-        });
-
-        cleanVolume.forEach((v) => {
-          const t = toSeconds(v.time);
-          const existing = volMap.get(t);
-          if (!existing || Math.abs(existing.value - v.value) > 0.1) {
-            volMap.set(t, v);
-            if (t < lastExistingTime) hasHistoricalChange = true;
-          }
-        });
-
-        allKlinesRef.current = Array.from(klineMap.values()).sort(
-          (a, b) => toSeconds(a.time) - toSeconds(b.time),
-        );
-        allVolumeRef.current = Array.from(volMap.values()).sort(
-          (a, b) => toSeconds(a.time) - toSeconds(b.time),
-        );
-
-        if (hasHistoricalChange) {
-          // Must use setData if older candles were updated
-          seriesRef.current.setData(allKlinesRef.current);
-          volumeSeriesRef.current.setData(allVolumeRef.current);
-        } else {
-          // Only update candles at or after the current tip
-          cleanKlines
-            .filter((k) => toSeconds(k.time) >= lastExistingTime)
-            .sort((a, b) => toSeconds(a.time) - toSeconds(b.time))
-            .forEach((k) => seriesRef.current?.update(k));
-
-          cleanVolume
-            .filter((v) => toSeconds(v.time) >= lastExistingTime)
-            .sort((a, b) => toSeconds(a.time) - toSeconds(b.time))
-            .forEach((v) => volumeSeriesRef.current?.update(v));
-        }
+        handleIncrementalUpdate(cleanKlines, cleanVolume);
       }
 
       if (allKlinesRef.current.length > 0) {
-        lastCandleRef.current =
-          allKlinesRef.current[allKlinesRef.current.length - 1];
+        lastCandleRef.current = allKlinesRef.current[allKlinesRef.current.length - 1];
       }
     };
 
@@ -795,7 +873,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     }
 
     fetchData(true); // Initial/Symbol change load: Focus
-    const refreshInterval = setInterval(() => fetchData(false), 5000); // Reduced from 15s to 5s for faster updates
+    const refreshInterval = setInterval(() => fetchData(false), 5000); // 5s REST poll; MarketKernel handles 1s realtime updates
 
     // Real-time pulse from MarketKernel
     const formattedSym = symbol.replace("/", "");
@@ -805,8 +883,15 @@ export const SmartChart: React.FC<SmartChartProps> = ({
       if (update && seriesRef.current && isMounted) {
         const price = Number(update.price);
         if (price > 0) {
+          const prevPrice = lastCloseRef.current;
           setLastClose(price);
+          lastCloseRef.current = price;
           if (onMarketPriceUpdate) onMarketPriceUpdate(price);
+          
+          // Only trigger coordinate sync if price moved >0.01% to reduce layout thrashing
+          if (prevPrice === 0 || Math.abs(price - prevPrice) / price > 0.0001) {
+            triggerCoordSync();
+          }
         }
 
         // Update candlestick logic...
@@ -906,9 +991,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
       const tp = Number(localPricesRef.current.tp);
       const sl = Number(localPricesRef.current.sl);
 
-      if (isNaN(buy) || buy <= 0) return;
-
-      const buyCoord = series.priceToCoordinate(buy);
+      const buyCoord = buy > 0 ? series.priceToCoordinate(buy) : null;
       const tpCoord =
         propsRef.current.tpEnabled && !isNaN(tp) && tp > 0
           ? series.priceToCoordinate(tp)
@@ -1362,6 +1445,24 @@ export const SmartChart: React.FC<SmartChartProps> = ({
 
             const isDisabledBuy = key === "buy" && !isBuyEditable;
 
+            const onLabelMouseDown = (e: React.MouseEvent) => {
+              if (!isDisabledBuy) {
+                e.preventDefault();
+                setDraggingLine(key as "buy" | "tp" | "sl");
+                // IMPORTANT: We MUST set initial ratios even when dragging from label
+                // to support proportional TP/SL movement.
+                const b = propsRef.current.buyPrice;
+                const t = propsRef.current.tpPrice;
+                const s = propsRef.current.slPrice;
+                if (b > 0) {
+                  initialDragPercents.current = {
+                    tp: t > 0 ? (t / b) : 0,
+                    sl: s > 0 ? (s / b) : 0
+                  };
+                }
+              }
+            };
+
             return (
               <div
                 key={key}
@@ -1382,12 +1483,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
                 <div className="absolute left-4 -translate-y-1/2 flex items-center gap-1.5 pointer-events-auto">
                   {/* Drag Handle + Label */}
                   <div
-                    onMouseDown={(e) => {
-                      if (!isDisabledBuy) {
-                        e.preventDefault();
-                        setDraggingLine(key as "buy" | "tp" | "sl");
-                      }
-                    }}
+                    onMouseDown={onLabelMouseDown}
                     className={`flex items-center ${bgColor} rounded-lg shadow-xl ${bgGlow} ${isDisabledBuy ? "opacity-50 cursor-not-allowed" : "cursor-ns-resize hover:scale-105"} transition-transform active:scale-95`}
                   >
                     {/* Feature Name Instead of Price */}

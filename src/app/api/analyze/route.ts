@@ -53,12 +53,11 @@ export async function POST(request: Request) {
     // Update the persistent rate limit upon successful generation
     await setSetting("GROQ_LAST_CALL", Date.now().toString(), user.id);
     
-    // Inject the front-end state into the rawData so the user sees it in the "HAM JSON" UI
-    if (dashboardState) {
-      rawData.dashboardState = dashboardState;
-    }
-    
-    return NextResponse.json({ result, rawData, isAdmin });
+    return NextResponse.json({ 
+      result, 
+      rawData: dashboardState ? { ...rawData, dashboardState } : rawData, 
+      isAdmin 
+    });
   } catch (error: unknown) {
     console.error("AI Analysis failed:", error);
     return NextResponse.json(

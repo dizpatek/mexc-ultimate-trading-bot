@@ -7,7 +7,13 @@ import { getMexcCredentials } from "./settings";
 
 const BASE = "https://api.mexc.com";
 
-const httpsAgent = new https.Agent({ rejectUnauthorized: true });
+const httpsAgent = new https.Agent({ 
+  rejectUnauthorized: true,
+  keepAlive: true,
+  timeout: 15000,
+  minVersion: 'TLSv1.2',
+  maxVersion: 'TLSv1.3'
+});
 
 async function getEnv(userId: number) {
   const { apiKey, apiSecret } = await getMexcCredentials(userId, "production");
@@ -37,7 +43,10 @@ async function fetchWithRetry<T>(
       lastError = err;
       if (
         axios.isAxiosError(err) &&
-        (err.code === "ECONNABORTED" || err.response?.status === 429)
+        (err.code === "ECONNABORTED" || 
+         err.code === "EPROTO" || 
+         err.code === "ECONNRESET" ||
+         err.response?.status === 429)
       ) {
         console.warn(`MEXC API Retry ${i + 1}/${retries} after ${delay}ms...`);
         await new Promise((resolve) => setTimeout(resolve, delay));
@@ -109,7 +118,8 @@ async function syncTime() {
   }
 }
 
-async function signedGet<T>(
+async function signedRequest<T>(
+  method: "GET" | "POST" | "DELETE",
   endpoint: string,
   userId: number,
   params: Record<string, string | number | boolean> = {},
@@ -124,32 +134,47 @@ async function signedGet<T>(
     const queryParams = { ...params, timestamp, recvWindow };
     const queryString = qs.stringify(queryParams, { encode: false });
     const signature = sign(queryString, apiSecret);
+    
+    // MEXC V3 sends signature in the query string for all methods
     const url = `${BASE}${endpoint}?${queryString}&signature=${signature}`;
 
-    const res = await axios.get(url, {
+    const config = {
       headers: { "X-MEXC-APIKEY": apiKey },
       timeout,
       httpsAgent,
-    });
+    };
+
+    let res;
+    if (method === "GET") res = await axios.get(url, config);
+    else if (method === "POST") res = await axios.post(url, {}, config);
+    else res = await axios.delete(url, config);
+    
     return res.data;
   };
 
   try {
-    return await execute();
+    return await fetchWithRetry(execute);
   } catch (err: unknown) {
     if (axios.isAxiosError(err)) {
       const data = err.response?.data;
       if (data && data.code === 700003) {
-        console.error(
-          "[MEXC] Timestamp drift detected (700003). Re-syncing and retrying...",
-        );
-        lastSync = 0; // Force sync
-        return await execute(); // Transparent retry
+        console.error("[MEXC] Timestamp drift (700003). Re-syncing and retrying...");
+        lastSync = 0;
+        return await fetchWithRetry(execute);
       }
-      console.error(`Signed GET ${endpoint} error:`, data || err.message);
+      console.error(`Signed ${method} ${endpoint} error:`, data || err.message);
     }
     throw err;
   }
+}
+
+async function signedGet<T>(
+  endpoint: string,
+  userId: number,
+  params: Record<string, string | number | boolean> = {},
+  timeout = 10000,
+): Promise<T | null> {
+  return signedRequest<T>("GET", endpoint, userId, params, timeout);
 }
 
 export async function testConnection() {
@@ -387,46 +412,11 @@ export async function cancelOrder(
   orderId: string,
   userId: number,
 ) {
-  const { apiKey, apiSecret } = await getEnv(userId);
-
-  const timestamp = Date.now();
-  const recvWindow = 60000;
-  const body: Record<string, string | number> = {
-    symbol,
-    orderId,
-    timestamp,
-    recvWindow,
-  };
-  const bodyString = qs.stringify(body, { encode: false });
-  const signature = sign(bodyString, apiSecret);
-  const url = `${BASE}/api/v3/order?${bodyString}&signature=${signature}`;
-  const res = await axios.delete(url, {
-    headers: { "X-MEXC-APIKEY": apiKey },
-    timeout: 10000,
-    httpsAgent,
-  });
-  return res.data;
+  return signedRequest<any>("DELETE", "/api/v3/order", userId, { symbol, orderId });
 }
 
 export async function cancelAllOrders(symbol: string, userId: number) {
-  const { apiKey, apiSecret } = await getEnv(userId);
-
-  const timestamp = Date.now();
-  const recvWindow = 60000;
-  const body: Record<string, string | number> = {
-    symbol,
-    timestamp,
-    recvWindow,
-  };
-  const bodyString = qs.stringify(body, { encode: false });
-  const signature = sign(bodyString, apiSecret);
-  const url = `${BASE}/api/v3/openOrders?${bodyString}&signature=${signature}`;
-  const res = await axios.delete(url, {
-    headers: { "X-MEXC-APIKEY": apiKey },
-    timeout: 10000,
-    httpsAgent,
-  });
-  return res.data;
+  return signedRequest<any>("DELETE", "/api/v3/openOrders", userId, { symbol });
 }
 
 export async function getExchangeInfo(symbol: string | null = null) {
@@ -522,54 +512,9 @@ export async function postOrder(
   userId: number,
   params: Record<string, string | number | boolean> = {},
 ): Promise<OrderResult> {
-  const { apiKey, apiSecret } = await getEnv(userId);
-
-  const timestamp = Date.now();
-  const recvWindow = 60000;
-
-  // Optional: Synchronize with server time once every few calls or if needed
-  // For simplicity, we just use a large recvWindow for now.
-
-  const body = { ...params, timestamp, recvWindow };
-  const bodyString = qs.stringify(body, { encode: false });
-  const signature = sign(bodyString, apiSecret);
-  const url = `${BASE}/api/v3/order?${bodyString}&signature=${signature}`;
-
-  const headers = {
-    "X-MEXC-APIKEY": apiKey,
-    "Content-Type": "application/json",
-  };
-
-  try {
-    // Some MEXC V3 endpoints prefer parameters in the URL even for POSTs
-    // but they still check the Content-Type header.
-    const res = await axios.post(
-      url,
-      {},
-      {
-        headers,
-        timeout: 10000,
-        httpsAgent: new https.Agent({ rejectUnauthorized: true }),
-      },
-    );
-    return res.data;
-  } catch (error: unknown) {
-    if (axios.isAxiosError(error)) {
-      const mexcErr = error.response?.data;
-      console.error("MEXC API Error Detail:", mexcErr || error.message);
-      // Enrich the error message with MEXC detail
-      interface EnrichedAxiosError extends Error {
-        mexcDetail?: Record<string, unknown>;
-      }
-      if (mexcErr && typeof mexcErr === "object") {
-        (error as EnrichedAxiosError).mexcDetail = mexcErr;
-        error.message = `${error.message} | MEXC: ${JSON.stringify(mexcErr)}`;
-      }
-    } else {
-      console.error("MEXC API Error:", error);
-    }
-    throw error;
-  }
+  const res = await signedRequest<OrderResult>("POST", "/api/v3/order", userId, params);
+  if (!res) throw new Error("Order creation failed: No response");
+  return res;
 }
 
 export async function marketBuyByQuote(

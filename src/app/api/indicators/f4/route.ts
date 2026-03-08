@@ -70,7 +70,22 @@ export async function GET(request: NextRequest) {
     const lows = klines.map((k) => k.low);
     const volumes = klines.map((k) => k.volume);
 
-    // Step 3: Analyze with Matrix V5 (pass interval for TF-adaptive calculations)
+    // Step 2.5: Fetch and Apply User Config for Analysis (with 10s local cache)
+    const CACHE_KEY = "bot_config_cache";
+    const CACHE_TTL = 10000; // 10 seconds
+    
+    let botConfig;
+    const now = Date.now();
+    const globalCache = global as any;
+    
+    if (globalCache[CACHE_KEY] && (now - globalCache[CACHE_KEY].timestamp < CACHE_TTL)) {
+      botConfig = globalCache[CACHE_KEY].data;
+    } else {
+      botConfig = await import("@/lib/db").then(m => m.getBotConfig());
+      globalCache[CACHE_KEY] = { data: botConfig, timestamp: now };
+    }
+
+    // Step 3: Analyze with Matrix V5 (pass persistent parameters)
     const result = engine.analyze(
       closes,
       highs,
@@ -78,6 +93,12 @@ export async function GET(request: NextRequest) {
       volumes,
       interval,
       riskMode,
+      {
+        f4Length: botConfig.f4_length,
+        whaleVolumeMultiplier: botConfig.whale_multiplier,
+        fiboLength: botConfig.fibo_length,
+        minAiScore: botConfig.ai_threshold,
+      }
     );
 
     // Step 3.5: Log significant findings to DB buffer (Fire and Forget)

@@ -833,7 +833,13 @@ export class MatrixV5Engine {
     volumes: number[],
     interval: string = "4h",
     riskMode: "safe" | "normal" | "aggressive" = "normal",
+    configOverrides: Partial<MatrixV5Config> = {},
   ): MatrixV5Result {
+    // Determine the configuration for this specific analysis run (Thread-safe)
+    const activeConfig = Object.keys(configOverrides).length > 0 
+      ? { ...this.config, ...configOverrides } 
+      : this.config;
+
     const len = closes.length;
     if (len < 50) {
       console.warn(
@@ -847,15 +853,15 @@ export class MatrixV5Engine {
     // ===============================
     // 1. F4 TREND ENGINE
     // ===============================
-    const f4Len = this.config.f4Length;
-    const f4Alpha = this.config.f4Alpha;
+    const f4Len = activeConfig.f4Length;
+    const f4Alpha = activeConfig.f4Alpha;
     const f4Value = this.calculateF4(closes, highs, lows, f4Len, f4Alpha);
     const f4FiboValue = this.calculateF4(
       closes,
       highs,
       lows,
-      this.config.fiboLength,
-      this.config.fiboAlpha,
+      activeConfig.fiboLength,
+      activeConfig.fiboAlpha,
     );
 
     // Slope via LinReg
@@ -888,28 +894,28 @@ export class MatrixV5Engine {
     else if (fastAcceleration < -0.01 && rawSlope > 0) earlyReversal = "DOWN";
 
     let trend: MatrixV5Result["trend"] = "NEUTRAL";
-    if (slope > this.config.f4SlopeThreshold) trend = "BULLISH";
-    else if (slope < -this.config.f4SlopeThreshold) trend = "BEARISH";
+    if (slope > activeConfig.f4SlopeThreshold) trend = "BULLISH";
+    else if (slope < -activeConfig.f4SlopeThreshold) trend = "BEARISH";
 
     // ===============================
     // 2. V5 INDICATORS (TF-ADAPTIVE)
     // ===============================
-    const adaptedRsiLen = this.adaptPeriod(this.config.rsiPeriod, tfAdapt);
-    const adaptedMacdFast = this.adaptPeriod(this.config.macdFast, tfAdapt);
+    const adaptedRsiLen = this.adaptPeriod(activeConfig.rsiPeriod, tfAdapt);
+    const adaptedMacdFast = this.adaptPeriod(activeConfig.macdFast, tfAdapt);
     const adaptedMacdSlow = Math.max(
-      this.adaptPeriod(this.config.macdSlow, tfAdapt),
+      this.adaptPeriod(activeConfig.macdSlow, tfAdapt),
       5,
     );
-    const adaptedMacdSignal = this.adaptPeriod(this.config.macdSignal, tfAdapt);
-    const adaptedStAtr = this.adaptPeriod(this.config.stAtrPeriod, tfAdapt);
-    const adaptedAdxLen = this.adaptPeriod(this.config.adxPeriod, tfAdapt);
+    const adaptedMacdSignal = this.adaptPeriod(activeConfig.macdSignal, tfAdapt);
+    const adaptedStAtr = this.adaptPeriod(activeConfig.stAtrPeriod, tfAdapt);
+    const adaptedAdxLen = this.adaptPeriod(activeConfig.adxPeriod, tfAdapt);
 
     // RSI
     const rsi = this.calculateRSI(closes, adaptedRsiLen);
     const rsiState =
-      rsi >= this.config.rsiOB
+      rsi >= activeConfig.rsiOB
         ? "AŞIRI ALIM"
-        : rsi <= this.config.rsiOS
+        : rsi <= activeConfig.rsiOS
           ? "AŞIRI SATIM"
           : rsi > 50
             ? "BOĞA"
@@ -917,9 +923,9 @@ export class MatrixV5Engine {
               ? "AYI"
               : "NÖTR";
     const rsiColor: V5IndicatorState["color"] =
-      rsi >= this.config.rsiOB
+      rsi >= activeConfig.rsiOB
         ? "red"
-        : rsi <= this.config.rsiOS
+        : rsi <= activeConfig.rsiOS
           ? "green"
           : rsi > 55
             ? "green"
@@ -951,7 +957,7 @@ export class MatrixV5Engine {
       highs,
       lows,
       closes,
-      this.config.stFactor,
+      activeConfig.stFactor,
       adaptedStAtr,
     );
     const stState = st.bull ? "YUKARI TREND" : "AŞAĞI TREND";
@@ -961,9 +967,9 @@ export class MatrixV5Engine {
     const stochRsi = this.calculateStochRSI(
       closes,
       adaptedRsiLen,
-      this.config.stochRsiLen,
-      this.config.stochK,
-      this.config.stochD,
+      activeConfig.stochRsiLen,
+      activeConfig.stochK,
+      activeConfig.stochD,
     );
     const stochState =
       stochRsi.k > 80
@@ -984,7 +990,7 @@ export class MatrixV5Engine {
 
     // ADX
     const adx = this.calculateADX(highs, lows, closes, adaptedAdxLen);
-    const adxTrending = adx.adx > this.config.adxThreshold;
+    const adxTrending = adx.adx > activeConfig.adxThreshold;
     const adxState = !adxTrending
       ? "YATAY (RANGE)"
       : adx.diPlus > adx.diMinus
@@ -1127,12 +1133,12 @@ export class MatrixV5Engine {
               ? 2.2
               : 2.5;
     const adaptiveWhaleVolMult = Math.max(
-      this.config.whaleVolumeMultiplier,
+      activeConfig.whaleVolumeMultiplier,
       tfWhaleMultiplier,
     );
     const currentVolume = volumes[len - 1];
     const isWhale =
-      this.config.useWhaleEngine &&
+      activeConfig.useWhaleEngine &&
       currentVolume > volSMA * adaptiveWhaleVolMult;
     const stoppingVolMult =
       intervalSec <= 300 ? 2.5 : intervalSec <= 3600 ? 3.0 : 3.5;
@@ -1265,8 +1271,8 @@ export class MatrixV5Engine {
       closes.slice(0, -1),
       highs.slice(0, -1),
       lows.slice(0, -1),
-      this.config.fiboLength,
-      this.config.fiboAlpha,
+      activeConfig.fiboLength,
+      activeConfig.fiboAlpha,
     );
     const fiboSlope = f4FiboValue - prevFiboValue;
 
@@ -1280,7 +1286,7 @@ export class MatrixV5Engine {
     const slopeHistory: number[] = [];
     for (
       let i = 0;
-      i < Math.min(this.config.f4LookbackBars, closes.length - 2);
+      i < Math.min(activeConfig.f4LookbackBars, closes.length - 2);
       i++
     ) {
       const prevI = this.calculateF4(
@@ -1311,11 +1317,11 @@ export class MatrixV5Engine {
     // V5.3: Volatility Adaptive Threshold — lower in squeeze
     const dynPowerLossThreshold =
       volatilityRegime === "SQUEEZE"
-        ? this.config.f4SqueezeThreshold
-        : this.config.f4PowerLossThreshold;
+        ? activeConfig.f4SqueezeThreshold
+        : activeConfig.f4PowerLossThreshold;
 
     // Dynamic flat filter
-    const dynamicThreshold = atrVal * this.config.f4SlopeThreshold;
+    const dynamicThreshold = atrVal * activeConfig.f4SlopeThreshold;
     const f4NotFlat =
       f4SlopeStrength > dynamicThreshold ||
       Math.abs(fiboSlope) > dynamicThreshold;
@@ -1419,16 +1425,16 @@ export class MatrixV5Engine {
       volatilityRegime === "HIGH_VOL" || marketRegime === "RISK_OFF";
     const dynWeightTech = isRiskOffProxy
       ? 15
-      : this.config.confluenceWeightTech;
+      : activeConfig.confluenceWeightTech;
     const dynWeightMomentum = isRiskOffProxy
       ? 10
-      : this.config.confluenceWeightMomentum;
+      : activeConfig.confluenceWeightMomentum;
     const dynWeightMarket = isRiskOffProxy
       ? 25
-      : this.config.confluenceWeightMarket;
+      : activeConfig.confluenceWeightMarket;
     const dynWeightTrend = isRiskOffProxy
       ? 20
-      : this.config.confluenceWeightTrend;
+      : activeConfig.confluenceWeightTrend;
 
     const dynamicWeights = {
       tech: dynWeightTech,
@@ -1466,11 +1472,11 @@ export class MatrixV5Engine {
 
     // Momentum Score (RSI + MACD + StochRSI)
     const momRSI =
-      rsi > 50 && rsi < this.config.rsiOB
+      rsi > 50 && rsi < activeConfig.rsiOB
         ? 10
-        : rsi <= this.config.rsiOS
+        : rsi <= activeConfig.rsiOS
           ? 8
-          : rsi >= this.config.rsiOB
+          : rsi >= activeConfig.rsiOB
             ? 2
             : 5;
     const momMACD = macdBull && macd.hist > 0 ? 10 : macd.hist > 0 ? 7 : 2;
@@ -1530,10 +1536,10 @@ export class MatrixV5Engine {
         100,
         (techScore / 40) * dynWeightTech +
           (momentumScore / 30) * dynWeightMomentum +
-          (volumeScore / 25) * this.config.confluenceWeightVol +
+          (volumeScore / 25) * activeConfig.confluenceWeightVol +
           (trendScore / 40) * dynWeightTrend +
           (mktScore / 25) * dynWeightMarket +
-          (timScore / 10) * this.config.confluenceWeightTiming +
+          (timScore / 10) * activeConfig.confluenceWeightTiming +
           liquidityBonus,
       ),
     );
@@ -1569,7 +1575,7 @@ export class MatrixV5Engine {
     baseUpProb += zScore < -1.5 ? 10 : zScore > 1.5 ? -10 : 0;
     baseUpProb += volatilityRegime === "SQUEEZE" ? 5 : 0;
     baseUpProb +=
-      rsi <= this.config.rsiOS ? 8 : rsi >= this.config.rsiOB ? -8 : 0;
+      rsi <= activeConfig.rsiOS ? 8 : rsi >= activeConfig.rsiOB ? -8 : 0;
     baseUpProb += st.bull ? 5 : -5;
     baseUpProb += ribbonBull ? 5 : ribbonBear ? -5 : 0;
 
@@ -1613,8 +1619,8 @@ export class MatrixV5Engine {
       (timScore / 10) * 100 * 0.2;
 
     // V5 Indicator Bonuses
-    if (rsi <= this.config.rsiOS) aiRaw += 8;
-    else if (rsi >= this.config.rsiOB) aiRaw -= 5;
+    if (rsi <= activeConfig.rsiOS) aiRaw += 8;
+    else if (rsi >= activeConfig.rsiOB) aiRaw -= 5;
     if (st.bull) aiRaw += 5;
     else aiRaw -= 3;
     if (ribbonBull) aiRaw += 7;
@@ -1651,8 +1657,8 @@ export class MatrixV5Engine {
     // ===============================
     // 10. SYSTEM DECISION & RISK THRESHOLDS
     // ===============================
-    let currentMinAi = this.config.minAiScore;
-    let currentMinConf = this.config.minConfluenceScore;
+    let currentMinAi = activeConfig.minAiScore;
+    let currentMinConf = activeConfig.minConfluenceScore;
 
     if (riskMode === "safe") {
       currentMinAi = 75;
@@ -1790,7 +1796,7 @@ export class MatrixV5Engine {
       sl: currentPrice - direction * atrTarget * 1.0,
     };
 
-    return {
+    const payload: MatrixV5Result = {
       symbol: "BTCUSDT",
       trend,
       slope,
@@ -1847,5 +1853,7 @@ export class MatrixV5Engine {
       mtfWeightedScore,
       dynamicWeights,
     };
+
+    return payload;
   }
 }

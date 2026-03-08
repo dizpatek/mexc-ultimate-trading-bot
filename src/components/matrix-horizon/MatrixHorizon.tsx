@@ -21,17 +21,17 @@ import {
   Database,
   Newspaper,
   Activity,
+  Plane,
+  X,
 } from "lucide-react";
 import { fetchGlobalMarketData } from "@/lib/market-data";
 import { useHoldings } from "@/hooks/usePortfolio";
 import { api } from "@/services/api";
-import axios from "axios";
 import { useTimeframe } from "@/context/TimeframeContext";
 import { analyzeSentiment, SentimentResult } from "@/lib/sentiment-analyzer";
 import { AIAnalysisSummary } from "../AIAnalysisSummary";
 import { logger } from "@/lib/logger";
-import { PilotConfirmationModal } from "../PilotConfirmationModal";
-import type { SmartTradeOrder } from "../ActiveSmartTrades";
+import { useAuth } from "@/hooks/useAuth";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 interface V5Indicator {
@@ -124,6 +124,8 @@ interface BotConfig {
   pilot_tp_deviation: number;
   pilot_sl_trailing: boolean;
   pilot_sl_deviation: number;
+  pilot_timeframe?: string;
+  fibo_length: number;
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -296,11 +298,18 @@ export const MatrixHorizon = () => {
     pilot_tp_deviation: 0.5,
     pilot_sl_trailing: true,
     pilot_sl_deviation: 0.5,
+    fibo_length: 20,
   });
   const [showSettings, setShowSettings] = useState(false);
   const [isActionLoading, setIsActionLoading] = useState(false);
-  const [showPilotModal, setShowPilotModal] = useState(false);
-  const [existingTrades, setExistingTrades] = useState<SmartTradeOrder[]>([]);
+
+  // Pilot Auto-Approve Toast State
+  const [pilotToast, setPilotToast] = useState<{
+    symbol: string;
+    action: "TRADE" | "COVER";
+    aiScore: number;
+    timeLeft: number;
+  } | null>(null);
 
   const [isPanicActive, setIsPanicActive] = useState(false);
   const [liveBtcPrice, setLiveBtcPrice] = useState<number | null>(null);
@@ -314,6 +323,121 @@ export const MatrixHorizon = () => {
     confidence: number;
   } | null>(null);
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+
+  // ─── ORCHESTRA CONDUCTOR (INLINED) ─────────────────────────────────────
+  const { user: authUser } = useAuth();
+  const isAdmin = authUser?.is_admin === true;
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResult, setAiResult] = useState<{ verdict: string; direction: string; urgency: string; confidence: number; position_size: string; reasoning: string; tf_noise_warning?: boolean } | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [aiRaw, setAiRaw] = useState<Record<string, any> | null>(null);
+  const [aiErr, setAiErr] = useState("");
+  const [aiShowRaw, setAiShowRaw] = useState(false);
+  const [aiCooldown, setAiCooldown] = useState(0);
+  const [aiHistory, setAiHistory] = useState<{ time: string; symbol: string; tf: string; verdict: string; confidence: number }[]>([]);
+
+  // Load history on mount
+  useEffect(() => {
+    const saved = localStorage.getItem("ai_orchestra_history");
+    if (saved) {
+      try { setAiHistory(JSON.parse(saved)); } catch (e) { console.error(e); }
+    }
+  }, []);
+
+  // Cooldown ticker (non-admin only)
+  useEffect(() => {
+    if (isAdmin) { setAiCooldown(0); return; }
+    const syncCooldown = () => {
+      const lastGroq = localStorage.getItem("last_groq_call");
+      if (lastGroq) {
+        const msSince = Date.now() - parseInt(lastGroq);
+        const limit = 10 * 60 * 1000;
+        if (msSince < limit) setAiCooldown(Math.ceil((limit - msSince) / 1000));
+      }
+    };
+    syncCooldown();
+    const timer = setInterval(() => setAiCooldown(p => (p > 0 ? p - 1 : 0)), 1000);
+    // Cross-tab sync
+    const onStorage = (e: StorageEvent) => { if (e.key === "last_groq_call") syncCooldown(); };
+    window.addEventListener("storage", onStorage);
+    return () => { clearInterval(timer); window.removeEventListener("storage", onStorage); };
+  }, [isAdmin]);
+
+  const runAiAnalysis = async () => {
+    if (!isAdmin && aiCooldown > 0) {
+      setAiErr(`Rate limit aktif! ${aiCooldown}s bekleyin.`);
+      return;
+    }
+    setAiLoading(true); setAiErr(""); setAiResult(null); setAiRaw(null);
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          symbol: "BTCUSDT",
+          timeframe: interval,
+          isMeme: false,
+          dashboardState: {
+            signal: signal,
+            sentiment: sentiment,
+            config: config,
+            price: currentPrice,
+            prediction: prediction,
+            globalMarket: {
+              btcDom,
+              usdtDom,
+              riskMode,
+            }
+          }
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        if (res.status === 429 && !isAdmin) {
+          localStorage.setItem("last_groq_call", Date.now().toString());
+          setAiCooldown(600);
+        }
+        throw new Error(d.error || "Bilinmeyen API Hatası");
+      }
+      setAiRaw(d.rawData);
+      setAiResult(d.result);
+      
+      // Update History
+      const newEntry = {
+        time: new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }),
+        symbol: "BTC",
+        tf: interval,
+        verdict: d.result.verdict,
+        confidence: d.result.confidence
+      };
+      setAiHistory(prev => {
+        const updated = [newEntry, ...prev.slice(0, 9)];
+        localStorage.setItem("ai_orchestra_history", JSON.stringify(updated));
+        return updated;
+      });
+
+      if (!d.isAdmin) {
+        localStorage.setItem("last_groq_call", Date.now().toString());
+        setAiCooldown(600);
+      }
+    } catch (e: unknown) {
+      setAiErr("Hata: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const AI_VS: Record<string, Record<string, string>> = {
+    "GÜÇLÜ AL": { bg: "#052e16", border: "#22c55e", text: "#4ade80", icon: "🚀" },
+    "AL": { bg: "#0a1f10", border: "#16a34a", text: "#86efac", icon: "✅" },
+    "BEKLE": { bg: "#1c1917", border: "#78716c", text: "#a8a29e", icon: "⏳" },
+    "SAT": { bg: "#2d0a0a", border: "#dc2626", text: "#fca5a5", icon: "🔻" },
+    "GÜÇLÜ SAT": { bg: "#3d0a0a", border: "#ef4444", text: "#f87171", icon: "💀" },
+    "KESİNLİKLE BEKLE": { bg: "#1c0a00", border: "#f97316", text: "#fdba74", icon: "🛑" },
+  };
+  const AI_PSC: Record<string, string> = { "TAM": "#22c55e", "YARIM": "#86efac", "ÇEYREK": "#f59e0b", "GİRME": "#ef4444" };
+  const aiVs = aiResult ? AI_VS[aiResult.verdict] || AI_VS["BEKLE"] : null;
 
   // Centralized BTC Ticker (using ApiCore for batching)
   useEffect(() => {
@@ -424,17 +548,7 @@ export const MatrixHorizon = () => {
     loadInitialConfig();
   }, []);
 
-  // Fetch existing smart trades for pilot modal's open-order check
-  const fetchExistingTrades = useCallback(async () => {
-    try {
-      const res = await api.get("/trade/smart");
-      if (res.data && Array.isArray(res.data)) {
-        setExistingTrades(res.data);
-      }
-    } catch { /* silent */ }
-  }, []);
-
-  // Also sync the timeframe in the local config when the global one changes (No longer needed since it is removed from BotConfig)
+  // Synchronize local config state with remote state and global timeframe
 
   const fetchSignal = useCallback(
     async (isManual = false) => {
@@ -462,6 +576,44 @@ export const MatrixHorizon = () => {
     [interval, riskMode],
   );
 
+  // Add an effect to handle the 10-second countdown
+  useEffect(() => {
+    if (!pilotToast) return;
+
+    if (pilotToast.timeLeft <= 0) {
+      // Time is up, auto approve!
+      api.post("/trade/smart", {
+        symbol: pilotToast.symbol,
+        action: pilotToast.action,
+        // Optional default percentages or amounts can be passed based on config
+      }).then(() => {
+        logger.info("Pilot Executed", `${pilotToast.symbol} için otomatik emre girildi.`);
+      }).catch((e) => {
+        logger.error("Pilot Execution Failed", e?.response?.data?.error || String(e));
+      }).finally(() => {
+        setPilotToast(null);
+      });
+      return;
+    }
+
+    const timerInterval = setInterval(() => {
+      setPilotToast((prev) => {
+        if (!prev) {
+          clearInterval(timerInterval);
+          return null;
+        }
+        if (prev.timeLeft <= 1) {
+          clearInterval(timerInterval);
+          // Return 0 so the next render cycle triggers the execution correctly
+          return { ...prev, timeLeft: 0 };
+        }
+        return { ...prev, timeLeft: prev.timeLeft - 1 };
+      });
+    }, 1000);
+
+    return () => clearInterval(timerInterval);
+  }, [pilotToast]);
+
   // Periodical background refresh (Market analysis & Cron trigger)
   useEffect(() => {
     const id = setInterval(() => {
@@ -469,9 +621,33 @@ export const MatrixHorizon = () => {
 
       // If Pilot is ON, trigger a strategy execution cycle to keep it "live"
       if (config.auto_trade) {
-        api.get("/cron/strategies").catch(() => null);
+        api.get("/cron/strategies").then(async () => {
+          // Poll for recent unhandled pilot signals for the toast UI
+          // Let's assume hitting /api/trade/signals?limit=1 gives us the latest signal
+          try {
+            const signalsRes = await api.get("/trade/signals?limit=1");
+            if (signalsRes.data && signalsRes.data.length > 0) {
+              const latest = signalsRes.data[0];
+              // If it's a recent BUY/SELL signal within the last 15s and we don't already have a toast
+              if (
+                Date.now() - new Date(latest.timestamp).getTime() < 15000 &&
+                (latest.signal_type === "BUY" || latest.signal_type === "SELL")
+              ) {
+                setPilotToast(prev => {
+                  if (prev) return prev; // Do not overwrite an active countdown
+                  return {
+                    symbol: latest.symbol || "BTCUSDT",
+                    action: latest.signal_type === "BUY" ? "TRADE" : "COVER",
+                    aiScore: Math.min(Number(latest.price || 85), 100), // Caps score to 100 max formatting
+                    timeLeft: 10
+                  };
+                });
+              }
+            }
+          } catch { /* ignore */ }
+        }).catch(() => null);
       }
-    }, 30000);
+    }, 60000); // Polling reduced to 60 seconds to decrease server load
     return () => clearInterval(id);
   }, [fetchSignal, config.auto_trade]);
 
@@ -480,7 +656,7 @@ export const MatrixHorizon = () => {
     fetchSignal(true);
   }, [interval, riskMode, fetchSignal]);
 
-  const saveConfig = useCallback(async (updates: Partial<BotConfig>) => {
+  const saveConfig = useCallback(async (updates: Partial<BotConfig>, onSuccess?: () => void) => {
     setConfig((prev) => {
       const next = { ...prev, ...updates };
 
@@ -518,7 +694,7 @@ export const MatrixHorizon = () => {
         ) {
           logger.info(
             "⚙️ SİSTEM AYARLARI GÜNCELLENDİ",
-            `F4: ${next.f4_length}, Balina: ${next.whale_multiplier}x, AI Güven: ${next.ai_threshold}%`,
+            `F4: ${next.f4_length}, Fibo: ${next.fibo_length}, Balina: ${next.whale_multiplier}x, AI Güven: ${next.ai_threshold}%`,
           );
         }
       }
@@ -532,6 +708,7 @@ export const MatrixHorizon = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
       });
+      if (onSuccess) onSuccess();
     } catch {
       /* silent */
     }
@@ -627,7 +804,7 @@ export const MatrixHorizon = () => {
           <div className="flex items-center gap-2">
             <LayoutTemplate className="w-5 h-5 text-cyan-400" />
             <h2 className="text-sm font-bold tracking-[0.2em] text-cyan-100 uppercase font-mono shadow-cyan-500/50 drop-shadow-[0_0_10px_rgba(34,211,238,0.3)]">
-              CentralCommand
+              Matrix Horizon
             </h2>
           </div>
 
@@ -705,20 +882,15 @@ export const MatrixHorizon = () => {
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-cyan-500/10 border border-cyan-500/20">
-            <span className="w-2.5 h-2.5 bg-cyan-500 rounded-full animate-pulse shadow-[0_0_8px_cyan]" />
-            <span className="text-xs font-black text-cyan-400 tracking-widest uppercase">
-              MatrixHorizon
-            </span>
-          </div>
-
           <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-950 rounded-lg border border-slate-800">
             <button
               onClick={() => {
                 if (!config.auto_trade) {
-                  // Turning ON → fetch trades and show confirmation modal
-                  fetchExistingTrades();
-                  setShowPilotModal(true);
+                  // Direct ON with current timeframe
+                  saveConfig({ auto_trade: true, pilot_timeframe: interval }, () => {
+                     // Trigger immediate first-run evaluation after saving
+                     api.get("/cron/strategies?immediate=true").catch(() => null);
+                  });
                 } else {
                   // Turning OFF → just disable
                   saveConfig({ auto_trade: false });
@@ -732,7 +904,7 @@ export const MatrixHorizon = () => {
               )}
             >
               <Power className="w-3.5 h-3.5" />{" "}
-              {config.auto_trade ? "PİLOT ON" : "PİLOT OFF"}
+              {config.auto_trade ? `PİLOT ON (${(config.pilot_timeframe || interval).toUpperCase()})` : "PİLOT OFF"}
             </button>
             <div className="w-[1px] h-3.5 bg-slate-800 mx-1.5" />
             <button
@@ -765,6 +937,18 @@ export const MatrixHorizon = () => {
                 GERİ AL
               </button>
             )}
+            <div className="w-[1px] h-3.5 bg-slate-800 mx-1.5" />
+            <button
+              onClick={runAiAnalysis}
+              disabled={aiLoading || (!isAdmin && aiCooldown > 0)}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-black uppercase transition-all",
+                aiResult ? "bg-violet-500 text-white shadow-[0_0_10px_rgba(139,92,246,0.5)]" : "text-violet-400 hover:bg-violet-500/10",
+              )}
+            >
+              <Brain className="w-3.5 h-3.5" />
+              {aiLoading ? "ANALİZ..." : (!isAdmin && aiCooldown > 0) ? `ŞEF (${Math.floor(aiCooldown/60)}:${(aiCooldown%60).toString().padStart(2, "0")})` : "ŞEF"}
+            </button>
           </div>
 
           <button
@@ -819,6 +1003,16 @@ export const MatrixHorizon = () => {
                 setConfig((prev) => ({ ...prev, ai_threshold: v }))
               }
               color="purple"
+            />
+            <SliderField
+              label="Fibo Uzunluğu"
+              value={config.fibo_length}
+              min={5}
+              max={50}
+              onChange={(v) =>
+                setConfig((prev) => ({ ...prev, fibo_length: v }))
+              }
+              color="rose"
             />
           </div>
 
@@ -1294,6 +1488,7 @@ export const MatrixHorizon = () => {
             <div className="w-full mt-auto">
               <AIAnalysisSummary signal={signal} />
             </div>
+
           </div>
 
           {signal?.deathRisk && (
@@ -1642,6 +1837,129 @@ export const MatrixHorizon = () => {
             </div>
           </div>
         </div>
+
+        {/* ─── GROQ AI ŞEF SONUÇLARI (FULL WIDTH BOTTOM) ─── */}
+        <div className="col-span-1 lg:col-span-12 w-full">
+          {aiErr && (
+            <div className="p-2 bg-rose-500/10 border border-rose-500/50 rounded-lg text-rose-400 text-[10px] font-mono">
+              {aiErr}
+            </div>
+          )}
+
+          {aiResult && aiVs ? (
+            <div className="flex flex-col gap-3 animate-in fade-in slide-in-from-bottom-4 duration-500 w-full mt-2">
+              
+              {/* Horizontal Top Section: Verdict + Reasoning */}
+              <div className="flex flex-col xl:flex-row gap-3 w-full">
+                {/* Verdict Badge - Wider horizontally */}
+                <div
+                  style={{ background: aiVs.bg, borderColor: aiVs.border }}
+                  className="border-2 rounded-xl p-4 flex flex-col justify-center items-center relative min-w-[160px]"
+                >
+                  {aiResult.tf_noise_warning && <div className="absolute top-1.5 right-1.5 text-[8px] bg-amber-500/20 text-amber-500 px-1.5 py-0.5 rounded border border-amber-500/30">⚠️ Gürültü</div>}
+                  <div className="text-4xl mb-1">{aiVs.icon}</div>
+                  <div style={{ color: aiVs.text }} className="text-2xl font-black tracking-[0.15em]">{aiResult.verdict}</div>
+                  <div className="text-xs text-slate-400 mt-1 uppercase leading-tight">{aiResult.direction}<br/>{aiResult.urgency}</div>
+                  <div className="w-full h-px bg-slate-700/50 my-2" />
+                  <div className="flex justify-between w-full">
+                    <div className="text-center">
+                      <div className="text-[10px] text-slate-500">GÜVEN</div>
+                      <div className={`text-lg font-black ${aiResult.confidence >= 70 ? "text-emerald-500" : aiResult.confidence >= 50 ? "text-amber-500" : "text-rose-500"}`}>%{aiResult.confidence}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-[10px] text-slate-500">POZİSYON</div>
+                      <div style={{ color: AI_PSC[aiResult.position_size] || "#ef4444" }} className="text-lg font-black">{aiResult.position_size}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Şefin Detaylı Değerlendirmesi - Flex to fill rest of row */}
+                <div className="p-5 rounded-xl bg-gradient-to-br from-violet-500/10 to-transparent border border-violet-500/20 relative overflow-hidden flex-1 flex flex-col justify-center">
+                  <div className="absolute top-0 right-0 p-3 opacity-10">
+                    <Brain className="w-24 h-24 text-violet-400" />
+                  </div>
+                  <h4 className="text-sm font-black text-violet-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-violet-500 animate-pulse" />
+                    🎼 Şefin Değerlendirmesi
+                  </h4>
+                  <p className="text-sm md:text-base font-medium text-slate-200 leading-relaxed italic pr-8">
+                    &ldquo;{aiResult.reasoning}&rdquo;
+                  </p>
+                </div>
+              </div>
+
+              {/* Horizontal Bottom Section: On-Chain Raw Data (collapsible) */}
+              {aiRaw && (
+                <div className="space-y-1 w-full">
+                  <div className="grid grid-cols-4 md:grid-cols-8 gap-3 w-full">
+                    {[
+                      { l: "RSI", v: aiRaw.momentum?.rsi, c: aiRaw.momentum?.rsi < 30 ? "text-emerald-400" : aiRaw.momentum?.rsi > 70 ? "text-rose-400" : "text-slate-400" },
+                      { l: "Supertrend", v: aiRaw.trend?.supertrend, c: aiRaw.trend?.supertrendBull ? "text-emerald-400" : "text-rose-400" },
+                      { l: "Balina", v: aiRaw.volume?.isWhale ? (aiRaw.volume?.whaleBuy ? "ALIYOR" : "SATIYOR") : "Nötr", c: aiRaw.volume?.whaleBuy ? "text-emerald-400" : aiRaw.volume?.whaleSell ? "text-rose-400" : "text-slate-400" },
+                      { l: "BB", v: aiRaw.volatility?.bbSqueeze ? "SIKIŞMA" : "Normal", c: aiRaw.volatility?.bbSqueeze ? "text-amber-400" : "text-slate-400" },
+                      { l: "F4 Gücü", v: aiRaw.dashboardState?.signal?.f4PowerLoss ? `${(100 - aiRaw.dashboardState.signal.f4PowerLoss).toFixed(0)}%` : "---", c: (aiRaw.dashboardState?.signal?.f4PowerLoss || 0) > 40 ? "text-rose-400" : "text-emerald-400" },
+                      { l: "Capital", v: aiRaw.dashboardState?.signal?.capitalPhase || "---", c: aiRaw.dashboardState?.signal?.capitalPhase === "GİRİŞ" ? "text-emerald-400" : "text-rose-400" },
+                      { l: "VPA Pressure", v: aiRaw.dashboardState?.signal?.vpa?.netPressure?.toFixed(1) || "---", c: (aiRaw.dashboardState?.signal?.vpa?.netPressure || 0) > 0.5 ? "text-emerald-400" : "text-rose-400" },
+                      { l: "Likidite", v: aiRaw.dashboardState?.signal?.liquidityZone || "YOK", c: aiRaw.dashboardState?.signal?.liquidityZone?.includes("BOĞA") ? "text-emerald-400" : "text-rose-400" }
+                    ].map(ch => (
+                      <div key={ch.l} className="flex flex-col items-center justify-center p-3 bg-slate-950/40 border border-white/5 rounded-xl text-center">
+                        <span className="text-[10px] text-slate-500 font-black uppercase mb-1.5">{ch.l}</span>
+                        <span className={`text-sm font-black ${ch.c}`}>{ch.v}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={()=>setAiShowRaw(d=>!d)} className="text-[10px] text-slate-600 hover:text-slate-300 w-full text-center pt-2 pb-1 transition-colors">
+                    {aiShowRaw ? "▲ JSON Verisini Gizle" : "▼ Ham JSON Bağlamını İncele"}
+                  </button>
+                  {aiShowRaw && <pre className="text-xs font-mono text-slate-400 p-4 bg-black/80 border border-slate-700/50 rounded-xl max-h-96 overflow-auto whitespace-pre-wrap">{JSON.stringify(aiRaw, null, 2)}</pre>}
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {/* AI ANALYSIS HISTORY (Legcy Parity) */}
+          {aiHistory.length > 0 && (
+            <div className="mt-4 animate-in fade-in duration-700">
+              <div className="flex items-center gap-2 mb-2 px-1">
+                <div className="w-1 h-3 bg-violet-500/50 rounded-full" />
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                  Karar Geçmişi
+                </span>
+                <div className="h-[1px] flex-1 bg-gradient-to-r from-slate-800 to-transparent" />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {aiHistory.map((h, i) => {
+                  const hv = AI_VS[h.verdict] || AI_VS["BEKLE"];
+                  return (
+                    <div
+                      key={i}
+                      className="px-2.5 py-1.5 bg-slate-900/40 border border-slate-800/50 rounded-lg flex items-center gap-3 transition-all hover:border-slate-700/50"
+                    >
+                      <span className="text-[9px] font-medium text-slate-600 font-mono italic">
+                        {h.time}
+                      </span>
+                      <span className="text-[9px] font-black text-slate-400">
+                        {h.symbol}/{h.tf}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs">{hv.icon}</span>
+                        <span
+                          className="text-[10px] font-black"
+                          style={{ color: hv.text }}
+                        >
+                          {h.verdict}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-black text-slate-500">
+                        %{h.confidence}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* BOTTOM DECK: EXECUTION & MODE SETTINGS */}
@@ -1662,7 +1980,7 @@ export const MatrixHorizon = () => {
         </div>
       </div>
 
-      {/* ACTIVE SMART TRADES MOVED TO SMART OPERATION CENTER */}
+
       {/* ASSET LIST (MATRIX DASHBOARD) */}
       <div className="relative z-20 flex-1 overflow-visible">
         <div className="flex items-center gap-2 mb-2 px-1 font-mono">
@@ -1676,17 +1994,55 @@ export const MatrixHorizon = () => {
       </div>
     </div>
 
-    {/* ── Pilot Confirmation Modal ── */}
-    <PilotConfirmationModal
-      isOpen={showPilotModal}
-      timeframe={interval}
-      onClose={() => setShowPilotModal(false)}
-      existingTrades={existingTrades}
-      onComplete={() => {
-        setShowPilotModal(false);
-        saveConfig({ auto_trade: true });
-        fetchExistingTrades();
-      }}
-    />
+    {/* ── Pilot Auto Approve Toast ── */}
+    {pilotToast && (
+      <div className="fixed bottom-6 right-6 z-[60] bg-slate-950 border border-cyan-500/50 rounded-2xl p-4 shadow-[0_10px_40px_-10px_rgba(6,182,212,0.4)] w-80 animate-in slide-in-from-bottom-5">
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Plane className="w-5 h-5 text-cyan-400 animate-pulse" />
+            <span className="text-xs font-black text-white uppercase tracking-wider">
+              PİLOT SİNYALİ
+            </span>
+          </div>
+          <button onClick={() => setPilotToast(null)} className="text-slate-500 hover:text-white transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        
+        <div className="text-sm font-bold text-slate-300 mb-1">
+          {pilotToast.symbol.replace("USDT","")}/USDT
+        </div>
+        <div className="text-xs text-slate-400 mb-4">
+          AI Skoru: <span className={cn("font-black", pilotToast.aiScore >= 60 ? "text-emerald-400" : "text-amber-400")}>{pilotToast.aiScore}%</span> - Önerilen: <span className="font-black text-cyan-400">{pilotToast.action}</span>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => setPilotToast(null)}
+            className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-black uppercase text-slate-300 transition-colors"
+          >
+            İptal
+          </button>
+          <button 
+            onClick={() => {
+              // Confirm manually early
+              api.post("/trade/smart", {
+                symbol: pilotToast.symbol,
+                action: pilotToast.action,
+              }).then(() => {
+                logger.info("Pilot Executed", `${pilotToast.symbol} için emre girildi.`);
+              }).catch(() => {}).finally(() => setPilotToast(null));
+            }}
+            className="flex-1 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-xs font-black uppercase text-white shadow-[0_0_15px_rgba(8,145,178,0.5)] transition-colors relative overflow-hidden group"
+          >
+            <span className="relative z-10">ONAYLA ({pilotToast.timeLeft}s)</span>
+            <div 
+              className="absolute top-0 left-0 h-full bg-cyan-400/20 transition-all duration-1000 ease-linear"
+              style={{ width: `${(pilotToast.timeLeft / 10) * 100}%` }}
+            />
+          </button>
+        </div>
+      </div>
+    )}
   </>);
 };

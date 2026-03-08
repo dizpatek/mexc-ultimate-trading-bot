@@ -1,6 +1,5 @@
 import { getSetting, setSetting } from "./settings";
 import { TradingSimulator, getSimulator } from "./trading-simulator";
-import { fetchKlines } from "./mexc";
 import {
   getTradingMode,
   getTradingModeSync,

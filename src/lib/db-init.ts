@@ -295,6 +295,11 @@ async function runSchemaMigrations() {
     /* ignore */
   }
   try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_timeframe TEXT DEFAULT '4h'`;
+  } catch {
+    /* ignore */
+  }
+  try {
     await sql`ALTER TABLE bot_configs DROP COLUMN IF EXISTS timeframe`;
     await sql`ALTER TABLE bot_configs DROP COLUMN IF EXISTS timeframe_locked`;
   } catch {
@@ -332,6 +337,11 @@ async function runSchemaMigrations() {
   } catch {
     /* ignore */
   }
+  try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS fibo_length INTEGER DEFAULT 20`;
+  } catch {
+    /* ignore */
+  }
 }
 
 async function createDefaultConfigs() {
@@ -356,10 +366,10 @@ async function createDefaultConfigs() {
     const { rowCount } = await sql`SELECT 1 FROM bot_configs WHERE id = 1`;
     if (rowCount === 0) {
       await sql`
-                INSERT INTO bot_configs (id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, updated_at, 
-                                        pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation)
-                VALUES (1, 10, 1.8, 65, false, false, ${Date.now()}, 
-                        true, 0.3, true, 0.5, true, 0.5)
+        INSERT INTO bot_configs (id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, updated_at, 
+                                 pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation, pilot_timeframe, fibo_length)
+        VALUES (1, 10, 1.8, 65, false, false, ${Date.now()}, 
+                true, 0.3, true, 0.5, true, 0.5, '4h', 20)
             `;
       console.log("[DB-Init] Default bot config inserted.");
     }

@@ -14,22 +14,23 @@ import {
 import { handleBuySignal, handleSellSignal } from "./trade";
 import { getHoldings } from "./mexc-wrapper";
 
-const DEFAULT_USER_ID = 1; // Assuming single user mode for now or iterate all users in future
+// Removed DEFAULT_USER_ID constant for strict multi-user compatibility
 
-export async function runActiveStrategies() {
-  console.log("[StrategyEngine] Starting strategy execution cycle...");
+export async function runActiveStrategies(isImmediate = false, executionUserId: number) {
+  const userId = executionUserId;
+  console.log(`[StrategyEngine] Starting strategy execution cycle... (isImmediate: ${isImmediate}, user: ${userId})`);
   await logSystemEvent(
-    DEFAULT_USER_ID,
+    userId,
     "SYSTEM",
     "STRATEGY_CYCLE_START",
-    "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı.",
+    `Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: ${userId})`,
   );
 
   try {
     // 1. Fetch active strategies
     // In a multi-user system, we'd fetch all active strategies across all users.
     // For now, we'll just fetch for the default user.
-    const strategies = await getStrategiesByUser(DEFAULT_USER_ID);
+    const strategies = await getStrategiesByUser(userId);
     const activeStrategies = strategies.filter((s: Strategy) => s.active);
 
     if (activeStrategies.length === 0) {
@@ -41,7 +42,7 @@ export async function runActiveStrategies() {
       `[StrategyEngine] Processing ${activeStrategies.length} active strategies...`,
     );
     await logSystemEvent(
-      DEFAULT_USER_ID,
+      userId,
       "SYSTEM",
       "ACTIVE_STRATEGIES",
       `${activeStrategies.length} aktif strateji analiz ediliyor.`,
@@ -55,15 +56,15 @@ export async function runActiveStrategies() {
       console.log(
         `[StrategyEngine] ✈️ OTOMATİK PİLOT AKTİF. İzlenen varlıklar taranıyor...`,
       );
-      await runPilotCycle(botConfig);
+      await runPilotCycle(botConfig, userId, isImmediate);
     }
 
     for (const strategy of activeStrategies) {
-      await processStrategy(strategy, botConfig);
+      await processStrategy(strategy, botConfig, userId);
     }
 
     await logSystemEvent(
-      DEFAULT_USER_ID,
+      userId,
       "SYSTEM",
       "STRATEGY_CYCLE_COMPLETE",
       "Tüm strateji ve pilot kontrolleri başarıyla tamamlandı. Bir sonraki döngü bekleniyor.",
@@ -73,10 +74,14 @@ export async function runActiveStrategies() {
   }
 }
 
-async function processStrategy(strategy: Strategy, botConfig: BotConfig) {
+async function processStrategy(
+  strategy: Strategy, 
+  botConfig: BotConfig, 
+  userId: number
+) {
   try {
     const symbol = strategy.symbol;
-    console.log(`[StrategyEngine] Analyzing ${strategy.name} (${symbol})...`);
+    console.log(`[StrategyEngine] Analyzing ${strategy.name} (${symbol}) for User: ${userId}...`);
 
     // Instantiate strategy - cast parameters to StrategyParameters
     const parameters = (strategy.parameters || {}) as StrategyParameters;
@@ -146,6 +151,7 @@ async function processStrategy(strategy: Strategy, botConfig: BotConfig) {
           pair: symbol,
           risk: riskPerTrade,
           balancePercent: 10, // Example: Use 10% of available USDT per trade
+          userId: userId,
         });
         executionResult = res as Record<string, unknown>;
         executed = true;
@@ -153,6 +159,7 @@ async function processStrategy(strategy: Strategy, botConfig: BotConfig) {
         const res = await handleSellSignal({
           pair: symbol,
           percent: 100, // Sell 100% of holdings for this pair
+          userId: userId,
         });
         executionResult = res as Record<string, unknown>;
         executed = true;
@@ -188,9 +195,9 @@ async function processStrategy(strategy: Strategy, botConfig: BotConfig) {
   }
 }
 
-async function runPilotCycle(botConfig: BotConfig) {
+async function runPilotCycle(botConfig: BotConfig, userId: number, isImmediate: boolean = false) {
   try {
-    const holdings = (await getHoldings(DEFAULT_USER_ID)) as Array<{
+    const holdings = (await getHoldings(userId)) as Array<{
       asset?: string;
       symbol?: string;
     }>;
@@ -203,22 +210,41 @@ async function runPilotCycle(botConfig: BotConfig) {
       ]),
     ).filter((s) => s !== "USDTUSDT" && s !== "USDT" && s !== "undefinedUSDT");
 
-    const scanTimeframe = "4h";
+    const scanTimeframe = botConfig.pilot_timeframe || "4h";
     console.log(
       `[PilotEngine] Monitoring ${coinsToMonitor.length} assets on ${scanTimeframe}...`,
     );
     await logSystemEvent(
-      DEFAULT_USER_ID,
+      userId,
       "SYSTEM",
       "PILOT_SCAN",
       `${coinsToMonitor.length} varlık pilot taramasında (${scanTimeframe}).`,
     );
 
+    // Run parallel analysis for monitored assets in batches of 5 to prevent rate limits (Kluster P4.3 Concurrent Analysis Limit)
+    const CHUNK_SIZE = 5;
+    for (let i = 0; i < coinsToMonitor.length; i += CHUNK_SIZE) {
+      const chunk = coinsToMonitor.slice(i, i + CHUNK_SIZE);
+      await processPilotChunk(chunk, scanTimeframe, botConfig, userId, isImmediate);
+    }
 
-    for (const symbol of coinsToMonitor) {
+  } catch (error) {
+    console.error("[PilotEngine] Critical error:", error);
+  }
+}
+
+async function processPilotChunk(
+  chunk: string[], 
+  scanTimeframe: string, 
+  botConfig: BotConfig, 
+  userId: number, 
+  isImmediate: boolean
+) {
+  await Promise.allSettled(
+    chunk.map(async (symbol) => {
       try {
         const strategy = new MatrixV5Strategy(symbol, {
-          timeframe: "1m",
+          timeframe: scanTimeframe,
           minAiScore: botConfig.ai_threshold || 65,
         });
 
@@ -227,34 +253,36 @@ async function runPilotCycle(botConfig: BotConfig) {
           const isWhale = !!signal.indicators?.whaleDetected;
 
           if (signal.signal) {
-            if (signal.signal === "BUY") {
-              await handleBuySignal({ pair: symbol, userId: DEFAULT_USER_ID });
-            } else if (signal.signal === "SELL") {
-              await handleSellSignal({ pair: symbol, userId: DEFAULT_USER_ID });
+            if (isImmediate) {
+              // Direct execution immediately without waiting for UI toast
+              if (signal.signal === "BUY") {
+                await handleBuySignal({ pair: symbol, userId });
+              } else if (signal.signal === "SELL") {
+                await handleSellSignal({ pair: symbol, userId });
+              }
+            } else {
+              // Bypass execution => Handled by UI Toast auto-approve logic
+              console.log(`[PilotEngine] Bypass logic active for ${symbol}. Waiting for 10s UI auto-approve.`);
             }
           }
 
-          // Log Signal/Event to database
+          // Log Signal/Event to database (UI Polls from here)
           await createStrategySignal({
             strategy_id: undefined,
             symbol: symbol,
             signal_type: signal.signal || (isWhale ? "WHALE" : "INFO"),
             price: signal.targets?.t1,
             timestamp: Date.now(),
-            executed: !!signal.signal,
+            executed: !!(signal.signal && isImmediate), 
             execution_result: {
               message:
-                signal.reason || `Pilot ON: ${symbol} için analiz tamamlandı.`,
+                signal.reason || `Pilot ON: ${symbol} için analiz tamamlandı. ${isImmediate ? "(Direkt İşlem)" : "(Bypass - Toast Bekleniyor)"}`,
             },
           });
         }
-        
       } catch (err) {
         console.error(`[PilotEngine] Failed to analyze ${symbol}:`, err);
       }
-    }
-
-  } catch (error) {
-    console.error("[PilotEngine] Critical error:", error);
-  }
+    })
+  );
 }

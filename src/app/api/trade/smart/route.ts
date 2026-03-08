@@ -341,6 +341,7 @@ export async function DELETE(request: Request) {
           qty: trade.qty as number,
           price: currentPrice,
           meta: trade.meta,
+          status: trade.status as string,
         },
         now,
         silent,
@@ -645,6 +646,7 @@ interface CloseParams {
   qty: number | string;
   price?: number;
   meta: unknown;
+  status?: string;
 }
 
 /**
@@ -661,18 +663,21 @@ async function closeSingleSmartTrade(
     const id = Number(res.id);
     const uid = Number(userId);
 
-    // --- REAL EXECUTION (Skip if silent) ---
-    if (!silent) {
+    // --- REAL EXECUTION (Skip if silent OR if qty is zero/PENDING) ---
+    const parsedQty = parseFloat(String(res.qty));
+    const isPendingTrade = res.status === "PENDING" || parsedQty <= 0;
+
+    if (!silent && !isPendingTrade) {
       try {
         if (res.side === "BUY") {
           // Standardized: Use marketSellByQty wrapper for long closure
-          const sellQty = parseFloat(String(res.qty))
+          const sellQty = parsedQty
             .toFixed(8)
             .replace(/\.?0+$/, "");
           await marketSellByQty(uid, res.symbol, sellQty, mode);
         } else if (res.side === "SELL") {
           // Standardized: Use marketBuyByQty wrapper for short closure
-          const buyQty = parseFloat(String(res.qty))
+          const buyQty = parsedQty
             .toFixed(8)
             .replace(/\.?0+$/, "");
           await marketBuyByQty(uid, res.symbol, buyQty, mode);
@@ -691,6 +696,8 @@ async function closeSingleSmartTrade(
           throw execError;
         }
       }
+    } else if (isPendingTrade) {
+      console.log(`[CloseTrade] Skipping exchange call for PENDING/zero-qty trade ${id} — no position to close.`);
     }
 
     let existingMeta: Record<string, unknown> = {};

@@ -82,6 +82,8 @@ export interface BotConfig {
   pilot_tp_deviation: number;
   pilot_sl_trailing: boolean;
   pilot_sl_deviation: number;
+  pilot_timeframe: string;
+  fibo_length: number;
   updated_at: number;
 }
 
@@ -499,6 +501,8 @@ export async function getBotConfig(): Promise<BotConfig> {
       pilot_tp_deviation: 0.5,
       pilot_sl_trailing: true,
       pilot_sl_deviation: 0.5,
+      pilot_timeframe: "4h",
+      fibo_length: 20,
       updated_at: Date.now(),
     } as BotConfig;
   }
@@ -615,6 +619,13 @@ export async function updateBotConfig(updates: Partial<BotConfig>) {
           : (current.ai_threshold ?? 65),
       ),
     );
+    const fibo = parseInt(
+      String(
+        updates.fibo_length !== undefined
+          ? updates.fibo_length
+          : (current.fibo_length ?? 20),
+      ),
+    );
 
     const auto = !!(updates.auto_trade !== undefined
       ? updates.auto_trade
@@ -654,6 +665,11 @@ export async function updateBotConfig(updates: Partial<BotConfig>) {
       ),
     );
 
+    const ptf =
+      updates.pilot_timeframe !== undefined
+        ? String(updates.pilot_timeframe)
+        : current.pilot_timeframe || "4h";
+
     const now = Date.now();
 
     console.log(`[DB] Updating bot config ID=1 with:`, updates);
@@ -661,11 +677,11 @@ export async function updateBotConfig(updates: Partial<BotConfig>) {
     await sql`
             INSERT INTO bot_configs (
                 id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, updated_at,
-                pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation
+                pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation, pilot_timeframe, fibo_length
             )
             VALUES (
                 1, ${f4}, ${whale}, ${ai}, ${auto}, ${defense}, ${now},
-                ${pt_buy}, ${pt_buy_dev}, ${pt_tp}, ${pt_tp_dev}, ${pt_sl}, ${pt_sl_dev}
+                ${pt_buy}, ${pt_buy_dev}, ${pt_tp}, ${pt_tp_dev}, ${pt_sl}, ${pt_sl_dev}, ${ptf}, ${fibo}
             )
             ON CONFLICT (id) DO UPDATE SET
                 f4_length = EXCLUDED.f4_length,
@@ -679,6 +695,8 @@ export async function updateBotConfig(updates: Partial<BotConfig>) {
                 pilot_tp_deviation = EXCLUDED.pilot_tp_deviation,
                 pilot_sl_trailing = EXCLUDED.pilot_sl_trailing,
                 pilot_sl_deviation = EXCLUDED.pilot_sl_deviation,
+                pilot_timeframe = EXCLUDED.pilot_timeframe,
+                fibo_length = EXCLUDED.fibo_length,
                 updated_at = EXCLUDED.updated_at
         `;
     console.log(

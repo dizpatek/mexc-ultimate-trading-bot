@@ -216,9 +216,10 @@ class MACrossoverStrategy extends BaseStrategy {
 }
 
 import { MatrixV5Engine } from "./matrix-v5-engine";
+import { runFullOrchestraAnalysis, buildOrchestraPrompt } from "./orchestrator-analysis";
+import { fetchGroqAnalysis } from "./ai-provider";
 
 // Matrix V5 Strategy - Ultra Intelligent
-
 // Matrix V5 Strategy - Ultra Intelligent
 export class MatrixV5Strategy extends BaseStrategy {
   private engine: MatrixV5Engine;
@@ -269,12 +270,42 @@ export class MatrixV5Strategy extends BaseStrategy {
         riskMode,
       );
 
-      const signalType: "BUY" | "SELL" | null =
+      let signalType: "BUY" | "SELL" | null =
         result.systemDecision === "GO_LONG"
           ? "BUY"
           : result.systemDecision === "GO_SHORT"
             ? "SELL"
             : null;
+
+      let reasonText = `[MatrixV5] ${result.whaleSignalText ? result.whaleSignalText + " | " : ""}AI: ${result.aiScore}`;
+
+      // 🧠 Deepseek-R1-distill Groq AI Integration
+      // Intercept execution and run the high-level full contextual orchestration
+      if (signalType) {
+         try {
+             // Only run deepseek if we have an internal signal, to save rate limits
+             const { data } = await runFullOrchestraAnalysis(this.symbol, timeframeStr, false);
+             const prompt = buildOrchestraPrompt(this.symbol, timeframeStr, data, false);
+             const groqVerdict = await fetchGroqAnalysis(prompt);
+             
+             if (groqVerdict) {
+                 if (groqVerdict.verdict.includes("BEKLE") || groqVerdict.verdict === "KESİNLİKLE BEKLE") {
+                     signalType = null; // AI vetoes the trade
+                     reasonText += ` | 🛑 Groq Veto: ${groqVerdict.reasoning}`;
+                 } else if (signalType === "BUY" && (groqVerdict.verdict.includes("SAT") || groqVerdict.direction === "SHORT")) {
+                     signalType = null; // AI vetoes the long
+                     reasonText += ` | 🛑 Groq Bearish Veto: ${groqVerdict.reasoning}`;
+                 } else {
+                     // AI approves
+                     reasonText += ` | 🧠 Groq Onay (${groqVerdict.confidence}%): ${groqVerdict.reasoning}`;
+                 }
+             }
+         } catch (e: unknown) {
+             const errorMessage = e instanceof Error ? e.message : String(e);
+             console.warn("[MatrixV5Strategy] Groq Analysis skipped/failed (Rate Limit?):", errorMessage);
+             reasonText += ` | ⚠️ Groq Kapalı (Fallback İhtimali)`;
+         }
+      }
 
       // Return signal for trade OR if it's an informational event (Whale etc)
       if (!signalType && !result.whaleDetected && result.aiScore < 80)
@@ -284,7 +315,7 @@ export class MatrixV5Strategy extends BaseStrategy {
         symbol: this.symbol,
         strategy: "matrix_v5",
         signal: signalType,
-        reason: `[MatrixV5] ${result.whaleSignalText ? result.whaleSignalText + " | " : ""}AI: ${result.aiScore} | Regime: ${result.regimePrediction}`,
+        reason: reasonText,
         indicators: {
           aiScore: result.aiScore,
           confluence: result.confluenceScore,

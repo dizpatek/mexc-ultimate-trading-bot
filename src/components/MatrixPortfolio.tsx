@@ -13,6 +13,8 @@ import {
   LineChart,
   CircleDollarSign,
   X,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import { api } from "@/services/api";
 import { TradingViewEmbedChart } from "./TradingViewEmbedChart";
@@ -29,6 +31,7 @@ import { extractBaseAsset } from "@/lib/symbol-utils";
 import { useModuleTimeframe } from "@/context/TimeframeContext";
 
 import { F4Data } from "@/lib/trading-logic";
+import { useSortedHoldings } from "@/hooks/useSortedHoldings";
 
 export function MatrixPortfolio() {
   // 1. Portfolio Data
@@ -80,6 +83,13 @@ export function MatrixPortfolio() {
     null,
   );
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
+
+  // --- Sorting (via dedicated hook) ---
+  const { sortedHoldings, sortKey, sortDir, handleSort } = useSortedHoldings({
+    holdings,
+    signalDataMap,
+    tickerData,
+  });
 
   // 5. Signals Alarm Sync
   const { logs: combatLogs } = useCombatLogs(interval);
@@ -257,31 +267,41 @@ export function MatrixPortfolio() {
         <table className="min-w-full divide-y divide-slate-800/40">
           <thead className="bg-slate-900/60 backdrop-blur-md sticky top-0 z-10 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
             <tr>
-              <th className="px-3 py-3 text-left border-r border-slate-800/40">
-                VARLIK
-              </th>
-              <th className="px-3 py-3 text-right border-r border-slate-800/40">
-                PORTFÖY
-              </th>
-              <th className="px-3 py-3 text-right border-r border-slate-800/40">
-                FİYAT / DEĞİŞİM
-              </th>
-              <th className="px-3 py-3 text-left border-r border-slate-800/40 w-[140px]">
-                AI SKOR & GÜÇ
-              </th>
-              <th className="px-3 py-3 text-left border-r border-slate-800/40">
-                PİYASA REJİMİ
-              </th>
-              <th className="px-3 py-3 text-left border-r border-slate-800/40">
-                BALİNA & VOLATİLİTE
-              </th>
-              <th className="px-3 py-3 text-left border-r border-slate-800/40">
-                TAHMİN
-              </th>
-              <th className="px-3 py-3 text-center border-r border-slate-800/40 text-[10px]">
-                KARAR
-              </th>
-              <th className="px-3 py-3 text-center border-slate-800/40">
+              {/* Sortable Header Helper */}
+              {([
+                { key: "symbol" as const,     label: "VARLIK",           align: "left",   extra: "" },
+                { key: "value" as const,       label: "PORTFÖY",          align: "right",  extra: "" },
+                { key: "change24h" as const,   label: "FİYAT / DEĞİŞİM",  align: "right",  extra: "" },
+                { key: "aiScore" as const,     label: "AI SKOR & GÜÇ",   align: "left",   extra: "w-[140px]" },
+                { key: "regime" as const,      label: "PİYASA REJİMİ",    align: "left",   extra: "" },
+                { key: "whale" as const,       label: "BALİNA & VOLATİLİTE", align: "left", extra: "" },
+                { key: "prediction" as const,  label: "TAHMİN",           align: "left",   extra: "" },
+                { key: "decision" as const,    label: "KARAR",            align: "center", extra: "" },
+              ] as { key: "symbol"|"value"|"change24h"|"aiScore"|"regime"|"whale"|"prediction"|"decision"; label: string; align: string; extra: string }[]).map(({ key, label, align, extra }) => (
+                <th
+                  key={key}
+                  onClick={() => handleSort(key)}
+                  className={cn(
+                    `px-3 py-3 border-r border-slate-800/40 cursor-pointer select-none group transition-colors hover:bg-cyan-950/30 hover:text-cyan-300 ${extra}`,
+                    `text-${align}`,
+                    sortKey === key ? "text-cyan-400 bg-cyan-950/20" : "",
+                  )}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    {label}
+                    <span className="inline-flex flex-col ml-0.5 opacity-60 group-hover:opacity-100">
+                      {sortKey === key ? (
+                        sortDir === "asc"
+                          ? <ChevronUp className="w-2.5 h-2.5 text-cyan-400" />
+                          : <ChevronDown className="w-2.5 h-2.5 text-cyan-400" />
+                      ) : (
+                        <ChevronDown className="w-2.5 h-2.5 opacity-30" />
+                      )}
+                    </span>
+                  </span>
+                </th>
+              ))}
+              <th className="px-3 py-3 text-center border-slate-800/40 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
                 HIZLI İŞLEM (USDT)
               </th>
             </tr>
@@ -302,7 +322,7 @@ export function MatrixPortfolio() {
                 </td>
               </tr>
             ) : (
-              holdings?.map((holding) => {
+              sortedHoldings.map((holding) => {
                 const assetName = holding.symbol;
                 const isStablecoin =
                   assetName === "USDT" || assetName === "USDC";

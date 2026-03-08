@@ -97,8 +97,14 @@ async function fetchRawNews(): Promise<CryptoCompareArticle[]> {
     },
   );
 
+  if (response.data?.Response === "Error") {
+    console.warn("[NewsService] API Error:", response.data.Message);
+    return [];
+  }
+
   if (!response.data || !Array.isArray(response.data.Data)) {
-    throw new Error("Invalid news data received");
+    console.warn("[NewsService] Invalid news data received. Structure:", JSON.stringify(response.data)?.substring(0, 200));
+    return [];
   }
 
   const now = Math.floor(Date.now() / 1000);

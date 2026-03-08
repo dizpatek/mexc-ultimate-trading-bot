@@ -62,7 +62,7 @@ export async function POST(request: Request) {
   } catch (error: unknown) {
     console.error("AI Analysis failed:", error);
     return NextResponse.json(
-      { error: "Failed to process AI analysis" },
+      { error: `Failed to process AI analysis: ${error instanceof Error ? error.message : String(error)}` },
       { status: 500 }
     );
   }

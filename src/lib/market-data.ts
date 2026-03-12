@@ -1,4 +1,5 @@
 // Global market data utility
+import axios from "axios";
 
 export interface GlobalMarketData {
   btcd: { value: number; change: number; trend: "UP" | "DOWN" };
@@ -31,5 +32,22 @@ export async function fetchGlobalMarketData(): Promise<GlobalMarketData> {
   } catch (error) {
     console.error("Error fetching global market data:", error);
     throw error;
+  }
+}
+
+/**
+ * Fetches the latest funding rate for a given symbol from Binance Futures public API.
+ */
+export async function fetchFundingRate(symbol: string): Promise<number | null> {
+  try {
+    const formattedSymbol = symbol.replace("/", "").toUpperCase();
+    const response = await axios.get(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${formattedSymbol}`, { timeout: 3000 });
+    if (response.data && response.data.lastFundingRate) {
+      return parseFloat(response.data.lastFundingRate);
+    }
+    return null;
+  } catch (error) {
+    console.warn(`[FundingRate] Failed to fetch for ${symbol}:`, error instanceof Error ? error.message : String(error));
+    return null;
   }
 }

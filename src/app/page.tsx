@@ -10,6 +10,7 @@ import { IntelligenceHub } from "@/components/IntelligenceHub";
 import { SmartOperationCenter } from "@/components/SmartOperationCenter";
 import { UnifiedControlStrip } from "@/components/UnifiedControlStrip";
 import { MatrixHorizon } from "@/components/matrix-horizon/MatrixHorizon";
+import { MatrixPortfolio } from "@/components/MatrixPortfolio";
 import { HorizonLayout } from "@/components/matrix-horizon/HorizonLayout";
 import { HorizonCard } from "@/components/matrix-horizon/HorizonCard";
 import { RefreshCw } from "lucide-react";
@@ -94,8 +95,9 @@ export default function Dashboard() {
           </HorizonCard>
         </div>
 
-        {/* SMART TRADE OPERATION CENTER */}
-        <div className="w-full">
+        {/* SMART TRADE OPERATION CENTER & ASSET LIST */}
+        <div className="w-full flex flex-col gap-2">
+          <MatrixPortfolio />
           <SmartOperationCenter />
         </div>
 

@@ -610,6 +610,18 @@ const StatSegment: React.FC<StatSegmentProps> = ({
             }
             color="text-rose-400"
           />
+
+          {/* ROW 8: FUNDING RATES */}
+          <T
+            label="FONLAMA"
+            value={(live as any).fundingRate !== undefined ? `${((live as any).fundingRate * 100).toFixed(4)}%` : "—"}
+            color={(live as any).fundingRate > 0 ? "text-rose-400" : "text-emerald-400"}
+          />
+          <T
+            label="FON ETKİ"
+            value={(live as any).fundingImpact || "—"}
+            color="text-amber-400"
+          />
         </div>
       )}
     </div>

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { DecisionBar } from "./DecisionBar";
 import { CentralCommand } from "./CentralCommand";
-import { MatrixPortfolio } from "../MatrixPortfolio";
+import { AIAnalysisSummary } from "../AIAnalysisSummary";
 import { AssetIcon } from "../AssetIcon";
 import {
   RefreshCw,
@@ -29,7 +29,7 @@ import { useHoldings } from "@/hooks/usePortfolio";
 import { api } from "@/services/api";
 import { useTimeframe } from "@/context/TimeframeContext";
 import { analyzeSentiment, SentimentResult } from "@/lib/sentiment-analyzer";
-import { AIAnalysisSummary } from "../AIAnalysisSummary";
+
 import { logger } from "@/lib/logger";
 import { useAuth } from "@/hooks/useAuth";
 import { useTrade } from "@/context/TradeContext";
@@ -1499,7 +1499,7 @@ export const MatrixHorizon = () => {
             />
           </div>
 
-          <div className="w-full max-w-sm mt-8 space-y-4 relative">
+          <div className="w-full max-w-[850px] mt-8 space-y-4 relative px-2 sm:px-4">
             {/* AI ANALYSIS SUMMARY (Dynamic) */}
             <div className="w-full mt-auto">
               <AIAnalysisSummary signal={signal} />
@@ -1513,6 +1513,22 @@ export const MatrixHorizon = () => {
                    !lastSync && "animate-spin",
                  )}
                />
+            </div>
+
+            {/* COMPACT DECISION BAR (Daralt ve Ortalı) */}
+            <div className="w-full mt-4 flex justify-center">
+              <DecisionBar
+                decision={
+                  decisionText as "İŞLEM AÇ ✅" | "SATIŞ YAP 📉" | "BEKLE ❌"
+                }
+                aiSuggestion={signal?.prediction?.text || "ANALİZ EDİLİYOR..."}
+                mode={signal?.marketPhaseText || "KONSOLİDASYON"}
+                pilotStatus={pilotStatus}
+                riskMode={riskMode}
+                onRiskModeChange={(val) => {
+                  setRiskMode(val);
+                }}
+              />
             </div>
           </div>
 
@@ -1985,37 +2001,6 @@ export const MatrixHorizon = () => {
         </div>
       </div>
 
-      {/* BOTTOM DECK: EXECUTION & MODE SETTINGS */}
-      <div className="relative z-10 flex items-center gap-4">
-        <div className="flex-1 w-full">
-          <DecisionBar
-            decision={
-              decisionText as "İŞLEM AÇ ✅" | "SATIŞ YAP 📉" | "BEKLE ❌"
-            }
-            aiSuggestion={signal?.prediction?.text || "ANALİZ EDİLİYOR..."}
-            mode={signal?.marketPhaseText || "KONSOLİDASYON"}
-            pilotStatus={pilotStatus}
-            riskMode={riskMode}
-            onRiskModeChange={(val) => {
-              setRiskMode(val);
-              // Visual feedback: Trigger manual refetch to show changes
-            }}
-          />
-        </div>
-      </div>
-
-
-      {/* ASSET LIST (MATRIX DASHBOARD) */}
-      <div className="relative z-20 flex-1 overflow-visible">
-        <div className="flex items-center gap-2 mb-2 px-1 font-mono">
-          <div className="w-1 h-4 bg-cyan-500 rounded-sm shadow-[0_0_8px_cyan]" />
-          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em]">
-            MatrixPortfolio
-          </h3>
-          <div className="h-[1px] flex-1 bg-gradient-to-r from-slate-800 to-transparent" />
-        </div>
-        <MatrixPortfolio />
-      </div>
     </div>
 
   </>);

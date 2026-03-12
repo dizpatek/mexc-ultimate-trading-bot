@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { MatrixV5Engine } from "@/lib/matrix-v5-engine";
 import { fetchKlines } from "@/lib/mexc";
 import { getBotConfig, resolveTradeMode } from "@/lib/db";
+import { fetchFundingRate } from "@/lib/market-data";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,8 @@ export async function POST(request: NextRequest) {
           const lows = klines.map((k) => k.low);
           const volumes = klines.map((k) => k.volume);
 
+          const fundingRate = await fetchFundingRate(symbolUpper);
+
           const result = engine.analyze(
             closes,
             highs,
@@ -53,6 +56,7 @@ export async function POST(request: NextRequest) {
             volumes,
             intervalVal,
             mode,
+            fundingRate || 0,
             { tradeMode }
           );
 
@@ -87,6 +91,8 @@ export async function POST(request: NextRequest) {
             f4EarlySell: result.f4EarlySell,
             f4ConfirmedBuy: result.f4ConfirmedBuy,
             f4ConfirmedSell: result.f4ConfirmedSell,
+            fundingRate: result.fundingRate,
+            fundingImpact: result.fundingImpact,
           };
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);

@@ -9,6 +9,7 @@ import { logSystemEvent } from "@/lib/db";
 import { resolveTradeMode } from "@/lib/db";
 import { waitUntil } from "@vercel/functions";
 import { evaluateRisk } from "@/lib/engine/risk-management";
+import { fetchFundingRate } from "@/lib/market-data";
 
 const engine = new MatrixV5Engine({});
 
@@ -90,6 +91,8 @@ export async function GET(request: NextRequest) {
       globalCache[CACHE_KEY] = { data: botConfig, timestamp: now };
     }
 
+    const fundingRate = await fetchFundingRate(fetchSymbol);
+
     const result = engine.analyze(
       closes,
       highs,
@@ -97,6 +100,7 @@ export async function GET(request: NextRequest) {
       volumes,
       interval,
       riskMode,
+      fundingRate || 0,
       {
         tradeMode: resolveTradeMode(botConfig),
       }
@@ -257,6 +261,10 @@ export async function GET(request: NextRequest) {
 
       // === V5.5 Institutional Risk Management ===
       riskManagement: riskDecision,
+      
+      // === V5.6 Funding Rates / Sentiment ===
+      fundingRate: result.fundingRate,
+      fundingImpact: result.fundingImpact,
     };
 
     return NextResponse.json(payload);

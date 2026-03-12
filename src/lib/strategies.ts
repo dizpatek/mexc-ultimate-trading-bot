@@ -230,6 +230,7 @@ class MACrossoverStrategy extends BaseStrategy {
 import { MatrixV5Engine } from "./matrix-v5-engine";
 import { runFullOrchestraAnalysis, buildOrchestraPrompt } from "./orchestrator-analysis";
 import { fetchGroqAnalysis } from "./ai-provider";
+import { fetchFundingRate } from "./market-data";
 
 // Matrix V5 Strategy - Ultra Intelligent
 // Matrix V5 Strategy - Ultra Intelligent
@@ -275,6 +276,8 @@ export class MatrixV5Strategy extends BaseStrategy {
         "normal";
       const tradeMode = (this.parameters.tradeMode as "Scalp" | "Swing") || "Scalp";
 
+      const fundingRate = await fetchFundingRate(this.symbol);
+
       const result = this.engine.analyze(
         closes,
         highs,
@@ -282,6 +285,7 @@ export class MatrixV5Strategy extends BaseStrategy {
         volumes,
         timeframeStr,
         riskMode,
+        fundingRate || 0,
         { tradeMode }
       );
 
@@ -290,51 +294,17 @@ export class MatrixV5Strategy extends BaseStrategy {
 
 
       // V5.5 Optimization: True MTF Consensus Veto
-      // P4.3: Only run expensive MTF scanning if we have a potential trade signal (Fix)
       let mtfScore = 50;
       let mtfVerdictText = "ATLANDI";
-
+      
       if (signalType) {
-        const mtfVetoEnabled = !!this.parameters.mtfVeto;
-        const mtfThreshold = Number(this.parameters.mtfThreshold) || 60;
+        const consensus = await this.getMtfConsensus(timeframeStr, result);
+        mtfScore = consensus.score;
+        mtfVerdictText = consensus.verdictText;
 
-        const tfsToScan: ("15m" | "1h" | "4h" | "1d")[] = ["15m", "1h", "4h", "1d"];
-        const tfsToFetch = tfsToScan.filter(tf => tf !== timeframeStr);
-        
-        const engineBullCount = (result as any).indicatorBullCount ?? (result as any).mtfBullCount ?? 0;
-        let mtfBullCount = engineBullCount >= 3 ? 1 : 0;
-        let mtfTotal = 1;
-
-        try {
-          const mtfResults = await Promise.all(tfsToFetch.map(async (tf) => {
-            return await this.performLiteMtfCheck(tf);
-          }));
-
-          for (const res of mtfResults) {
-            if (res !== null) {
-              mtfBullCount += res;
-              mtfTotal++;
-            }
-          }
-        } catch (err) {
-          console.error(`[MTF-Lite] Parallel check failed for ${this.symbol}:`, err);
-        }
-
-        mtfScore = mtfTotal > 0 ? (mtfBullCount / mtfTotal) * 100 : 50;
-        mtfVerdictText = `${mtfBullCount}/${mtfTotal} TF Sinyal`;
-
-        // Veto logic: BUY only if MTF >= threshold, SELL only if MTF <= (100-threshold) (Strict Mode)
-        if (mtfVetoEnabled) {
-          if (signalType === "BUY" && mtfScore < mtfThreshold) {
-              reasonText += ` | 🛑 MTF Veto: Trend (${mtfVerdictText}) zayıf (Threshold: ${mtfThreshold}%).`;
-              signalType = null;
-          } else if (signalType === "SELL" && mtfScore > (100 - mtfThreshold)) {
-              reasonText += ` | 🛑 MTF Veto: Trend (${mtfVerdictText}) zayıf (Threshold: ${mtfThreshold}%).`;
-              signalType = null;
-          }
-        } else {
-          reasonText += ` | ℹ️ MTF Check: ${mtfVerdictText} (Veto Disabled)`;
-        }
+        const veto = this.applyMtfVeto(signalType, mtfScore, mtfVerdictText);
+        signalType = veto.signal;
+        reasonText += veto.reasonExtension;
       }
 
 
@@ -363,6 +333,8 @@ export class MatrixV5Strategy extends BaseStrategy {
           whaleStatus: result.whaleStatus,
           mtfWeightedScore: mtfScore,
           mtfVerdict: mtfVerdictText,
+          fundingRate: result.fundingRate,
+          fundingImpact: result.fundingImpact,
         },
         targets: result.targets,
         timestamp: Date.now(),
@@ -376,6 +348,67 @@ export class MatrixV5Strategy extends BaseStrategy {
       );
       return null;
     }
+  }
+
+  /**
+   * Calculates MTF Consensus score by scanning multiple timeframes.
+   */
+  private async getMtfConsensus(currentTimeframe: string, engineResult: any): Promise<{ score: number; verdictText: string }> {
+    const tfsToScan: ("15m" | "1h" | "4h" | "1d")[] = ["15m", "1h", "4h", "1d"];
+    const tfsToFetch = tfsToScan.filter((tf) => tf !== currentTimeframe);
+
+    const engineBullCount = (engineResult as any).indicatorBullCount ?? (engineResult as any).mtfBullCount ?? 0;
+    let mtfBullCount = engineBullCount >= 3 ? 1 : 0;
+    let mtfTotal = 1;
+
+    try {
+      const mtfResults = await Promise.all(
+        tfsToFetch.map(async (tf) => {
+          return await this.performLiteMtfCheck(tf);
+        })
+      );
+
+      for (const res of mtfResults) {
+        if (res !== null) {
+          mtfBullCount += res;
+          mtfTotal++;
+        }
+      }
+    } catch (err) {
+      console.error(`[MTF-Lite] Parallel check failed for ${this.symbol}:`, err);
+    }
+
+    const score = mtfTotal > 0 ? (mtfBullCount / mtfTotal) * 100 : 50;
+    const verdictText = `${mtfBullCount}/${mtfTotal} TF Sinyal`;
+    return { score, verdictText };
+  }
+
+  /**
+   * Applies Multi-Timeframe Veto logic based on consensus score.
+   */
+  private applyMtfVeto(
+    signal: "BUY" | "SELL" | null,
+    mtfScore: number,
+    mtfVerdictText: string
+  ): { signal: "BUY" | "SELL" | null; reasonExtension: string } {
+    const mtfVetoEnabled = !!this.parameters.mtfVeto;
+    const mtfThreshold = Number(this.parameters.mtfThreshold) || 60;
+    let finalSignal = signal;
+    let reasonExtension = "";
+
+    if (mtfVetoEnabled) {
+      if (signal === "BUY" && mtfScore < mtfThreshold) {
+        reasonExtension = ` | 🛑 MTF Veto: Trend (${mtfVerdictText}) zayıf (Threshold: ${mtfThreshold}%).`;
+        finalSignal = null;
+      } else if (signal === "SELL" && mtfScore > 100 - mtfThreshold) {
+        reasonExtension = ` | 🛑 MTF Veto: Trend (${mtfVerdictText}) zayıf (Threshold: ${mtfThreshold}%).`;
+        finalSignal = null;
+      }
+    } else {
+      reasonExtension = ` | ℹ️ MTF Check: ${mtfVerdictText} (Veto Disabled)`;
+    }
+
+    return { signal: finalSignal, reasonExtension };
   }
 
   /**

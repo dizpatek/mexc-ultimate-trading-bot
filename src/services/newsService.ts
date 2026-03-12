@@ -85,12 +85,16 @@ async function translateToTurkish(text: string): Promise<string> {
  */
 async function fetchRawNews(): Promise<CryptoCompareArticle[]> {
   const httpsAgent = getHttpsAgent();
+  const apiKey = process.env.CRYPTOCOMPARE_API_KEY || "";
+  const authHeaders = apiKey ? { authorization: `Apikey ${apiKey}` } : {};
+  
   const response = await axios.get(
     "https://min-api.cryptocompare.com/data/v2/news/?lang=EN",
     {
       httpsAgent,
       timeout: 10000,
       headers: {
+        ...authHeaders,
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
       },
@@ -169,6 +173,9 @@ async function processAndTranslateBatch(
 export async function fetchAndProcessNews(): Promise<ProcessedNewsItem[]> {
   try {
     console.log("[NewsService] Fetching raw news...");
+    if (!process.env.CRYPTOCOMPARE_API_KEY) {
+      console.warn("[NewsService] WARNING: CRYPTOCOMPARE_API_KEY is not set in environment variables. The API might reject the request.");
+    }
     const rawNews = await fetchRawNews();
 
     if (!rawNews || rawNews.length === 0) {

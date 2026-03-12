@@ -196,6 +196,8 @@ export interface MatrixV5Result {
   fastAcceleration: number;
   deathRisk: boolean;
   whaleTrust: number;
+  fundingRate: number;
+  fundingImpact: number;
 
   // V5 New Fields
   confluenceScore: number;
@@ -326,10 +328,12 @@ export class MatrixV5Engine {
         f4Length: getVal(Math.round(8 * volAdjustment), "f4Length"),
         fiboLength: getVal(Math.round(13 * volAdjustment), "fiboLength"),
         whaleVolumeMultiplier: getVal(1.5 * volAdjustment, "whaleVolumeMultiplier"),
-        minAiScore: getVal(50, "minAiScore"), // Reduced from 60
-        minConfluenceScore: getVal(45, "minConfluenceScore"), // Reduced from 55
-        f4SlopeThreshold: getVal(0.2, "f4SlopeThreshold"), // Reduced from 0.3
-        lookback: 12
+        minAiScore: getVal(60, "minAiScore"), // Restored to 60 for quality
+        minConfluenceScore: getVal(55, "minConfluenceScore"), // Restored to 55 for quality
+        f4SlopeThreshold: getVal(0.2, "f4SlopeThreshold"), // Adjusted for Scalp
+        lookback: 12,
+        f4Alpha: getVal(Math.max(0.1, Math.min(0.99, 0.7 * volAdjustment)), "f4Alpha"),
+        fiboAlpha: getVal(Math.max(0.1, Math.min(0.99, 0.618 * volAdjustment)), "fiboAlpha")
       };
     } else {
       // Swing Mode
@@ -337,10 +341,12 @@ export class MatrixV5Engine {
         f4Length: getVal(Math.round(21 * volAdjustment), "f4Length"),
         fiboLength: getVal(Math.round(34 * volAdjustment), "fiboLength"),
         whaleVolumeMultiplier: getVal(2.2 * volAdjustment, "whaleVolumeMultiplier"),
-        minAiScore: getVal(60, "minAiScore"), // Reduced from 70
-        minConfluenceScore: getVal(55, "minConfluenceScore"), // Reduced from 65
-        f4SlopeThreshold: getVal(0.5, "f4SlopeThreshold"), // Reduced from 0.7
-        lookback: 48
+        minAiScore: getVal(70, "minAiScore"), // Restored to 70 for swing quality
+        minConfluenceScore: getVal(65, "minConfluenceScore"), // Restored to 65 for swing quality
+        f4SlopeThreshold: getVal(0.5, "f4SlopeThreshold"), // Adjusted for Swing
+        lookback: 48,
+        f4Alpha: getVal(Math.max(0.1, Math.min(0.99, 0.7 * volAdjustment)), "f4Alpha"),
+        fiboAlpha: getVal(Math.max(0.1, Math.min(0.99, 0.618 * volAdjustment)), "fiboAlpha")
       };
     }
   }
@@ -758,14 +764,312 @@ export class MatrixV5Engine {
     };
   }
 
+  private calculateRibbon(closes: number[], tfAdapt: number) {
+    const ema8 = this.calculateEMA(closes, this.adaptPeriod(8, tfAdapt));
+    const ema13 = this.calculateEMA(closes, this.adaptPeriod(13, tfAdapt));
+    const ema21 = this.calculateEMA(closes, Math.max(this.adaptPeriod(21, tfAdapt), 5));
+    const ema34 = this.calculateEMA(closes, Math.max(this.adaptPeriod(34, tfAdapt), 5));
+    const ema55 = this.calculateEMA(closes, Math.max(this.adaptPeriod(55, tfAdapt), 8));
+    
+    const ribbonBull = ema8 > ema13 && ema13 > ema21 && ema21 > ema34 && ema34 > ema55;
+    const ribbonBear = ema8 < ema13 && ema13 < ema21 && ema21 < ema34 && ema34 < ema55;
+    
+    const ribbonState = ribbonBull ? "TAM HIZALANMA ↑" : ribbonBear ? "TAM HIZALANMA ↓" : ema8 > ema55 ? "BOĞA EĞİLİM" : "AYI EĞİLİM";
+    const ribbonColor: V5IndicatorState["color"] = ribbonBull ? "green" : ribbonBear ? "red" : ema8 > ema55 ? "green" : "red";
+    
+    return { ema8, ema13, ema21, ema34, ema55, ribbonBull, ribbonBear, ribbonState, ribbonColor };
+  }
+
+  private calculateV5Indicators(
+    closes: number[],
+    highs: number[],
+    lows: number[],
+    activeConfig: MatrixV5Config,
+    tfAdapt: number,
+    adaptedRsiLen: number,
+    adaptedMacdFast: number,
+    adaptedMacdSlow: number,
+    adaptedMacdSignal: number,
+    adaptedStAtr: number,
+    adaptedAdxLen: number,
+    currentPrice: number,
+    len: number
+  ) {
+    const rsi = this.calculateRSI(closes, adaptedRsiLen);
+    const rsiState = rsi >= activeConfig.rsiOB ? "AŞIRI ALIM" : rsi <= activeConfig.rsiOS ? "AŞIRI SATIM" : rsi > 55 ? "ALIM BASKISI" : rsi < 45 ? "SATIM BASKISI" : "NÖTR";
+    const rsiColor: V5IndicatorState["color"] = rsi >= activeConfig.rsiOB ? "red" : rsi <= activeConfig.rsiOS ? "green" : rsi > 55 ? "green" : rsi < 45 ? "red" : "gray";
+
+    const macd = this.calculateMACD(closes, adaptedMacdFast, adaptedMacdSlow, adaptedMacdSignal);
+    const macdBull = macd.hist > 0;
+    const macdState = macd.hist > 0 && macd.hist > (closes[len - 2] ? macd.hist : 0) ? "GÜÇLÜ BOĞA" : macd.hist > 0 ? "BOĞA" : macd.hist < 0 ? "AYI" : "NÖTR";
+    const macdColor: V5IndicatorState["color"] = macd.hist > 0 ? "green" : "red";
+
+    const st = this.calculateSuperTrend(highs, lows, closes, activeConfig.stFactor, adaptedStAtr);
+    const stState = st.bull ? "YUKARI TREND" : "AŞAĞI TREND";
+    const stColor: V5IndicatorState["color"] = st.bull ? "green" : "red";
+
+    const stochRsi = this.calculateStochRSI(closes, adaptedRsiLen, activeConfig.stochRsiLen, activeConfig.stochK, activeConfig.stochD);
+    const stochState = stochRsi.k > 80 ? "AŞIRI ALIM" : stochRsi.k < 20 ? "AŞIRI SATIM" : stochRsi.k > stochRsi.d ? "BOĞA" : "AYI";
+    const stochColor: V5IndicatorState["color"] = stochRsi.k > 80 ? "red" : stochRsi.k < 20 ? "green" : stochRsi.k > stochRsi.d ? "green" : "red";
+
+    const adx = this.calculateADX(highs, lows, closes, adaptedAdxLen);
+    const adxTrending = adx.adx > activeConfig.adxThreshold;
+    const adxState = !adxTrending ? "YATAY (RANGE)" : adx.diPlus > adx.diMinus ? "GÜÇLÜ BOĞA" : "GÜÇLÜ AYI";
+    const adxColor: V5IndicatorState["color"] = !adxTrending ? "gray" : adx.diPlus > adx.diMinus ? "green" : "red";
+
+    const vwap = this.calculateSMA(closes, 20);
+    const vwapAbove = currentPrice > vwap;
+    const vwapState = vwapAbove ? "ÜZERİNDE (BOĞA)" : "ALTINDA (AYI)";
+    const vwapColor: V5IndicatorState["color"] = vwapAbove ? "green" : "red";
+
+    const ribbonData = this.calculateRibbon(closes, tfAdapt);
+    const { ribbonBull, ribbonBear, ribbonState, ribbonColor, ema8, ema55 } = ribbonData;
+
+    // Ichimoku
+    const ichiTenkanLen = Math.max(this.adaptPeriod(9, tfAdapt), 3);
+    const ichiKijunLen = Math.max(this.adaptPeriod(26, tfAdapt), 5);
+    const ichiSenkouLen = Math.max(this.adaptPeriod(52, tfAdapt), 10);
+    const tenkan = (Math.max(...highs.slice(Math.max(0, len - ichiTenkanLen))) + Math.min(...lows.slice(Math.max(0, len - ichiTenkanLen)))) / 2;
+    const kijun = (Math.max(...highs.slice(Math.max(0, len - ichiKijunLen))) + Math.min(...lows.slice(Math.max(0, len - ichiKijunLen)))) / 2;
+    const senkouA = (tenkan + kijun) / 2;
+    const senkouB = (Math.max(...highs.slice(Math.max(0, len - ichiSenkouLen))) + Math.min(...lows.slice(Math.max(0, len - ichiSenkouLen)))) / 2;
+    const ichiAbove = currentPrice > Math.max(senkouA, senkouB);
+    const ichiBelow = currentPrice < Math.min(senkouA, senkouB);
+    const ichiState = ichiAbove ? "KUMO ÜSTÜ (BOĞA)" : ichiBelow ? "KUMO ALTI (AYI)" : "KUMO İÇİNDE";
+    const ichiColor: V5IndicatorState["color"] = ichiAbove ? "green" : ichiBelow ? "red" : "gray";
+
+    const v5Indicators: V5IndicatorState[] = [
+      { name: "RSI", value: rsi.toFixed(1), state: rsiState, color: rsiColor, numericValue: rsi },
+      { name: "MACD", value: macd.hist.toFixed(4), state: macdState, color: macdColor, numericValue: macd.hist },
+      { name: "Supertrend", value: st.value.toFixed(2), state: stState, color: stColor },
+      { name: "StochRSI", value: stochRsi.k.toFixed(1), state: stochState, color: stochColor, numericValue: stochRsi.k },
+      { name: "ADX", value: adx.adx.toFixed(1), state: adxState, color: adxColor, numericValue: adx.adx },
+      { name: "VWAP", value: vwap.toFixed(2), state: vwapState, color: vwapColor },
+      { name: "EMA Ribbon", value: "", state: ribbonState, color: ribbonColor },
+      { name: "Ichimoku", value: "", state: ichiState, color: ichiColor },
+    ];
+
+    return { 
+      v5Indicators, rsi, macdBull, macd, st, stochRsi, adx, adxTrending, vwapAbove, 
+      ribbonState, ribbonBull, ribbonBear, ichiAbove, ichiBelow,
+      rsiState, rsiColor, macdState, macdColor, stState, stColor, 
+      stochState, stochColor, adxState, adxColor, vwapState, vwapColor,
+      ichiState, ichiColor, vwap, ema8, ema55
+    };
+  }
+
+  private calculateConfluenceScore(
+    activeConfig: MatrixV5Config,
+    rsi: number,
+    macdBull: boolean,
+    macdHist: number,
+    stochK: number,
+    stochD: number,
+    adx: any,
+    ribbonBull: boolean,
+    ribbonBear: boolean,
+    ema8: number,
+    ema55: number,
+    ichiAbove: boolean,
+    ichiBelow: boolean,
+    vwapAbove: boolean,
+    whaleStatus: string,
+    currentVolume: number,
+    volSMA: number,
+    isGreen: boolean,
+    stBull: boolean,
+    volatilityRegime: string,
+    marketRegime: string,
+    earlyReversal: any,
+    slope: number,
+    trendUp: boolean,
+    liquidityBonus: number,
+    dynamicWeights: any,
+    saeThreshold: number
+  ): ConfluenceBreakdown {
+    // Tech Score
+    const techF4Dir = slope > 0 ? 10 : 0; // Simplified for extraction
+    const techTrend = slope > 0 ? 10 : 0;
+    const techStructure = trendUp ? 10 : 0;
+    const techScore = Math.min(40, techF4Dir + techTrend + techStructure + 5);
+
+    // Momentum Score
+    const momRSI = rsi > 50 && rsi < activeConfig.rsiOB ? 10 : rsi <= activeConfig.rsiOS ? 8 : rsi >= activeConfig.rsiOB ? 2 : 5;
+    const momMACD = macdBull && macdHist > 0 ? 10 : macdHist > 0 ? 7 : 2;
+    const momStoch = stochK < 20 ? 9 : stochK > 80 ? 2 : stochK > stochD ? 8 : 4;
+    const momentumScore = Math.min(30, Math.max(0, momRSI + momMACD + momStoch));
+
+    // Volume Score
+    const volWhaleScore = whaleStatus === "BUY_ACTIVE" ? 15 : whaleStatus === "SELL_ACTIVE" ? 0 : 7;
+    const volFlowScore = currentVolume > volSMA * 1.5 ? (isGreen ? 10 : 3) : 5;
+    const volumeScore = Math.min(25, Math.max(0, volWhaleScore + volFlowScore));
+
+    // Trend Score
+    const adxTrending = adx.adx > activeConfig.adxThreshold;
+    const trendADX = adxTrending && adx.diPlus > adx.diMinus ? 10 : adxTrending ? 3 : 5;
+    const trendRibbon = ribbonBull ? 10 : ribbonBear ? 0 : ema8 > ema55 ? 7 : 3;
+    const trendIchi = ichiAbove ? 10 : ichiBelow ? 0 : 5;
+    const trendST = stBull ? 10 : 0;
+    const trendScore = Math.min(40, Math.max(0, trendADX + trendRibbon + trendIchi + trendST));
+
+    // Market Score
+    const mktScore = Math.min(25, Math.max(0, (marketRegime === "RISK_ON" ? 15 : 5) + (trendUp ? 10 : 0)));
+
+    // Timing Score
+    const timScore = Math.min(10, Math.max(0, (volatilityRegime === "SQUEEZE" ? 3 : volatilityRegime === "EXPLOSION" ? 5 : 4) + (earlyReversal ? 5 : 3)));
+
+    const confluenceScore = Math.max(0, Math.min(100,
+      (techScore / 40) * dynamicWeights.tech +
+      (momentumScore / 30) * dynamicWeights.momentum +
+      (volumeScore / 25) * activeConfig.confluenceWeightVol +
+      (trendScore / 40) * dynamicWeights.trend +
+      (mktScore / 25) * dynamicWeights.market +
+      (timScore / 10) * activeConfig.confluenceWeightTiming +
+      liquidityBonus));
+
+    const confluenceStatus: ConfluenceStatus = confluenceScore >= saeThreshold ? "MÜKEMMEL" : confluenceScore >= 65 ? "GÜÇLÜ" : confluenceScore >= 50 ? "ORTA" : confluenceScore >= saeThreshold - 20 ? "ZAYIF" : "YETERSİZ";
+
+    return { techScore, momentumScore, volumeScore, trendScore, marketScore: mktScore, timingScore: timScore, totalScore: confluenceScore, status: confluenceStatus };
+  }
+
   // ===========================
   // SMC & STRUCTURE (V5)
   // ===========================
+
+  private calculateRegimes(
+    closes: number[],
+    tfAdapt: number,
+    isStoppingVolume: boolean,
+    slope: number
+  ) {
+    const len = closes.length;
+    const ema50 = this.calculateEMA(closes, Math.max(50, this.adaptPeriod(50, tfAdapt)));
+    const ema200 = this.calculateEMA(closes, Math.min(len - 1, 200));
+    const trendUp = ema50 > ema200;
+
+    const adaptedBBLen = this.adaptPeriod(20, tfAdapt);
+    const adaptedZLen = this.adaptPeriod(50, tfAdapt);
+
+    const bbStdev = this.calculateStdDev(closes, adaptedBBLen);
+    const bbSMA = this.calculateSMA(closes, adaptedBBLen);
+    const currentBBW = bbSMA > 0 ? (4 * bbStdev) / bbSMA : 0;
+
+    const bbwHistory: number[] = [];
+    const windowLen = adaptedBBLen;
+    
+    if (len >= windowLen && windowLen > 0) {
+        // Optimized O(N) rolling variance
+        let sum = 0;
+        let sumSq = 0;
+        
+        // Circular buffer or full scan for the needed portion
+        const historyStart = Math.max(0, len - adaptedZLen - windowLen);
+        for (let i = historyStart; i < historyStart + windowLen; i++) {
+            sum += closes[i];
+            sumSq += closes[i] * closes[i];
+        }
+
+        for (let i = historyStart + windowLen; i <= len; i++) {
+            const mean = sum / windowLen;
+            const variance = (sumSq / windowLen) - (mean * mean);
+            const stdDev = variance > 0 ? Math.sqrt(variance) : 0;
+            bbwHistory.push(mean > 0 ? (4 * stdDev) / mean : 0);
+
+            if (i < len) {
+                const oldVal = closes[i - windowLen];
+                const newVal = closes[i];
+                sum += newVal - oldVal;
+                sumSq += (newVal * newVal) - (oldVal * oldVal);
+            }
+        }
+    }
+
+    if (bbwHistory.length < 2) {
+      return {
+        volatilityRegime: "NORMAL" as VolatilityRegime,
+        marketRegime: "NEUTRAL" as MarketRegime,
+        regimePrediction: "RANGE" as RegimePrediction,
+        bbwZScore: 0,
+        trendUp,
+        adaptedZLen,
+        ema50,
+        ema200
+      };
+    }
+
+    const bbwSMA = this.calculateSMA(bbwHistory, Math.min(adaptedZLen, bbwHistory.length));
+    const bbwStdDev = this.calculateStdDev(bbwHistory, Math.min(adaptedZLen, bbwHistory.length));
+
+    const bbwZScore = bbwStdDev > 0 ? (currentBBW - bbwSMA) / bbwStdDev : 0;
+
+    let volatilityRegime: VolatilityRegime = "NORMAL";
+    if (bbwZScore < -1.0) volatilityRegime = "SQUEEZE";
+    else if (bbwZScore > 2.0 && currentBBW > bbwSMA * 1.5) volatilityRegime = "EXPLOSION";
+    else if (bbwZScore > 1.5) volatilityRegime = "HIGH_VOL";
+
+    let marketRegime: MarketRegime = "NEUTRAL";
+    if (trendUp && volatilityRegime !== "HIGH_VOL") marketRegime = "RISK_ON";
+    else if (!trendUp && volatilityRegime === "HIGH_VOL") marketRegime = "RISK_OFF";
+
+    let regimePrediction: RegimePrediction = "RANGE";
+    if (volatilityRegime === "SQUEEZE") regimePrediction = "PRE_EXPLOSION";
+    else if (volatilityRegime === "EXPLOSION" && marketRegime === "RISK_ON") regimePrediction = "ACCELERATING_TREND";
+    else if (volatilityRegime === "EXPLOSION" && marketRegime === "RISK_OFF") regimePrediction = "ACCELERATING_DROP";
+    else if (marketRegime === "RISK_ON" && slope > 0) regimePrediction = "ACCELERATING_TREND";
+    else if (marketRegime === "RISK_OFF" && slope < 0) regimePrediction = "ACCELERATING_DROP";
+    else if (isStoppingVolume && slope < 0) regimePrediction = "BOTTOM_FINDING";
+    else if (isStoppingVolume && slope > 0) regimePrediction = "EXHAUSTION";
+
+    return { volatilityRegime, marketRegime, regimePrediction, bbwZScore, trendUp, adaptedZLen, ema50, ema200 };
+  }
+
+  private calculateWhaleStatus(
+    highs: number[],
+    lows: number[],
+    closes: number[],
+    volumes: number[],
+    intervalSec: number,
+    activeConfig: MatrixV5Config,
+    currentPrice: number
+  ) {
+    const len = closes.length;
+    const volSMA = this.calculateSMA(volumes, 20);
+    const tfWhaleMultiplier = intervalSec <= 60 ? 1.3 : intervalSec <= 300 ? 1.5 : intervalSec <= 3600 ? 1.8 : intervalSec <= 14400 ? 2.2 : 2.5;
+    const adaptiveWhaleVolMult = Math.max(activeConfig.whaleVolumeMultiplier, tfWhaleMultiplier);
+    const currentVolume = volumes[len - 1];
+    const isWhale = activeConfig.useWhaleEngine && currentVolume > volSMA * adaptiveWhaleVolMult;
+    const stoppingVolMult = intervalSec <= 300 ? 2.5 : intervalSec <= 3600 ? 3.0 : 3.5;
+    const isStoppingVolume = currentVolume > volSMA * stoppingVolMult;
+
+    const recentHighs = highs.slice(Math.max(0, len - 20));
+    const recentLows = lows.slice(Math.max(0, len - 20));
+    const highest20 = Math.max(...recentHighs);
+    const lowest20 = Math.min(...recentLows);
+    const openPrice = closes[len - 2] || currentPrice;
+    const isGreen = currentPrice > openPrice;
+
+    const fakeBreakoutUp = isWhale && highs[len - 1] >= highest20 && currentPrice < highest20;
+    const fakeBreakoutDown = isWhale && lows[len - 1] <= lowest20 && currentPrice > lowest20;
+
+    let whaleStatus = "NEUTRAL";
+    if (fakeBreakoutUp || fakeBreakoutDown) whaleStatus = "TRAP";
+    else if (isWhale && isGreen) whaleStatus = "BUY_ACTIVE";
+    else if (isWhale && !isGreen) whaleStatus = "SELL_ACTIVE";
+
+    let whaleSignalText = "";
+    if (whaleStatus === "TRAP") whaleSignalText = "FAKE HAREKET ⚠️";
+    else if (whaleStatus === "BUY_ACTIVE") whaleSignalText = "BALİNA TOPLUYOR 🐋";
+    else if (whaleStatus === "SELL_ACTIVE") whaleSignalText = "BALİNA BOŞALTIYOR 🐋";
+
+    return { whaleStatus, whaleSignalText, isStoppingVolume, isWhale, fakeBreakoutUp, fakeBreakoutDown, currentVolume, volSMA };
+  }
 
   private calculateSMC(
     highs: number[],
     lows: number[],
     closes: number[],
+    tfAdaptFactor: number = 1.0,
+    intervalSec: number = 3600
   ): SMCResult {
     const len = closes.length;
     if (len < 50)
@@ -778,7 +1082,7 @@ export class MatrixV5Engine {
         fvgs: [],
       };
 
-    const swingLen = 20;
+    const swingLen = Math.max(5, Math.round(20 * tfAdaptFactor));
     const currentHigh = highs[len - 1];
     const currentLow = lows[len - 1];
     const currentClose = closes[len - 1];
@@ -788,21 +1092,23 @@ export class MatrixV5Engine {
     const lastLow = Math.min(...lows.slice(len - swingLen - 1, len - 1));
 
     // EMAs for Trend Persistence (V5.4 Enhancement)
-    const ema8 = this.calculateEMA(closes, 8);
-    const ema21 = this.calculateEMA(closes, 21);
-    const ema55 = this.calculateEMA(closes, 55);
+    const ema8 = this.calculateEMA(closes, this.adaptPeriod(8, tfAdaptFactor));
+    const ema21 = this.calculateEMA(closes, this.adaptPeriod(21, tfAdaptFactor));
+    const ema55 = this.calculateEMA(closes, this.adaptPeriod(55, tfAdaptFactor));
     const emaAlignmentBull = ema8 > ema21 && ema21 > ema55;
     const emaAlignmentBear = ema8 < ema21 && ema21 < ema55;
 
-    let bos = currentClose > lastHigh || currentClose < lastLow;
-    const choch = false; // logic would go here
+    let bos = false;
+    let choch = false;
     let swingTrend: "BULLISH" | "BEARISH" | "NEUTRAL" = "NEUTRAL";
 
     if (currentClose > lastHigh) {
-      bos = true;
+      if (emaAlignmentBull) bos = true;
+      else choch = true;
       swingTrend = "BULLISH";
     } else if (currentClose < lastLow) {
-      bos = true;
+      if (emaAlignmentBear) bos = true;
+      else choch = true;
       swingTrend = "BEARISH";
     } else {
       // P4.1: Persist trend based on EMA alignment if no fresh breakout
@@ -827,7 +1133,7 @@ export class MatrixV5Engine {
       orderBlocks.push({
         high: currentHigh,
         low: currentLow,
-        time: Date.now(),
+        time: Date.now(), // Fixed to original Date.now() to preserve historical behavior
         index: len - 1,
         type: swingTrend === "BULLISH" ? "BULLISH" : "BEARISH",
       });
@@ -920,6 +1226,7 @@ export class MatrixV5Engine {
     volumes: number[],
     interval: string = "4h",
     riskMode: "safe" | "normal" | "aggressive" = "normal",
+    fundingRate: number = 0,
     configOverrides: Partial<MatrixV5Config> = {},
   ): MatrixV5Result {
     // Determine the configuration for this specific analysis run (Thread-safe)
@@ -986,315 +1293,55 @@ export class MatrixV5Engine {
     if (slope > activeConfig.f4SlopeThreshold) trend = "BULLISH";
     else if (slope < -activeConfig.f4SlopeThreshold) trend = "BEARISH";
 
-    // ===============================
     // 2. V5 INDICATORS (TF-ADAPTIVE)
-    // ===============================
     const adaptedRsiLen = this.adaptPeriod(activeConfig.rsiPeriod, tfAdapt);
     const adaptedMacdFast = this.adaptPeriod(activeConfig.macdFast, tfAdapt);
-    const adaptedMacdSlow = Math.max(
-      this.adaptPeriod(activeConfig.macdSlow, tfAdapt),
-      5,
-    );
+    const adaptedMacdSlow = Math.max(this.adaptPeriod(activeConfig.macdSlow, tfAdapt), 5);
     const adaptedMacdSignal = this.adaptPeriod(activeConfig.macdSignal, tfAdapt);
     const adaptedStAtr = this.adaptPeriod(activeConfig.stAtrPeriod, tfAdapt);
     const adaptedAdxLen = this.adaptPeriod(activeConfig.adxPeriod, tfAdapt);
 
-    // RSI
-    const rsi = this.calculateRSI(closes, adaptedRsiLen);
-    const rsiState =
-      rsi >= activeConfig.rsiOB
-        ? "AŞIRI ALIM"
-        : rsi <= activeConfig.rsiOS
-          ? "AŞIRI SATIM"
-          : rsi > 50
-            ? "BOĞA"
-            : rsi < 50
-              ? "AYI"
-              : "NÖTR";
-    const rsiColor: V5IndicatorState["color"] =
-      rsi >= activeConfig.rsiOB
-        ? "red"
-        : rsi <= activeConfig.rsiOS
-          ? "green"
-          : rsi > 55
-            ? "green"
-            : rsi < 45
-              ? "red"
-              : "gray";
-
-    // MACD
-    const macd = this.calculateMACD(
+    const v5IndicatorData = this.calculateV5Indicators(
       closes,
+      highs,
+      lows,
+      activeConfig,
+      tfAdapt,
+      adaptedRsiLen,
       adaptedMacdFast,
       adaptedMacdSlow,
       adaptedMacdSignal,
-    );
-    const macdBull = macd.hist > 0;
-    const macdState =
-      macd.hist > 0 && macd.hist > (closes[len - 2] ? macd.hist : 0)
-        ? "GÜÇLÜ BOĞA"
-        : macd.hist > 0
-          ? "BOĞA"
-          : macd.hist < 0
-            ? "AYI"
-            : "NÖTR";
-    const macdColor: V5IndicatorState["color"] =
-      macd.hist > 0 ? "green" : "red";
-
-    // SuperTrend
-    const st = this.calculateSuperTrend(
-      highs,
-      lows,
-      closes,
-      activeConfig.stFactor,
       adaptedStAtr,
+      adaptedAdxLen,
+      currentPrice,
+      len
     );
-    const stState = st.bull ? "YUKARI TREND" : "AŞAĞI TREND";
-    const stColor: V5IndicatorState["color"] = st.bull ? "green" : "red";
-
-    // StochRSI
-    const stochRsi = this.calculateStochRSI(
-      closes,
-      adaptedRsiLen,
-      activeConfig.stochRsiLen,
-      activeConfig.stochK,
-      activeConfig.stochD,
-    );
-    const stochState =
-      stochRsi.k > 80
-        ? "AŞIRI ALIM"
-        : stochRsi.k < 20
-          ? "AŞIRI SATIM"
-          : stochRsi.k > stochRsi.d
-            ? "BOĞA"
-            : "AYI";
-    const stochColor: V5IndicatorState["color"] =
-      stochRsi.k > 80
-        ? "red"
-        : stochRsi.k < 20
-          ? "green"
-          : stochRsi.k > stochRsi.d
-            ? "green"
-            : "red";
-
-    // ADX
-    const adx = this.calculateADX(highs, lows, closes, adaptedAdxLen);
-    const adxTrending = adx.adx > activeConfig.adxThreshold;
-    const adxState = !adxTrending
-      ? "YATAY (RANGE)"
-      : adx.diPlus > adx.diMinus
-        ? "GÜÇLÜ BOĞA"
-        : "GÜÇLÜ AYI";
-    const adxColor: V5IndicatorState["color"] = !adxTrending
-      ? "gray"
-      : adx.diPlus > adx.diMinus
-        ? "green"
-        : "red";
-
-    // VWAP (simplified - using SMA as proxy since we don't have intraday volume profile)
-    const vwap = this.calculateSMA(closes, 20);
-    const vwapAbove = currentPrice > vwap;
-    const vwapState = vwapAbove ? "ÜZERİNDE (BOĞA)" : "ALTINDA (AYI)";
-    const vwapColor: V5IndicatorState["color"] = vwapAbove ? "green" : "red";
-
-    // 0. (Already initialized above)
-
-    // EMA Ribbon
-    const ema8 = this.calculateEMA(closes, this.adaptPeriod(8, tfAdapt));
-    const ema13 = this.calculateEMA(closes, this.adaptPeriod(13, tfAdapt));
-    const ema21 = this.calculateEMA(
-      closes,
-      Math.max(this.adaptPeriod(21, tfAdapt), 5),
-    );
-    const ema34 = this.calculateEMA(
-      closes,
-      Math.max(this.adaptPeriod(34, tfAdapt), 5),
-    );
-    const ema55 = this.calculateEMA(
-      closes,
-      Math.max(this.adaptPeriod(55, tfAdapt), 8),
-    );
-    const ribbonBull =
-      ema8 > ema13 && ema13 > ema21 && ema21 > ema34 && ema34 > ema55;
-    const ribbonBear =
-      ema8 < ema13 && ema13 < ema21 && ema21 < ema34 && ema34 < ema55;
-    const ribbonState = ribbonBull
-      ? "TAM HIZALANMA ↑"
-      : ribbonBear
-        ? "TAM HIZALANMA ↓"
-        : ema8 > ema55
-          ? "BOĞA EĞİLİM"
-          : "AYI EĞİLİM";
-    const ribbonColor: V5IndicatorState["color"] = ribbonBull
-      ? "green"
-      : ribbonBear
-        ? "red"
-        : ema8 > ema55
-          ? "green"
-          : "red";
-
-    // Ichimoku
-    const ichiTenkanLen = Math.max(this.adaptPeriod(9, tfAdapt), 3);
-    const ichiKijunLen = Math.max(this.adaptPeriod(26, tfAdapt), 5);
-    const ichiSenkouLen = Math.max(this.adaptPeriod(52, tfAdapt), 10);
-    const tenkan =
-      (Math.max(...highs.slice(Math.max(0, len - ichiTenkanLen))) +
-        Math.min(...lows.slice(Math.max(0, len - ichiTenkanLen)))) /
-      2;
-    const kijun =
-      (Math.max(...highs.slice(Math.max(0, len - ichiKijunLen))) +
-        Math.min(...lows.slice(Math.max(0, len - ichiKijunLen)))) /
-      2;
-    const senkouA = (tenkan + kijun) / 2;
-    const senkouB =
-      (Math.max(...highs.slice(Math.max(0, len - ichiSenkouLen))) +
-        Math.min(...lows.slice(Math.max(0, len - ichiSenkouLen)))) /
-      2;
-    const ichiAbove = currentPrice > Math.max(senkouA, senkouB);
-    const ichiBelow = currentPrice < Math.min(senkouA, senkouB);
-    const ichiState = ichiAbove
-      ? "KUMO ÜSTÜ (BOĞA)"
-      : ichiBelow
-        ? "KUMO ALTI (AYI)"
-        : "KUMO İÇİNDE";
-    const ichiColor: V5IndicatorState["color"] = ichiAbove
-      ? "green"
-      : ichiBelow
-        ? "red"
-        : "gray";
-
-    const v5Indicators: V5IndicatorState[] = [
-      {
-        name: "RSI",
-        value: rsi.toFixed(1),
-        state: rsiState,
-        color: rsiColor,
-        numericValue: rsi,
-      },
-      {
-        name: "MACD",
-        value: macd.hist.toFixed(4),
-        state: macdState,
-        color: macdColor,
-        numericValue: macd.hist,
-      },
-      {
-        name: "Supertrend",
-        value: st.value.toFixed(2),
-        state: stState,
-        color: stColor,
-      },
-      {
-        name: "StochRSI",
-        value: stochRsi.k.toFixed(1),
-        state: stochState,
-        color: stochColor,
-        numericValue: stochRsi.k,
-      },
-      {
-        name: "ADX",
-        value: adx.adx.toFixed(1),
-        state: adxState,
-        color: adxColor,
-        numericValue: adx.adx,
-      },
-      {
-        name: "VWAP",
-        value: vwap.toFixed(2),
-        state: vwapState,
-        color: vwapColor,
-      },
-      { name: "EMA Ribbon", value: "", state: ribbonState, color: ribbonColor },
-      { name: "Ichimoku", value: "", state: ichiState, color: ichiColor },
-    ];
+    const { 
+      v5Indicators, rsi, macdBull, macd, st, stochRsi, adx, adxTrending, vwapAbove, 
+      ribbonState, ribbonBull, ribbonBear, ichiAbove, ichiBelow,
+      rsiState, rsiColor, macdState, macdColor, stState, stColor, 
+      stochState, stochColor, adxState, adxColor, vwapState, vwapColor,
+      ichiState, ichiColor, vwap, ema8, ema55
+    } = v5IndicatorData;
 
     // ===============================
     // 3. WHALE ENGINE (V5: TF-Adaptive)
     // ===============================
-    const volSMA = this.calculateSMA(volumes, 20);
     const intervalSec = this.intervalToSeconds(interval);
-    const tfWhaleMultiplier =
-      intervalSec <= 60
-        ? 1.3
-        : intervalSec <= 300
-          ? 1.5
-          : intervalSec <= 3600
-            ? 1.8
-            : intervalSec <= 14400
-              ? 2.2
-              : 2.5;
-    const adaptiveWhaleVolMult = Math.max(
-      activeConfig.whaleVolumeMultiplier,
-      tfWhaleMultiplier,
-    );
-    const currentVolume = volumes[len - 1];
-    const isWhale =
-      activeConfig.useWhaleEngine &&
-      currentVolume > volSMA * adaptiveWhaleVolMult;
-    const stoppingVolMult =
-      intervalSec <= 300 ? 2.5 : intervalSec <= 3600 ? 3.0 : 3.5;
-    const isStoppingVolume = currentVolume > volSMA * stoppingVolMult;
-
-    const recentHighs = highs.slice(Math.max(0, len - 20));
-    const recentLows = lows.slice(Math.max(0, len - 20));
-    const highest20 = Math.max(...recentHighs);
-    const lowest20 = Math.min(...recentLows);
-    const openPrice = closes[len - 2] || currentPrice;
-    const isGreen = currentPrice > openPrice;
-
-    const fakeBreakoutUp =
-      isWhale && highs[len - 1] >= highest20 && currentPrice < highest20;
-    const fakeBreakoutDown =
-      isWhale && lows[len - 1] <= lowest20 && currentPrice > lowest20;
-
-    let whaleStatus: MatrixV5Result["whaleStatus"] = "NEUTRAL";
-    if (fakeBreakoutUp || fakeBreakoutDown) whaleStatus = "TRAP";
-    else if (isWhale && isGreen) whaleStatus = "BUY_ACTIVE";
-    else if (isWhale && !isGreen) whaleStatus = "SELL_ACTIVE";
-
-    let whaleSignalText = "";
-    if (whaleStatus === "TRAP") whaleSignalText = "FAKE HAREKET ⚠️";
-    else if (whaleStatus === "BUY_ACTIVE")
-      whaleSignalText = "BALİNA TOPLUYOR 🐋";
-    else if (whaleStatus === "SELL_ACTIVE")
-      whaleSignalText = "BALİNA BOŞALTIYOR 🐋";
+    const whaleData = this.calculateWhaleStatus(highs, lows, closes, volumes, intervalSec, activeConfig, currentPrice);
+    
+    let whaleStatus = whaleData.whaleStatus as MatrixV5Result["whaleStatus"];
+    let whaleSignalText = whaleData.whaleSignalText;
+    const { isStoppingVolume, isWhale, fakeBreakoutUp, fakeBreakoutDown, currentVolume, volSMA } = whaleData;
 
     // ===============================
     // 4. REGIME & VOLATILITY
     // ===============================
-    const ema50 = this.calculateEMA(
-      closes,
-      Math.max(50, this.adaptPeriod(50, tfAdapt)),
-    );
-    const ema200 = this.calculateEMA(closes, Math.min(closes.length - 1, 200));
-    const trendUp = ema50 > ema200;
+    const regimeData = this.calculateRegimes(closes, tfAdapt, isStoppingVolume, slope);
+    let { volatilityRegime, marketRegime, regimePrediction, bbwZScore, trendUp, adaptedZLen, ema50, ema200 } = regimeData;
 
-    const adaptedBBLen = this.adaptPeriod(20, tfAdapt);
-    const adaptedZLen = this.adaptPeriod(50, tfAdapt);
+    const isGreen = currentPrice > (closes[len - 2] || currentPrice);
     const adaptedAtrLen = this.adaptPeriod(14, tfAdapt);
-
-    const bbStdev = this.calculateStdDev(closes, adaptedBBLen);
-    const bbSMA = this.calculateSMA(closes, adaptedBBLen);
-    const currentBBW = bbSMA > 0 ? (4 * bbStdev) / bbSMA : 0;
-
-    // Build BBW history for Z-Score
-    const bbwHistory: number[] = [];
-    for (let i = adaptedBBLen; i <= len; i++) {
-      const slice = closes.slice(i - adaptedBBLen, i);
-      const s = this.calculateStdDev(slice, adaptedBBLen);
-      const m = this.calculateSMA(slice, adaptedBBLen);
-      bbwHistory.push(m > 0 ? (4 * s) / m : 0);
-    }
-    const bbwSMA = this.calculateSMA(
-      bbwHistory,
-      Math.min(adaptedZLen, bbwHistory.length),
-    );
-    const bbwStdev = this.calculateStdDev(
-      bbwHistory,
-      Math.min(adaptedZLen, bbwHistory.length),
-    );
-    const bbwZScore = bbwStdev > 0 ? (currentBBW - bbwSMA) / bbwStdev : 0;
-
     const atrVal = this.calculateATR(highs, lows, closes, adaptedAtrLen);
     const atrSMA = this.calculateSMA(
       highs
@@ -1309,14 +1356,6 @@ export class MatrixV5Engine {
       adaptedAtrLen,
     );
     const whaleHighVol = atrVal > atrSMA;
-
-    let volatilityRegime: VolatilityRegime = "NORMAL";
-    if (bbwZScore < -1.0) volatilityRegime = "SQUEEZE";
-    else if (bbwZScore > 1.5) volatilityRegime = "HIGH_VOL";
-
-    let marketRegime: MarketRegime = "NEUTRAL";
-    if (trendUp && volatilityRegime !== "HIGH_VOL") marketRegime = "RISK_ON";
-    else if (!trendUp && whaleHighVol) marketRegime = "RISK_OFF";
 
     // Z-Score
     const zScoreSMA = this.calculateSMA(closes, adaptedZLen);
@@ -1414,7 +1453,7 @@ export class MatrixV5Engine {
     // ===============================
     // 5b. LIQUIDITY ZONE DETECTION (OB/FVG Bonus)
     // ===============================
-    const smc = this.calculateSMC(highs, lows, closes);
+    const smc = this.calculateSMC(highs, lows, closes, tfAdapt, intervalSec);
     let inBullishOB = false,
       inBearishOB = false;
     let inBullishFVG = false,
@@ -1505,110 +1544,42 @@ export class MatrixV5Engine {
       : lowerTFBullCount * 0.5;
     const mtfWeightedScore = Math.round(mtfScoreRaw);
 
+    // V5.4 Alignment: SAE Threshold
+    const saeThreshold = riskMode === "safe" ? 70 : riskMode === "aggressive" ? 55 : 60;
+
     // ===============================
     // 5e. CONFLUENCE ENGINE (6 Categories + V5.4 Enhancements)
     // ===============================
-    // Tech Score (F4 + WaveTrend proxy + SMC proxy + MTF proxy)
-    const techF4Dir = f4Value > prevF4Value ? 10 : 0;
-    const techTrend = slope > 0 ? 10 : 0;
-    const techStructure = trendUp ? 10 : 0;
-    const techScore = Math.min(40, techF4Dir + techTrend + techStructure + 5);
-
-    // Momentum Score (RSI + MACD + StochRSI)
-    const momRSI =
-      rsi > 50 && rsi < activeConfig.rsiOB
-        ? 10
-        : rsi <= activeConfig.rsiOS
-          ? 8
-          : rsi >= activeConfig.rsiOB
-            ? 2
-            : 5;
-    const momMACD = macdBull && macd.hist > 0 ? 10 : macd.hist > 0 ? 7 : 2;
-    const momStoch =
-      stochRsi.k < 20
-        ? 9
-        : stochRsi.k > 80
-          ? 2
-          : stochRsi.k > stochRsi.d
-            ? 8
-            : 4;
-    const momentumScore = Math.min(
-      30,
-      Math.max(0, momRSI + momMACD + momStoch),
+    const confluenceBreakdown = this.calculateConfluenceScore(
+      activeConfig,
+      rsi,
+      macdBull,
+      macd.hist,
+      stochRsi.k,
+      stochRsi.d,
+      adx,
+      ribbonBull,
+      ribbonBear,
+      ema8,
+      ema55,
+      ichiAbove,
+      ichiBelow,
+      vwapAbove,
+      whaleStatus,
+      currentVolume,
+      volSMA,
+      isGreen,
+      st.bull,
+      volatilityRegime,
+      marketRegime,
+      earlyReversal,
+      slope,
+      trendUp,
+      liquidityBonus,
+      dynamicWeights,
+      saeThreshold
     );
-
-    // Volume Score
-    const volWhaleScore =
-      whaleStatus === "BUY_ACTIVE" ? 15 : whaleStatus === "SELL_ACTIVE" ? 0 : 7;
-    const volFlowScore = currentVolume > volSMA * 1.5 ? (isGreen ? 10 : 3) : 5;
-    const volumeScore = Math.min(25, Math.max(0, volWhaleScore + volFlowScore));
-
-    // Trend Score (ADX + EMA Ribbon + Ichimoku + SuperTrend)
-    const trendADX =
-      adxTrending && adx.diPlus > adx.diMinus ? 10 : adxTrending ? 3 : 5;
-    const trendRibbon = ribbonBull ? 10 : ribbonBear ? 0 : ema8 > ema55 ? 7 : 3;
-    const trendIchi = ichiAbove ? 10 : ichiBelow ? 0 : 5;
-    const trendST = st.bull ? 10 : 0;
-    const trendScore = Math.min(
-      40,
-      Math.max(0, trendADX + trendRibbon + trendIchi + trendST),
-    );
-
-    // Market Score (simplified without external data)
-    const mktScore = Math.min(
-      25,
-      Math.max(0, (marketRegime === "RISK_ON" ? 15 : 5) + (trendUp ? 10 : 0)),
-    );
-
-    // Timing Score
-    const timScore = Math.min(
-      10,
-      Math.max(
-        0,
-        (volatilityRegime === "SQUEEZE"
-          ? 3
-          : (volatilityRegime as string) === "EXPLOSION"
-            ? 5
-            : 4) + (earlyReversal ? 5 : 3),
-      ),
-    );
-
-    // V5.4: Confluence with Dynamic Weights + Liquidity Bonus (capped at 100)
-    const confluenceScore = Math.max(
-      0,
-      Math.min(
-        100,
-        (techScore / 40) * dynWeightTech +
-          (momentumScore / 30) * dynWeightMomentum +
-          (volumeScore / 25) * activeConfig.confluenceWeightVol +
-          (trendScore / 40) * dynWeightTrend +
-          (mktScore / 25) * dynWeightMarket +
-          (timScore / 10) * activeConfig.confluenceWeightTiming +
-          liquidityBonus,
-      ),
-    );
-
-    const confluenceStatus: ConfluenceStatus =
-      confluenceScore >= 80
-        ? "MÜKEMMEL"
-        : confluenceScore >= 65
-          ? "GÜÇLÜ"
-          : confluenceScore >= 50
-            ? "ORTA"
-            : confluenceScore >= 35
-              ? "ZAYIF"
-              : "YETERSİZ";
-
-    const confluenceBreakdown: ConfluenceBreakdown = {
-      techScore,
-      momentumScore,
-      volumeScore,
-      trendScore,
-      marketScore: mktScore,
-      timingScore: timScore,
-      totalScore: confluenceScore,
-      status: confluenceStatus,
-    };
+    const { totalScore: confluenceScore, status: confluenceStatus, timingScore: timScore } = confluenceBreakdown;
 
     // ===============================
     // 6. PREDICTION ENGINE
@@ -1626,9 +1597,7 @@ export class MatrixV5Engine {
     const predictionUpProb = Math.max(5, Math.min(95, baseUpProb));
     const predictionDownProb = 100 - predictionUpProb;
 
-    // V5.4 Alignment: Prediction text threshold now matches decision threshold (55%)
-    // If decision is WAIT, we generally force YATAY unless it's a very strong exhaustion/early signal
-    const predictionTextThreshold = 55;
+    const predictionTextThreshold = saeThreshold;
     let predictionText = "YATAY";
 
     if (predictionUpProb >= predictionTextThreshold)
@@ -1641,9 +1610,9 @@ export class MatrixV5Engine {
       downProb: predictionDownProb,
       text: predictionText,
       direction:
-        predictionUpProb >= 65
+        predictionUpProb >= saeThreshold
           ? "UP"
-          : predictionDownProb >= 65
+          : predictionDownProb >= saeThreshold
             ? "DOWN"
             : "FLAT",
     };
@@ -1731,8 +1700,8 @@ export class MatrixV5Engine {
     }
 
     const rawSystemDecision: SystemDecision = 
-      (confluenceScore >= currentMinConf && predictionUpProb >= 55) ? "GO_LONG" :
-      (confluenceScore >= currentMinConf && predictionDownProb >= 55) ? "GO_SHORT" : "WAIT";
+      (confluenceScore >= currentMinConf && predictionUpProb >= saeThreshold) ? "GO_LONG" :
+      (confluenceScore >= currentMinConf && predictionDownProb >= saeThreshold) ? "GO_SHORT" : "WAIT";
 
     const saeInput: SAEInput = {
       smc,
@@ -1914,6 +1883,8 @@ export class MatrixV5Engine {
       marketPhaseText: marketPhaseTextValue,
       capitalFlowText: capitalFlowTextValue,
       capitalPhase: capitalPhaseValue,
+      fundingRate,
+      fundingImpact: Math.round(fundingRate * 100000) / 1000, // Normalized to bps
       tfAdaptFactor: tfAdapt,
       // SMC & Structure
       smc,

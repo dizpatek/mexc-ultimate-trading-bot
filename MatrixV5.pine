@@ -1,0 +1,2905 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)
+// © Developed by eFSo
+// V5.3: INTELLIGENT TRADING SYSTEM - ENHANCED VERSION
+// V5.3 Changelog:
+//   - Volatilite Adaptif Eşik: Squeeze'de F4 eşik %40'a düşüyor (erken giriş)
+//   - Koşullu Ağırlıklandırma: DXY >0.5% ise teknik ağırlık %15'e düşüyor
+//   - MTF Ağırlıklı Oy: Günlük trend ters ise alt TF skor %50 penalize
+//   - Kill Switch Alert: Güçlendirilmiş alert, pozisyon kapatma önerisi
+//   - Sermaye Rotasyonu: ADM çapraz kontrol ile doğrulama
+//   - Likidite Filtre: OB/FVG bölgesinde +10 puan bonus
+
+//@version=6
+indicator('Matrix F4 V5 Intelligent', shorttitle='Matrix F4 V5', overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500, max_bars_back = 5000)
+import TradingView/ta/10 as tvta_lib
+
+//---------------------------------------------------------------------------------------------------------------------}
+//CONSTANTS & STRINGS & INPUTS
+//---------------------------------------------------------------------------------------------------------------------{
+// --- Constants ---
+BULLISH_LEG = 1
+BEARISH_LEG = 0
+
+BULLISH = +1
+BEARISH = -1
+
+GREEN = #089981
+RED = #F23645
+BLUE = #2157F4
+GRAY = #878b94
+WHITE = #FFFFFF
+ORANGE = #ff9800
+AQUA = #00bcd4
+
+// Structure Labels
+YAPI_DISI = 'Trend Devamı'
+Kader_DEGISIMI = 'Trend Dönüşü'
+YUKSEK_ZIRVE = 'Yüksek Zirve'
+DUSUK_ZIRVE = 'Düşük Zirve'
+YUKSEK_DIP = 'Yüksek Dip'
+DUSUK_DIP = 'Düşük Dip'
+
+// Labels Sizes
+SMALL = size.small
+NORMAL = size.normal
+LARGE = size.large
+
+// ADM & VPA Colors
+C_ADM_BULL = #089981
+C_ADM_BEAR = #F23645
+C_ADM_WEAK = #ff9800
+C_ADM_NEUT = #878b94
+C_VPA_BUY  = #00ff68
+C_VPA_SELL = #ff0008
+
+// --- Input Groups ---
+GROUP_GENERAL = 'Global Mod'
+GROUP_SCALP = 'Scalp Ayarları'
+GROUP_SWING = 'Swing Ayarları'
+GROUP_F4 = 'F4 Stratejisi'
+SMART_GROUP = 'Akıllı Para Kavramları (SMC)'
+INTERNAL_GROUP = 'Dahili Yapı'
+SWING_GROUP = 'Salınım Yapısı'
+BLOCKS_GROUP = 'Sipariş Blokları (OB)'
+EQUAL_GROUP = 'Eşit Zirve / Dip'
+GAPS_GROUP = 'Adil Değer Aralıkları (FVG)'
+LEVELS_GROUP = 'Yüksek / Düşük Seviyeleri'
+ZONES_GROUP = 'Satış / İndirim Bölgeleri'
+DASH_GROUP = 'Gelişmiş Analiz Paneli'
+GROUP_CP = 'Trend Kanalları (ChartPrime)'
+GROUP_LUX = 'Trend Çizgileri (LuxAlgo)'
+GROUP_EXT = 'Harici Zeka (IDE Köprüsü)'
+GROUP_CONFLUENCE = 'Confluence Ayarları'
+
+// --- Inputs (Global) ---
+tradeMode = input.string("Scalp", title = "Trade Modu", options = ["Scalp", "Swing"], group = GROUP_GENERAL)
+F4Mode = input.string("Aktif", title = "F4 Durumu", options = ["Kapalı", "Aktif"], group = GROUP_GENERAL)
+
+// --- Inputs (Scalp & Swing) ---
+scalpF4Len = input.int(10, "F4 Uzunluğu (Scalp)", group = GROUP_SCALP)
+scalpF4Alpha = input.float(3.7, "Hacim Faktörü (Scalp)", group = GROUP_SCALP)
+scalpFiboLen = input.int(5, "Fibo Uzunluğu (Scalp)", group = GROUP_SCALP)
+scalpFiboAlpha = input.float(0.618, "Fibo Faktörü (Scalp)", group = GROUP_SCALP)
+swingF4Len = input.int(10, "F4 Uzunluğu (Swing)", group = GROUP_SWING)
+swingF4Alpha = input.float(1.2, "Hacim Faktörü (Swing)", group = GROUP_SWING)
+swingFiboLen = input.int(8, "Fibo Uzunluğu (Swing)", group = GROUP_SWING)
+swingFiboAlpha = input.float(0.618, "Fibo Faktörü (Swing)", group = GROUP_SWING)
+
+// --- Inputs (F4 Visuals & Logic) ---
+showF4MainInput = input.bool(true, title = 'F4 Ana Çizgisini Göster?', group = GROUP_F4)
+F4FiboLine = input.bool(true, title = 'F4 Fibonacci Çizgisini Göster?', group = GROUP_F4)
+F4Opacity = input.int(95, "F4 Çizgi Şeffaflığı", minval=0, maxval=100, group = GROUP_F4)
+f4SlopeThresholdFactor = input.float(0.01, title = "F4 Eğim Çarpanı", step = 0.01, group = GROUP_F4)
+showBuySellLabels = input.bool(true, "Al/Sat Etiketlerini Göster?", group = GROUP_F4)
+// V5.2: F4 Güç Kaybı Hassasiyet Ayarları
+f4PowerLossThreshold = input.int(50, "Güç Kaybı Eşiği (%)", minval=20, maxval=80, group = GROUP_F4, tooltip = "Düşük=Erken sinyal, Yüksek=Geç sinyal. Önerilen: 40-60")
+f4LookbackBars = input.int(10, "Geri Bakış (Bar)", minval=5, maxval=30, group = GROUP_F4, tooltip = "Eğim maksimumu için kaç bar geriye bakılsın?")
+// V5.3: Volatilite Adaptif Eşik - Squeeze'de erken giriş
+f4SqueezeThreshold = input.int(40, "Squeeze Eşiği (%)", minval=20, maxval=60, group = GROUP_F4, tooltip = "Sıkışma rejiminde kullanılacak eşik")
+
+// --- Inputs (SMC) ---
+GROUP_SMART = 'SMC'
+showTrendInput = input.bool(false, "Mumları Trend Renge Boya", group = GROUP_SMART)
+showInternalsInput = input.bool(true, "Dahili Yapıyı Göster", group = INTERNAL_GROUP)
+showInternalBullInput = input.string("Tümü", "Boğa Yapısı", group = INTERNAL_GROUP, inline = 'ibull', options = ["Tümü", "Trend Devamı", "Trend Dönüşü"])
+internalBullColorInput = input.color(GREEN, "", group = INTERNAL_GROUP, inline = 'ibull')
+showInternalBearInput = input.string("Tümü", "Ayı Yapısı", group = INTERNAL_GROUP, inline = 'ibear', options = ["Tümü", "Trend Devamı", "Trend Dönüşü"])
+internalBearColorInput = input.color(RED, "", group = INTERNAL_GROUP, inline = 'ibear')
+internalFilterConfluenceInput = input.bool(true, "Eşleşme Filtresi", group = INTERNAL_GROUP)
+internalStructureSize = input.string(NORMAL, "Dahili Etiket Boyutu", group = INTERNAL_GROUP, options = [SMALL, NORMAL, LARGE])
+
+showStructureInput = input.bool(true, "Salınım Yapısını Göster", group = SWING_GROUP)
+showSwingBullInput = input.string("Tümü", "Boğa Yapısı", group = SWING_GROUP, inline = 'bull', options = ["Tümü", "Trend Devamı", "Trend Dönüşü"])
+swingBullColorInput = input.color(GREEN, "", group = SWING_GROUP, inline = 'bull')
+showSwingBearInput = input.string("Tümü", "Ayı Yapısı", group = SWING_GROUP, inline = 'bear', options = ["Tümü", "Trend Devamı", "Trend Dönüşü"])
+swingBearColorInput = input.color(RED, "", group = SWING_GROUP, inline = 'bear')
+swingStructureSize = input.string(NORMAL, "Salınım Etiket Boyutu", group = SWING_GROUP, options = [SMALL, NORMAL, LARGE])
+showSwingsInput = input.bool(true, "Salınım Noktalarını Göster", group = SWING_GROUP, inline = 'swings')
+swingsLengthInput = input.int(50, "", group = SWING_GROUP, minval = 10, inline = 'swings')
+showHighLowSwingsInput = input.bool(true, "Güçlü / Zayıf Tepe ve Dip Göster", group = SWING_GROUP)
+
+showInternalOrderBlocksInput = input.bool(true, "Dahili Sipariş Blokları", group = BLOCKS_GROUP, inline = 'iob')
+internalOrderBlocksSizeInput = input.int(5, "", group = BLOCKS_GROUP, minval = 1, maxval = 20, inline = 'iob')
+showSwingOrderBlocksInput = input.bool(true, "Salınım Sipariş Blokları", group = BLOCKS_GROUP, inline = 'ob')
+swingOrderBlocksSizeInput = input.int(5, "", group = BLOCKS_GROUP, minval = 1, maxval = 20, inline = 'ob')
+orderBlockFilterInput = input.string("Atr", "Sipariş Bloğu Filtresi", group = BLOCKS_GROUP, options = ["Atr", "Ortalama Menzil"])
+orderBlockMitigationInput = input.string("Yüksek/Düşük", "Sipariş Bloğu Durdurma", group = BLOCKS_GROUP, options = ["Kapanış", "Yüksek/Düşük"])
+internalBullishOrderBlockColor = input.color(color.new(#3179f5, 80), "Dahili Boğa Blok Rengi", group = BLOCKS_GROUP)
+internalBearishOrderBlockColor = input.color(color.new(#f77c80, 80), "Dahili Ayı Blok Rengi", group = BLOCKS_GROUP)
+swingBullishOrderBlockColor = input.color(color.new(#1848cc, 80), "Boğa Blok Rengi", group = BLOCKS_GROUP)
+swingBearishOrderBlockColor = input.color(color.new(#b22833, 80), "Ayı Blok Rengi", group = BLOCKS_GROUP)
+
+showEqualHighsLowsInput = input.bool(true, "Eşit Zirve / Dip", group = EQUAL_GROUP)
+equalHighsLowsLengthInput = input.int(3, "Onay Barı Sayısı", group = EQUAL_GROUP, minval = 1)
+equalHighsLowsThresholdInput = input.float(0.1, "Eşik Değeri", group = EQUAL_GROUP, minval = 0, maxval = 0.5, step = 0.1)
+equalHighsLowsSizeInput = input.string(NORMAL, "Etiket Boyutu", group = EQUAL_GROUP, options = [SMALL, NORMAL, LARGE])
+
+showFairValueGapsInput = input.bool(true, "Adil Değer Aralıkları (FVG)", group = GAPS_GROUP)
+fairValueGapsThresholdInput = input.bool(true, "Otomatik Eşik", group = GAPS_GROUP)
+fairValueGapsTimeframeInput = input.timeframe("", "Zaman Dilimi", group = GAPS_GROUP)
+fairValueGapsBullColorInput = input.color(color.new(#00ff68, 70), "Boğa FVG Rengi", group = GAPS_GROUP)
+fairValueGapsBearColorInput = input.color(color.new(#ff0008, 70), "Ayı FVG Rengi", group = GAPS_GROUP)
+fairValueGapsExtendInput = input.int(1, "FVG Uzatma", group = GAPS_GROUP, minval = 0)
+
+showDailyLevelsInput = input.bool(false, "Günlük Seviyelerini Göster (Kırmızı)", group = LEVELS_GROUP, inline = 'daily')
+showWeeklyLevelsInput = input.bool(false, "Haftalık", group = LEVELS_GROUP, inline = 'weekly')
+showMonthlyLevelsInput = input.bool(false, "Aylık", group = LEVELS_GROUP, inline = 'monthly')
+levelColorInput = input.color(RED, "Seviye Rengi", group = LEVELS_GROUP)
+
+showPremiumDiscountZonesInput = input.bool(true, "Satış / İndirim Bölgeleri", group = ZONES_GROUP)
+premiumZoneColorInput = input.color(RED, "Satış Bölge Rengi", group = ZONES_GROUP)
+equilibriumZoneColorInput = input.color(GRAY, "Denge Bölge Rengi", group = ZONES_GROUP)
+discountZoneColorInput = input.color(GREEN, "İndirim Bölge Rengi", group = ZONES_GROUP)
+
+// --- Inputs (Whale Engine) ---
+GROUP_WHALE = 'Balina Motoru (Whale Engine)'
+useWhaleEngine = input.bool(true, "Whale Engine Aktif", group = GROUP_WHALE)
+whaleVolMult = input.float(1.8, "Balina Hacim Katsayısı", step = 0.1, group = GROUP_WHALE)
+showWhalePlots = input.bool(true, "Balina Grafiklerini Göster", group = GROUP_WHALE)
+
+// --- Inputs (Market Regime & AI) ---
+GROUP_REGIME = 'Piyasa Rejimi & AI Skor'
+minScoreToTrade = input.int(65, "Min AI Skoru (İşlem Kilidi)", minval = 0, maxval = 100, group = GROUP_REGIME)
+
+// --- Inputs (Capital & Execution) ---
+GROUP_CAPITAL = 'Sermaye & Yürütme Motoru'
+signalFreshnessBars = input.int(5, "Sinyal Tazelik Süresi (Bar)", minval = 1, maxval = 20, group = GROUP_CAPITAL)
+maxConsecutiveLoss = input.int(6, "Max Ardışık Kayıp (Kill Switch)", minval = 2, maxval = 20, group = GROUP_CAPITAL)
+
+// --- Inputs (CM Williams Vix Fix) ---
+GROUP_VIX = "Williams Vix Fix (Dip Avcısı)"
+vf_pd = input.int(22, title="LookBack Period Standard Deviation High", group=GROUP_VIX)
+vf_bbl = input.int(20, title="Bolinger Band Length", group=GROUP_VIX)
+vf_mult = input.float(2.0, title="Bollinger Band Standard Devaition Up", minval=1, maxval=5, group=GROUP_VIX)
+vf_lb = input.int(50, title="Look Back Period Percentile High", group=GROUP_VIX)
+vf_ph = input.float(0.85, title="Highest Percentile - 0.90=90%, 0.95=95%, 0.99=99%", group=GROUP_VIX)
+vf_pl = input.float(1.01, title="Lowest Percentile - 1.10=90%, 1.05=95%, 1.01=99%", group=GROUP_VIX)
+vf_show_high = input.bool(false, title="Show High Range - Based on Percentile and LookBack Period?", group=GROUP_VIX)
+vf_show_sd = input.bool(false, title="Show Standard Deviation Line?", group=GROUP_VIX)
+
+// --- Inputs (QFL - Quick Fingers Luc) ---
+useQFL = input.bool(false, "QFL Filtresini Kullan (Sadece Panik Dipler)", group=GROUP_VIX)
+useMomentum = input.bool(false, "Lineer Momentum Filtresini Kullan (Düşen Bıçak Koruması)", group=GROUP_VIX)
+qfl_lookback = input.int(30, "QFL Taban Geriye Bakış (Bar)", minval=10, group=GROUP_VIX)
+qfl_drop_pct = input.float(3.0, "QFL Panik Düşüş Yüzdesi (%)", minval=0.1, step=0.1, group=GROUP_VIX)
+
+// --- Inputs (MTF Engine) ---
+GROUP_MTF = 'Çok Zaman Dilimli Trend (MTF)'
+showMTFAnalysis = input.bool(true, "MTF Trend Analizini Göster", group = GROUP_MTF)
+
+// --- Inputs (ChartPrime - Code 2) ---
+CP_Length = input.int(45, 'Kanal Uzunluğu', group = GROUP_CP)
+showCPChannels = input.bool(true, 'Son Kanalı Göster', group = GROUP_CP)
+CP_Wait = input.bool(true, 'Kırılmayı Bekle', group = GROUP_CP)
+extendCPChannels = input.bool(true, 'Çizgiyi Uzat', group = GROUP_CP)
+enableCP_Liquid = input.bool(true, 'Hacim Arka Planı', group = GROUP_CP)
+CP_top_color = input.color(color.rgb(20, 51, 32, 57), 'Renkler', inline = 'Colors_CP', group = GROUP_CP)
+CP_center_color = input.color(color.gray, '', inline = 'Colors_CP', group = GROUP_CP)
+CP_bottom_color = input.color(color.rgb(54, 15, 15, 65), '', inline = 'Colors_CP', group = GROUP_CP)
+
+// --- Inputs (LuxAlgo - Code 2) ---
+lux_length = input.int(20, 'Salınım Tespit Geri Bakış Dönemi', group = GROUP_LUX)
+lux_mult = input.float(4., 'Eğim Çarpanı', minval = 0, step = .1, group = GROUP_LUX)
+lux_calcMethod = input.string('Atr', 'Eğim Hesaplama Yöntemi', options = ['Atr', 'Stdev', 'Linreg'], group = GROUP_LUX)
+lux_backpaint = input(true, 'Geçmişe Dönük İşaretleme', tooltip = 'Gecikmeli çizgileri geçmişte gösterir. Gerçek zamanlı bilgileri görmek için devre dışı bırakın.', group = GROUP_LUX)
+lux_upCss = input.color(color.teal, 'Yukarı Trend Çizgisi Rengi', group = GROUP_LUX)
+lux_dnCss = input.color(color.red, 'Aşağı Trend Çizgisi Rengi', group = GROUP_LUX)
+showExtLux = input(true, 'Uzatılmış Çizgileri Göster', group = GROUP_LUX)
+
+// --- Inputs (ADM & VPA - from update2.pine) ---
+GROUP_ADM = 'Module 2: Asset Drift Model'
+enable_adm = input.bool(true, "Enable ADM", group=GROUP_ADM)
+i_bgMode_adm = input.string("Kapalı", "Background", options=["Kapalı", "Açık"], group=GROUP_ADM)
+i_bgInt_adm = input.int(75, "BG Intensity", minval=70, maxval=95, group=GROUP_ADM)
+i_barColor_adm = input.bool(true, "Bar Coloring", group=GROUP_ADM)
+
+GROUP_VPA = "Module 4: VPA"
+enable_vpa = input.bool(true, "Enable VPA", group=GROUP_VPA)
+P_vpa = input.int(55, "VPA Period", group=GROUP_VPA)
+calc_method_vpa = input.string("Geometry (Approx)", "Method", options=["Geometry (Approx)", "Intrabar (Precise)"], group=GROUP_VPA)
+
+GROUP_WING = "Module 5: Wings"
+enable_wing = input.bool(true, "Enable Wings", group=GROUP_WING)
+
+GROUP_PEAK = "Module 7: Volume Peaks"
+enable_peak = input.bool(true, "Enable Top-3 Peaks", group=GROUP_PEAK)
+
+GROUP_CVP = "Module 1: Clusters Volume Profile"
+enable_cvp = input.bool(true, "Enable Clusters VP", group=GROUP_CVP)
+lookback_cvp = input.int(200, "Lookback Period", minval=10, group=GROUP_CVP)
+kInput_cvp = input.int(5, "Number of Clusters", minval=2, maxval=10, group=GROUP_CVP)
+iters_cvp = input.int(50, "K-Means Iterations", minval=5, maxval=50, group=GROUP_CVP)
+rowsInput_cvp = input.int(20, "Rows per Cluster VP", minval=2, group=GROUP_CVP)
+vpWidth_cvp = input.int(30, "VP Max Width (bars)", minval=1, group=GROUP_CVP)
+vpOffset_cvp = input.int(2, "VP Right Offset (bars)", minval=0, group=GROUP_CVP)
+
+// --- Inputs (Dashboard) ---
+GROUP_DASH = 'V5 Panel'
+showDashboard = input.bool(true, "V5 Paneli Göster", group = GROUP_DASH)
+wtLength = input.int(10, "Dalga Kanal Uzunluğu", group = GROUP_DASH)
+wtAvgLength = input.int(21, "Dalga Ortalama Uzunluğu", group = GROUP_DASH)
+
+// --- Inputs (Confluence) ---
+confluenceWeightTech = input.float(30, "Teknik Ağırlık %", minval=0, maxval=100, group = GROUP_CONFLUENCE)
+confluenceWeightMomentum = input.float(15, "Momentum Ağırlık %", minval=0, maxval=100, group = GROUP_CONFLUENCE)
+confluenceWeightVol = input.float(20, "Hacim Ağırlık %", minval=0, maxval=100, group = GROUP_CONFLUENCE)
+confluenceWeightTrend = input.float(15, "Trend Ağırlık %", minval=0, maxval=100, group = GROUP_CONFLUENCE)
+confluenceWeightMarket = input.float(15, "Piyasa Ağırlık %", minval=0, maxval=100, group = GROUP_CONFLUENCE)
+confluenceWeightTiming = input.float(5, "Zamanlama Ağırlık %", minval=0, maxval=100, group = GROUP_CONFLUENCE)
+minConfluenceScore = input.int(60, "Min Confluence Skoru", minval=0, maxval=100, group = GROUP_CONFLUENCE)
+
+// --- V5: Yeni İndikatör Inputları ---
+GROUP_RSI = 'RSI Ayarları'
+enable_rsi = input.bool(true, "RSI Aktif", group = GROUP_RSI)
+rsi_base_len = input.int(14, "RSI Periyodu (Baz)", minval=2, group = GROUP_RSI)
+rsi_ob = input.int(70, "Aşırı Alım Seviyesi", group = GROUP_RSI)
+rsi_os = input.int(30, "Aşırı Satım Seviyesi", group = GROUP_RSI)
+
+GROUP_MACD = 'MACD Ayarları'
+enable_macd = input.bool(true, "MACD Aktif", group = GROUP_MACD)
+macd_fast_base = input.int(12, "MACD Hızlı (Baz)", minval=2, group = GROUP_MACD)
+macd_slow_base = input.int(26, "MACD Yavaş (Baz)", minval=2, group = GROUP_MACD)
+macd_signal_base = input.int(9, "MACD Sinyal (Baz)", minval=2, group = GROUP_MACD)
+
+GROUP_ST = 'Supertrend Ayarları'
+enable_supertrend = input.bool(true, "Supertrend Aktif", group = GROUP_ST)
+st_atr_base = input.int(10, "ST ATR Periyodu (Baz)", minval=1, group = GROUP_ST)
+st_factor = input.float(3.0, "ST Çarpan", step=0.1, group = GROUP_ST)
+showSTPlot = input.bool(true, "ST Çizgiyi Göster", group = GROUP_ST)
+
+GROUP_STOCH = 'Stochastic RSI Ayarları'
+enable_stochrsi = input.bool(true, "Stochastic RSI Aktif", group = GROUP_STOCH)
+stoch_rsi_len = input.int(14, "StochRSI Periyodu", minval=2, group = GROUP_STOCH)
+stoch_k = input.int(3, "K Periyodu", group = GROUP_STOCH)
+stoch_d = input.int(3, "D Periyodu", group = GROUP_STOCH)
+
+GROUP_ADX = 'ADX Ayarları'
+enable_adx = input.bool(true, "ADX Aktif", group = GROUP_ADX)
+adx_base_len = input.int(14, "ADX Periyodu (Baz)", minval=2, group = GROUP_ADX)
+adx_trend_threshold = input.int(25, "Trend Eşiği", group = GROUP_ADX)
+
+GROUP_VWAP = 'VWAP Ayarları'
+enable_vwap = input.bool(true, "VWAP Aktif", group = GROUP_VWAP)
+
+GROUP_EMA_RIB = 'EMA Ribbon Ayarları'
+enable_ema_ribbon = input.bool(true, "EMA Ribbon Aktif", group = GROUP_EMA_RIB)
+showEmaRibbonPlot = input.bool(false, "EMA Ribbon Çizgileri Göster", group = GROUP_EMA_RIB)
+
+GROUP_ICHI = 'Ichimoku Ayarları'
+enable_ichimoku = input.bool(true, "Ichimoku Aktif", group = GROUP_ICHI)
+
+//---------------------------------------------------------------------------------------------------------------------}
+//DATA STRUCTURES & VARIABLES
+//---------------------------------------------------------------------------------------------------------------------{
+// --- UDT Definitions ---
+type customAlerts
+    bool internalBullishBOS = false
+    bool internalBearishBOS = false
+    bool internalBullishCHoCH = false
+    bool internalBearishCHoCH = false
+    bool swingBullishBOS = false
+    bool swingBearishBOS = false
+    bool swingBullishCHoCH = false
+    bool swingBearishCHoCH = false
+    bool internalBullishOrderBlock = false
+    bool internalBearishOrderBlock = false
+    bool swingBullishOrderBlock = false
+    bool swingBearishOrderBlock = false
+    bool equalHighs = false
+    bool equalLows = false
+    bool bullishFairValueGap = false
+    bool bearishFairValueGap = false
+    bool F4_BUY = false
+    bool F4_SELL = false
+
+type trailingExtremes
+    float top
+    float bottom
+    int barTime
+    int barIndex
+    int lastTopTime
+    int lastBottomTime
+    int lastTopIndex
+    int lastBottomIndex
+
+type fairValueGap
+    float top
+    float bottom
+    int bias
+    box topBox
+    box bottomBox
+
+type trend
+    int bias
+
+type equalDisplay
+    line l_ine = na
+    label l_abel = na
+
+type pivot
+    float currentLevel
+    float lastLevel
+    bool crossed
+    int barTime = time
+    int barIndex = bar_index
+
+type orderBlock
+    float barHigh
+    float barLow
+    int barTime
+    int barIndex
+    int bias
+
+// --- Variable Declarations ---
+var pivot swingHigh = pivot.new(na, na, false)
+var pivot swingLow = pivot.new(na, na, false)
+var pivot internalHigh = pivot.new(na, na, false)
+var pivot internalLow = pivot.new(na, na, false)
+var pivot equalHigh = pivot.new(na, na, false)
+var pivot equalLow = pivot.new(na, na, false)
+var trend swingTrend = trend.new(0)
+var trend internalTrend = trend.new(0)
+var equalDisplay equalHighDisplay = equalDisplay.new()
+var equalDisplay equalLowDisplay = equalDisplay.new()
+var array<fairValueGap> fairValueGaps = array.new<fairValueGap>()
+var array<float> parsedHighs = array.new<float>()
+var array<float> parsedLows = array.new<float>()
+var array<float> highs = array.new<float>()
+var array<float> lows = array.new<float>()
+var array<int> times = array.new<int>()
+var trailingExtremes trailing = trailingExtremes.new()
+var array<orderBlock> swingOrderBlocks = array.new<orderBlock>()
+var array<orderBlock> internalOrderBlocks = array.new<orderBlock>()
+var array<box> swingOrderBlocksBoxes = array.new<box>()
+var array<box> internalOrderBlocksBoxes = array.new<box>()
+
+var swingBullishColor = swingBullColorInput
+var swingBearishColor = swingBearColorInput
+var fairValueGapBullishColor = fairValueGapsBullColorInput
+var fairValueGapBearishColor = fairValueGapsBearColorInput
+var premiumZoneColor = premiumZoneColorInput
+var discountZoneColor = discountZoneColorInput
+
+varip int currentBarIndex = bar_index
+varip int lastBarIndex = bar_index
+var initialTime = time
+var int matrix_last_bar_index = bar_index
+var int matrix_last_bar_time = time
+matrix_last_bar_index := bar_index
+matrix_last_bar_time := time
+PROJ_LEN = 15
+proj_right_index = bar_index + PROJ_LEN
+customAlerts currentAlerts = customAlerts.new()
+
+// --- Variable Declarations (Code 2: ChartPrime) ---
+var float CP_prev_pivot_high = na
+var int CP_prev_pivot_high_index = na
+var float CP_last_pivot_high = na
+var int CP_last_pivot_high_index = na
+var float CP_prev_pivot_low = na
+var int CP_prev_pivot_low_index = na
+var float CP_last_pivot_low = na
+var int CP_last_pivot_low_index = na
+var int CP_down_count = 0
+var int CP_up_count = 0
+var float CP_down_dydx = 0.
+var float CP_up_dydx = 0.
+var float CP_down_anchor_y = na
+var int CP_down_anchor_x = na
+var float CP_down_offset = 0.
+var float CP_up_anchor_y = na
+var int CP_up_anchor_x = na
+var float CP_up_offset = 0.
+
+// --- Variable Declarations (Code 2: LuxAlgo) ---
+var float lux_upper = na
+var float lux_lower = na
+var float lux_slope_ph = 0.
+var float lux_slope_pl = 0.
+var int lux_upos = 0
+var int lux_dnos = 0
+
+// --- Variable Declarations (Whale Engine) ---
+var float whaleTrust = 1.0
+var int consecutiveLosses = 0
+var int consecutiveWins = 0
+var int signalBar = na
+var int lastTradeBar = 0
+
+var int totalBuySignals = 0
+var int winBuySignals = 0
+var int totalSellSignals = 0
+var int winSellSignals = 0
+var float aiRawScore = 0.0
+F4_buf = 0.0, F42_buf = 0.0 // Buffers for max_bars_back
+max_bars_back(F4_buf, 2000), max_bars_back(F42_buf, 2000)
+
+// Realistic Performance Trackers
+var int dynamicTotalSignals = 0
+var int dynamicWinSignals = 0
+var float maxDrawdown = 0.0
+var float totalProfit = 0.0
+var float peakProfit = 0.0
+
+// --- NEW MODULE VARIABLES ---
+var color[] PALETTE_CVP = array.from(#2196f3, #f44336, #4caf50, #ff9800, #9c27b0, #00bcd4, #ffeb3b, #e91e63, #795548, #607d8b)
+var box[] allBoxes_cvp = array.new_box()
+var label[] allLabels_cvp = array.new_label()
+var line[] allLines_cvp = array.new_line()
+
+// ADM & VPA Global State
+var float t_adm_pct      = 0.0
+var string t_adm_dir     = "YATAY"
+var color t_adm_clr      = color.gray
+
+cBull_adm = #089981, cBear_adm = #F23645, cWeak_adm = #ff9800, cNeut_adm = #878b94
+HORIZON_adm = 60, SAMPLE_TOTAL_adm = 756, MIN_OBS_STRICT_adm = 10, T_CRIT_95_adm = 2.00, T_CRIT_90_adm = 1.65, MIN_DRIFT_ECON_adm = 0.03, MAX_DEV_SD_adm = 1.5, SIGN_Z_CRIT_adm = 1.65, ANN_FACTOR_adm = 252.0 / HORIZON_adm
+
+var int classCode_adm = 0
+var string classReason_adm = ""
+var int classification_adm = 0
+var int direction_adm = 0
+var string evidenceStr_adm = "YOK"
+var string biasStr_adm = "Sapma Yok"
+
+// --- Consolidated MTF Variables ---
+var int mtfBullCount = 0
+var int mtfBearCount = 0
+var string mtfConsensus = ""
+var color mtfConsensusColor = color.gray
+var string momentumState = "NÖTR"
+var color momentumColor = color.gray
+var string volRegime = "NORMAL"
+var color volRegimeColor = color.gray
+
+// --- Levels & Zones Global Objects ---
+var line dTopL = line.new(na, na, na, na, xloc = xloc.bar_time)
+var line dBotL = line.new(na, na, na, na, xloc = xloc.bar_time)
+var label dTopLbl = label.new(na, na, xloc = xloc.bar_time, style = label.style_label_left, size = size.small)
+var label dBotLbl = label.new(na, na, xloc = xloc.bar_time, style = label.style_label_left, size = size.small)
+
+var line wTopL = line.new(na, na, na, na, xloc = xloc.bar_time)
+var line wBotL = line.new(na, na, na, na, xloc = xloc.bar_time)
+var label wTopLbl = label.new(na, na, xloc = xloc.bar_time, style = label.style_label_left, size = size.small)
+var label wBotLbl = label.new(na, na, xloc = xloc.bar_time, style = label.style_label_left, size = size.small)
+
+var line mTopL = line.new(na, na, na, na, xloc = xloc.bar_time)
+var line mBotL = line.new(na, na, na, na, xloc = xloc.bar_time)
+var label mTopLbl = label.new(na, na, xloc = xloc.bar_time, style = label.style_label_left, size = size.small)
+var label mBotLbl = label.new(na, na, xloc = xloc.bar_time, style = label.style_label_left, size = size.small)
+
+var label premiumLbl = label.new(na, na, xloc = xloc.bar_index, size = size.normal)
+var box premiumBox = box.new(na, na, na, na, xloc = xloc.bar_index)
+var label equiLbl = label.new(na, na, xloc = xloc.bar_index, size = size.normal)
+var box equiBox = box.new(na, na, na, na, xloc = xloc.bar_index)
+var label discountLbl = label.new(na, na, xloc = xloc.bar_index, size = size.normal)
+var box discountBox = box.new(na, na, na, na, xloc = xloc.bar_index)
+
+// --- MASTER SWITCH DETERMINATION ---
+isF4Active = F4Mode == "Aktif"
+useLen = tradeMode == "Scalp" ? scalpF4Len : swingF4Len
+useAlpha = tradeMode == "Scalp" ? scalpF4Alpha : swingF4Alpha
+useFiboLen = tradeMode == "Scalp" ? scalpFiboLen : swingFiboLen
+useFiboAlpha = tradeMode == "Scalp" ? scalpFiboAlpha : swingFiboAlpha
+
+// Dynamic SMC Lengths
+dynamicSwingLen = tradeMode == "Scalp" ? 20 : 50
+dynamicEqLen = tradeMode == "Scalp" ? 2 : 3
+
+// ===============================
+// V5: ÇEKIRDEK TF ADAPTASYON ÇARPANI
+// Tüm formülleri timeframe'e göre otomatik adapte eder
+// ===============================
+tfSec = timeframe.in_seconds()
+tfAdaptFactor = tfSec <= 60 ? 0.5 : tfSec <= 300 ? 0.7 : tfSec <= 900 ? 0.85 : tfSec <= 3600 ? 1.0 : tfSec <= 14400 ? 1.3 : 1.6
+
+// TF-Adaptif Periyotlar (yuvarlama ile int'e çevir)
+adapt_rsi_len = math.max(int(math.round(rsi_base_len * tfAdaptFactor)), 3)
+adapt_macd_fast = math.max(int(math.round(macd_fast_base * tfAdaptFactor)), 3)
+adapt_macd_slow = math.max(int(math.round(macd_slow_base * tfAdaptFactor)), 5)
+adapt_macd_signal = math.max(int(math.round(macd_signal_base * tfAdaptFactor)), 2)
+adapt_st_atr = math.max(int(math.round(st_atr_base * tfAdaptFactor)), 2)
+adapt_adx_len = math.max(int(math.round(adx_base_len * tfAdaptFactor)), 3)
+adapt_bb_len = math.max(int(math.round(20 * tfAdaptFactor)), 5)
+adapt_slope_len = math.max(int(math.round(20 * tfAdaptFactor)), 5)
+adapt_zscore_len = math.max(int(math.round(50 * tfAdaptFactor)), 10)
+adapt_atr_len = math.max(int(math.round(14 * tfAdaptFactor)), 3)
+
+// =====================================================================================
+// V5: YENİ İNDİKATÖRLER (TÜMÜ TF-ADAPTİF) - Moved Up to Fix Forward References
+// =====================================================================================
+
+// ===============================
+// 7. RSI (TF-Adaptif)
+// ===============================
+v5_rsi = enable_rsi ? ta.rsi(close, adapt_rsi_len) : 50.0
+v5_rsi_state = v5_rsi >= rsi_ob ? "AŞIRI ALIM" : v5_rsi <= rsi_os ? "AŞIRI SATIM" : v5_rsi > 50 ? "BOĞA" : v5_rsi < 50 ? "AYI" : "NÖTR"
+v5_rsi_color = v5_rsi >= rsi_ob ? color.red : v5_rsi <= rsi_os ? color.green : v5_rsi > 55 ? color.new(color.green, 40) : v5_rsi < 45 ? color.new(color.red, 40) : color.gray
+
+// ===============================
+// 8. MACD (TF-Adaptif)
+// ===============================
+[v5_macd_line, v5_macd_signal, v5_macd_hist] = if enable_macd
+    ta.macd(close, adapt_macd_fast, adapt_macd_slow, adapt_macd_signal)
+else
+    [0.0, 0.0, 0.0]
+v5_macd_bull = v5_macd_hist > 0
+v5_macd_cross_up = ta.crossover(v5_macd_line, v5_macd_signal)
+v5_macd_cross_dn = ta.crossunder(v5_macd_line, v5_macd_signal)
+v5_macd_state = v5_macd_hist > 0 and v5_macd_hist > v5_macd_hist[1] ? "GÜÇLÜ BOĞA" : v5_macd_hist > 0 ? "BOĞA" : v5_macd_hist < 0 and v5_macd_hist < v5_macd_hist[1] ? "GÜÇLÜ AYI" : "AYI"
+v5_macd_color = v5_macd_hist > 0 and v5_macd_hist > v5_macd_hist[1] ? color.green : v5_macd_hist > 0 ? color.new(color.green, 40) : v5_macd_hist < 0 and v5_macd_hist < v5_macd_hist[1] ? color.red : color.new(color.red, 40)
+
+// ===============================
+// 9. SUPERTREND (TF-Adaptif)
+// ===============================
+[v5_st_val, v5_st_dir] = if enable_supertrend
+    ta.supertrend(st_factor, adapt_st_atr)
+else
+    [close, 1]
+v5_st_bull = v5_st_dir < 0
+v5_st_flip_up = v5_st_dir < 0 and v5_st_dir[1] >= 0
+v5_st_flip_dn = v5_st_dir >= 0 and v5_st_dir[1] < 0
+v5_st_state = v5_st_bull ? "YUKARI TREND" : "AŞAĞI TREND"
+v5_st_color = v5_st_bull ? color.green : color.red
+
+// ===============================
+// 10. STOCHASTIC RSI (TF-Adaptif)
+// ===============================
+v5_stoch_rsi_raw = enable_stochrsi ? ta.rsi(close, adapt_rsi_len) : 50.0
+v5_stoch_rsi_k_raw = ta.stoch(v5_stoch_rsi_raw, v5_stoch_rsi_raw, v5_stoch_rsi_raw, stoch_rsi_len)
+v5_stoch_k = ta.sma(v5_stoch_rsi_k_raw, stoch_k)
+v5_stoch_d = ta.sma(v5_stoch_k, stoch_d)
+v5_stoch_state = v5_stoch_k > 80 ? "AŞIRI ALIM" : v5_stoch_k < 20 ? "AŞIRI SATIM" : v5_stoch_k > v5_stoch_d ? "BOĞA" : "AYI"
+v5_stoch_color = v5_stoch_k > 80 ? color.red : v5_stoch_k < 20 ? color.green : v5_stoch_k > v5_stoch_d ? color.new(color.green, 40) : color.new(color.red, 40)
+
+// ===============================
+// 11. ADX (TF-Adaptif)
+// ===============================
+[v5_diplus, v5_diminus, v5_adx] = if enable_adx
+    ta.dmi(adapt_adx_len, adapt_adx_len)
+else
+    [0.0, 0.0, 0.0]
+v5_adx_trending = v5_adx > adx_trend_threshold
+v5_adx_state = not v5_adx_trending ? "YATAY (RANGE)" : v5_diplus > v5_diminus ? "GÜÇLÜ BOĞA" : "GÜÇLÜ AYI"
+v5_adx_color = not v5_adx_trending ? color.gray : v5_diplus > v5_diminus ? color.green : color.red
+
+// ===============================
+// 12. VWAP
+// ===============================
+v5_vwap = enable_vwap ? ta.vwap(hlc3) : close
+v5_vwap_above = close > v5_vwap
+v5_vwap_state = v5_vwap_above ? "ÜZERİNDE (BOĞA)" : "ALTINDA (AYI)"
+v5_vwap_color = v5_vwap_above ? color.green : color.red
+
+// ===============================
+// 13. EMA RIBBON (8, 13, 21, 34, 55 - TF-Adaptif)
+// ===============================
+v5_ema8 = ta.ema(close, math.max(int(math.round(8 * tfAdaptFactor)), 3))
+v5_ema13 = ta.ema(close, math.max(int(math.round(13 * tfAdaptFactor)), 3))
+v5_ema21 = ta.ema(close, math.max(int(math.round(21 * tfAdaptFactor)), 5))
+v5_ema34 = ta.ema(close, math.max(int(math.round(34 * tfAdaptFactor)), 5))
+v5_ema55 = ta.ema(close, math.max(int(math.round(55 * tfAdaptFactor)), 8))
+v5_ribbon_bull = v5_ema8 > v5_ema13 and v5_ema13 > v5_ema21 and v5_ema21 > v5_ema34 and v5_ema34 > v5_ema55
+v5_ribbon_bear = v5_ema8 < v5_ema13 and v5_ema13 < v5_ema21 and v5_ema21 < v5_ema34 and v5_ema34 < v5_ema55
+v5_ribbon_state = v5_ribbon_bull ? "TAM HIZALANMA ↑" : v5_ribbon_bear ? "TAM HIZALANMA ↓" : v5_ema8 > v5_ema55 ? "BOĞA EğİLİM" : "AYI EğİLİM"
+v5_ribbon_color = v5_ribbon_bull ? color.green : v5_ribbon_bear ? color.red : v5_ema8 > v5_ema55 ? color.new(color.green, 40) : color.new(color.red, 40)
+
+// ===============================
+// 14. ICHIMOKU (Kısa Versiyon - TF-Adaptif)
+// ===============================
+ichi_tenkan_len = math.max(int(math.round(9 * tfAdaptFactor)), 3)
+ichi_kijun_len = math.max(int(math.round(26 * tfAdaptFactor)), 5)
+ichi_senkou_len = math.max(int(math.round(52 * tfAdaptFactor)), 10)
+v5_tenkan = (ta.highest(high, ichi_tenkan_len) + ta.lowest(low, ichi_tenkan_len)) / 2
+v5_kijun = (ta.highest(high, ichi_kijun_len) + ta.lowest(low, ichi_kijun_len)) / 2
+v5_senkou_a = (v5_tenkan + v5_kijun) / 2
+v5_senkou_b = (ta.highest(high, ichi_senkou_len) + ta.lowest(low, ichi_senkou_len)) / 2
+v5_ichi_above_kumo = close > math.max(v5_senkou_a, v5_senkou_b)
+v5_ichi_below_kumo = close < math.min(v5_senkou_a, v5_senkou_b)
+v5_ichi_tk_cross_bull = ta.crossover(v5_tenkan, v5_kijun)
+v5_ichi_tk_cross_bear = ta.crossunder(v5_tenkan, v5_kijun)
+v5_ichi_ssb_cross_bull = ta.crossover(v5_senkou_a, v5_senkou_b)
+v5_ichi_ssb_cross_bear = ta.crossunder(v5_senkou_a, v5_senkou_b)
+v5_ichi_cloud_turn_bull = v5_senkou_a > v5_senkou_b and v5_senkou_a[1] <= v5_senkou_b[1]
+v5_ichi_cloud_turn_bear = v5_senkou_a < v5_senkou_b and v5_senkou_a[1] >= v5_senkou_b[1]
+v5_ichi_state = v5_ichi_above_kumo ? "KUMO ÜSTÜ (BOĞA)" : v5_ichi_below_kumo ? "KUMO ALTI (AYI)" : "KUMO İÇİNDE"
+v5_ichi_color = v5_ichi_above_kumo ? color.green : v5_ichi_below_kumo ? color.red : color.gray
+v5_ribbon_neutral = not v5_ribbon_bull and not v5_ribbon_bear
+
+
+// Initial Object Creation (Always initialize to fixed capacity for stability)
+if barstate.isfirst
+    for index = 1 to 20 by 1
+        swingOrderBlocksBoxes.push(box.new(na, na, na, na, xloc = xloc.bar_time, extend = extend.none))
+        internalOrderBlocksBoxes.push(box.new(na, na, na, na, xloc = xloc.bar_time, extend = extend.none))
+
+// --- ChartPrime & LuxAlgo Line Initializations (Code 2) ---
+var down_trend_top = line.new(na, na, na, na, color = na, width = 2)
+var down_trend_bottom = line.new(na, na, na, na, color = na, width = 2)
+var down_trend_top_zone = line.new(na, na, na, na, color = color.new(color.black, 100), width = 2)
+var down_trend_bottom_zone = line.new(na, na, na, na, color = color.new(color.black, 100), width = 2)
+var down_trend_top_zone_mid = line.new(na, na, na, na, color = color.new(color.black, 100), width = 2)
+var down_trend_bottom_zone_mid = line.new(na, na, na, na, color = color.new(color.black, 100), width = 2)
+var down_trend_center = line.new(na, na, na, na, color = na, width = 2, style = line.style_dashed)
+var down_break_label = label.new(na, na, na, textcolor = color.new(color.silver, 0))
+var down_trend_top_zone_mid_fill_1 = linefill.new(down_trend_top, down_trend_top_zone_mid, color.new(CP_top_color, 75))
+var down_trend_bottom_zone_mid_fill_1 = linefill.new(down_trend_bottom, down_trend_bottom_zone_mid, color.new(CP_bottom_color, 75))
+var down_trend_top_zone_mid_fill = linefill.new(down_trend_top_zone_mid, down_trend_top_zone, color.new(CP_top_color, 92))
+var down_trend_bottom_zone_mid_fill = linefill.new(down_trend_bottom_zone_mid, down_trend_bottom_zone, color.new(CP_bottom_color, 92))
+
+var up_trend_top = line.new(na, na, na, na, color = na, width = 2)
+var up_trend_bottom = line.new(na, na, na, na, color = na, width = 2)
+var up_trend_top_zone = line.new(na, na, na, na, color = color.new(color.black, 100), width = 2)
+var up_trend_bottom_zone = line.new(na, na, na, na, color = color.new(color.black, 100), width = 2)
+var up_trend_top_zone_mid = line.new(na, na, na, na, color = color.new(color.black, 100), width = 2)
+var up_trend_bottom_zone_mid = line.new(na, na, na, na, color = color.new(color.black, 100), width = 2)
+var up_trend_center = line.new(na, na, na, na, color = na, width = 2, style = line.style_dashed)
+var up_break_label = label.new(na, na, na, textcolor = color.new(color.silver, 0), style = label.style_label_up)
+var up_trend_top_fill_1 = linefill.new(up_trend_top, up_trend_top_zone_mid, color.new(CP_top_color, 75))
+var up_trend_bottom_fill_1 = linefill.new(up_trend_bottom, up_trend_bottom_zone_mid, color.new(CP_bottom_color, 75))
+var top_trend_top_zone_mid_fill = linefill.new(up_trend_top_zone_mid, up_trend_top_zone, color.new(CP_top_color, 92))
+var top_trend_bottom_zone_mid_fill = linefill.new(up_trend_bottom_zone_mid, up_trend_bottom_zone, color.new(CP_bottom_color, 92))
+
+var lux_uptl = line.new(na, na, na, na, color = lux_upCss, style = line.style_dashed, extend = extend.none)
+var lux_dntl = line.new(na, na, na, na, color = lux_dnCss, style = line.style_dashed, extend = extend.none)
+
+// Common Variables
+bearishOrderBlockMitigationSource = orderBlockMitigationInput == "Kapanış" ? close : high
+bullishOrderBlockMitigationSource = orderBlockMitigationInput == "Kapanış" ? close : low
+atrMeasure = ta.atr(200)
+volatilityMeasure = orderBlockFilterInput == "Atr" ? atrMeasure : ta.cum(ta.tr) / bar_index
+highVolatilityBar = high - low >= 2 * volatilityMeasure
+parsedHigh = highVolatilityBar ? low : high
+parsedLow = highVolatilityBar ? high : low
+
+// Array Updates
+parsedHighs.push(parsedHigh)
+parsedLows.push(parsedLow)
+highs.push(high)
+lows.push(low)
+times.push(time)
+
+// [NEW] Global Volume SMA for Consistency
+globalVolSMA = ta.sma(volume, 20)
+
+//---------------------------------------------------------------------------------------------------------------------}
+//USER-DEFINED FUNCTIONS
+//---------------------------------------------------------------------------------------------------------------------{
+leg(int size) =>
+    var leg = 0
+    newLegHigh = high[size] > ta.highest(size)
+    newLegLow = low[size] < ta.lowest(size)
+    if newLegHigh
+        leg := BEARISH_LEG
+    else if newLegLow
+        leg := BULLISH_LEG
+    leg
+
+startOfNewLeg(int leg) =>
+    ta.change(leg) != 0
+
+startOfBearishLeg(int leg) =>
+    ta.change(leg) == -1
+
+startOfBullishLeg(int leg) =>
+    ta.change(leg) == +1
+
+drawLabel(int labelTime, float labelPrice, string tag, color labelColor, string labelStyle) =>
+    var label l_abel = na
+    l_abel.delete()
+    l_abel := label.new(chart.point.new(labelTime, na, labelPrice), tag, xloc.bar_time, color = color(na), textcolor = labelColor, style = labelStyle, size = size.normal)
+    l_abel
+
+drawEqualHighLow(pivot p_ivot, float level, int size, bool equalHigh) =>
+    equalDisplay e_qualDisplay = equalHigh ? equalHighDisplay : equalLowDisplay
+    string tag = 'Eşit Dip'
+    color equalColor = swingBullishColor
+    string labelStyle = label.style_label_up
+    if equalHigh
+        tag := 'Eşit Zirve'
+        equalColor := swingBearishColor
+        labelStyle := label.style_label_down
+    line.delete(e_qualDisplay.l_ine)
+    label.delete(e_qualDisplay.l_abel)
+    e_qualDisplay.l_ine := line.new(chart.point.new(p_ivot.barTime, na, p_ivot.currentLevel), chart.point.new(time[size], na, level), xloc = xloc.bar_time, color = equalColor, style = line.style_dotted)
+    labelPosition = math.round(0.5 * (p_ivot.barIndex + bar_index - size))
+    e_qualDisplay.l_abel := label.new(chart.point.new(na, labelPosition, level), tag, xloc.bar_index, color = color(na), textcolor = equalColor, style = labelStyle, size = equalHighsLowsSizeInput)
+    e_qualDisplay.l_abel
+
+getCurrentStructure(int size, bool equalHighLow = false, bool internal = false) =>
+    currentLeg = leg(size)
+    newPivot = startOfNewLeg(currentLeg)
+    pivotLow = startOfBullishLeg(currentLeg)
+    pivotHigh = startOfBearishLeg(currentLeg)
+    if newPivot
+        if pivotLow
+            pivot p_ivot = equalHighLow ? equalLow : internal ? internalLow : swingLow
+            if equalHighLow and math.abs(p_ivot.currentLevel - low[size]) < equalHighsLowsThresholdInput * atrMeasure
+                drawEqualHighLow(p_ivot, low[size], size, false)
+                currentAlerts.equalLows := true
+            p_ivot.lastLevel := p_ivot.currentLevel
+            p_ivot.currentLevel := low[size]
+            p_ivot.crossed := false
+            p_ivot.barTime := time[size]
+            p_ivot.barIndex := bar_index[size]
+            if not equalHighLow and not internal
+                trailing.bottom := p_ivot.currentLevel
+                trailing.barTime := p_ivot.barTime
+                trailing.barIndex := p_ivot.barIndex
+                trailing.lastBottomTime := p_ivot.barTime
+            if showSwingsInput and not internal and not equalHighLow
+                drawLabel(time[size], p_ivot.currentLevel, p_ivot.currentLevel < p_ivot.lastLevel ? DUSUK_DIP : YUKSEK_DIP, swingBullishColor, label.style_label_up)
+        else
+            pivot p_ivot = equalHighLow ? equalHigh : internal ? internalHigh : swingHigh
+            if equalHighLow and math.abs(p_ivot.currentLevel - high[size]) < equalHighsLowsThresholdInput * atrMeasure
+                drawEqualHighLow(p_ivot, high[size], size, true)
+                currentAlerts.equalHighs := true
+            p_ivot.lastLevel := p_ivot.currentLevel
+            p_ivot.currentLevel := high[size]
+            p_ivot.crossed := false
+            p_ivot.barTime := time[size]
+            p_ivot.barIndex := bar_index[size]
+            if not equalHighLow and not internal
+                trailing.top := p_ivot.currentLevel
+                trailing.barTime := p_ivot.barTime
+                trailing.barIndex := p_ivot.barIndex
+                trailing.lastTopTime := p_ivot.barTime
+            if showSwingsInput and not internal and not equalHighLow
+                drawLabel(time[size], p_ivot.currentLevel, p_ivot.currentLevel > p_ivot.lastLevel ? YUKSEK_ZIRVE : DUSUK_ZIRVE, swingBearishColor, label.style_label_down)
+
+drawStructure(pivot p_ivot, string tag, color structureColor, string lineStyle, string labelStyle, string labelSize) =>
+    line.new(chart.point.from_index(p_ivot.barIndex, p_ivot.currentLevel), chart.point.from_index(bar_index, p_ivot.currentLevel), xloc = xloc.bar_index, color = structureColor, style = lineStyle)
+    label.new(chart.point.from_index(bar_index, p_ivot.currentLevel), tag, xloc = xloc.bar_index, color = color(na), textcolor = structureColor, style = labelStyle, size = labelSize)
+
+deleteOrderBlocks(bool internal = false) =>
+    array<orderBlock> orderBlocks = internal ? internalOrderBlocks : swingOrderBlocks
+    
+    // SAFE REVERSE LOOP FOR DELETION
+    if orderBlocks.size() > 0
+        for i = orderBlocks.size() - 1 to 0
+            ob_check = orderBlocks.get(i)
+            crossed = false
+            if bearishOrderBlockMitigationSource > ob_check.barHigh and ob_check.bias == BEARISH
+                crossed := true
+                if internal
+                    currentAlerts.internalBearishOrderBlock := true
+                else
+                    currentAlerts.swingBearishOrderBlock := true
+            else if bullishOrderBlockMitigationSource < ob_check.barLow and ob_check.bias == BULLISH
+                crossed := true
+                if internal
+                    currentAlerts.internalBullishOrderBlock := true
+                else
+                    currentAlerts.swingBullishOrderBlock := true
+            
+            if crossed
+                orderBlocks.remove(i)
+
+// storeOrdeBlock function deleted to resolve warnings (inlined below)
+
+
+drawOrderBlocks(bool internal = false) =>
+    array<orderBlock> orderBlocks = internal ? internalOrderBlocks : swingOrderBlocks
+    orderBlocksSize = orderBlocks.size()
+    if orderBlocksSize > 0
+        maxOrderBlocks = internal ? internalOrderBlocksSizeInput : swingOrderBlocksSizeInput
+        array<orderBlock> parsedOrdeBlocks = orderBlocks.slice(0, math.min(maxOrderBlocks, orderBlocksSize))
+        array<box> b_oxes = internal ? internalOrderBlocksBoxes : swingOrderBlocksBoxes
+        for [index, eachOrderBlock] in parsedOrdeBlocks
+            if index >= b_oxes.size()
+                break
+            orderBlockColor = internal ? eachOrderBlock.bias == BEARISH ? internalBearishOrderBlockColor : internalBullishOrderBlockColor : eachOrderBlock.bias == BEARISH ? swingBearishOrderBlockColor : swingBullishOrderBlockColor
+            box b_ox = b_oxes.get(index)
+            b_ox.set_top_left_point(chart.point.new(eachOrderBlock.barTime, na, eachOrderBlock.barHigh))
+            b_ox.set_bottom_right_point(chart.point.new(time, na, eachOrderBlock.barLow))
+            b_ox.set_border_color(internal ? na : orderBlockColor)
+            b_ox.set_bgcolor(orderBlockColor)
+
+displayStructure(bool internal = false) =>
+    var bullishBar = true
+    var bearishBar = true
+    if internalFilterConfluenceInput
+        bullishBar := high - math.max(close, open) < math.min(close, open - low)
+        bearishBar := high - math.max(close, open) > math.min(close, open - low)
+    pivot p_ivot = internal ? internalHigh : swingHigh
+    trend t_rend = internal ? internalTrend : swingTrend
+    lineStyle = internal ? line.style_dashed : line.style_solid
+    labelSize = internal ? internalStructureSize : swingStructureSize
+    extraCondition = internal ? internalHigh.currentLevel != swingHigh.currentLevel and bullishBar : true
+    bullishColor = internal ? internalBullColorInput : swingBullColorInput
+    if ta.crossover(close, p_ivot.currentLevel) and not p_ivot.crossed and extraCondition
+        string tag = t_rend.bias == BEARISH ? Kader_DEGISIMI : YAPI_DISI
+        if internal
+            currentAlerts.internalBullishCHoCH := tag == Kader_DEGISIMI
+            currentAlerts.internalBullishBOS := tag == YAPI_DISI
+        else
+            currentAlerts.swingBullishCHoCH := tag == Kader_DEGISIMI
+            currentAlerts.swingBullishBOS := tag == YAPI_DISI
+        p_ivot.crossed := true
+        t_rend.bias := BULLISH
+        displayCondition = internal ? showInternalsInput and (showInternalBullInput == "Tümü" or showInternalBullInput == "Trend Devamı" and tag != Kader_DEGISIMI or showInternalBullInput == "Trend Dönüşü" and tag == Kader_DEGISIMI) : showStructureInput and (showSwingBullInput == "Tümü" or showSwingBullInput == "Trend Devamı" and tag != Kader_DEGISIMI or showSwingBullInput == "Trend Dönüşü" and tag == Kader_DEGISIMI)
+        if displayCondition
+            drawStructure(p_ivot, tag, bullishColor, lineStyle, label.style_label_down, labelSize)
+        if internal and showInternalOrderBlocksInput or not internal and showSwingOrderBlocksInput
+            // storeOrdeBlock INLINED (BULLISH)
+            array<float> a_rray = parsedLows.slice(p_ivot.barIndex, bar_index)
+            int parsedIndex = p_ivot.barIndex + a_rray.indexof(a_rray.min())
+            
+            // [NEW] SMART OB VALIDATION (Inlined)
+            volValidation = volume[bar_index - parsedIndex] > globalVolSMA[bar_index - parsedIndex]
+            
+            if volValidation
+                orderBlock o_rderBlock = orderBlock.new(parsedHighs.get(parsedIndex), parsedLows.get(parsedIndex), times.get(parsedIndex), parsedIndex, BULLISH)
+                array<orderBlock> orderBlocks = internal ? internalOrderBlocks : swingOrderBlocks
+                if orderBlocks.size() >= 100
+                    orderBlocks.pop()
+                orderBlocks.unshift(o_rderBlock)
+    p_ivot := internal ? internalLow : swingLow
+    extraCondition := internal ? internalLow.currentLevel != swingLow.currentLevel and bearishBar : true
+    bearishColor = internal ? internalBearColorInput : swingBearColorInput
+    if ta.crossunder(close, p_ivot.currentLevel) and not p_ivot.crossed and extraCondition
+        string tag = t_rend.bias == BULLISH ? Kader_DEGISIMI : YAPI_DISI
+        if internal
+            currentAlerts.internalBearishCHoCH := tag == Kader_DEGISIMI
+            currentAlerts.internalBearishBOS := tag == YAPI_DISI
+        else
+            currentAlerts.swingBearishCHoCH := tag == Kader_DEGISIMI
+            currentAlerts.swingBearishBOS := tag == YAPI_DISI
+        p_ivot.crossed := true
+        t_rend.bias := BEARISH
+        displayCondition = internal ? showInternalsInput and (showInternalBearInput == "Tümü" or showInternalBearInput == "Trend Devamı" and tag != Kader_DEGISIMI or showInternalBearInput == "Trend Dönüşü" and tag == Kader_DEGISIMI) : showStructureInput and (showSwingBearInput == "Tümü" or showSwingBearInput == "Trend Devamı" and tag != Kader_DEGISIMI or showSwingBearInput == "Trend Dönüşü" and tag == Kader_DEGISIMI)
+        if displayCondition
+            drawStructure(p_ivot, tag, bearishColor, lineStyle, label.style_label_up, labelSize)
+        if internal and showInternalOrderBlocksInput or not internal and showSwingOrderBlocksInput
+            // storeOrdeBlock INLINED (BEARISH)
+            array<float> a_rray = parsedHighs.slice(p_ivot.barIndex, bar_index)
+            int parsedIndex = p_ivot.barIndex + a_rray.indexof(a_rray.max())
+            
+            // [NEW] SMART OB VALIDATION (Inlined)
+            volValidation = volume[bar_index - parsedIndex] > globalVolSMA[bar_index - parsedIndex]
+            
+            if volValidation
+                orderBlock o_rderBlock = orderBlock.new(parsedHighs.get(parsedIndex), parsedLows.get(parsedIndex), times.get(parsedIndex), parsedIndex, BEARISH)
+                array<orderBlock> orderBlocks = internal ? internalOrderBlocks : swingOrderBlocks
+                if orderBlocks.size() >= 100
+                    orderBlocks.pop()
+                orderBlocks.unshift(o_rderBlock)
+
+fairValueGapBox(leftTime, rightTime, topPrice, bottomPrice, boxColor) =>
+    box.new(chart.point.new(leftTime, na, topPrice), chart.point.new(time + fairValueGapsExtendInput * timeframe.in_seconds(), na, bottomPrice), xloc = xloc.bar_time, border_color = boxColor, bgcolor = boxColor)
+
+deleteFairValueGaps() =>
+    for [index, eachFairValueGap] in fairValueGaps
+        if low < eachFairValueGap.bottom and eachFairValueGap.bias == BULLISH or high > eachFairValueGap.top and eachFairValueGap.bias == BEARISH
+            eachFairValueGap.topBox.delete()
+            eachFairValueGap.bottomBox.delete()
+            fairValueGaps.remove(index)
+
+drawFairValueGaps() =>
+    [lastClose, lastOpen, lastTime, currentHigh, currentLow, currentTime, last2High, last2Low] = request.security(syminfo.tickerid, fairValueGapsTimeframeInput, [close[1], open[1], time[1], high[0], low[0], time[0], high[2], low[2]], lookahead = barmerge.lookahead_on)
+    barDeltaPercent = (lastClose - lastOpen) / (lastOpen * 100)
+    newTimeframe = timeframe.change(fairValueGapsTimeframeInput)
+    threshold = fairValueGapsThresholdInput ? ta.cum(math.abs(newTimeframe ? barDeltaPercent : 0)) / bar_index * 2 : 0
+    bullishFairValueGap = currentLow > last2High and lastClose > last2High and barDeltaPercent > threshold and newTimeframe
+    bearishFairValueGap = currentHigh < last2Low and lastClose < last2Low and -barDeltaPercent > threshold and newTimeframe
+    if bullishFairValueGap
+        currentAlerts.bullishFairValueGap := true
+        leftTime = time[2] // Get time of 2 bars ago
+        fairValueGaps.unshift(fairValueGap.new(currentLow, last2High, BULLISH, fairValueGapBox(leftTime, currentTime, currentLow, math.avg(currentLow, last2High), fairValueGapsBullColorInput), fairValueGapBox(leftTime, currentTime, math.avg(currentLow, last2High), last2High, fairValueGapsBullColorInput)))
+    if bearishFairValueGap
+        currentAlerts.bearishFairValueGap := true
+        leftTime = time[2] // Get time of 2 bars ago
+        fairValueGaps.unshift(fairValueGap.new(currentHigh, last2Low, BEARISH, fairValueGapBox(leftTime, currentTime, currentHigh, math.avg(currentHigh, last2Low), fairValueGapsBearColorInput), fairValueGapBox(leftTime, currentTime, math.avg(currentHigh, last2Low), last2Low, fairValueGapsBearColorInput)))
+
+drawLevels(string tf, bool sameTimeframe, color levelColor, string styleStr, line topLine, line bottomLine, label topLabel, label bottomLabel) =>
+    [topLevel, bottomLevel, leftTime, rightTime] = request.security(syminfo.tickerid, tf, [high[1], low[1], time[1], time], lookahead = barmerge.lookahead_on)
+    float parsedTop = sameTimeframe ? high : topLevel
+    float parsedBottom = sameTimeframe ? low : bottomLevel
+    int parsedLeftTime = sameTimeframe ? time : leftTime
+    int parsedRightTime = sameTimeframe ? time : rightTime
+    int parsedTopTime = time
+    int parsedBottomTime = time
+    if not sameTimeframe
+        int leftIndex = times.binary_search_rightmost(parsedLeftTime)
+        int rightIndex = times.binary_search_rightmost(parsedRightTime)
+        array<int> timeArray = times.slice(leftIndex, rightIndex)
+        array<float> topArray = highs.slice(leftIndex, rightIndex)
+        array<float> bottomArray = lows.slice(leftIndex, rightIndex)
+        parsedTopTime := timeArray.size() > 0 ? timeArray.get(topArray.indexof(topArray.max())) : time
+        parsedBottomTime := timeArray.size() > 0 ? timeArray.get(bottomArray.indexof(bottomArray.min())) : time
+    string tfName = tf == "D" ? "Günlük" : tf == "W" ? "Haftalık" : tf == "M" ? "Aylık" : tf
+    lineStyle = styleStr == "Kesikli" ? line.style_dashed : styleStr == "Sürekli" ? line.style_solid : line.style_dotted
+    
+    if not na(parsedTop) and not na(parsedTopTime)
+        topLine.set_first_point(chart.point.new(parsedTopTime, na, parsedTop))
+        topLine.set_second_point(chart.point.from_index(bar_index + 20, parsedTop))
+        topLine.set_extend(extend.none)
+        topLine.set_color(levelColor)
+        topLine.set_style(lineStyle)
+        topLabel.set_point(chart.point.new(matrix_last_bar_time, na, parsedTop))
+        topLabel.set_text(str.format('{0} Yüksek', tfName))
+        topLabel.set_textcolor(levelColor)
+    else
+        topLine.set_first_point(chart.point.new(na, na, na))
+        topLine.set_extend(extend.none)
+        topLabel.set_point(chart.point.new(na, na, na))
+
+    if not na(parsedBottom) and not na(parsedBottomTime)
+        bottomLine.set_first_point(chart.point.new(parsedBottomTime, na, parsedBottom))
+        bottomLine.set_second_point(chart.point.from_index(bar_index + 20, parsedBottom))
+        bottomLine.set_extend(extend.none)
+        bottomLine.set_color(levelColor)
+        bottomLine.set_style(lineStyle)
+        bottomLabel.set_point(chart.point.new(matrix_last_bar_time, na, parsedBottom))
+        bottomLabel.set_text(str.format('{0} Düşük', tfName))
+        bottomLabel.set_textcolor(levelColor)
+    else
+        bottomLine.set_first_point(chart.point.new(na, na, na))
+        bottomLine.set_extend(extend.none)
+        bottomLabel.set_point(chart.point.new(na, na, na))
+
+higherTimeframe(string tf) =>
+    timeframe.in_seconds() > timeframe.in_seconds(tf)
+
+updateTrailingExtremes() =>
+    trailing.top := math.max(high, trailing.top)
+    trailing.lastTopTime := trailing.top == high ? time : trailing.lastTopTime
+    trailing.lastTopIndex := trailing.top == high ? bar_index : trailing.lastTopIndex
+    trailing.bottom := math.min(low, trailing.bottom)
+    trailing.lastBottomTime := trailing.bottom == low ? time : trailing.lastBottomTime
+    trailing.lastBottomIndex := trailing.bottom == low ? bar_index : trailing.lastBottomIndex
+
+drawHighLowSwings() =>
+    var line topLine = line.new(na, na, na, na, xloc = xloc.bar_index)
+    var line bottomLine = line.new(na, na, na, na, xloc = xloc.bar_index)
+    var label topLabel = label.new(na, na, xloc = xloc.bar_index, style = label.style_label_down, size = size.small)
+    var label bottomLabel = label.new(na, na, xloc = xloc.bar_index, style = label.style_label_up, size = size.small)
+    
+    if not na(trailing.top) and not na(trailing.lastTopIndex)
+        topLine.set_first_point(chart.point.from_index(trailing.lastTopIndex, trailing.top))
+        topLine.set_second_point(chart.point.from_index(bar_index + 20, trailing.top))
+        topLine.set_color(swingBearishColor)
+        
+        topLabel.set_point(chart.point.from_index(bar_index + 20, trailing.top))
+        topLabel.set_text(swingTrend.bias == BEARISH ? '' : 'Tepe')
+        topLabel.set_textcolor(swingBearishColor)
+    else
+        topLine.set_first_point(chart.point.from_index(na, na))
+        topLabel.set_point(chart.point.from_index(na, na))
+
+    if not na(trailing.bottom) and not na(trailing.lastBottomIndex)
+        bottomLine.set_first_point(chart.point.from_index(trailing.lastBottomIndex, trailing.bottom))
+        bottomLine.set_second_point(chart.point.from_index(bar_index + 20, trailing.bottom))
+        bottomLine.set_color(swingBullishColor)
+        
+        bottomLabel.set_point(chart.point.from_index(bar_index + 20, trailing.bottom))
+        bottomLabel.set_text(swingTrend.bias == BULLISH ? '' : 'Dip')
+        bottomLabel.set_textcolor(swingBullishColor)
+    else
+        bottomLine.set_first_point(chart.point.from_index(na, na))
+        bottomLabel.set_point(chart.point.from_index(na, na))
+
+drawZone(float labelLevel, int labelIndex, float top, float bottom, string tag, color zoneColor, string style, label l_abel, box b_ox) =>
+    if not na(top) and not na(bottom) and not na(trailing.barIndex)
+        b_ox.set_top_left_point(chart.point.from_index(trailing.barIndex, top))
+        b_ox.set_bottom_right_point(chart.point.from_index(bar_index + 20, bottom))
+        b_ox.set_bgcolor(color.new(zoneColor, 80))
+        l_abel.set_point(chart.point.from_index(bar_index + 20, labelLevel))
+        l_abel.set_text(tag)
+        l_abel.set_textcolor(zoneColor)
+        l_abel.set_style(style)
+    else
+        b_ox.set_top_left_point(chart.point.from_index(na, na))
+        l_abel.set_point(chart.point.from_index(na, na))
+
+drawPremiumDiscountZones() =>
+    drawZone(trailing.top, math.round(0.5 * (trailing.barIndex + last_bar_index)), trailing.top, 0.95 * trailing.top + 0.05 * trailing.bottom, 'Satış Bölgesi', premiumZoneColor, label.style_label_down, premiumLbl, premiumBox)
+    equilibriumLevel = math.avg(trailing.top, trailing.bottom)
+    drawZone(equilibriumLevel, last_bar_index, 0.525 * trailing.top + 0.475 * trailing.bottom, 0.525 * trailing.bottom + 0.475 * trailing.top, 'Denge', equilibriumZoneColorInput, label.style_label_left, equiLbl, equiBox)
+    drawZone(trailing.bottom, math.round(0.5 * (trailing.barIndex + last_bar_index)), 0.95 * trailing.bottom + 0.05 * trailing.top, trailing.bottom, 'Alış Bölgesi', discountZoneColor, label.style_label_up, discountLbl, discountBox)
+
+// --- CHART PRIME & LUXALGO FONKSİYONLARI (CODE 2) ---
+atan2(y, x) =>
+    var float angle = 0.0
+    if x > 0
+        angle := math.atan(y / x)
+        angle
+    else if x < 0 and y >= 0
+        angle := math.atan(y / x) + math.pi
+        angle
+    else if x < 0 and y < 0
+        angle := math.atan(y / x) - math.pi
+        angle
+    else if x == 0 and y > 0
+        angle := math.pi / 2
+        angle
+    else if x == 0 and y < 0
+        angle := -math.pi / 2
+        angle
+    angle
+
+min_max_volume(src) =>
+    out = (src - ta.lowest(src, 100)) / (ta.highest(src, 100) - ta.lowest(src, 100)) * 100
+    math.max(math.min(100, out), 0)
+
+volume_normalized() =>
+    min_max_volume(ta.wma(volume, 21))
+
+simple_moving_average(source) =>
+    var float sum = na
+    var int count = na
+    count := nz(count[1]) + 1
+    sum := nz(sum[1]) + source
+    sum / count
+
+liquidity_break() =>
+    vol = volume_normalized()
+    avg = simple_moving_average(vol)
+    rank = ta.percentile_nearest_rank(vol, 75, 100)
+    avg_rank = simple_moving_average(rank)
+    colour = vol < avg ? 'Düşüş Eğilimli (Düşük Hacim)' : vol > avg and vol < avg_rank ? 'Trend Sinyali Orta (Orta Hacim)' : 'Yükseliş Eğilimli (Yüksek Hacim)'
+    colour
+
+// --- NEW HELPER FUNCTIONS (from update2.pine) ---
+f_kmeans(int n, int k, int iterations) =>
+    float[] prices = array.new_float(0), float[] volumes = array.new_float(0)
+    float minP = 1e10, maxP = -1e10
+    for i = 0 to n - 1
+        float p = hl2[i], v = volume[i]
+        prices.push(p), volumes.push(v)
+        minP := math.min(minP, p), maxP := math.max(maxP, p)
+    float[] centroids = array.new_float(k)
+    float step = (maxP - minP) / (k + 1)
+    for i = 0 to k - 1
+        centroids.set(i, minP + (i + 1) * step)
+    int[] assignments = array.new_int(n)
+    for iter = 1 to iterations
+        for i = 0 to n - 1
+            float p = prices.get(i)
+            int best_k = 0, float min_dist = 1e10
+            for j = 0 to k - 1
+                float dist = math.abs(p - centroids.get(j))
+                if dist < min_dist
+                    min_dist := dist, best_k := j
+            assignments.set(i, best_k)
+        float[] sum_pv = array.new_float(k, 0.0), float[] sum_v = array.new_float(k, 0.0)
+        for i = 0 to n - 1
+            int cluster = assignments.get(i)
+            sum_pv.set(cluster, sum_pv.get(cluster) + prices.get(i) * volumes.get(i))
+            sum_v.set(cluster, sum_v.get(cluster) + volumes.get(i))
+        for j = 0 to k - 1
+            if sum_v.get(j) > 0
+                centroids.set(j, sum_pv.get(j) / sum_v.get(j))
+    [assignments, centroids]
+
+f_collectAllReturns_adm(src, horizon, sampleBars) =>
+    float[] returns = array.new_float(0)
+    for i = 0 to sampleBars - horizon
+        float r = (src[i] - src[i + horizon]) / src[i + horizon]
+        array.push(returns, r)
+    returns
+
+f_arrayStats_adm(arr) =>
+    n = array.size(arr)
+    if n < 2
+        [0.0, 0.0, 0.0, 0, 0]
+    else
+        sum = 0.0, for i = 0 to n - 1
+            sum += array.get(arr, i)
+        mean = sum / n, sorted = array.copy(arr), array.sort(sorted)
+        med = n % 2 != 0 ? array.get(sorted, math.floor(n / 2)) : (array.get(sorted, n / 2 - 1) + array.get(sorted, n / 2)) / 2.0
+        sumSq = 0.0, posCount = 0
+        for i = 0 to n - 1
+            v = array.get(arr, i), sumSq += (v - mean) * (v - mean)
+            if v > 0
+                posCount += 1
+        sd = math.sqrt(sumSq / (n - 1))
+        [mean, med, sd, n, posCount]
+
+f_hacSE_adm(arr, mean) =>
+    n = array.size(arr)
+    if n < 3
+        0.0
+    else
+        g0 = 0.0, for i = 0 to n - 1
+            d = array.get(arr, i) - mean, g0 += d * d
+        g0 := g0 / n, g1 = 0.0, for i = 1 to n - 1
+            di = array.get(arr, i) - mean, dj = array.get(arr, i - 1) - mean, g1 += di * dj
+        g1 := g1 / n, hV = g0 + g1
+        math.sqrt(math.max(hV / n, 1e-14))
+
+f_splitArray_adm(arr, isFirstHalf) =>
+    n = array.size(arr), float[] res = array.new_float(0)
+    if n >= 2
+        halfN = math.floor(n / 2)
+        for i = (isFirstHalf ? 0 : halfN) to (isFirstHalf ? halfN - 1 : n - 1)
+            array.push(res, array.get(arr, i))
+    res
+
+f_vrTest_adm(src, horizon, k, sampleBars) =>
+    arr1 = f_collectAllReturns_adm(src, horizon, sampleBars), arrK = f_collectAllReturns_adm(src, horizon * k, sampleBars)
+    [m1, md1, sd1, n1, pc1] = f_arrayStats_adm(arr1), [mK, mdK, sdK, nK, pcK] = f_arrayStats_adm(arrK)
+    if sd1 < 1e-10 or n1 < MIN_OBS_STRICT_adm or nK < 3
+        [1.0, 0.0, false]
+    else
+        vr = (sdK * sdK) / (k * sd1 * sd1), vrSE = math.sqrt(2.0 * (2*k - 1) * (k - 1) / (3.0 * k * nK))
+        zVR = vrSE > 1e-10 ? math.abs(vr - 1.0) / vrSE : 0.0
+        [vr, zVR, zVR > T_CRIT_90_adm]
+
+f_mde_adm(sd, n, tCrit) => n < MIN_OBS_STRICT_adm or sd <= 0 ? na : (sd / math.sqrt(n)) * tCrit * ANN_FACTOR_adm
+f_signTestZ_adm(posCount, n) => n < MIN_OBS_STRICT_adm ? 0.0 : (float(posCount) - float(n)/2) / math.sqrt(float(n)/4)
+
+f_fmt_vpa(val) =>
+    if na(val)
+        "—"
+    else
+        sign = val < 0 ? "-" : val > 0 ? "+" : ""
+        av = math.abs(val)
+        sign + (av >= 1e6 ? str.format("{0,number,0.##}M", av/1e6) : av >= 1e3 ? str.format("{0,number,0.##}K", av/1e3) : str.format("{0,number,0}", av))
+
+_slope_n_vpa(y2, y1, dx, a) => dx <= 0 or a <= 0 ? na : ((y2 - y1) / dx) / a
+_deg_vpa(s) => na(s) ? na : math.atan(s) * 180.0 / math.pi
+
+_angle360_vpa(ax, ay, bx, b_y) =>
+    dot = ax*bx + ay*b_y, magA = math.sqrt(ax*ax + ay*ay), magB = math.sqrt(bx*bx + b_y*b_y)
+    cosTh = magA == 0 or magB == 0 ? na : math.min(math.max(dot / (magA * magB), -1.0), 1.0)
+    base = na(cosTh) ? na : math.todegrees(math.acos(cosTh))
+    crossZ = ax*b_y - ay*bx
+    na(base) ? na : (crossZ >= 0 ? base : 360.0 - base)
+
+_scan_top3_vpa(src, win) =>
+    int o1 = na, float v1 = na, int o2 = na, float v2 = na, int o3 = na, float v3 = na
+    for j = 0 to win - 1
+        v = src[j]
+        if not na(v)
+            if na(o1) or v > v1
+                o3 := o2, v3 := v2, o2 := o1, v2 := v1, o1 := j, v1 := v
+            else if na(o2) or v > v2
+                o3 := o2, v3 := v2, o2 := j, v2 := v
+            else if na(o3) or v > v3
+                o3 := j, v3 := v
+    [o1, v1, o2, v2, o3, v3]
+
+//---------------------------------------------------------------------------------------------------------------------}
+//CALCULATIONS & EXECUTION
+//---------------------------------------------------------------------------------------------------------------------{
+// =====================================================================================
+// V3 KRİTİK DÜZELTME: TÜM DASHBOARD VERİLERİ LIVE (ANLIK)
+// =====================================================================================
+// V2'de lookahead=barmerge.lookahead_on kullanılıyordu → Mum kapanışını bekliyordu
+// V3'te lookahead KALDIRILDI → Veriler bar açılışından itibaren anlık güncellenir
+// AYRICA: ETH.D → OTHERS.D olarak değiştirildi
+// AYRICA: OTHERS.D ve DXY satırlarına ▲/▼ ok işareti eklendi
+// =====================================================================================
+
+// 1. GÜNLÜK DOMINANS & PİYASA VERİLERİ (LIVE - lookahead kaldırıldı)
+[btcD, btcD_open] = request.security("CRYPTOCAP:BTC.D", "D", [close, open], gaps=barmerge.gaps_off)
+[usdtD, usdtD_open] = request.security("CRYPTOCAP:USDT.D", "D", [close, open], gaps=barmerge.gaps_off)
+// V3 DEĞİŞİKLİK: ETH.D yerine OTHERS.D
+[othersD, othersD_open] = request.security("CRYPTOCAP:OTHERS.D", "D", [close, open], gaps=barmerge.gaps_off)
+[totalCap, total_open] = request.security("CRYPTOCAP:TOTAL", "D", [close, open], gaps=barmerge.gaps_off)
+[dxy, dxy_open] = request.security("TVC:DXY", "D", [close, open], gaps=barmerge.gaps_off)
+
+// 2. GÜNLÜK DEĞİŞİM HESAPLAMALARI (LIVE)
+btcD_chg_pct = (btcD - btcD_open) / btcD_open * 100
+usdtD_chg_pct = (usdtD - usdtD_open) / usdtD_open * 100
+othersD_chg_pct = (othersD - othersD_open) / othersD_open * 100
+dxy_chg_pct = (dxy - dxy_open) / dxy_open * 100
+
+// 3. RENK TANIMLAMALARI (Günlük Değişime Göre - LIVE)
+btcD_color = btcD_chg_pct >= 0 ? color.green : color.red
+usdtD_color = usdtD_chg_pct >= 0 ? color.green : color.red
+othersD_color = othersD_chg_pct >= 0 ? color.green : color.red
+dxy_color = dxy_chg_pct >= 0 ? color.green : color.red
+
+// 4. PİYASA AKIŞ ANALİZİ (Altcoin Radar - LIVE)
+// ═══════════════════════════════════════════════════════
+// V5.1 FIX: BİRLEŞİK SERMAYE AKIŞI GÖSTERGESİ
+// Piyasa Akışı ve Para Akışı birleştirildi - tek anlamlı gösterge
+// ═══════════════════════════════════════════════════════
+marketFlowText = "KARIŞIK"
+marketFlowColor = GRAY
+
+// Altcoin Sezonu: BTC.D düşüyor + OTHERS.D yükseliyor + USDT.D düşüyor
+if btcD_chg_pct < -0.15 and othersD_chg_pct > 0.1 and usdtD_chg_pct < 0
+    marketFlowText := "ALTCOIN SEZONU 🔥"
+    marketFlowColor := color.new(GREEN, 0)
+// Bitcoin Sezonu: BTC.D yükseliyor + OTHERS.D düşüyor
+else if btcD_chg_pct > 0.15 and othersD_chg_pct < 0
+    marketFlowText := "BTC SEZONU 👑"
+    marketFlowColor := color.new(color.orange, 0)
+// Risk Kaçışı: USDT.D yükseliyor (nakite kaçış)
+else if usdtD_chg_pct > 0.15
+    marketFlowText := "NAKİTE KAÇIŞ ⚠️"
+    marketFlowColor := color.new(RED, 0)
+// BTC'den Alt'a Akış: BTC.D düşüyor + OTHERS.D yükseliyor
+// V5.3: ADM çapraz kontrol - Pozitif sapma varsa daha güvenilir
+else if btcD_chg_pct < -0.1 and othersD_chg_pct > 0.05
+    marketFlowText := classification_adm >= 1 ? "BTC → ALT ⚡ ✓ADM" : "BTC → ALT ⚡"
+    marketFlowColor := classification_adm >= 1 ? color.new(GREEN, 0) : color.new(GREEN, 30)
+// Alt'tan BTC'ye Akış: BTC.D yükseliyor + OTHERS.D düşüyor
+// V5.3: ADM çapraz kontrol - Negatif sapma varsa daha güvenilir
+else if btcD_chg_pct > 0.1 and othersD_chg_pct < -0.05
+    marketFlowText := classification_adm <= -1 ? "ALT → BTC 🛡️ ✓ADM" : "ALT → BTC 🛡️"
+    marketFlowColor := classification_adm <= -1 ? color.new(color.orange, 0) : color.new(color.orange, 30)
+
+// V5.3: Sermaye Rotasyonu Doğrulama Skoru (Dashboard için)
+rotationConfirmed = (btcD_chg_pct < -0.1 and othersD_chg_pct > 0.05 and classification_adm >= 1) or (btcD_chg_pct > 0.1 and othersD_chg_pct < -0.05 and classification_adm <= -1)
+
+// Helper Strings (V3: OTHERS.D ve DXY için de ok eklendi)
+btc_arrow = btcD_chg_pct >= 0 ? "▲" : "▼"
+usdt_arrow = usdtD_chg_pct >= 0 ? "▲" : "▼"
+others_arrow = othersD_chg_pct >= 0 ? "▲" : "▼"
+dxy_arrow = dxy_chg_pct >= 0 ? "▲" : "▼"
+
+//---------------------------------------------------------------------------------------------------------------------}
+//MTF LINEAR TREND ENGINE + VOLATILITY REGIME + Z-SCORE
+//---------------------------------------------------------------------------------------------------------------------{
+
+// ===============================
+// 1. REGRESYON EĞİM MOTORU (V5: TF-ADAPTİF)
+// ===============================
+slopeCalc = ta.linreg(close, adapt_slope_len, 0) - ta.linreg(close, adapt_slope_len, 1)
+accelCalc = slopeCalc - nz(slopeCalc[1])
+
+// FAST MOMENTUM ENGINE (sabit kısa periyot - TF'den bağımsız hızlı algılama)
+fastSlopeCalc = ta.linreg(close, 5, 0) - ta.linreg(close, 5, 1)
+fastAccelCalc = fastSlopeCalc - nz(fastSlopeCalc[1])
+
+earlyReversalUp = fastAccelCalc > 0.01 and accelCalc < 0
+earlyReversalDown = fastAccelCalc < -0.01 and accelCalc > 0
+
+// ===============================
+// 2. MTF SLOPE MOTORU (V5: 5 TIMEFRAME + ORAN GÖSTERİMİ)
+// ===============================
+[mtfD_slope, mtfD_accel] = request.security(syminfo.tickerid, "D", [slopeCalc, accelCalc], gaps=barmerge.gaps_off)
+[mtf4H_slope, mtf4H_accel] = request.security(syminfo.tickerid, "240", [slopeCalc, accelCalc], gaps=barmerge.gaps_off)
+[mtf1H_slope, mtf1H_accel] = request.security(syminfo.tickerid, "60", [slopeCalc, accelCalc], gaps=barmerge.gaps_off)
+[mtf15m_slope, mtf15m_accel] = request.security(syminfo.tickerid, "15", [slopeCalc, accelCalc], gaps=barmerge.gaps_off)
+
+// V5: MTF Sentiment Update (5 Timeframe: 15dk, 1H, 4H, 1D, Current)
+mtfBullCount := (nz(mtfD_slope) > 0 ? 1 : 0) + (nz(mtf4H_slope) > 0 ? 1 : 0) + (nz(mtf1H_slope) > 0 ? 1 : 0) + (nz(mtf15m_slope) > 0 ? 1 : 0) + (slopeCalc > 0 ? 1 : 0)
+mtfBearCount := 5 - mtfBullCount
+// V5: Oransal Gösterim ("4/5 BOĞA" formatı)
+mtfConsensus := str.tostring(mtfBullCount) + "/5 " + (mtfBullCount >= 4 ? "GÜÇLÜ BOĞA" : mtfBearCount >= 4 ? "GÜÇLÜ AYI" : mtfBullCount >= 3 ? "BOĞA" : mtfBearCount >= 3 ? "AYI" : "KARIŞIK")
+mtfConsensusColor := mtfBullCount >= 4 ? color.green : mtfBearCount >= 4 ? color.red : mtfBullCount >= 3 ? color.new(color.green, 40) : mtfBearCount >= 3 ? color.new(color.red, 40) : color.gray
+
+// ═══════════════════════════════════════════════════════
+// V5.3: MTF AĞIRLIKLI OY SİSTEMİ
+// Günlük (D) trend ters ise alt TF sinyalleri %50 penalize
+// ═══════════════════════════════════════════════════════
+dailyTrendBull = nz(mtfD_slope) > 0
+lowerTFBullCount = (nz(mtf4H_slope) > 0 ? 1 : 0) + (nz(mtf1H_slope) > 0 ? 1 : 0) + (nz(mtf15m_slope) > 0 ? 1 : 0) + (slopeCalc > 0 ? 1 : 0)
+// Eğer Günlük trend ters yöndeyse, alt TF skorunu yarıya düşür
+mtfScoreRaw = dailyTrendBull ? (lowerTFBullCount + 1) : lowerTFBullCount * 0.5
+mtfScore = math.round(mtfScoreRaw)
+
+// ===============================
+// V5 FAZ 3: PER-İNDİKATÖR MTF UZLAŞISI
+// Bundle: RSI>50, MACD_hist>0, ST_dir<0 per TF (4 security çağrısı = 18/40)
+// ===============================
+// Local calculation helpers (for current TF)
+_rsi_bull_local = ta.rsi(close, adapt_rsi_len) > 50
+[_macd_l, _macd_s, _macd_h] = ta.macd(close, adapt_macd_fast, adapt_macd_slow, adapt_macd_signal)
+_macd_bull_local = _macd_h > 0
+[_st_v, _st_d] = ta.supertrend(st_factor, adapt_st_atr)
+_st_bull_local = _st_d < 0
+
+// MTF Bundle Calls (1 per TF, 3 values each)
+[mtf_rsi_D, mtf_macd_D, mtf_st_D] = request.security(syminfo.tickerid, "D", [_rsi_bull_local, _macd_bull_local, _st_bull_local], gaps=barmerge.gaps_off)
+[mtf_rsi_4H, mtf_macd_4H, mtf_st_4H] = request.security(syminfo.tickerid, "240", [_rsi_bull_local, _macd_bull_local, _st_bull_local], gaps=barmerge.gaps_off)
+[mtf_rsi_1H, mtf_macd_1H, mtf_st_1H] = request.security(syminfo.tickerid, "60", [_rsi_bull_local, _macd_bull_local, _st_bull_local], gaps=barmerge.gaps_off)
+[mtf_rsi_15m, mtf_macd_15m, mtf_st_15m] = request.security(syminfo.tickerid, "15", [_rsi_bull_local, _macd_bull_local, _st_bull_local], gaps=barmerge.gaps_off)
+
+// Per-Indicator MTF Bull Counts (5 TF: 15m, 1H, 4H, 1D, Current)
+mtfRsiBull = (mtf_rsi_D ? 1 : 0) + (mtf_rsi_4H ? 1 : 0) + (mtf_rsi_1H ? 1 : 0) + (mtf_rsi_15m ? 1 : 0) + (v5_rsi > 50 ? 1 : 0)
+mtfMacdBull = (mtf_macd_D ? 1 : 0) + (mtf_macd_4H ? 1 : 0) + (mtf_macd_1H ? 1 : 0) + (mtf_macd_15m ? 1 : 0) + (v5_macd_bull ? 1 : 0)
+mtfStBull = (mtf_st_D ? 1 : 0) + (mtf_st_4H ? 1 : 0) + (mtf_st_1H ? 1 : 0) + (mtf_st_15m ? 1 : 0) + (v5_st_bull ? 1 : 0)
+
+// MTF Consensus Strings
+mtfRsiConsensus = str.tostring(mtfRsiBull) + "/5"
+mtfMacdConsensus = str.tostring(mtfMacdBull) + "/5"
+mtfStConsensus = str.tostring(mtfStBull) + "/5"
+
+// MTF Consensus Colors
+mtfRsiColor = mtfRsiBull >= 4 ? color.green : mtfRsiBull <= 1 ? color.red : color.gray
+mtfMacdColor = mtfMacdBull >= 4 ? color.green : mtfMacdBull <= 1 ? color.red : color.gray
+mtfStColor = mtfStBull >= 4 ? color.green : mtfStBull <= 1 ? color.red : color.gray
+
+// --- ADM CALCULATIONS (Statistical Drift) ---
+if enable_adm
+    allReturns_adm = f_collectAllReturns_adm(close, HORIZON_adm, SAMPLE_TOTAL_adm)
+    [mF_adm, mdF_adm, sdF_adm, nF_adm, pcF_adm] = f_arrayStats_adm(allReturns_adm)
+    seF_adm = f_hacSE_adm(allReturns_adm, mF_adm), tF_adm = seF_adm > 1e-10 ? mF_adm / seF_adm : 0.0
+    arr1_adm = f_splitArray_adm(allReturns_adm, true), arr2_adm = f_splitArray_adm(allReturns_adm, false)
+    [m1_adm, md1_adm, sd1_adm, n1_adm, pc1_adm] = f_arrayStats_adm(arr1_adm), se1_adm = f_hacSE_adm(arr1_adm, m1_adm), t1_adm = se1_adm > 1e-10 ? m1_adm / se1_adm : 0.0
+    [m2_adm, md2_adm, sd2_adm, n2_adm, pc2_adm] = f_arrayStats_adm(arr2_adm), se2_adm = f_hacSE_adm(arr2_adm, m2_adm), t2_adm = se2_adm > 1e-10 ? m2_adm / se2_adm : 0.0
+    [vr_adm, zVR_adm, vrSig_adm] = f_vrTest_adm(close, HORIZON_adm, 5, SAMPLE_TOTAL_adm)
+    mde95_adm = f_mde_adm(sdF_adm, nF_adm, T_CRIT_95_adm), annDrift_adm = mF_adm * ANN_FACTOR_adm
+    zSign_adm = f_signTestZ_adm(pcF_adm, nF_adm), inferenceAllowed_adm = nF_adm >= MIN_OBS_STRICT_adm and n1_adm >= 5 and n2_adm >= 5
+    statSig_adm = inferenceAllowed_adm and math.abs(tF_adm) > T_CRIT_95_adm, econSig_adm = inferenceAllowed_adm and math.abs(annDrift_adm) >= MIN_DRIFT_ECON_adm
+    powerOK_adm = inferenceAllowed_adm and (na(mde95_adm) ? false : math.abs(annDrift_adm) >= mde95_adm), medianSig_adm = inferenceAllowed_adm and math.abs(zSign_adm) > SIGN_Z_CRIT_adm
+    medianDir_adm = zSign_adm > 0 ? 1 : zSign_adm < 0 ? -1 : 0, meanDir_adm = mF_adm > 0 ? 1 : mF_adm < 0 ? -1 : 0
+    signTestOK_adm = inferenceAllowed_adm and (not medianSig_adm or medianDir_adm == meanDir_adm)
+    meanMedOK_adm = inferenceAllowed_adm and ((mF_adm > 0 and mdF_adm > 0) or (mF_adm < 0 and mdF_adm < 0) or math.abs(mF_adm) < 1e-10)
+    pooledSD_adm = math.sqrt((sd1_adm*sd1_adm + sd2_adm*sd2_adm) / 2), levelOK_adm = (pooledSD_adm > 1e-10 ? math.abs(m1_adm - m2_adm) / pooledSD_adm : 0.0) <= MAX_DEV_SD_adm
+    structOK_adm = inferenceAllowed_adm and ((m1_adm > 0 and m2_adm > 0) or (m1_adm < 0 and m2_adm < 0)) and levelOK_adm and ((t1_adm > 0 and t2_adm > 0 and tF_adm > 0) or (t1_adm < 0 and t2_adm < 0 and tF_adm < 0))
+    vrOK_adm = inferenceAllowed_adm and not (vr_adm < 1.0 and vrSig_adm)
+    
+    direction_adm := mF_adm > 0 ? 1 : mF_adm < 0 ? -1 : 0
+    
+    if not inferenceAllowed_adm
+        classCode_adm := 0, classReason_adm := "verisiz"
+    else if not powerOK_adm
+        classCode_adm := 0, classReason_adm := "güç yetersiz"
+    else if not statSig_adm
+        classCode_adm := 0, classReason_adm := "t<2.0"
+    else if not signTestOK_adm
+        classCode_adm := 0, classReason_adm := "işaret testi"
+    else if not meanMedOK_adm
+        classCode_adm := 0, classReason_adm := "medyan"
+    else if not structOK_adm
+        classCode_adm := 0, classReason_adm := "yapı"
+    else if not vrOK_adm
+        classCode_adm := 0, classReason_adm := "ortalama-dönüş"
+    else if not econSig_adm
+        classCode_adm := 1, classReason_adm := "ekonomik"
+    else
+        classCode_adm := 2, classReason_adm := ""
+    
+    classification_adm := classCode_adm == 2 ? direction_adm * 2 : classCode_adm == 1 ? direction_adm : 0
+    evidenceStr_adm := classCode_adm == 2 ? "GÜÇLÜ" : classCode_adm == 1 ? "ZAYIF" : "YOK"
+    biasStr_adm := classification_adm >= 2 ? "Pozitif Sapma" : classification_adm <= -2 ? "Negatif Sapma" : classification_adm == 1 ? "Pozitif (Zayıf)" : classification_adm == -1 ? "Negatif (Zayıf)" : "Sapma Yok"
+
+// --- ADM Visuals (Global scope) ---
+admBgColor = enable_adm and i_bgMode_adm == "Açık" ? (classification_adm >= 2 ? cBull_adm : classification_adm <= -2 ? cBear_adm : math.abs(classification_adm) == 1 ? cWeak_adm : na) : na
+bgcolor(admBgColor, i_bgInt_adm)
+
+admBarColor = enable_adm and i_barColor_adm ? (classification_adm >= 2 ? #22c55e : classification_adm <= -2 ? #ef4444 : math.abs(classification_adm) == 1 ? (direction_adm > 0 ? #22c55e : #ef4444) : #a3a3a3) : na
+barcolor(admBarColor)
+
+// ===============================
+// 4. MOMENTUM İVME SINIFLANDIRICI (LIVE)
+// ===============================
+momentumState := slopeCalc > 0 and accelCalc > 0 ? "HIZLANIYOR 🚀" : slopeCalc > 0 and accelCalc <= 0 ? "YAVAŞLIYOR ⚠️" : slopeCalc < 0 and accelCalc < 0 ? "ÇÖKÜŞ 💀" : slopeCalc < 0 and accelCalc >= 0 ? "DİP OLUŞUMU 🔄" : "NÖTR"
+momentumColor := slopeCalc > 0 and accelCalc > 0 ? color.green : slopeCalc > 0 and accelCalc <= 0 ? color.new(color.green, 50) : slopeCalc < 0 and accelCalc < 0 ? color.red : slopeCalc < 0 and accelCalc >= 0 ? color.new(color.red, 50) : color.gray
+
+// ===============================
+// 5. VOLATİLİTE REJİM SINIFLANDIRICI (V5: TF-ADAPTİF)
+// ===============================
+bbwRaw = ta.bbw(close, adapt_bb_len, 2.0)
+bbwSMA = ta.sma(bbwRaw, adapt_zscore_len)
+bbwStdev = ta.stdev(bbwRaw, adapt_zscore_len)
+bbwZScore = bbwStdev > 0 ? (bbwRaw - bbwSMA) / bbwStdev : 0
+
+atrRaw = ta.atr(adapt_atr_len)
+atrSMA20 = ta.sma(atrRaw, adapt_slope_len)
+atrStdev = ta.stdev(atrRaw, adapt_slope_len)
+atrZScore = atrStdev > 0 ? (atrRaw - atrSMA20) / atrStdev : 0
+
+volRegime := bbwZScore < -1.0 ? "SIKIŞTIRMA" : bbwZScore[1] < -1.0 and bbwZScore >= -1.0 ? "PATLAMA" : atrZScore > 1.5 ? "YÜKSEK VOL" : "NORMAL"
+volRegimeColor := volRegime == "SIKIŞTIRMA" ? color.new(color.green, 30) : volRegime == "PATLAMA" ? color.green : volRegime == "YÜKSEK VOL" ? color.red : color.gray
+
+// ===============================
+// 6. Z-SCORE (V5: TF-ADAPTİF)
+// ===============================
+zScoreSMA = ta.sma(close, adapt_zscore_len)
+zScoreStdev = ta.stdev(close, adapt_zscore_len)
+priceZScore = zScoreStdev > 0 ? (close - zScoreSMA) / zScoreStdev : 0
+zScoreState = priceZScore > 2.5 ? "AŞIRI ALIM" : priceZScore > 1.5 ? "PAHAL" : priceZScore < -2.5 ? "AŞIRI SATIM" : priceZScore < -1.5 ? "UCUZ" : "NORMAL"
+zScoreColor = priceZScore > 2.5 ? color.red : priceZScore > 1.5 ? color.new(color.red, 50) : priceZScore < -2.5 ? color.green : priceZScore < -1.5 ? color.new(color.green, 50) : color.gray
+
+// =====================================================================================
+//---------------------------------------------------------------------------------------------------------------------}
+//WHALE MASTER ENGINE + MARKET REGIME + AI SCORE + CAPITAL ENGINE
+//---------------------------------------------------------------------------------------------------------------------{
+
+// ===============================
+// 1. WHALE MASTER ENGINE (V5: TİMEFRAME-ADAPTİF EŞİKLER)
+// ===============================
+avgVolWhale = ta.sma(volume, 20)
+
+// V5: Dinamik timeframe bazlı balina eşik çarpanı
+// 1dk: Düşük eşik (1.3x) → 5dk: 1.5x → 1s: 1.8x → 4s: 2.2x → 1g+: 2.5x
+tfWhaleMultiplier = timeframe.in_seconds() <= 60 ? 1.3 : timeframe.in_seconds() <= 300 ? 1.5 : timeframe.in_seconds() <= 3600 ? 1.8 : timeframe.in_seconds() <= 14400 ? 2.2 : 2.5
+adaptiveWhaleVolMult = math.max(whaleVolMult, tfWhaleMultiplier)
+isWhale = useWhaleEngine and volume > avgVolWhale * adaptiveWhaleVolMult
+
+// V5: Stopping Volume da adaptif (climate eşiği TF'ye göre değişir)
+stoppingVolMult = timeframe.in_seconds() <= 300 ? 2.5 : timeframe.in_seconds() <= 3600 ? 3.0 : 3.5
+isStoppingVolume = volume > avgVolWhale * stoppingVolMult
+
+// Hacim Delta (Gizli Birikim / Dağıtım)
+volDelta = volume * (close > open ? 1 : -1)
+cumVolDelta = ta.cum(volDelta)
+
+// Balina Yönü
+whaleBuy = isWhale and close > open and cumVolDelta > cumVolDelta[1]
+whaleSell = isWhale and close < open and cumVolDelta < cumVolDelta[1]
+
+// ===============================
+// 2. BTC ÖZEL FİLTRE (DOM PROXY)
+// ===============================
+btcDomSMA = ta.sma(btcD, 20)
+btcDomUp = btcD > btcDomSMA
+btcDomDown = btcD < btcDomSMA
+
+// ===============================
+// 3. ALTCOIN BALİNA TUZAK FİLTRESİ
+// ===============================
+whaleRangeHigh = ta.highest(high, 20)
+whaleRangeLow = ta.lowest(low, 20)
+
+fakeBreakoutUp =
+     whaleBuy and
+     high > whaleRangeHigh[1] and
+     close < whaleRangeHigh
+
+fakeBreakoutDown =
+     whaleSell and
+     low < whaleRangeLow[1] and
+     close > whaleRangeLow
+
+// ===============================
+// 4. TEKNİK SEVİYE ZORUNLULUĞU (3 ŞART KURALI)
+// ===============================
+whaleNearSupport = close <= whaleRangeLow * 1.01
+whaleNearResistance = close >= whaleRangeHigh * 0.99
+
+whaleBuyConfirmed =
+     useWhaleEngine and
+     whaleBuy and
+     isWhale and
+     (whaleNearSupport or close > whaleRangeHigh) and
+     not fakeBreakoutUp
+
+whaleSellConfirmed =
+     useWhaleEngine and
+     whaleSell and
+     isWhale and
+     (whaleNearResistance or close < whaleRangeLow) and
+     not fakeBreakoutDown
+
+// ===============================
+// 5. RALLİ / DAĞITIM SINIFLANDIRICI
+// ===============================
+h50 = ta.highest(high, 50)
+l50 = ta.lowest(low, 50)
+cvdSMA = ta.sma(cumVolDelta, 10)
+
+rallyPhase =
+     whaleBuyConfirmed and
+     close < h50 and
+     cumVolDelta > cvdSMA
+
+distributionPhase =
+     whaleSellConfirmed and
+     close > l50 and
+     cumVolDelta < cvdSMA
+
+// ===============================
+// 6. WHALE STATUS (Dashboard İçin)
+// ===============================
+whaleStatusText = "NÖTR"
+whaleStatusColor = color.gray
+
+if rallyPhase
+    whaleStatusText := "RALLİ HAZIRLIĞI 🐋"
+    whaleStatusColor := color.green
+else if distributionPhase
+    whaleStatusText := "DAĞITIM / DUMP 🐋"
+    whaleStatusColor := color.red
+else if fakeBreakoutUp or fakeBreakoutDown
+    whaleStatusText := "BALİNA TUZAĞI ⚠️"
+    whaleStatusColor := color.orange
+else if whaleBuy
+    whaleStatusText := "ALIM AKTİF"
+    whaleStatusColor := color.new(color.green, 50)
+else if whaleSell
+    whaleStatusText := "SATIM AKTİF"
+    whaleStatusColor := color.new(color.red, 50)
+
+// ===============================
+// 7. SINYAL YÖN MOTORU
+// ===============================
+allowLong = whaleBuyConfirmed and rallyPhase
+allowShort = whaleSellConfirmed and distributionPhase
+
+//---------------------------------------------------------------------------------------------------------------------}
+//MARKET REGIME ENGINE + AI CONFIDENCE SCORE
+//---------------------------------------------------------------------------------------------------------------------{
+
+// ===============================
+// 0. CM WILLIAMS VIX FIX (DIP AVCISI - ERKEN HESAPLAMA)
+// ===============================
+wvf = ((ta.highest(close, vf_pd) - low) / (ta.highest(close, vf_pd))) * 100
+vf_sDev = vf_mult * ta.stdev(wvf, vf_bbl)
+vf_midLine = ta.sma(wvf, vf_bbl)
+vf_lowerBand = vf_midLine - vf_sDev
+vf_upperBand = vf_midLine + vf_sDev
+
+vf_rangeHigh = (ta.highest(wvf, vf_lb)) * vf_ph
+vf_rangeLow = (ta.lowest(wvf, vf_lb)) * vf_pl
+
+// QFL (Quick Fingers Luc) Logic
+// V3 DÜZELTME: Base hesaplarken [1] ötelemesi kullanıyoruz.
+// Böylece "şu anki" düşen mum, Base'in kendisi olmaz, Base'i KIRAN mum olur.
+qfl_base = ta.lowest(low, qfl_lookback)[1]
+isQFLPanic = close < qfl_base * (1 - qfl_drop_pct / 100)
+
+// Kombine Sinyal: Vix Fix + Opsiyonel Filtreler
+// Varsayılan olarak sadece Vix Fix şartı geçerlidir.
+// Kullanıcı isterse QFL (Panik) veya Momentum (İvme) filtrelerini açabilir.
+vixCondition = wvf >= vf_upperBand or wvf >= vf_rangeHigh
+isVixBottom = vixCondition and (not useQFL or isQFLPanic) and (not useMomentum or accelCalc > 0)
+
+// Visual: Dip Sinyali (Yeşil Daire)
+plotshape(isVixBottom, title="Vix Fix Dip Sinyali", style=shape.circle, location=location.belowbar, color=color.lime, size=size.tiny, offset=0)
+
+// ===============================
+// 1. MAKRO REJİM MOTORU (RISK-ON / RISK-OFF)
+// ===============================
+// Dinamik Rejim Uzunlukları (Scalp vs Swing)
+regimeFastLen = tradeMode == "Scalp" ? 20 : 50
+regimeSlowLen = tradeMode == "Scalp" ? 50 : 200
+
+whaleEMA50 = ta.ema(close, regimeFastLen)
+whaleEMA200 = ta.ema(close, regimeSlowLen)
+whaleTrendUp = whaleEMA50 > whaleEMA200
+whaleTrendDown = whaleEMA50 < whaleEMA200
+
+// Volatilite (V5: TF-Adaptif ATR)
+whaleATR14 = ta.atr(adapt_atr_len)
+whaleATRMA = ta.sma(whaleATR14, adapt_slope_len)
+whaleHighVol = whaleATR14 > whaleATRMA
+
+// Dominance bazlı risk
+riskOffDom = btcDomUp and whaleTrendDown
+riskOnDom = btcDomDown and whaleTrendUp
+
+// REJİM KARARI
+marketRegime = "NEUTRAL"
+
+if whaleTrendUp and not whaleHighVol and riskOnDom
+    marketRegime := "RISK_ON"
+else if whaleTrendDown and whaleHighVol and riskOffDom
+    marketRegime := "RISK_OFF"
+
+// AI Combine Logic moved to Confluence section for consolidated reporting.
+aiScore = 50.0 // Placeholder, updated below
+
+// ===============================
+// 3. SKOR TABANLI İŞLEM KİLİDİ (Değişkenler aşağıda tanımlanacak)
+// ===============================
+// tradeAllowedByScore ve final sinyalleri bağımlılıklar nedeniyle aşağı kaydırıldı.
+
+//---------------------------------------------------------------------------------------------------------------------}
+//REGIME PREDICTION + CAPITAL ENGINE + CROSS-ASSET + TIME-DECAY + EXECUTION GATE
+//---------------------------------------------------------------------------------------------------------------------{
+
+// ===============================
+// 1. REGIME PREDICTION (İVME TABANLI - GELİŞMİŞ)
+// ===============================
+volExpanding = whaleATR14 > whaleATRMA
+trendStrength = math.abs(whaleEMA50 - whaleEMA200) / close
+
+regimePrediction =
+     isStoppingVolume ? "STOPPING_VOL" :
+     isVixBottom ? "DİP_FIRSATI_(VIX)" :
+     (math.abs(priceZScore) > 2.0 and accelCalc < 0) ? "EXHAUSTION (YORGUNLUK)" :
+     (volRegime == "SIKIŞTIRMA" and momentumState == "GÜÇLÜ") ? "PATLAMA YAKIN" :
+     earlyReversalUp ? "ERKEN_DÖNÜŞ_YUKARI" :
+     earlyReversalDown ? "ERKEN_DÖNÜŞ_AŞAĞI" :
+     volRegime == "SIKIŞTIRMA" ? "PRE_EXPLOSION" :
+     slopeCalc > 0 and accelCalc > 0 and volExpanding ? "HIZLANAN_TREND" :
+     slopeCalc > 0 and accelCalc <= 0 ? "YAVAŞLAYAN_TREND" :
+     slopeCalc < 0 and accelCalc < 0 and volExpanding ? "HIZLANAN_DÜŞÜŞ" :
+     slopeCalc < 0 and accelCalc >= 0 ? "DİP_ARAYIŞI" :
+     trendStrength < 0.005 ? "RANGE" :
+     "TRANSITION"
+
+regimeTradable = regimePrediction != "RANGE" and regimePrediction != "STOPPING_VOL"
+
+// ===============================
+// 2. ASSET DOMINANCE SCORE
+// ===============================
+volScoreAsset = volume / math.max(ta.sma(volume, 20), 1)
+atrScoreAsset = whaleATR14 / math.max(ta.sma(whaleATR14, 20), 0.0001)
+trendScoreAsset = math.abs(whaleEMA50 - whaleEMA200) / math.max(close, 0.0001)
+
+assetScore = (volScoreAsset * 0.4) + (atrScoreAsset * 0.3) + (trendScoreAsset * 0.3)
+
+// ===============================
+// 3. CAPITAL ROTATION PHASE
+// ===============================
+capitalPhase =
+     assetScore > 2.0 ? "PRIMARY_FLOW" :
+     assetScore > 1.4 ? "SECONDARY_FLOW" :
+     assetScore > 1.1 ? "ROTATION" :
+     "NO_CAPITAL"
+
+capitalTradable = capitalPhase != "NO_CAPITAL"
+
+// ===============================
+// 4. CROSS-ASSET CAPITAL RADAR (BTC→ALT) - LIVE
+// V3: lookahead kaldırıldı
+// ===============================
+btcVolImpulse = request.security("BINANCE:BTCUSDT", timeframe.period,
+     volume > ta.sma(volume, 20) * 1.5, gaps = barmerge.gaps_off)
+
+btcPriceAccept = request.security("BINANCE:BTCUSDT", timeframe.period,
+     close > ta.ema(close, 20), gaps = barmerge.gaps_off)
+
+btcCapitalFlow = btcVolImpulse and btcPriceAccept
+
+// ALT tarafı (mevcut chart)
+altVolWake = volume > ta.sma(volume, 20) * 1.3
+
+// [NEW] OTHERS.D FİLTRESİ (Altcoin Market Cap Trendi)
+// Eğer Altcoin Dominansı (Others.D) düşüyorsa, altcoin longlamak risklidir.
+othersDTrendUp = othersD > ta.ema(othersD, 20)
+
+crossAssetPermission = btcCapitalFlow and altVolWake and (syminfo.type == "CRYPTO" ? othersDTrendUp : true)
+
+// ===============================
+
+
+// DECAY & SIGNAL TRACKING (Moved to END of main logic)
+
+barsLate = na(signalBar) ? 999 : bar_index - signalBar
+
+decayFactor =
+     barsLate <= 1 ? 1.0 :
+     barsLate <= 3 ? 0.7 :
+     barsLate <= signalFreshnessBars ? 0.4 :
+     0.0
+
+timeValid = decayFactor > 0
+
+// ===============================
+// 6. FAKE vs REAL WHALE AYIRICI
+// ===============================
+priceReaction = close > close[1]
+volumeSpike = volume > ta.sma(volume, 20) * 1.5
+
+realWhale =
+     isWhale and
+     volumeSpike and
+     priceReaction
+
+fakeWhale =
+     isWhale and
+     volumeSpike and
+     math.abs(close - open) < (high - low) * 0.4 // Sadece gövdesi küçükse (Doji/Kararsızlık) Fake/Churn say
+
+// ===============================
+// 7. SELF-PRUNING + BAYESIAN TRACKER
+// ===============================
+if whaleBuyConfirmed[10]
+    totalBuySignals += 1
+    if close > close[10]
+        winBuySignals += 1
+        consecutiveWins += 1
+        consecutiveLosses := 0
+        whaleTrust += 0.05
+    else
+        consecutiveLosses += 1
+        consecutiveWins := 0
+        whaleTrust -= 0.1
+
+if whaleSellConfirmed[10]
+    totalSellSignals += 1
+    if close < close[10]
+        winSellSignals += 1
+        consecutiveWins += 1
+        consecutiveLosses := 0
+        whaleTrust += 0.05
+    else
+        consecutiveLosses += 1
+        consecutiveWins := 0
+        whaleTrust -= 0.1
+
+whaleTrust := math.max(math.min(whaleTrust, 1.5), 0.0)
+whaleModuleActive = whaleTrust > 0.3
+
+// Kill Switch (Ardışık Kayıp)
+deathRisk = consecutiveLosses >= maxConsecutiveLoss
+
+// V5 FIX: tradeFrequency forward-declare sorunu düzeltildi
+// Geçici olarak false atanıyor, gerçek değer longCondition/shortCondition'dan sonra hesaplanır
+var float tradeFrequencyVar = 0.0
+// tradeFrequencyVar güncellemesi aşağıda (FATIGUE TRACKER)
+systemRestMode = tradeFrequencyVar > 0.4
+
+// ===============================
+// 8. META EXECUTION GATE (SON KARAR)
+// ===============================
+META_ALLOW =
+     regimeTradable and
+     capitalTradable and
+     crossAssetPermission and
+     timeValid and
+     whaleModuleActive and
+     not deathRisk and
+     not systemRestMode
+
+// SYSTEM_DECISION defined at line 1872
+
+// Whale-filtered final sinyaller (Moved to END of main logic)
+// whaleFilteredLong and whaleFilteredShort moved.
+
+// Whale Signal Text logic moved to main execution gate section.
+
+//---------------------------------------------------------------------------------------------------------------------}
+//F4 STRATEGY CALCULATIONS
+//---------------------------------------------------------------------------------------------------------------------{
+// --- F4 Calculations (MUST BE FIRST - used by Confluence) ---
+e1 = ta.ema((high + low + 2 * close) / 4, useLen)
+e2 = ta.ema(e1, useLen)
+e3 = ta.ema(e2, useLen)
+e4 = ta.ema(e3, useLen)
+e5 = ta.ema(e4, useLen)
+e6 = ta.ema(e5, useLen)
+c1 = -useAlpha * useAlpha * useAlpha
+c2 = 3 * useAlpha * useAlpha + 3 * useAlpha * useAlpha * useAlpha
+c3 = -6 * useAlpha * useAlpha - 3 * useAlpha - 3 * useAlpha * useAlpha * useAlpha
+c4 = 1 + 3 * useAlpha + useAlpha * useAlpha * useAlpha + 3 * useAlpha * useAlpha
+F4 = c1 * e6 + c2 * e5 + c3 * e4 + c4 * e3
+
+// F4 Fibonacci
+e12 = ta.ema((high + low + 2 * close) / 4, useFiboLen)
+e22 = ta.ema(e12, useFiboLen)
+e32 = ta.ema(e22, useFiboLen)
+e42 = ta.ema(e32, useFiboLen)
+e52 = ta.ema(e42, useFiboLen)
+e62 = ta.ema(e52, useFiboLen)
+c12 = -useFiboAlpha * useFiboAlpha * useFiboAlpha
+c22 = 3 * useFiboAlpha * useFiboAlpha + 3 * useFiboAlpha * useFiboAlpha * useFiboAlpha
+c32 = -6 * useFiboAlpha * useFiboAlpha - 3 * useFiboAlpha - 3 * useFiboAlpha * useFiboAlpha * useFiboAlpha
+c42 = 1 + 3 * useFiboAlpha + useFiboAlpha * useFiboAlpha * useFiboAlpha + 3 * useFiboAlpha * useFiboAlpha
+F42 = c12 * e62 + c22 * e52 + c32 * e42 + c42 * e32
+
+// F4 Colors
+col1 = F4 > F4[1]
+col3 = F4 < F4[1]
+color_1 = col1 ? color.green : col3 ? color.red : color.yellow
+col12 = F42 > F42[1]
+col32 = F42 < F42[1]
+color2 = col12 ? color.blue : col32 ? color.purple : color.yellow
+
+// --- WaveTrend Calculations (Dashboard İçin) ---
+ap = (high + low + close) / 3
+esa = ta.ema(ap, wtLength)
+d = ta.ema(math.abs(ap - esa), wtLength)
+ci = (ap - esa) / (0.015 * d)
+wt1 = ta.ema(ci, wtAvgLength)
+wt2 = ta.sma(wt1, 4)
+obLevel1 = 60.0
+osLevel1 = -60.0
+
+// --- CHART PRİME PİVOT HESAPLAMALARI ---
+CP_ph = ta.pivothigh(high, CP_Length, CP_Length)
+CP_pl = ta.pivotlow(low, CP_Length, CP_Length)
+
+if not na(CP_ph)
+    CP_prev_pivot_high := CP_last_pivot_high
+    CP_prev_pivot_high_index := CP_last_pivot_high_index
+    CP_last_pivot_high := CP_ph
+    CP_last_pivot_high_index := bar_index
+
+if not na(CP_pl)
+    CP_prev_pivot_low := CP_last_pivot_low
+    CP_prev_pivot_low_index := CP_last_pivot_low_index
+    CP_last_pivot_low := CP_pl
+    CP_last_pivot_low_index := bar_index
+
+volume_score = volume_normalized()
+
+// --- LUXALGO HESAPLAMALARI ---
+var lux_offset = lux_backpaint ? lux_length : 0
+
+lux_ph = ta.pivothigh(lux_length, lux_length)
+lux_pl = ta.pivotlow(lux_length, lux_length)
+
+lux_slope = switch lux_calcMethod
+    'Atr' => ta.atr(lux_length) / lux_length * lux_mult
+    'Stdev' => ta.stdev(close, lux_length) / lux_length * lux_mult
+    'Linreg' => math.abs(ta.sma(close * bar_index, lux_length) - ta.sma(close, lux_length) * ta.sma(bar_index, lux_length)) / ta.variance(bar_index, lux_length) / 2 * lux_mult
+
+lux_slope_ph := bool(lux_ph) ? lux_slope : lux_slope_ph
+lux_slope_pl := bool(lux_pl) ? lux_slope : lux_slope_pl
+
+lux_upper := bool(lux_ph) ? lux_ph : (not na(lux_upper) ? lux_upper - lux_slope_ph : na)
+lux_lower := bool(lux_pl) ? lux_pl : (not na(lux_lower) ? lux_lower + lux_slope_pl : na)
+
+lux_upos := bool(lux_ph) ? 0 : (not na(lux_upper) ? (close > lux_upper - lux_slope_ph * lux_length ? 1 : lux_upos) : 0)
+lux_dnos := bool(lux_pl) ? 0 : (not na(lux_lower) ? (close < lux_lower + lux_slope_pl * lux_length ? 1 : lux_dnos) : 0)
+
+// --- LuxAlgo Line Drawing (DEACTIVATED PER USER REQUEST) ---
+// Lines lux_uptl and lux_dntl are no longer updated to keep the chart clean.
+
+// --- ChartPrime Logic Execution ---
+extensionMode = extendCPChannels ? extend.right : extend.none
+line.set_extend(down_trend_top, extend.none), line.set_x2(down_trend_top, bar_index + 20)
+line.set_extend(down_trend_bottom, extend.none), line.set_x2(down_trend_bottom, bar_index + 20)
+line.set_extend(down_trend_top_zone, extend.none), line.set_x2(down_trend_top_zone, bar_index + 20)
+line.set_extend(down_trend_bottom_zone, extend.none), line.set_x2(down_trend_bottom_zone, bar_index + 20)
+line.set_extend(down_trend_center, extend.none), line.set_x2(down_trend_center, bar_index + 20)
+line.set_extend(up_trend_top, extend.none), line.set_x2(up_trend_top, bar_index + 20)
+line.set_extend(up_trend_bottom, extend.none), line.set_x2(up_trend_bottom, bar_index + 20)
+line.set_extend(up_trend_top_zone, extend.none), line.set_x2(up_trend_top_zone, bar_index + 20)
+line.set_extend(up_trend_bottom_zone, extend.none), line.set_x2(up_trend_bottom_zone, bar_index + 20)
+line.set_extend(up_trend_center, extend.none), line.set_x2(up_trend_center, bar_index + 20)
+line.set_extend(down_trend_top_zone_mid, extend.none), line.set_x2(down_trend_top_zone_mid, bar_index + 20)
+line.set_extend(down_trend_bottom_zone_mid, extend.none), line.set_x2(down_trend_bottom_zone_mid, bar_index + 20)
+line.set_extend(up_trend_top_zone_mid, extend.none), line.set_x2(up_trend_top_zone_mid, bar_index + 20)
+line.set_extend(up_trend_bottom_zone_mid, extend.none), line.set_x2(up_trend_bottom_zone_mid, bar_index + 20)
+
+atr_10 = ta.atr(10) * 6
+
+// Down Trend Mantığı (ChartPrime) - Simplified: No break wait required
+if not na(CP_prev_pivot_high) and not na(CP_last_pivot_high) and not na(CP_prev_pivot_high[1]) and CP_prev_pivot_high != CP_prev_pivot_high[1] and atan2(CP_last_pivot_high - CP_prev_pivot_high, CP_last_pivot_high_index - CP_prev_pivot_high_index) <= 0 and CP_down_count == 0 and barstate.isconfirmed
+    CP_down_count := 1
+    offset = atr_10
+    line.set_xy1(down_trend_top, CP_prev_pivot_high_index - CP_Length, math.round_to_mintick(CP_prev_pivot_high + offset / 7))
+    line.set_xy2(down_trend_top, CP_last_pivot_high_index - CP_Length, math.round_to_mintick(CP_last_pivot_high + offset / 7))
+    line.set_color(down_trend_top, CP_top_color)
+    line.set_xy1(down_trend_top_zone, CP_prev_pivot_high_index - CP_Length, math.round_to_mintick(CP_prev_pivot_high - offset / 7))
+    line.set_xy2(down_trend_top_zone, CP_last_pivot_high_index - CP_Length, math.round_to_mintick(CP_last_pivot_high - offset / 7))
+    line.set_xy1(down_trend_top_zone_mid, CP_prev_pivot_high_index - CP_Length, CP_prev_pivot_high)
+    line.set_xy2(down_trend_top_zone_mid, CP_last_pivot_high_index - CP_Length, CP_last_pivot_high)
+    CP_down_dydx := (CP_last_pivot_high - CP_prev_pivot_high) / (CP_last_pivot_high_index - CP_prev_pivot_high_index)
+    CP_down_anchor_y := CP_last_pivot_high
+    CP_down_anchor_x := CP_last_pivot_high_index - CP_Length
+    CP_down_offset := offset
+    line.set_xy1(down_trend_bottom, CP_prev_pivot_high_index - CP_Length, math.round_to_mintick(CP_prev_pivot_high - offset - offset / 7))
+    line.set_xy2(down_trend_bottom, CP_last_pivot_high_index - CP_Length, math.round_to_mintick(CP_last_pivot_high - offset - offset / 7))
+    line.set_color(down_trend_bottom, CP_bottom_color)
+    line.set_xy1(down_trend_bottom_zone, CP_prev_pivot_high_index - CP_Length, math.round_to_mintick(CP_prev_pivot_high - offset + offset / 7))
+    line.set_xy2(down_trend_bottom_zone, CP_last_pivot_high_index - CP_Length, math.round_to_mintick(CP_last_pivot_high - offset + offset / 7))
+    line.set_xy1(down_trend_bottom_zone_mid, CP_prev_pivot_high_index - CP_Length, math.round_to_mintick(CP_prev_pivot_high - offset))
+    line.set_xy2(down_trend_bottom_zone_mid, CP_last_pivot_high_index - CP_Length, math.round_to_mintick(CP_last_pivot_high - offset))
+    line.set_xy1(down_trend_center, CP_prev_pivot_high_index - CP_Length, math.round_to_mintick((CP_prev_pivot_high + CP_prev_pivot_high - offset) / 2))
+    line.set_xy2(down_trend_center, CP_last_pivot_high_index - CP_Length, math.round_to_mintick((CP_last_pivot_high + CP_last_pivot_high - offset) / 2))
+    line.set_color(down_trend_center, CP_center_color)
+    label.set_text(down_break_label, '')
+    label.set_color(down_break_label, color.new(color.black, 100))
+    if not showCPChannels
+        line.set_xy1(up_trend_bottom, na, na)
+        line.set_xy2(up_trend_bottom, na, na)
+        line.set_xy1(up_trend_top, na, na)
+        line.set_xy2(up_trend_top, na, na)
+        line.set_xy1(up_trend_center, na, na)
+        line.set_xy2(up_trend_center, na, na)
+        line.set_xy1(up_trend_bottom_zone, na, na)
+        line.set_xy2(up_trend_bottom_zone, na, na)
+        line.set_xy1(up_trend_bottom_zone_mid, na, na)
+        line.set_xy2(up_trend_bottom_zone_mid, na, na)
+        line.set_xy1(up_trend_top_zone, na, na)
+        line.set_xy2(up_trend_top_zone, na, na)
+        line.set_xy1(up_trend_top_zone_mid, na, na)
+        line.set_xy2(up_trend_top_zone_mid, na, na)
+        label.set_text(up_break_label, '')
+        label.set_color(up_break_label, color.new(color.black, 100))
+
+// Up Trend Mantığı (ChartPrime) - Simplified: No break wait required
+if not na(CP_prev_pivot_low) and not na(CP_last_pivot_low) and not na(CP_prev_pivot_low[1]) and CP_prev_pivot_low != CP_prev_pivot_low[1] and atan2(CP_last_pivot_low - CP_prev_pivot_low, CP_last_pivot_low_index - CP_prev_pivot_low_index) >= 0 and CP_up_count == 0 and barstate.isconfirmed
+    CP_up_count := 1
+    offset = atr_10
+    line.set_xy1(up_trend_top, CP_prev_pivot_low_index - CP_Length, math.round_to_mintick(CP_prev_pivot_low + offset + offset / 7))
+    line.set_xy2(up_trend_top, CP_last_pivot_low_index - CP_Length, math.round_to_mintick(CP_last_pivot_low + offset + offset / 7))
+    line.set_color(up_trend_top, CP_top_color)
+    line.set_xy1(up_trend_top_zone, CP_prev_pivot_low_index - CP_Length, math.round_to_mintick(CP_prev_pivot_low + offset - offset / 7))
+    line.set_xy2(up_trend_top_zone, CP_last_pivot_low_index - CP_Length, math.round_to_mintick(CP_last_pivot_low + offset - offset / 7))
+    line.set_xy1(up_trend_top_zone_mid, CP_prev_pivot_low_index - CP_Length, math.round_to_mintick(CP_prev_pivot_low + offset))
+    line.set_xy2(up_trend_top_zone_mid, CP_last_pivot_low_index - CP_Length, math.round_to_mintick(CP_last_pivot_low + offset))
+    line.set_xy1(up_trend_bottom, CP_prev_pivot_low_index - CP_Length, math.round_to_mintick(CP_prev_pivot_low - offset / 7))
+    line.set_xy2(up_trend_bottom, CP_last_pivot_low_index - CP_Length, math.round_to_mintick(CP_last_pivot_low - offset / 7))
+    line.set_color(up_trend_bottom, CP_bottom_color)
+    line.set_xy1(up_trend_bottom_zone, CP_prev_pivot_low_index - CP_Length, math.round_to_mintick(CP_prev_pivot_low + offset / 7))
+    line.set_xy2(up_trend_bottom_zone, CP_last_pivot_low_index - CP_Length, math.round_to_mintick(CP_last_pivot_low + offset / 7))
+    line.set_xy1(up_trend_bottom_zone_mid, CP_prev_pivot_low_index - CP_Length, math.round_to_mintick(CP_prev_pivot_low))
+    line.set_xy2(up_trend_bottom_zone_mid, CP_last_pivot_low_index - CP_Length, math.round_to_mintick(CP_last_pivot_low))
+    CP_up_dydx := (CP_last_pivot_low - CP_prev_pivot_low) / (CP_last_pivot_low_index - CP_prev_pivot_low_index)
+    CP_up_anchor_y := CP_last_pivot_low
+    CP_up_anchor_x := CP_last_pivot_low_index - CP_Length
+    CP_up_offset := offset
+    line.set_xy1(up_trend_center, CP_prev_pivot_low_index - CP_Length, math.round_to_mintick((CP_prev_pivot_low + CP_prev_pivot_low + offset) / 2))
+    line.set_xy2(up_trend_center, CP_last_pivot_low_index - CP_Length, math.round_to_mintick((CP_last_pivot_low + CP_last_pivot_low + offset) / 2))
+    line.set_color(up_trend_center, CP_center_color)
+    label.set_text(up_break_label, '')
+    label.set_color(up_break_label, color.new(color.black, 100))
+    if not showCPChannels
+        line.set_xy1(down_trend_bottom, na, na)
+        line.set_xy2(down_trend_bottom, na, na)
+        line.set_xy1(down_trend_top, na, na)
+        line.set_xy2(down_trend_top, na, na)
+        line.set_xy1(down_trend_center, na, na)
+        line.set_xy2(down_trend_center, na, na)
+        line.set_xy1(down_trend_bottom_zone, na, na)
+        line.set_xy2(down_trend_bottom_zone, na, na)
+        line.set_xy1(down_trend_bottom_zone_mid, na, na)
+        line.set_xy2(down_trend_bottom_zone_mid, na, na)
+        line.set_xy1(down_trend_top_zone, na, na)
+        line.set_xy2(down_trend_top_zone, na, na)
+        line.set_xy1(down_trend_top_zone_mid, na, na)
+        line.set_xy2(down_trend_top_zone_mid, na, na)
+        label.set_text(down_break_label, '')
+        label.set_color(down_break_label, color.new(color.black, 100))
+
+liquidity_score = liquidity_break()
+volume_color_high = color.new(CP_top_color, 60 + (100 - volume_score) / 5)
+volume_color_low = color.new(CP_bottom_color, 60 + (100 - volume_score) / 5)
+atr_20 = ta.atr(20) / 1.5
+
+if CP_down_count == 1
+    if enableCP_Liquid
+        linefill.set_color(down_trend_top_zone_mid_fill, volume_color_high)
+        linefill.set_color(down_trend_bottom_zone_mid_fill, volume_color_low)
+    
+    // Stable Anchor-based projection to prevent "falling lines"
+    target_x = bar_index + 1
+    dist = target_x - CP_down_anchor_x
+    
+    y2_top = math.round_to_mintick(CP_down_anchor_y + CP_down_offset / 7 + CP_down_dydx * dist)
+    y2_top_z = math.round_to_mintick(CP_down_anchor_y - CP_down_offset / 7 + CP_down_dydx * dist)
+    y2_top_m = math.round_to_mintick(CP_down_anchor_y + CP_down_dydx * dist)
+    y2_bot = math.round_to_mintick(CP_down_anchor_y - CP_down_offset - CP_down_offset / 7 + CP_down_dydx * dist)
+    y2_bot_z = math.round_to_mintick(CP_down_anchor_y - CP_down_offset + CP_down_offset / 7 + CP_down_dydx * dist)
+    y2_bot_m = math.round_to_mintick(CP_down_anchor_y - CP_down_offset + CP_down_dydx * dist)
+    y2_cnt = math.round_to_mintick((y2_top_m + y2_bot_m) / 2)
+
+    line.set_xy2(down_trend_top, target_x, y2_top)
+    line.set_xy2(down_trend_bottom, target_x, y2_bot)
+    line.set_xy2(down_trend_top_zone, target_x, y2_top_z)
+    line.set_xy2(down_trend_bottom_zone, target_x, y2_bot_z)
+    line.set_xy2(down_trend_top_zone_mid, target_x, y2_top_m)
+    line.set_xy2(down_trend_bottom_zone_mid, target_x, y2_bot_m)
+    line.set_xy2(down_trend_center, target_x, y2_cnt)
+    if low > line.get_price(down_trend_top, bar_index)
+        CP_down_count := 0
+        label.set_text(down_break_label, liquidity_score)
+        label.set_color(down_break_label, CP_top_color)
+        label.set_style(down_break_label, label.style_label_up)
+        label.set_xy(down_break_label, bar_index, line.get_y2(down_trend_top) - atr_20)
+    if high < line.get_price(down_trend_bottom, bar_index)
+        CP_down_count := 0
+        label.set_text(down_break_label, liquidity_score)
+        label.set_color(down_break_label, CP_bottom_color)
+        label.set_style(down_break_label, label.style_label_down)
+        label.set_xy(down_break_label, bar_index, line.get_y2(down_trend_bottom) + atr_20)
+
+if CP_up_count == 1
+    if enableCP_Liquid
+        linefill.set_color(top_trend_top_zone_mid_fill, volume_color_high)
+        linefill.set_color(top_trend_bottom_zone_mid_fill, volume_color_low)
+    
+    // Stable Anchor-based projection for UP TREND
+    target_up_x = bar_index + 1
+    dist_up = target_up_x - CP_up_anchor_x
+    
+    y2_up_t = math.round_to_mintick(CP_up_anchor_y + CP_up_offset + CP_up_offset / 7 + CP_up_dydx * dist_up)
+    y2_up_tz = math.round_to_mintick(CP_up_anchor_y + CP_up_offset - CP_up_offset / 7 + CP_up_dydx * dist_up)
+    y2_up_tm = math.round_to_mintick(CP_up_anchor_y + CP_up_offset + CP_up_dydx * dist_up)
+    y2_up_b = math.round_to_mintick(CP_up_anchor_y - CP_up_offset / 7 + CP_up_dydx * dist_up)
+    y2_up_bz = math.round_to_mintick(CP_up_anchor_y + CP_up_offset / 7 + CP_up_dydx * dist_up)
+    y2_up_bm = math.round_to_mintick(CP_up_anchor_y + CP_up_dydx * dist_up)
+    y2_up_cnt = math.round_to_mintick((y2_up_tm + y2_up_bm) / 2)
+
+    line.set_xy2(up_trend_top, target_up_x, y2_up_t)
+    line.set_xy2(up_trend_bottom, target_up_x, y2_up_b)
+    line.set_xy2(up_trend_top_zone, target_up_x, y2_up_tz)
+    line.set_xy2(up_trend_bottom_zone, target_up_x, y2_up_bz)
+    line.set_xy2(up_trend_top_zone_mid, target_up_x, y2_up_tm)
+    line.set_xy2(up_trend_bottom_zone_mid, target_up_x, y2_up_bm)
+    line.set_xy2(up_trend_center, target_up_x, y2_up_cnt)
+
+    if low > line.get_price(up_trend_top, bar_index) and barstate.isconfirmed
+        CP_up_count := 0
+        label.set_text(up_break_label, liquidity_score)
+        label.set_color(up_break_label, CP_top_color)
+        label.set_style(up_break_label, label.style_label_up)
+        label.set_xy(up_break_label, bar_index, line.get_y2(up_trend_top) - atr_20)
+    if high < line.get_price(up_trend_bottom, bar_index) and barstate.isconfirmed
+        CP_up_count := 0
+        label.set_text(up_break_label, liquidity_score)
+        label.set_color(up_break_label, CP_bottom_color)
+        label.set_style(up_break_label, label.style_label_down)
+        label.set_xy(up_break_label, bar_index, line.get_y2(up_trend_bottom) + atr_20)
+
+// --- CONFLUENCE ENGINE (from update1.pine) ---
+// Note: Tech modules already calculated above this section.
+
+// Volume Score (Using raw confirmed signals to break circular dependency)
+volWhaleScore = whaleBuyConfirmed ? 15 : whaleSellConfirmed ? 0 : rallyPhase ? 12 : distributionPhase ? 3 : 7
+volFlowScore = volume > globalVolSMA * 1.5 ? (close > open ? 10 : 3) : 5
+volScore = volWhaleScore + volFlowScore
+
+// Timing Score
+barsLateCalc = na(signalBar) ? 999 : bar_index - signalBar
+timeFreshScore = barsLateCalc <= 3 ? 5 : barsLateCalc <= 5 ? 3 : barsLateCalc <= 10 ? 1 : 0
+timeVolScore = volRegime == "PATLAMA" ? 5 : volRegime == "SIKIŞTIRMA" ? 3 : volRegime == "YÜKSEK VOL" ? 2 : 4
+timScore = timeFreshScore + timeVolScore
+
+// Market Score (Consolidated)
+mktBTCScore = btcD_chg_pct < 0 ? 10 : btcD_chg_pct > 0.5 ? 3 : 6
+mktOthersScore = othersD_chg_pct > 0 ? 8 : othersD_chg_pct < -0.3 ? 2 : 5
+mktCrossScore = btcVolImpulse and btcPriceAccept ? 7 : 4
+admScoreVal = classification_adm >= 2 ? 10 : classification_adm <= -2 ? -10 : classification_adm == 1 ? 5 : classification_adm == -1 ? -5 : 0
+mktScoreRaw = (riskOnDom ? 10 : 0) + (othersD_chg_pct > 0 ? 8 : 0) + (dxy_chg_pct < 0 ? 7 : 0) + admScoreVal
+mktScore = math.avg(mktScoreRaw, (mktBTCScore + mktOthersScore + mktCrossScore))
+mktScore := math.max(math.min(mktScore, 25), 0)
+
+// Technical Score
+techF4Dir = isF4Active ? (F4 > F4[1] ? 10 : F4 < F4[1] ? 0 : 5) : 5
+techWTScore = wt1 > wt2 and wt1 < 60 ? 10 : wt1 < wt2 and wt1 > -60 ? 0 : wt1 < -60 ? 8 : wt1 > 60 ? 2 : 5
+techSMCScore = swingTrend.bias == BULLISH ? 10 : swingTrend.bias == BEARISH ? 0 : 5
+techTrendScore = mtfBullCount >= 3 ? 10 : mtfBearCount >= 3 ? 0 : 5
+techScore = techF4Dir + techWTScore + techSMCScore + techTrendScore
+
+// V5: MOMENTUM SCORE (RSI + MACD + StochRSI)
+momentumRSI = enable_rsi ? (v5_rsi > 50 and v5_rsi < rsi_ob ? 10 : v5_rsi <= rsi_os ? 8 : v5_rsi >= rsi_ob ? 2 : 5) : 5
+momentumMACD = enable_macd ? (v5_macd_bull and v5_macd_hist > v5_macd_hist[1] ? 10 : v5_macd_bull ? 7 : 2) : 5
+momentumStoch = enable_stochrsi ? (v5_stoch_k < 20 ? 9 : v5_stoch_k > 80 ? 2 : v5_stoch_k > v5_stoch_d ? 8 : 4) : 5
+momentumScoreV5 = momentumRSI + momentumMACD + momentumStoch
+momentumScoreV5 := math.max(math.min(momentumScoreV5, 30), 0)
+
+// V5: TREND SCORE (ADX + EMA Ribbon + Ichimoku + Supertrend)
+trendADX = enable_adx ? (v5_adx_trending and v5_diplus > v5_diminus ? 10 : v5_adx_trending ? 3 : 5) : 5
+trendRibbon = enable_ema_ribbon ? (v5_ribbon_bull ? 10 : v5_ribbon_bear ? 0 : v5_ema8 > v5_ema55 ? 7 : 3) : 5
+trendIchimoku = enable_ichimoku ? (v5_ichi_above_kumo ? 10 : v5_ichi_below_kumo ? 0 : 5) : 5
+trendST = enable_supertrend ? (v5_st_bull ? 10 : 0) : 5
+trendScoreV5 = trendADX + trendRibbon + trendIchimoku + trendST
+trendScoreV5 := math.max(math.min(trendScoreV5, 40), 0)
+
+// ═══════════════════════════════════════════════════════
+// V5.3: KOŞULLU AĞIRLIKLANDIRMA (Risk-Off Modu)
+// DXY >%0.5 yükseliyorsa: Teknik ağırlık %15, Piyasa ağırlığı %25
+// ═══════════════════════════════════════════════════════
+isRiskOff = math.abs(dxy_chg_pct) > 0.5
+dynWeightTech = isRiskOff ? 15.0 : confluenceWeightTech
+dynWeightMarket = isRiskOff ? 25.0 : confluenceWeightMarket
+dynWeightMomentum = isRiskOff ? 10.0 : confluenceWeightMomentum
+dynWeightTrend = isRiskOff ? 20.0 : confluenceWeightTrend
+
+// ═══════════════════════════════════════════════════════
+// V5.3: LİKİDİTE ODAKLI FİLTRELEME
+// Fiyat OB veya FVG bölgesinde ise +10 puan bonus
+// ═══════════════════════════════════════════════════════
+// OB Zone Check
+inBullishOB = false
+inBearishOB = false
+if swingOrderBlocks.size() > 0
+    for i = 0 to math.min(swingOrderBlocks.size() - 1, 5)
+        ob = swingOrderBlocks.get(i)
+        if ob.bias == BULLISH and close >= ob.barLow and close <= ob.barHigh
+            inBullishOB := true
+        else if ob.bias == BEARISH and close >= ob.barLow and close <= ob.barHigh
+            inBearishOB := true
+// FVG Zone Check
+inBullishFVG = false
+inBearishFVG = false
+if fairValueGaps.size() > 0
+    for i = 0 to math.min(fairValueGaps.size() - 1, 5)
+        fvg = fairValueGaps.get(i)
+        if fvg.bias == BULLISH and close >= fvg.bottom and close <= fvg.top
+            inBullishFVG := true
+        else if fvg.bias == BEARISH and close >= fvg.bottom and close <= fvg.top
+            inBearishFVG := true
+// Likidite Bonusu
+liquidityBonus = (inBullishOB or inBullishFVG or inBearishOB or inBearishFVG) ? 10 : 0
+liquidityZoneText = inBullishOB ? "OB BOĞA" : inBearishOB ? "OB AYI" : inBullishFVG ? "FVG BOĞA" : inBearishFVG ? "FVG AYI" : "YOK"
+
+// V5: Total Confluence (6 Kategori) + V5.3 Dinamik Ağırlık + Likidite Bonus
+confluenceScore = (techScore / 40 * dynWeightTech) + (momentumScoreV5 / 30 * dynWeightMomentum) + (volScore / 25 * confluenceWeightVol) + (trendScoreV5 / 40 * dynWeightTrend) + (mktScore / 25 * dynWeightMarket) + (timScore / 10 * confluenceWeightTiming) + liquidityBonus
+confluenceScore := math.min(confluenceScore, 100) // V5.4 FIX: Likidite bonusu ile 100'ü aşmasını engelle
+confluenceStatus = confluenceScore >= 80 ? "MÜKEMMEL" : confluenceScore >= 65 ? "GÜÇLÜ" : confluenceScore >= 50 ? "ORTA" : confluenceScore >= 35 ? "ZAYIF" : "YETERSİZ"
+confluenceColor_new = confluenceScore >= 65 ? color.green : confluenceScore >= 50 ? color.new(color.green, 40) : confluenceScore >= 35 ? color.orange : color.red
+
+// --- PREDICTION ENGINE (from update1.pine) ---
+normSlope = (slopeCalc - ta.lowest(slopeCalc, 100)) / (ta.highest(slopeCalc, 100) - ta.lowest(slopeCalc, 100) + 0.0001) * 100
+normAccel = (accelCalc - ta.lowest(accelCalc, 100)) / (ta.highest(accelCalc, 100) - ta.lowest(accelCalc, 100) + 0.0001) * 100
+normWT = (wt1 + 100) / 200 * 100
+
+baseUpProb = 50.0
+baseUpProb += normSlope > 50 ? 10 : -10
+baseUpProb += normAccel > 50 ? 8 : -8
+baseUpProb += normWT < 30 ? 12 : normWT > 70 ? -12 : 0
+baseUpProb += priceZScore < -1.5 ? 10 : priceZScore > 1.5 ? -10 : 0
+baseUpProb += volRegime == "SIKIŞTIRMA" ? 5 : volRegime == "PATLAMA" ? (slopeCalc > 0 ? 8 : -8) : 0
+
+predictionUpProb = math.max(math.min(baseUpProb, 95), 5)
+predictionDownProb = 100 - predictionUpProb
+predictionText_new = predictionUpProb >= 65 ? "YUKARI 📈" : predictionDownProb >= 65 ? "AŞAĞI 📉" : "YATAY"
+
+// AI Combined Score (GIGA MASTER ENGINE)
+// Bu bölüm Confluence ve Prediction motorlarını birleştirir.
+aiRawScore := (confluenceScore * 0.4) + (predictionUpProb > predictionDownProb ? predictionUpProb : predictionDownProb) * 0.4 + (timScore / 10 * 100) * 0.2
+
+// Ekstra Filtreler ve Cezalar
+aiRawScore -= fakeWhale ? 15 : 0
+aiRawScore -= isStoppingVolume ? 10 : 0
+aiRawScore += isVixBottom ? 10 : 0
+aiRawScore += (fastSlopeCalc > 0 and slopeCalc > 0) or (fastSlopeCalc < 0 and slopeCalc < 0) ? 5 : 0
+
+// V5: Yeni İndikatör Bonusları
+aiRawScore += enable_rsi and v5_rsi <= rsi_os ? 8 : enable_rsi and v5_rsi >= rsi_ob ? -5 : 0
+aiRawScore += enable_supertrend and v5_st_bull ? 5 : enable_supertrend and not v5_st_bull ? -3 : 0
+aiRawScore += enable_ema_ribbon and v5_ribbon_bull ? 7 : enable_ema_ribbon and v5_ribbon_bear ? -5 : 0
+aiRawScore += enable_ichimoku and v5_ichi_above_kumo ? 5 : enable_ichimoku and v5_ichi_below_kumo ? -3 : 0
+aiRawScore += enable_adx and v5_adx_trending ? 3 : 0
+aiRawScore += enable_vwap and v5_vwap_above ? 3 : enable_vwap and not v5_vwap_above ? -2 : 0
+
+aiScore_new = math.max(math.min(aiRawScore, 100), 0)
+aiScore := aiScore_new
+
+// --- MARKET CYCLE & FLOW ---
+accumulationScore = 0.0
+if whaleBuyConfirmed
+    accumulationScore += 30
+if volRegime == "SIKIŞTIRMA"
+    accumulationScore += 25
+if priceZScore < -1
+    accumulationScore += 15
+
+distributionScore = 0.0
+if whaleSellConfirmed
+    distributionScore += 30
+if volRegime == "SIKIŞTIRMA"
+    distributionScore += 25
+if priceZScore > 1
+    distributionScore += 15
+
+marketPhaseText = "KONSOLİDASYON"
+marketPhaseColor = GRAY
+
+if accumulationScore >= 50
+    marketPhaseText := "AKÜMÜLASYON 💎"
+    marketPhaseColor := color.new(GREEN, 20)
+else if distributionScore >= 50
+    marketPhaseText := "DAĞITIM ⚠️"
+    marketPhaseColor := color.new(RED, 20)
+else if whaleTrendUp and whaleHighVol
+    marketPhaseText := "YUKARI TREND 🚀"
+    marketPhaseColor := color.green
+else if whaleTrendDown and whaleHighVol
+    marketPhaseText := "AŞAĞI TREND 📉"
+    marketPhaseColor := color.red
+
+// V5.1 FIX: capitalFlowText KALDIRILDI - marketFlowText ile birleştirildi
+// Artık tek bir "SERMAYE AKIŞI" göstergesi var (marketFlowText)
+// Bu değişken backward compatibility için korundu ama kullanılmıyor
+capitalFlowText = marketFlowText
+capitalFlowColor = marketFlowColor
+
+// --- F4 ERKEN UYARI SİSTEMİ V5.4 (Fibo Habercisi + Güç Kaybı) ---
+// V5.4 ANAHTAR DEĞİŞİKLİK: F42 (Fibo) çizgisi F4'ten daha hızlı dönüyor.
+// Fibo yön değiştirdiğinde + F4 güç kaybediyorsa → ERKEN sinyal!
+// Bu versiyonda Fibo çizgisi "haberci" görevi görür.
+f4_buy_signal = false
+f4_sell_signal = false
+f4_early_buy = false
+f4_early_sell = false
+f4_confirmed_buy = false
+f4_confirmed_sell = false
+
+// Global değişkenler
+var float f4_slope_ma_val = 0.0
+var float f4_power_loss_pct = 0.0
+var float f4_slope_max_val = 0.0
+
+if isF4Active
+    // ═══════════════════════════════════════════════════════
+    // F4 ANA ÇİZGİ EĞİMİ (yavaş, gecikmeli)
+    // ═══════════════════════════════════════════════════════
+    f4_slope = F4 - F4[1]
+    f4_slope_ma = ta.sma(f4_slope, 3)
+    f4_slope_ma_val := f4_slope_ma
+    
+    // ═══════════════════════════════════════════════════════
+    // F42 FİBO ÇİZGİ EĞİMİ (hızlı, öncü gösterge)
+    // Fibo çizgisi daha kısa periyot + düşük alpha kullandığı
+    // için trend değişimlerini F4'ten birkaç bar önce yakalar.
+    // ═══════════════════════════════════════════════════════
+    fibo_slope = F42 - F42[1]
+    fibo_slope_ma = ta.sma(fibo_slope, 2) // Daha az düzleştirme = daha hızlı tepki
+    
+    // Fibo uyumsuzluğu (Divergence): Fibo yön değiştirmiş ama F4 hâlâ eski yönde
+    fibo_diverging_buy = fibo_slope_ma > 0 and f4_slope_ma < 0  // Fibo yukarı dönmüş, F4 hâlâ düşüyor
+    fibo_diverging_sell = fibo_slope_ma < 0 and f4_slope_ma > 0 // Fibo aşağı dönmüş, F4 hâlâ yükseliyor
+    
+    // ═══════════════════════════════════════════════════════
+    // GÜÇ KAYBI HESAPLAMA (F4 ana çizgi bazlı)
+    // ═══════════════════════════════════════════════════════
+    f4_slope_strength = math.abs(f4_slope_ma)
+    f4_slope_max = ta.highest(f4_slope_strength, f4LookbackBars)
+    f4_slope_max_val := f4_slope_max
+    
+    // Güç kaybı yüzdesi (maksimumdan düşüş)
+    f4_power_loss_pct := f4_slope_max > 0.00001 ? ((f4_slope_max - f4_slope_strength) / f4_slope_max * 100) : 0.0
+    
+    // Flat market filtresi
+    thresholdMult = tradeMode == "Scalp" ? 1.0 : 0.1
+    dynamicThreshold = ta.atr(14) * f4SlopeThresholdFactor * thresholdMult
+    f4NotFlat = f4_slope_strength > dynamicThreshold or math.abs(fibo_slope_ma) > dynamicThreshold
+    
+    // ═══════════════════════════════════════════════════════
+    // V5.3: VOLATILITE ADAPTIF EŞIK
+    // ═══════════════════════════════════════════════════════
+    dynPowerLossThreshold = volRegime == "SIKIŞTIRMA" ? f4SqueezeThreshold : f4PowerLossThreshold
+    
+    // ═══════════════════════════════════════════════════════
+    // V5.4: ERKEN SİNYAL — İKİ KATMANLI TETİKLEME
+    // Katman 1 (HIZLI): Fibo uyumsuzluğu + güç kaybı eşiğinin yarısı
+    //   → Fibo çizgisi dönmüşse, düşük eşik yeter
+    // Katman 2 (NORMAL): Sadece güç kaybı eşiği (eski davranış)
+    // ═══════════════════════════════════════════════════════
+    halfThreshold = dynPowerLossThreshold * 0.5
+    
+    // ERKEN AL: Fibo yukarı dönmüş + F4 düşüyor + güç kaybediyor
+    f4_early_buy_fibo = fibo_diverging_buy and f4_power_loss_pct >= halfThreshold and f4_power_loss_pct[1] < halfThreshold and f4NotFlat
+    f4_early_buy_classic = f4_slope_ma < 0 and f4_power_loss_pct >= dynPowerLossThreshold and f4_power_loss_pct[1] < dynPowerLossThreshold and f4NotFlat
+    f4_early_buy := f4_early_buy_fibo or f4_early_buy_classic
+    
+    // ERKEN SAT: Fibo aşağı dönmüş + F4 yükseliyor + güç kaybediyor
+    f4_early_sell_fibo = fibo_diverging_sell and f4_power_loss_pct >= halfThreshold and f4_power_loss_pct[1] < halfThreshold and f4NotFlat
+    f4_early_sell_classic = f4_slope_ma > 0 and f4_power_loss_pct >= dynPowerLossThreshold and f4_power_loss_pct[1] < dynPowerLossThreshold and f4NotFlat
+    f4_early_sell := f4_early_sell_fibo or f4_early_sell_classic
+    
+    // ONAYLANMIŞ sinyaller (çizgi renk değiştirdiğinde - ikinci doğrulama)
+    f4_confirmed_buy := ta.crossover(F4, F4[1]) and f4NotFlat
+    f4_confirmed_sell := ta.crossunder(F4, F4[1]) and f4NotFlat
+    
+    // Ana sinyaller
+    if f4_early_buy
+        currentAlerts.F4_BUY := true
+        f4_buy_signal := true
+    if f4_early_sell
+        currentAlerts.F4_SELL := true
+        f4_sell_signal := true
+
+// ===============================
+// 4. FİNAL SİNYALLER & SİSTEM KARARI (GATE)
+// ===============================
+longCondition = confluenceScore >= minConfluenceScore and predictionUpProb >= 55 and marketPhaseText != "DAĞITIM ⚠️"
+shortCondition = confluenceScore >= minConfluenceScore and predictionDownProb >= 55 and marketPhaseText != "AKÜMÜLASYON 💎"
+
+// System Decision Gate
+SYSTEM_DECISION = (longCondition or shortCondition) and not deathRisk and whaleTrust > 0.3
+
+// Whale-filtered final sinyaller
+finalLong = longCondition and SYSTEM_DECISION
+finalShort = shortCondition and SYSTEM_DECISION
+whaleFilteredLong = finalLong
+whaleFilteredShort = finalShort
+
+// Decay Tracker Update
+if longCondition or shortCondition
+    signalBar := bar_index
+
+// V5 FIX: Fatigue Tracker - tradeFrequencyVar burada güncelleniyor (longCondition/shortCondition tanımlı)
+tradeFrequencyVar := nz(ta.sma(longCondition or shortCondition ? 1.0 : 0.0, 20), 0.0)
+
+// ===============================
+// 9. WHALE SINYAL METİNLERİ
+// ===============================
+var string whaleSignalText = "—"
+var color whaleSignalColor = color.gray
+
+if whaleFilteredLong
+    whaleSignalText := "BALİNA TOPLUYOR 🐋"
+    whaleSignalColor := color.new(color.green, 0)
+else if whaleFilteredShort
+    whaleSignalText := "BALİNA BOŞALTIYOR 🐋"
+    whaleSignalColor := color.new(color.red, 0)
+else if fakeBreakoutUp or fakeBreakoutDown
+    whaleSignalText := "FAKE HAREKET ⚠️"
+    whaleSignalColor := color.orange
+else
+    whaleSignalText := "—"
+    whaleSignalColor := color.gray
+
+if isF4Active
+    if f4_buy_signal
+        currentAlerts.F4_BUY := true
+    if f4_sell_signal
+        currentAlerts.F4_SELL := true
+else
+    currentAlerts.F4_BUY := false
+    currentAlerts.F4_SELL := false
+
+// --- STRUCTURE & ZONE DISPLAY ---
+candleColor = internalTrend.bias == BULLISH ? swingBullishColor : swingBearishColor
+barcolor(showTrendInput ? candleColor : na, title="Trend Mum Boyama")
+
+getCurrentStructure(dynamicSwingLen, false, false)
+getCurrentStructure(dynamicSwingLen, false, true)
+getCurrentStructure(dynamicEqLen, true, false) 
+
+if showHighLowSwingsInput or showPremiumDiscountZonesInput
+    updateTrailingExtremes()
+
+if showFairValueGapsInput
+    deleteFairValueGaps()
+    drawFairValueGaps()
+
+displayStructure(true)
+displayStructure() 
+
+deleteOrderBlocks(true)
+deleteOrderBlocks(false)
+
+if barstate.islastconfirmedhistory or barstate.islast
+    if showHighLowSwingsInput
+        drawHighLowSwings()
+    if showPremiumDiscountZonesInput
+        drawPremiumDiscountZones()
+    if showInternalOrderBlocksInput
+        drawOrderBlocks(true)
+    if showSwingOrderBlocksInput
+        drawOrderBlocks(false)
+    lastBarIndex := currentBarIndex
+    currentBarIndex := bar_index
+    newBar = currentBarIndex != lastBarIndex
+    if showDailyLevelsInput and not higherTimeframe('D')
+        drawLevels('D', timeframe.isdaily, RED, "Kesikli", dTopL, dBotL, dTopLbl, dBotLbl)
+    if showWeeklyLevelsInput and not higherTimeframe('W')
+        drawLevels('W', timeframe.isweekly, levelColorInput, "Sürekli", wTopL, wBotL, wTopLbl, wBotLbl)
+    if showMonthlyLevelsInput and not higherTimeframe('M')
+        drawLevels('M', timeframe.ismonthly, levelColorInput, "Sürekli", mTopL, mBotL, mTopLbl, mBotLbl)
+
+// --- VPA & WINGS CALCULATIONS (from update2.pine) ---
+atr_wing = ta.atr(P_vpa), atr_s = math.max(atr_wing, syminfo.mintick)
+float TF_buy_vpa = 0.0, float TF_sell_vpa = 0.0
+if enable_vpa
+    if calc_method_vpa == "Hassas (1dk)"
+        [uV, dV, dl] = tvta_lib.requestUpAndDownVolume("1")
+        TF_buy_vpa := nz(math.abs(uV)), TF_sell_vpa := nz(math.abs(dV))
+    else
+        rB = high - low, float bP = rB == 0 ? 0.5 : (close - low) / rB
+        TF_buy_vpa := volume * bP, TF_sell_vpa := volume * (1 - bP)
+
+TF_tot_vpa = TF_buy_vpa + TF_sell_vpa, TF_delta_vpa = TF_buy_vpa - TF_sell_vpa
+iB_vpa = int(math.floor((P_vpa - 1) / 2.0)), iC_vpa = P_vpa - 1
+AtoB_buy_vpa  = math.sum(TF_buy_vpa, iB_vpa), AtoB_sell_vpa = math.sum(TF_sell_vpa, iB_vpa), AtoB_delta_vpa = AtoB_buy_vpa - AtoB_sell_vpa
+CtoB_buy_vpa  = math.sum(TF_buy_vpa[iB_vpa + 1], iC_vpa - iB_vpa), CtoB_sell_vpa = math.sum(TF_sell_vpa[iB_vpa + 1], iC_vpa - iB_vpa), CtoB_delta_vpa = CtoB_buy_vpa - CtoB_sell_vpa
+
+ang_CB_top = _deg_vpa(_slope_n_vpa(high[iB_vpa], high[iC_vpa], float(iC_vpa - iB_vpa), atr_s))
+ang_CB_bot = _deg_vpa(_slope_n_vpa(low[iB_vpa], low[iC_vpa], float(iC_vpa - iB_vpa), atr_s))
+ang_BA_top = _deg_vpa(_slope_n_vpa(high, high[iB_vpa], float(iB_vpa), atr_s))
+ang_BA_bot = _deg_vpa(_slope_n_vpa(low, low[iB_vpa], float(iB_vpa), atr_s))
+
+dxL = float(iB_vpa - iC_vpa), dxR = float(0 - (-iB_vpa))
+dyL_t = (high[iC_vpa] - high[iB_vpa]) / atr_s, dyR_t = (high - high[iB_vpa]) / atr_s
+dyL_b = (low[iC_vpa] - low[iB_vpa]) / atr_s, dyR_b = (low - low[iB_vpa]) / atr_s
+theta_t = _angle360_vpa(dxL, dyL_t, dxR, dyR_t), theta_b = _angle360_vpa(dxL, dyL_b, dxR, dyR_b)
+theta_avg = (nz(theta_t) + nz(theta_b)) / 2
+alpha_vpa = 360.0 - theta_avg, beta_vpa = theta_avg
+
+if enable_vpa and enable_wing and barstate.islast
+    var line l1_vpa = line.new(bar_index-iC_vpa, high[iC_vpa], bar_index-iB_vpa, high[iB_vpa], color=color.new(#089981, 50))
+    var line l2_vpa = line.new(bar_index-iC_vpa, low[iC_vpa], bar_index-iB_vpa, low[iB_vpa], color=color.new(#F23645, 50))
+    var line l3_vpa = line.new(bar_index-iB_vpa, high[iB_vpa], bar_index, high, color=color.new(#089981, 30), width=2)
+    var line l4_vpa = line.new(bar_index-iB_vpa, low[iB_vpa], bar_index, low, color=color.new(#F23645, 30), width=2)
+    line.set_xy1(l1_vpa, bar_index-iC_vpa, high[iC_vpa]), line.set_xy2(l1_vpa, bar_index-iB_vpa, high[iB_vpa])
+    line.set_xy1(l2_vpa, bar_index-iC_vpa, low[iC_vpa]), line.set_xy2(l2_vpa, bar_index-iB_vpa, low[iB_vpa])
+    line.set_xy1(l3_vpa, bar_index-iB_vpa, high[iB_vpa]), line.set_xy2(l3_vpa, bar_index, high)
+    line.set_xy1(l4_vpa, bar_index-iB_vpa, low[iB_vpa]), line.set_xy2(l4_vpa, bar_index, low)
+
+[oB1, vB1, oB2, vB2, oB3, vB3] = _scan_top3_vpa(TF_buy_vpa, P_vpa)
+[oS1, vS1, oS2, vS2, oS3, vS3] = _scan_top3_vpa(TF_sell_vpa, P_vpa)
+
+// Global VPA Pressure for Alerts
+netP_calc = TF_tot_vpa > 0 ? (TF_delta_vpa / TF_tot_vpa * 100) : 0
+
+if enable_vpa and enable_peak and barstate.islast
+    var box bB1 = box.new(bar_index-oB1, high[oB1], bar_index, high[oB1], border_color=color.new(#F23645, 40), bgcolor=color.new(#F23645, 90))
+    var box bS1 = box.new(bar_index-oS1, low[oS1], bar_index, low[oS1], border_color=color.new(#089981, 40), bgcolor=color.new(#089981, 90))
+    if not na(oB1)
+        box.set_lefttop(bB1, bar_index-oB1, high[oB1]), box.set_rightbottom(bB1, bar_index, high[oB1])
+    if not na(oS1)
+        box.set_lefttop(bS1, bar_index-oS1, low[oS1]), box.set_rightbottom(bS1, bar_index, low[oS1])
+
+// --- CLUSTERS VOLUME PROFILE CALCULATIONS (from update2.pine) ---
+if enable_cvp and barstate.islast
+    [assignments, centroids] = f_kmeans(lookback_cvp, kInput_cvp, iters_cvp)
+    for b in allBoxes_cvp
+        b.delete()
+    allBoxes_cvp.clear()
+    for l in allLabels_cvp
+        l.delete()
+    allLabels_cvp.clear()
+    for ln in allLines_cvp
+        ln.delete()
+    allLines_cvp.clear()
+    
+    vpStartX = bar_index + vpOffset_cvp
+    calcStart = bar_index - lookback_cvp + 1
+    for c_id = 0 to kInput_cvp - 1
+        clusterColor = PALETTE_CVP.get(c_id % PALETTE_CVP.size())
+        float[] c_highs = array.new_float(0), float[] c_lows = array.new_float(0), float[] c_vols = array.new_float(0)
+        float c_min = 1e10, float c_max = -1e10, float c_total_vol = 0.0
+        for i = 0 to lookback_cvp - 1
+            if assignments.get(i) == c_id
+                c_highs.push(high[i]), c_lows.push(low[i]), c_vols.push(volume[i])
+                c_min := math.min(c_min, low[i]), c_max := math.max(c_max, high[i]), c_total_vol += volume[i]
+        if c_highs.size() > 0
+            binVols = array.new_float(rowsInput_cvp, 0.0)
+            binSize = math.max((c_max - c_min) / rowsInput_cvp, syminfo.mintick)
+            for i = 0 to c_highs.size() - 1
+                bH = array.get(c_highs, i), bL = array.get(c_lows, i), bV = array.get(c_vols, i), wR = math.max(bH - bL, syminfo.mintick)
+                for b_idx = 0 to rowsInput_cvp - 1
+                    binB = c_min + b_idx * binSize, binT = binB + binSize
+                    intersect = math.min(bH, binT) - math.max(bL, binB)
+                    if intersect > 0
+                        binVols.set(b_idx, array.get(binVols, b_idx) + bV * (intersect / wR))
+            maxBinVol = binVols.max(), pocIdx = binVols.indexof(maxBinVol)
+            for b_idx = 0 to rowsInput_cvp - 1
+                vol_cvp = binVols.get(b_idx)
+                if vol_cvp == 0
+                    continue
+                b_btm = c_min + b_idx * binSize, b_top = b_btm + binSize
+                b_wd = int((vol_cvp / math.max(maxBinVol, 1)) * vpWidth_cvp)
+                isPoc = b_idx == pocIdx
+                allBoxes_cvp.push(box.new(vpStartX, b_top, vpStartX + b_wd, b_btm, bgcolor = isPoc ? clusterColor : color.new(clusterColor, 75), border_color = isPoc ? clusterColor : #00000000))
+                if isPoc
+                    pY = (b_top + b_btm) / 2
+                    allLines_cvp.push(line.new(calcStart, pY, vpStartX, pY, color = clusterColor, style = line.style_dashed))
+                    allLabels_cvp.push(label.new(calcStart, pY, str.tostring(vol_cvp, format.volume), color = #00000000, textcolor = clusterColor, style = label.style_label_right, size = size.small))
+
+//---------------------------------------------------------------------------------------------------------------------}
+//PLOTS
+//---------------------------------------------------------------------------------------------------------------------{
+// F4 Plots
+plot(isF4Active and showF4MainInput ? F4 : na, color = color.new(color_1, F4Opacity), linewidth = 3, title = 'F4 Ana')
+plot(isF4Active and F4FiboLine and not na(F42) ? F42 : na, color = color.new(color2, F4Opacity), linewidth = 2, title = 'F4 Fibo')
+
+// LuxAlgo Trend Lines (DEACTIVATED PER USER REQUEST)
+
+// F4 Sinyal Etiketleri V5.2 (Kısa: EAL/ESAT)
+plotshape(f4_buy_signal and showBuySellLabels, 'EAL', shape.labelup, location.belowbar, color.new(color.lime, 0), text = 'EAL', textcolor = color.white, size = size.small)
+plotshape(f4_sell_signal and showBuySellLabels, 'ESAT', shape.labeldown, location.abovebar, color.new(color.red, 0), text = 'ESAT', textcolor = color.white, size = size.small)
+// Onay sinyalleri (küçük nokta - çizgi renk değiştiğinde)
+plotshape(f4_confirmed_buy and showBuySellLabels and not f4_buy_signal, 'OAL', shape.circle, location.belowbar, color.new(color.green, 30), size = size.tiny)
+plotshape(f4_confirmed_sell and showBuySellLabels and not f4_sell_signal, 'OSAT', shape.circle, location.abovebar, color.new(color.maroon, 30), size = size.tiny)
+
+// --- WHALE ENGINE PLOTS ---
+plotshape(showWhalePlots and whaleFilteredLong, 'Whale Long', shape.diamond, location.belowbar, color.new(color.aqua, 0), text = '🐋', textcolor = color.white, size = size.tiny)
+plotshape(showWhalePlots and whaleFilteredShort, 'Whale Short', shape.diamond, location.abovebar, color.new(color.fuchsia, 0), text = '🐋', textcolor = color.white, size = size.tiny)
+plotshape(showWhalePlots and fakeWhale, 'Fake Whale', shape.xcross, location.abovebar, color.new(color.orange, 20), size = size.tiny)
+
+// AI Score Plot
+plotchar(showWhalePlots and SYSTEM_DECISION, 'Sistem İzin', '✅', location.top, color = color.green, size = size.tiny)
+plotchar(showWhalePlots and deathRisk, 'Kill Switch', '🛑', location.top, color = color.red, size = size.tiny)
+
+// --- V5: SUPERTREND PLOT ---
+plot(enable_supertrend and showSTPlot ? v5_st_val : na, 'Supertrend', v5_st_bull ? color.green : color.red, linewidth = 2, style = plot.style_linebr)
+plotshape(enable_supertrend and v5_st_flip_up, 'ST Alış', shape.triangleup, location.belowbar, color.new(color.lime, 20), size = size.tiny)
+plotshape(enable_supertrend and v5_st_flip_dn, 'ST Satış', shape.triangledown, location.abovebar, color.new(color.red, 20), size = size.tiny)
+
+// --- V5: VWAP PLOT ---
+plot(enable_vwap ? v5_vwap : na, 'VWAP', color.new(color.yellow, 30), linewidth = 1)
+
+// --- V5: EMA RIBBON PLOTS ---
+plot(enable_ema_ribbon and showEmaRibbonPlot ? v5_ema8 : na, 'EMA 8', color.new(#26a69a, 60), linewidth = 1)
+plot(enable_ema_ribbon and showEmaRibbonPlot ? v5_ema21 : na, 'EMA 21', color.new(#42a5f5, 60), linewidth = 1)
+plot(enable_ema_ribbon and showEmaRibbonPlot ? v5_ema55 : na, 'EMA 55', color.new(#ef5350, 60), linewidth = 1)
+
+// --- V5: MACD CROSSOVER SİNYALLERİ ---
+plotshape(enable_macd and v5_macd_cross_up, 'MACD Cross Up', shape.circle, location.belowbar, color.new(color.teal, 30), size = size.tiny)
+plotshape(enable_macd and v5_macd_cross_dn, 'MACD Cross Down', shape.circle, location.abovebar, color.new(color.maroon, 30), size = size.tiny)
+
+//---------------------------------------------------------------------------------------------------------------------}
+//DASHBOARD LOGIC
+//---------------------------------------------------------------------------------------------------------------------{
+// --- DIVERGENCE CALCULATIONS (V2 Exact - Fractal Based) ---
+f_top_fractal(src) => src[4] < src[2] and src[3] < src[2] and src[2] > src[1] and src[2] > src[0]
+f_bot_fractal(src) => src[4] > src[2] and src[3] > src[2] and src[2] < src[1] and src[2] < src[0]
+
+fractalTop = f_top_fractal(wt1)
+fractalBot = f_bot_fractal(wt1)
+
+var float wtHigh = 0.0
+var float wtLow = 0.0
+var float priceHigh = 0.0
+var float priceLow = 0.0
+
+if fractalTop
+    wtHigh := wt1[2]
+    priceHigh := high[2]
+if fractalBot
+    wtLow := wt1[2]
+    priceLow := low[2]
+
+bullishDiv = false
+bearishDiv = false
+
+if low < priceLow and wt1 > wtLow and wt1 < -40
+    bullishDiv := true
+if high > priceHigh and wt1 < wtHigh and wt1 > 40
+    bearishDiv := true
+
+// --- UNIFIED SIGNALS FOR DASHBOARD & ALERTS ---
+smcBullishAny = currentAlerts.swingBullishCHoCH or currentAlerts.swingBullishBOS or currentAlerts.internalBullishCHoCH or currentAlerts.internalBullishBOS or currentAlerts.swingBullishOrderBlock or currentAlerts.internalBullishOrderBlock or currentAlerts.equalLows or currentAlerts.bullishFairValueGap
+smcBearishAny = currentAlerts.swingBearishCHoCH or currentAlerts.swingBearishBOS or currentAlerts.internalBearishCHoCH or currentAlerts.internalBearishBOS or currentAlerts.swingBearishOrderBlock or currentAlerts.internalBearishOrderBlock or currentAlerts.equalHighs or currentAlerts.bearishFairValueGap
+
+v5BullishAny = (enable_rsi and v5_rsi <= rsi_os) or (enable_macd and v5_macd_cross_up) or (enable_supertrend and v5_st_flip_up) or (enable_ema_ribbon and v5_ribbon_bull) or (enable_ichimoku and v5_ichi_tk_cross_bull)
+v5BearishAny = (enable_rsi and v5_rsi >= rsi_ob) or (enable_macd and v5_macd_cross_dn) or (enable_supertrend and v5_st_flip_dn) or (enable_ema_ribbon and v5_ribbon_bear) or (enable_ichimoku and v5_ichi_tk_cross_bear)
+
+// --- DASHBOARD TABLE ---
+var table dashboardTable = table.new(position.bottom_center, 16, 6, bgcolor = color.new(#0a0a1a, 85), border_width = 1, frame_width = 1, frame_color = color.new(#333333, 50))
+
+if showDashboard and barstate.islast
+    // --- DURUM BELİRLEME (SENTIMENT DİLİ) ---
+    smcStatus = swingTrend.bias == BULLISH ? "Boğa Trendi" : swingTrend.bias == BEARISH ? "Ayı Trendi" : "Yatay/Nötr"
+    smcColor = swingTrend.bias == BULLISH ? color.new(GREEN, 0) : swingTrend.bias == BEARISH ? color.new(RED, 0) : GRAY
+    
+    F4Status = "Kapalı"
+    F4Color = GRAY
+    F4TrendUp = false
+    FiboStatus = "Kapalı"
+    FiboColor = GRAY
+    FiboTrendUp = false
+    
+    if isF4Active
+        F4TrendUp := F4 > F4[1]
+        F4Status := F4TrendUp ? "Yükseliyor" : "Düşüyor"
+        F4Color := F4TrendUp ? color.green : color.red
+        FiboTrendUp := F42 > F42[1]
+        FiboStatus := FiboTrendUp ? "Yükseliyor" : "Düşüyor"
+        FiboColor := FiboTrendUp ? color.green : color.red
+    
+    // WaveTrend Bölge Analizi (Semantik)
+    wtStatusText = "Nötr"
+    wtStatusColor = GRAY
+    isOverbought = wt1 > obLevel1 // Aşırı Alım (>60)
+    isOversold = wt1 < osLevel1   // Aşırı Satış (<-60)
+    
+    if isOverbought
+        wtStatusText := "Tepede (Sat)"
+        wtStatusColor := color.red
+    else if isOversold
+        wtStatusText := "Dipte (Al)"
+        wtStatusColor := color.green
+    else if wt1 > wt2
+        wtStatusText := "Momentum Artıyor"
+        wtStatusColor := color.green
+    else
+        wtStatusText := "Momentum Düşüyor"
+        wtStatusColor := color.red
+    
+    divText = "Yok"
+    divColor = GRAY
+    if bullishDiv
+        divText := "Pozitif (Dönüş)"
+        divColor := GREEN
+    else if bearishDiv
+        divText := "Negatif (Dönüş)"
+        divColor := RED
+
+
+    // --- PİYASA REJİMİ & TAHMİN (SENTIMENT DİLİ) ---
+    regimeText = marketRegime == "RISK_ON" ? "Long Uygun" : marketRegime == "RISK_OFF" ? "Short Uygun" : "Bekle (Nötr)"
+    regimeColor = marketRegime == "RISK_ON" ? color.green : marketRegime == "RISK_OFF" ? color.red : GRAY
+
+    // İvme tabanlı gelişmiş tahmin etiketleri
+    predText = regimePrediction == "HIZLANAN_TREND" ? "Hızlanıyor 🚀" : regimePrediction == "YAVAŞLAYAN_TREND" ? "Yavaşlıyor ⚠️" : regimePrediction == "HIZLANAN_DÜŞÜŞ" ? "Hızlanıyor 💀" : regimePrediction == "DİP_ARAYIŞI" ? "Dip Arayışı 🔄" : regimePrediction == "PRE_EXPLOSION" ? "Patlama Yakın" : regimePrediction == "RANGE" ? "Yatay (Girme)" : regimePrediction == "STOPPING_VOL" ? "Klimaks 🛑" : regimePrediction == "ERKEN_DÖNÜŞ_YUKARI" ? "Erken Dönüş ⚡" : regimePrediction == "ERKEN_DÖNÜŞ_AŞAĞI" ? "Erken Dönüş ⚡" : "Geçiş"
+    regPredColor = regimePrediction == "HIZLANAN_TREND" or regimePrediction == "DİP_ARAYIŞI" or regimePrediction == "PRE_EXPLOSION" or regimePrediction == "ERKEN_DÖNÜŞ_YUKARI" ? color.green : regimePrediction == "HIZLANAN_DÜŞÜŞ" or regimePrediction == "ERKEN_DÖNÜŞ_AŞAĞI" ? color.red : regimePrediction == "YAVAŞLAYAN_TREND" or regimePrediction == "STOPPING_VOL" ? color.new(color.orange, 0) : color.gray
+
+    // Sermaye
+    capText = capitalPhase == "PRIMARY_FLOW" ? "GÜÇLÜ" : capitalPhase == "SECONDARY_FLOW" ? "İKİNCİL" : capitalPhase == "ROTATION" ? "ROTASYON" : "YOK ❌"
+    capColor = capitalPhase == "PRIMARY_FLOW" or capitalPhase == "SECONDARY_FLOW" ? color.green : color.red   
+
+    // UI Status Variables
+    sysColor = SYSTEM_DECISION ? color.green : color.red
+    sysText = SYSTEM_DECISION ? "İŞLEM AÇ ✅" : "BEKLE ❌"
+    crossText = crossAssetPermission ? "AÇIK ✅" : "KAPALI ❌"
+    crossColor = crossAssetPermission ? color.green : color.red
+    decayText = barsLateCalc <= signalFreshnessBars ? "TAZE ✅" : "BAYAT ❌"
+    decayColor = barsLateCalc <= signalFreshnessBars ? color.green : color.orange
+    modHealthText = whaleTrust > 1.0 ? "MÜKEMMEL" : whaleTrust > 0.6 ? "GÜÇLÜ" : "RİSKLİ"
+    modHealthColor = whaleTrust > 0.6 ? color.green : color.orange
+    
+    winRateP = totalBuySignals + totalSellSignals > 0 ? float(winBuySignals + winSellSignals) / float(totalBuySignals + totalSellSignals) * 100 : 0
+    winRateDisplay = str.tostring(winRateP, "#.#") + "%"
+    winRateColor = winRateP > 55 ? color.green : winRateP > 45 ? color.orange : color.red
+    aiScoreTableColor = aiScore >= 65 ? color.green : aiScore >= 50 ? color.orange : color.red
+
+    // --- ROW 0: GROUP HEADERS ---
+    table.merge_cells(dashboardTable, 0, 0, 1, 0)
+    table.cell(dashboardTable, 0, 0, "🧠 ENGINE", text_color = color.gray, text_size = size.small, bgcolor = color.new(#0a0a14, 50))
+    table.merge_cells(dashboardTable, 2, 0, 3, 0)
+    table.cell(dashboardTable, 2, 0, "📊 TECH", text_color = color.gray, text_size = size.small, bgcolor = color.new(#0a140a, 50))
+    table.merge_cells(dashboardTable, 4, 0, 5, 0)
+    table.cell(dashboardTable, 4, 0, "🔬 V5-A", text_color = color.gray, text_size = size.small, bgcolor = color.new(#140a0a, 50))
+    table.merge_cells(dashboardTable, 6, 0, 7, 0)
+    table.cell(dashboardTable, 6, 0, "🔬 V5-B", text_color = color.gray, text_size = size.small, bgcolor = color.new(#0a0a14, 50))
+    table.merge_cells(dashboardTable, 8, 0, 9, 0)
+    table.cell(dashboardTable, 8, 0, "🌐 MARKET", text_color = color.gray, text_size = size.small, bgcolor = color.new(#14140a, 50))
+    table.merge_cells(dashboardTable, 10, 0, 11, 0)
+    table.cell(dashboardTable, 10, 0, "🐋 WHALE", text_color = color.gray, text_size = size.small, bgcolor = color.new(#0a1414, 50))
+    table.merge_cells(dashboardTable, 12, 0, 13, 0)
+    table.cell(dashboardTable, 12, 0, "🔬 ENG", text_color = color.gray, text_size = size.small, bgcolor = color.new(#140a14, 50))
+
+    // --- COLS 0-1: ENGINE ---
+    table.cell(dashboardTable, 0, 1, "🔥 AI Skor", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 1, 1, str.tostring(aiScore, "#"), text_color = aiScoreTableColor, text_size = size.small, bgcolor = color.new(aiScoreTableColor, 90))
+    table.cell(dashboardTable, 0, 2, "🎯 Conf", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 1, 2, str.tostring(confluenceScore, "#"), text_color = confluenceColor_new, text_size = size.small)
+    table.cell(dashboardTable, 0, 3, "🔮 AI Prob", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 1, 3, str.tostring(predictionUpProb, "#") + "%", text_color = predictionUpProb >= 60 ? color.green : predictionDownProb >= 60 ? color.red : GRAY, text_size = size.small)
+    table.cell(dashboardTable, 0, 4, "⚡ KARAR", text_color = WHITE, text_size = size.small, text_halign = text.align_left, bgcolor = color.new(sysColor, 85))
+    table.cell(dashboardTable, 1, 4, sysText, text_color = sysColor, text_size = size.small, bgcolor = color.new(sysColor, 85))
+    table.cell(dashboardTable, 0, 5, "📈 WinRate", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 1, 5, winRateDisplay, text_color = winRateColor, text_size = size.small)
+
+    // --- COLS 2-3: TECH ---
+    table.cell(dashboardTable, 2, 1, "🏘 SMC", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 3, 1, smcStatus, text_color = smcColor, text_size = size.small)
+    table.cell(dashboardTable, 2, 2, "📈 F4", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 3, 2, F4Status, text_color = F4Color, text_size = size.small)
+    table.cell(dashboardTable, 2, 3, "🔹 Fibo", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 3, 3, FiboStatus, text_color = FiboColor, text_size = size.small)
+    table.cell(dashboardTable, 2, 4, "🌊 Mom", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 3, 4, wtStatusText, text_color = wtStatusColor, text_size = size.small)
+    table.cell(dashboardTable, 2, 5, "🔀 Div", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 3, 5, divText, text_color = divColor, text_size = size.small)
+
+    // --- COLS 4-5: V5-A ---
+    table.cell(dashboardTable, 4, 1, "📉 RSI", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 5, 1, str.tostring(v5_rsi, "#.#"), text_color = v5_rsi_color, text_size = size.small)
+    table.cell(dashboardTable, 4, 2, "📈 MACD", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 5, 2, v5_macd_state, text_color = v5_macd_color, text_size = size.small)
+    table.cell(dashboardTable, 4, 3, "⬆️ ST", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 5, 3, v5_st_state, text_color = v5_st_color, text_size = size.small)
+    table.cell(dashboardTable, 4, 4, "🎲 Stoch", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 5, 4, str.tostring(v5_stoch_k, "#.#"), text_color = v5_stoch_color, text_size = size.small)
+    table.cell(dashboardTable, 4, 5, "🎯 ADX", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 5, 5, str.tostring(v5_adx, "#.#"), text_color = v5_adx_color, text_size = size.small)
+
+    // --- COLS 6-7: V5-B ---
+    table.cell(dashboardTable, 6, 1, "💵 VWAP", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 7, 1, v5_vwap_above ? "↑" : "↓", text_color = v5_vwap_color, text_size = size.small)
+    table.cell(dashboardTable, 6, 2, "🌈 Rib", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 7, 2, v5_ribbon_bull ? "↑" : v5_ribbon_bear ? "↓" : "≈", text_color = v5_ribbon_color, text_size = size.small)
+    table.cell(dashboardTable, 6, 3, "☁️ Ichi", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 7, 3, v5_ichi_state, text_color = v5_ichi_color, text_size = size.small)
+    table.cell(dashboardTable, 6, 4, "📐 ADM", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 7, 4, biasStr_adm, text_color = classification_adm > 0 ? color.green : classification_adm < 0 ? color.red : GRAY, text_size = size.small)
+    table.cell(dashboardTable, 6, 5, "💧 VPA", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    netP_calc := TF_tot_vpa > 0 ? (TF_delta_vpa / TF_tot_vpa * 100) : 0
+    table.cell(dashboardTable, 7, 5, str.tostring(netP_calc, "#") + "%", text_color = netP_calc > 0 ? color.green : netP_calc < 0 ? color.red : GRAY, text_size = size.small)
+
+    // --- COLS 8-9: MARKET ---
+    table.cell(dashboardTable, 8, 1, "₿ BTC.D", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 9, 1, str.tostring(btcD_chg_pct, "#.##") + "%", text_color = btcD_color, text_size = size.small)
+    table.cell(dashboardTable, 8, 2, "🪙 OTH.D", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 9, 2, str.tostring(othersD_chg_pct, "#.##") + "%", text_color = othersD_color, text_size = size.small)
+    table.cell(dashboardTable, 8, 3, "💵 DXY", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 9, 3, str.tostring(dxy_chg_pct, "#.##") + "%", text_color = dxy_color, text_size = size.small)
+    table.cell(dashboardTable, 8, 4, "💰 Flow", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 9, 4, marketFlowText, text_color = marketFlowColor, text_size = size.small)
+    table.cell(dashboardTable, 8, 5, "🔄 Phase", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 9, 5, marketPhaseText, text_color = marketPhaseColor, text_size = size.small)
+
+    // --- COLS 10-11: WHALE ---
+    table.cell(dashboardTable, 10, 1, "🐋 Balina", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 11, 1, whaleStatusText, text_color = whaleStatusColor, text_size = size.small)
+    table.cell(dashboardTable, 10, 2, "🌍 Rejim", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 11, 2, regimeText, text_color = regimeColor, text_size = size.small)
+    table.cell(dashboardTable, 10, 3, "🔮 Tahmin", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 11, 3, predText, text_color = regPredColor, text_size = size.small)
+    table.cell(dashboardTable, 10, 4, "💰 Cap", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 11, 4, capText, text_color = capColor, text_size = size.small)
+    table.cell(dashboardTable, 10, 5, "📡 BTC.S", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 11, 5, crossText, text_color = crossColor, text_size = size.small)
+
+    // --- COLS 12-13: ENG ---
+    table.cell(dashboardTable, 12, 1, "📶 MTF", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 13, 1, mtfConsensus, text_color = mtfConsensusColor, text_size = size.small)
+    table.cell(dashboardTable, 12, 2, "📉 Vol", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 13, 2, volRegime, text_color = volRegimeColor, text_size = size.small)
+    table.cell(dashboardTable, 12, 3, "📐 Z-Skor", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 13, 3, zScoreState, text_color = zScoreColor, text_size = size.small)
+    table.cell(dashboardTable, 12, 4, "⏱ Tazelik", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 13, 4, decayText, text_color = decayColor, text_size = size.small)
+    table.cell(dashboardTable, 12, 5, "⏳ Sağlık", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 13, 5, modHealthText, text_color = modHealthColor, text_size = size.small)
+
+    // --- COLS 14-15: 🚨 SIGNALS (NEW) ---
+    table.merge_cells(dashboardTable, 14, 0, 15, 0)
+    table.cell(dashboardTable, 14, 0, "🚀 ALARMLAR", text_color = color.white, text_size = size.small, bgcolor = color.new(#F23645, 40))
+    
+    sigGiga = finalLong ? "AL (GIGA) 🚀" : finalShort ? "SAT (GIGA) 💀" : "Nötr"
+    sigGigaClr = finalLong ? color.lime : finalShort ? color.red : color.gray
+    table.cell(dashboardTable, 14, 1, "🔥 GIGA", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 15, 1, sigGiga, text_color = sigGigaClr, text_size = size.small)
+
+    sigF4 = currentAlerts.F4_BUY ? "AL (F4) ⚡" : currentAlerts.F4_SELL ? "SAT (F4) 🔻" : "Nötr"
+    sigF4Clr = currentAlerts.F4_BUY ? color.lime : currentAlerts.F4_SELL ? color.red : color.gray
+    table.cell(dashboardTable, 14, 2, "📈 F4", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 15, 2, sigF4, text_color = sigF4Clr, text_size = size.small)
+
+    sigWhale = whaleFilteredLong ? "BALİNA 🐋" : whaleFilteredShort ? "BALİNA 🐋" : "Nötr"
+    sigWhaleClr = whaleFilteredLong ? color.aqua : whaleFilteredShort ? color.fuchsia : color.gray
+    table.cell(dashboardTable, 14, 3, "🐳 Balina", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 15, 3, sigWhale, text_color = sigWhaleClr, text_size = size.small)
+
+    sigSMC = smcBullishAny ? "YAPI BOĞA" : smcBearishAny ? "YAPI AYI" : "Nötr"
+    sigSMCClr = smcBullishAny ? color.green : smcBearishAny ? color.red : color.gray
+    table.cell(dashboardTable, 14, 4, "🏘 SMC", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 15, 4, sigSMC, text_color = sigSMCClr, text_size = size.small)
+
+    sigV5 = v5BullishAny ? "GÜÇLÜ BOĞA" : v5BearishAny ? "GÜÇLÜ AYI" : "Nötr"
+    sigV5Clr = v5BullishAny ? color.green : v5BearishAny ? color.red : color.gray
+    table.cell(dashboardTable, 14, 5, "📊 V5+", text_color = WHITE, text_size = size.small, text_halign = text.align_left)
+    table.cell(dashboardTable, 15, 5, sigV5, text_color = sigV5Clr, text_size = size.small)
+
+
+//---------------------------------------------------------------------------------------------------------------------}
+//ALERT CONDITIONS (CONSOLIDATED - Plot Optimized)
+//---------------------------------------------------------------------------------------------------------------------{
+// ═══════════════════════════════════════════════════════
+// KATMAN 1: alertcondition() — Plot Harcar (14 adet)
+// Bu alert'ler TradingView Alert UI'da ayrı ayrı seçilebilir.
+// ═══════════════════════════════════════════════════════
+
+// --- GIGA ENGINE (Ana Sinyaller) ---
+alertcondition(finalLong, 'MATRIX GIGA LONG', '🚀 GIGA ENGINE: AL SİNYALİ! (Confluence & AI Onaylı)')
+alertcondition(finalShort, 'MATRIX GIGA SHORT', '💀 GIGA ENGINE: SAT SİNYALİ! (Confluence & AI Onaylı)')
+
+// --- F4 Sinyalleri ---
+alertcondition(currentAlerts.F4_BUY, 'F4 Alış Sinyali', '✅ F4 ALIŞ SİNYALİ')
+alertcondition(currentAlerts.F4_SELL, 'F4 Satış Sinyali', '🔻 F4 SATIŞ SİNYALİ')
+
+// --- Whale Engine ---
+alertcondition(whaleFilteredLong, 'Whale Alış', '🐋 BALİNA ALIŞ SİNYALİ - Tüm filtreler geçildi')
+alertcondition(whaleFilteredShort, 'Whale Satış', '🐋 BALİNA SATIŞ SİNYALİ - Tüm filtreler geçildi')
+alertcondition(fakeBreakoutUp or fakeBreakoutDown or fakeWhale, 'Fake/Sahte Hareket', '⚠️ SAHTE KIRILIM veya FAKE BALİNA TESPİT EDİLDİ')
+
+// --- Sistem Kontrol ---
+// V5.3: Güçlendirilmiş Kill Switch Alert - Pozisyon kapatma önerisi
+alertcondition(deathRisk, 'Kill Switch Aktif', '🛑 KILL SWITCH AKTİF! | Ardışık kayıp limiti aşıldı | ⚠️ AÇIK POZİSYONLARI KAPATIN | İşlem durduruldu')
+alertcondition(deathRisk and not deathRisk[1], 'Kill Switch Tetiklendi', '🚨 KILL SWITCH YENİDEN AKTİF! | MEVCUT POZİSYONLARI KAPATMANIZ ÖNERİLİR')
+alertcondition(SYSTEM_DECISION, 'Sistem İzni', '✅ Tüm koşullar sağlandı - İşlem izni verildi!')
+alertcondition(marketRegime != marketRegime[1], 'Rejim Değişimi', 'Piyasa rejimi değişti!')
+
+// --- SMC Yapısal (16 → 2 Birleştirildi) ---
+alertcondition(smcBullishAny, 'SMC Boğa Yapısal', '🏘 SMC: Boğa yapısal sinyal (CHoCH/BOS/OB/FVG/EQL)')
+alertcondition(smcBearishAny, 'SMC Ayı Yapısal', '🏘 SMC: Ayı yapısal sinyal (CHoCH/BOS/OB/FVG/EQH)')
+
+// --- V5 İndikatör (9 → 2 Birleştirildi) ---
+alertcondition(v5BullishAny, 'V5 Boğa Sinyal', '📊 V5: Boğa indikatör sinyali (RSI/MACD/ST/EMA/Ichimoku)')
+alertcondition(v5BearishAny, 'V5 Ayı Sinyal', '📊 V5: Ayı indikatör sinyali (RSI/MACD/ST)')
+
+// ═══════════════════════════════════════════════════════
+// KATMAN 2: alert() — Plot Harcamaz! (33 detaylı mesaj)
+// Kullanmak için: İndikatöre "Any alert() function call" 
+// tipinde TEK BİR alert ekleyin, tüm mesajlar gelir.
+// ═══════════════════════════════════════════════════════
+
+// --- SMC Detaylı Alert'ler ---
+if currentAlerts.swingBullishCHoCH
+    alert('🏘 Swing Bullish CHoCH oluştu', alert.freq_once_per_bar)
+if currentAlerts.swingBearishCHoCH
+    alert('🏘 Swing Bearish CHoCH oluştu', alert.freq_once_per_bar)
+if currentAlerts.swingBullishBOS
+    alert('🏘 Swing Bullish BOS oluştu', alert.freq_once_per_bar)
+if currentAlerts.swingBearishBOS
+    alert('🏘 Swing Bearish BOS oluştu', alert.freq_once_per_bar)
+if currentAlerts.internalBullishCHoCH
+    alert('🏘 Internal Bullish CHoCH oluştu', alert.freq_once_per_bar)
+if currentAlerts.internalBearishCHoCH
+    alert('🏘 Internal Bearish CHoCH oluştu', alert.freq_once_per_bar)
+if currentAlerts.internalBullishBOS
+    alert('🏘 Internal Bullish BOS oluştu', alert.freq_once_per_bar)
+if currentAlerts.internalBearishBOS
+    alert('🏘 Internal Bearish BOS oluştu', alert.freq_once_per_bar)
+if currentAlerts.equalHighs
+    alert('📏 Eşit Zirve oluştu', alert.freq_once_per_bar)
+if currentAlerts.equalLows
+    alert('📏 Eşit Dip oluştu', alert.freq_once_per_bar)
+if currentAlerts.bullishFairValueGap
+    alert('📐 Bullish FVG oluştu', alert.freq_once_per_bar)
+if currentAlerts.bearishFairValueGap
+    alert('📐 Bearish FVG oluştu', alert.freq_once_per_bar)
+if currentAlerts.swingBullishOrderBlock
+    alert('📦 Swing Bullish OB tetiklendi', alert.freq_once_per_bar)
+if currentAlerts.swingBearishOrderBlock
+    alert('📦 Swing Bearish OB tetiklendi', alert.freq_once_per_bar)
+if currentAlerts.internalBullishOrderBlock
+    alert('📦 Internal Bullish OB tetiklendi', alert.freq_once_per_bar)
+if currentAlerts.internalBearishOrderBlock
+    alert('📦 Internal Bearish OB tetiklendi', alert.freq_once_per_bar)
+
+// --- Whale & Balina Detaylı ---
+if realWhale
+    alert('🐳 Gerçek balina aktivitesi tespit edildi!', alert.freq_once_per_bar)
+if fakeWhale
+    alert('⚠️ Fake balina (likidite avcısı) tespit edildi!', alert.freq_once_per_bar)
+
+// --- AI & Rejim Detaylı ---
+if aiScore >= 70 and (whaleFilteredLong or whaleFilteredShort)
+    alert('🤖 AI SKOR 70+ İLE SİNYAL', alert.freq_once_per_bar)
+if volRegime == "PATLAMA" and volRegime[1] != "PATLAMA"
+    alert('💥 VOLATİLİTE PATLAMASI - Sıkıştırmadan çıkış', alert.freq_once_per_bar)
+if crossAssetPermission and not crossAssetPermission[1]
+    alert('🌐 BTC→ALT Sermaye Akışı Aktif', alert.freq_once_per_bar)
+if ta.crossover(float(aiScore), float(minScoreToTrade))
+    alert('📈 AI Skoru işlem eşiğini geçti!', alert.freq_once_per_bar)
+if ta.crossunder(float(aiScore), float(minScoreToTrade))
+    alert('📉 AI Skoru işlem eşiğinin altına düştü!', alert.freq_once_per_bar)
+
+// --- LuxAlgo Trend Kırılım ---
+if lux_upos > lux_upos[1]
+    alert('📈 LuxAlgo: Fiyat aşağı trend çizgisini yukarı kırdı', alert.freq_once_per_bar)
+if lux_dnos > lux_dnos[1]
+    alert('📉 LuxAlgo: Fiyat yukarı trend çizgisini aşağı kırdı', alert.freq_once_per_bar)
+
+// --- Toolkit Detaylı (ADM & VPA) ---
+if classification_adm >= 2
+    alert('📐 ADM: Pozitif İstatistiksel Sapma (Bullish Drift)', alert.freq_once_per_bar)
+if classification_adm <= -2
+    alert('📐 ADM: Negatif İstatistiksel Sapma (Bearish Drift)', alert.freq_once_per_bar)
+if netP_calc > 50
+    alert('💧 VPA: %50+ Net Alım Baskısı!', alert.freq_once_per_bar)
+if netP_calc < -50
+    alert('💧 VPA: %50+ Net Satım Baskısı!', alert.freq_once_per_bar)
+
+// --- V5 İndikatör Detaylı ---
+if enable_rsi and v5_rsi >= rsi_ob
+    alert('📉 RSI aşırı alım bölgesinde! (' + str.tostring(v5_rsi, '#.#') + ')', alert.freq_once_per_bar)
+if enable_rsi and v5_rsi <= rsi_os
+    alert('📈 RSI aşırı satım bölgesinde! (' + str.tostring(v5_rsi, '#.#') + ')', alert.freq_once_per_bar)
+if enable_macd and v5_macd_cross_up
+    alert('✅ MACD yukarı kesim!', alert.freq_once_per_bar)
+if enable_macd and v5_macd_cross_dn
+    alert('🔻 MACD aşağı kesim!', alert.freq_once_per_bar)
+if enable_supertrend and v5_st_flip_up
+    alert('⬆️ Supertrend Yukarı Dönüş!', alert.freq_once_per_bar)
+if enable_supertrend and v5_st_flip_dn
+    alert('⬇️ Supertrend Aşağı Dönüş!', alert.freq_once_per_bar)
+if enable_ema_ribbon and v5_ribbon_bull
+    alert('🌈 EMA Ribbon: Tam boğa hizalanması!', alert.freq_once_per_bar)
+if enable_ema_ribbon and v5_ribbon_bear
+    alert('🌈 EMA Ribbon: Tam ayı hizalanması!', alert.freq_once_per_bar)
+if enable_ema_ribbon and v5_ribbon_neutral
+    alert('🌈 EMA Ribbon: Nötr hizalanma!', alert.freq_once_per_bar)
+if enable_ichimoku and v5_ichi_tk_cross_bull
+    alert('☁️ Tenkan-Kijun boğa cross!', alert.freq_once_per_bar)
+if enable_ichimoku and v5_ichi_tk_cross_bear
+    alert('☁️ Tenkan-Kijun ayı cross!', alert.freq_once_per_bar)
+if enable_ichimoku and v5_ichi_ssb_cross_bull
+    alert('☁️ Senkou Span B boğa cross!', alert.freq_once_per_bar)
+if enable_ichimoku and v5_ichi_ssb_cross_bear
+    alert('☁️ Senkou Span B ayı cross!', alert.freq_once_per_bar)
+if enable_ichimoku and v5_ichi_cloud_turn_bull
+    alert('☁️ Ichimoku Bulut Boğa Dönüş!', alert.freq_once_per_bar)
+if enable_ichimoku and v5_ichi_cloud_turn_bear
+    alert('☁️ Ichimoku Bulut Ayı Dönüş!', alert.freq_once_per_bar)
+
+// Project End: MATRIX ULTIMATE GIGA V5
+// © Developed by eFSo
+//---------------------------------------------------------------------------------------------------------------------}
+
+        

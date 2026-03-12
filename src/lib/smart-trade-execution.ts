@@ -3,6 +3,7 @@ import { marketSellByQty, marketBuyByQuote } from "./mexc-wrapper";
 
 import { OrderResult } from "./mexc";
 import { determineExecutionStrategy } from "./engine/execution";
+import { registerPilotReEntry } from "./pilot-executor";
 
 export interface ExecutionTrade {
   id: number;
@@ -114,6 +115,20 @@ export async function executeExit(
     const metaPayload = meta.payload as Record<string, any>;
     const tradeMode = metaPayload?.mode || 'TRADE';
     const tradeState = tradeMode === 'COVER' ? 'COVER_COMPLETED' : 'TRADE_COMPLETED';
+
+    // ═══════════════════════════════════════════════════════════════
+    // PILOT RE-ENTRY HOOK: When a pilot_auto TRADE exits (sells),
+    // register the USDT proceeds so the pilot can re-buy this asset
+    // on the next BUY signal.
+    // ═══════════════════════════════════════════════════════════════
+    const source = (meta as any).source || metaPayload?.source;
+    if (tradeMode === 'TRADE' && source === 'pilot_auto' && side === 'BUY') {
+      // Calculate USDT proceeds from the sell
+      const usdtProceeds = realExitPrice * executedQty;
+      if (usdtProceeds >= 5) {
+        registerPilotReEntry(symbol, usdtProceeds);
+      }
+    }
 
     await sql`UPDATE orders SET status = 'CLOSED', updated_at = ${Date.now()}, meta = ${JSON.stringify({ ...meta, exitReason: reason, exitResult: result, exitPrice: Number(realExitPrice), executedQty: Number(executedQty), closedAt: Date.now(), tradeState })} WHERE id = ${id}`;
   } catch (err) {

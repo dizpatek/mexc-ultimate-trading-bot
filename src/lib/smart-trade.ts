@@ -34,6 +34,7 @@ export interface SmartTradePayload {
   trailingBuyDev?: number;
   user_id: number;
   timeframe?: string;
+  source?: string; // e.g. 'pilot_auto' — used for re-entry tracking
 }
 
 export async function handleSmartTrade(
@@ -265,6 +266,7 @@ export async function handleSmartTrade(
           activeStopLoss: stopLoss?.price || null,
           highestPrice: avgPrice,
           lowestPrice: avgPrice,
+          source: payload.source || undefined, // Track origin (e.g. pilot_auto)
           lastUpdate: Date.now(),
           exitReason:
             initialStatus === "CLOSED"

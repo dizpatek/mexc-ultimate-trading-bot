@@ -8,6 +8,7 @@ interface DecisionBarProps {
   className?: string;
   mode: string;
   riskMode: "safe" | "normal" | "aggressive";
+  pilotStatus?: "IDLE" | "SCANNING" | "EXECUTING";
   onRiskModeChange: (mode: "safe" | "normal" | "aggressive") => void;
 }
 
@@ -17,6 +18,7 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
   className,
   mode,
   riskMode,
+  pilotStatus = "IDLE",
   onRiskModeChange,
 }) => {
   const isLong = decision === "İŞLEM AÇ ✅";
@@ -65,6 +67,18 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
             <span className="text-[8px] font-bold text-slate-500 uppercase mt-0.5 tracking-widest hidden lg:block">
               Matrix Online
             </span>
+            {pilotStatus !== "IDLE" && (
+              <span className={cn(
+                "text-[9px] font-black uppercase mt-1 tracking-widest flex items-center gap-1",
+                pilotStatus === "SCANNING" ? "text-cyan-400 animate-pulse" : "text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]"
+              )}>
+                {pilotStatus === "SCANNING" ? (
+                  <><Activity className="w-2.5 h-2.5 animate-spin" /> PİLOT TARANIYOR...</>
+                ) : (
+                  <><Zap className="w-2.5 h-2.5 animate-bounce" /> PİLOT OTOMATİK İŞLEM AÇTI</>
+                )}
+              </span>
+            )}
           </div>
         </div>
       </div>

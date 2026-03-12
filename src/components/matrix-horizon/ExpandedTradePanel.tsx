@@ -30,6 +30,8 @@ import {
   Gamepad2,
 } from "lucide-react";
 
+import { useNotification } from "@/context/NotificationContext";
+
 interface ExpandedTradePanelProps {
   trade: SmartTradeOrder;
   currentPrice: number;
@@ -83,6 +85,7 @@ export const ExpandedTradePanel: React.FC<ExpandedTradePanelProps> = ({
   bullCount,
   bearCount,
 }) => {
+  const { notify, confirm } = useNotification();
   const [liveDuration, setLiveDuration] = useState("");
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [activityLogs, setActivityLogs] = useState<ActivityLogEntry[]>([]);
@@ -135,20 +138,24 @@ export const ExpandedTradePanel: React.FC<ExpandedTradePanelProps> = ({
   // Hook: Core action logic
   const doAction = useCallback(
     async (id: string, label: string, msg: string, fn: () => Promise<void>) => {
-      if (!confirm(msg)) return;
-      setLoadingAction(id);
-      try {
-        await fn();
-        logger.success(`✅ ${label}`, `${trade.symbol} başarılı.`);
-      } catch (e: unknown) {
-        const m = e instanceof Error ? e.message : String(e);
-        logger.error(`❌ ${label}`, m);
-        alert(`Hata: ${m}`);
-      } finally {
-        setLoadingAction(null);
-      }
+      confirm({
+        message: msg,
+        onConfirm: async () => {
+          setLoadingAction(id);
+          try {
+            await fn();
+            logger.success(`✅ ${label}`, `${trade.symbol} başarılı.`);
+          } catch (e: unknown) {
+            const m = e instanceof Error ? e.message : String(e);
+            logger.error(`❌ ${label}`, m);
+            notify(`Hata: ${m}`, "error");
+          } finally {
+            setLoadingAction(null);
+          }
+        }
+      });
     },
-    [trade.symbol],
+    [trade.symbol, notify, confirm],
   );
 
   const onTpTrigger = useCallback(
@@ -174,7 +181,7 @@ export const ExpandedTradePanel: React.FC<ExpandedTradePanelProps> = ({
       if (!v) return;
       const n = parseFloat(v);
       if (isNaN(n) || n <= 0) {
-        alert("Geçersiz!");
+        notify("Geçersiz!", "warning");
         return;
       }
       doAction(

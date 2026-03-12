@@ -23,6 +23,7 @@ import { ExpandedTradePanel } from "./matrix-horizon/ExpandedTradePanel";
 import { TradeHeader } from "./matrix-horizon/TradeHeader";
 import { StatusBadge } from "./matrix-horizon/StatusBadge";
 import { TradeProgressBar } from "./matrix-horizon/TradeProgressBar";
+import { useNotification } from "@/context/NotificationContext";
 
 // --- Pure Helper Functions (Extracted to reduce Component God-Object antipattern) ---
 
@@ -56,8 +57,10 @@ export function calculateMtfVerdict(
     f4ConfirmedSell?: boolean;
     aiScore?: number;
   }[],
+  side: "BUY" | "SELL" = "BUY"
 ) {
-  const bullCount = allTfs.filter(
+  // If we are LONG (BUY), bullish is good. If we are SHORT (SELL), bearish is good.
+  const bullCountRaw = allTfs.filter(
     (d) =>
       d &&
       (d.trend === "BULLISH" ||
@@ -65,7 +68,8 @@ export function calculateMtfVerdict(
         d.f4EarlyBuy ||
         d.f4ConfirmedBuy),
   ).length;
-  const bearCount = allTfs.filter(
+  
+  const bearCountRaw = allTfs.filter(
     (d) =>
       d &&
       (d.trend === "BEARISH" ||
@@ -73,21 +77,26 @@ export function calculateMtfVerdict(
         d.f4EarlySell ||
         d.f4ConfirmedSell),
   ).length;
+
+  // Context-aware scoring
+  const goodCount = side === "BUY" ? bullCountRaw : bearCountRaw;
+  const badCount = side === "BUY" ? bearCountRaw : bullCountRaw;
+  
   const total = allTfs.length;
-  const bullPct = total > 0 ? Math.round((bullCount / total) * 100) : 50;
+  const goodPct = total > 0 ? Math.round((goodCount / total) * 100) : 50;
 
   let verdictText = "NÖTR";
   let verdictColor = "text-amber-400";
-  if (bullPct >= 70) {
+  if (goodPct >= 70) {
     verdictText = "GÜÇLÜ AL";
     verdictColor = "text-emerald-400";
-  } else if (bullPct >= 55) {
+  } else if (goodPct >= 55) {
     verdictText = "AL";
     verdictColor = "text-emerald-300";
-  } else if (bullPct <= 30) {
+  } else if (goodPct <= 30) {
     verdictText = "GÜÇLÜ SAT";
     verdictColor = "text-rose-400";
-  } else if (bullPct <= 45) {
+  } else if (goodPct <= 45) {
     verdictText = "SAT";
     verdictColor = "text-rose-300";
   }
@@ -98,10 +107,12 @@ export function calculateMtfVerdict(
       : 0;
 
   return {
-    bullCount,
-    bearCount,
+    bullCount: bullCountRaw,
+    bearCount: bearCountRaw,
+    goodCount,
+    badCount,
     total,
-    bullPct,
+    goodPct,
     verdictText,
     verdictColor,
     avgMtfScore,
@@ -232,6 +243,8 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
 
   const [timeframe] = useModuleTimeframe("4h");
 
+  const { notify, confirm } = useNotification();
+
   const fetchTrades = async () => {
     try {
       const response = await api.get("/trade/smart");
@@ -319,28 +332,26 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
     trade: SmartTradeOrder,
   ) => {
     e.stopPropagation();
-    if (
-      !confirm(
-        `FLASH OPEN: ${trade.symbol} anlık piyasa fiyatından hemen işleme girecek. Devam et?`,
-      )
-    )
-      return;
-
-    try {
-      // Disable trailing buy and force immediate execution at market price
-      await api.put(`/trade/smart?id=${trade.id}`, {
-        trailingBuy: false,
-        forceExecute: true,
-      });
-      logger.success(
-        "⚡ FLASH OPEN TETİKLENDİ",
-        `${trade.symbol} bekleyen alımı piyasa fiyattan anında işleme alındı.`,
-      );
-      fetchTrades();
-    } catch (error) {
-      console.error("Flash open failed:", error);
-      logger.error("⚠️ Flash Open Hatası", `${trade.symbol} tetiklenemedi.`);
-    }
+    confirm({
+      message: `FLASH OPEN: ${trade.symbol} anlık piyasa fiyatından hemen işleme girecek. Devam et?`,
+      onConfirm: async () => {
+        try {
+          // Disable trailing buy and force immediate execution at market price
+          await api.put(`/trade/smart?id=${trade.id}`, {
+            trailingBuy: false,
+            forceExecute: true,
+          });
+          notify(
+            `⚡ FLASH OPEN: ${trade.symbol} piyasa fiyattan işleme alındı.`,
+            "success"
+          );
+          fetchTrades();
+        } catch (error) {
+          console.error("Flash open failed:", error);
+          notify(`⚠️ Flash Open Hatası: ${trade.symbol}`, "error");
+        }
+      }
+    });
   };
 
   const handleClearAll = async (type: "active" | "passive") => {
@@ -383,7 +394,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
             ? err.message
             : String(err);
       console.error("Clear all failed:", msg);
-      alert(`İŞLEM BAŞARISIZ: ${msg}`);
+      notify(`İŞLEM BAŞARISIZ: ${msg}`, "error");
     } finally {
       setClearingAction(null);
     }
@@ -392,7 +403,18 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
   useEffect(() => {
     fetchTrades();
     const interval = setInterval(fetchTrades, 5000); // 5s — trade status/meta doesn't change every second; live prices come from MarketKernel
-    return () => clearInterval(interval);
+    
+    // Listen for pilot orders to instantly refresh the trade list
+    const handlePilotOrder = () => {
+      console.log("[ActiveSmartTrades] Pilot order detected, refreshing...");
+      fetchTrades();
+    };
+    window.addEventListener("pilotOrderCreated", handlePilotOrder);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("pilotOrderCreated", handlePilotOrder);
+    };
   }, []);
 
   // Auto-expand if a new Active trade is added
@@ -422,11 +444,6 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
     const activeTrades = trades.filter((t) => t.status !== "CLOSED");
     if (activeTrades.length === 0) return;
 
-    const activeSymbols = [
-      ...new Set(activeTrades.map((t) => t.symbol.replace("/", ""))),
-    ];
-    fetchLiveSignals(activeSymbols, timeframe);
-
     // MTF verisi yüklenmemiş ve hata almamış aktif işlemler için otomatik yükleme yap (Batch)
     const missingMtfTrades = activeTrades
       .filter(
@@ -444,29 +461,70 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
         missingMtfTrades.forEach((t) => fetchMtfAnalysis(t.id, t.symbol));
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trades, timeframe]); // Removed mtfData, loadingMtf, failedMtf dependencies to break loop
+  }, [trades, timeframe, fetchMultipleMtfAnalysis, fetchMtfAnalysis]); // Removed mtfData dependencies
+  useEffect(() => {
+    // Sadece aktif işlemleri al
+    const syncLiveOnly = () => {
+      const activeTrades = trades.filter((t) => t.status !== "CLOSED");
+      if (activeTrades.length === 0) return;
+      const activeSymbols = [
+        ...new Set(activeTrades.map((t) => t.symbol.replace("/", ""))),
+      ];
+      if (fetchLiveSignals) fetchLiveSignals(activeSymbols, timeframe);
+    };
 
-  // Canlı sinyalleri 30 saniyede bir güncelle
+    syncLiveOnly();
+    const signalInterval = setInterval(syncLiveOnly, 30000); 
+    return () => clearInterval(signalInterval);
+  }, [trades, timeframe, fetchLiveSignals]);
+
+  // Hızlı tetikleme: Sadece sekme ilk açıldığında veya yeni işlem düştüğünde ağır MTF'yi (200 Kline) 1 kez çek
   useEffect(() => {
     triggerDataSync();
-    const signalInterval = setInterval(triggerDataSync, 30000); // 30s refresh for AI signals
-    return () => clearInterval(signalInterval);
   }, [triggerDataSync]);
 
-  // Hızlı tetikleme: Veri eksikse (Ref üzerinden kontrol) hemen sync et
-  useEffect(() => {
-    const activeTrades = trades.filter((t) => t.status !== "CLOSED");
-    const hasMissingMtf = activeTrades.some(
-      (t) =>
-        !mtfDataRef.current[t.id] &&
-        !loadingMtfRef.current[t.id] &&
-        !failedMtfRef.current[t.id],
+  // Aggregate PnL for the visible tab
+  const pnlSummary = React.useMemo(() => {
+    const visibleTrades = trades.filter((t) =>
+      activeTab === "AKTIF"
+        ? t.status === "FILLED" || t.status === "PENDING"
+        : t.status === "CLOSED",
     );
-    if (hasMissingMtf) {
-      triggerDataSync();
-    }
-  }, [trades, triggerDataSync]); // Removed mtfData dependencies
+    
+    return visibleTrades.reduce((acc, trade) => {
+      const meta = (trade.meta as any) || {};
+      const payload = (meta.payload as any) || {};
+      const isClosed = trade.status === "CLOSED";
+      const exitPriceNum = meta.exitPrice
+        ? parseFloat(String(meta.exitPrice))
+        : meta.exitResult?.price
+          ? parseFloat(String(meta.exitResult.price))
+          : 0;
+
+      const currentPrice = isClosed
+        ? exitPriceNum || trade.price
+        : trade.currentPrice || trade.price;
+
+      const isPending = trade.status === "PENDING";
+      const effectiveQty = isPending
+        ? 0
+        : trade.qty || parseFloat(payload?.amount || "0") || 0;
+
+      const { pnlUsdt } = calculateTradePnl(
+        trade.side,
+        meta.mode,
+        trade.price,
+        currentPrice,
+        effectiveQty,
+      );
+      
+      if (pnlUsdt > 0) acc.grossProfit += pnlUsdt;
+      else if (pnlUsdt < 0) acc.grossLoss += Math.abs(pnlUsdt);
+      acc.total += pnlUsdt;
+      
+      return acc;
+    }, { grossProfit: 0, grossLoss: 0, total: 0 });
+  }, [trades, activeTab]);
 
   if (isLoading) {
     return (
@@ -485,7 +543,13 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
       <TradeHeader
         isSectionExpanded={isSectionExpanded}
         setIsSectionExpanded={setIsSectionExpanded}
-        tradesCount={trades.length}
+        tradesCount={
+          trades.filter((t) =>
+            activeTab === "AKTIF"
+              ? t.status === "FILLED" || t.status === "PENDING"
+              : t.status === "CLOSED",
+          ).length
+        }
         lastFetchTime={lastFetchTime}
         error={error}
         activeTab={activeTab}
@@ -533,13 +597,29 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
             <div className="flex items-center justify-center gap-1">
               MTF SİNYALİ
             </div>
-            <div className="flex items-center justify-center gap-1">
-              KAR/ZARAR
+            <div className="flex items-center justify-center gap-1.5 font-mono text-[9px]">
+              <span className="text-slate-500 font-black tracking-widest uppercase text-[8px]">KAR/ZARAR</span>
+              <div className="flex items-center gap-1 bg-black/40 px-2 py-0.5 rounded-full border border-white/5">
+                <span className="text-emerald-400 font-bold">
+                  +${pnlSummary.grossProfit.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                </span>
+                <span className="text-slate-700">/</span>
+                <span className="text-rose-400 font-bold">
+                  -${pnlSummary.grossLoss.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                </span>
+                <span className="text-slate-500 mx-1">=</span>
+                <span className={cn(
+                  "font-black text-[10px]",
+                  pnlSummary.total >= 0 ? "text-emerald-400 cyber-glow-text" : "text-rose-400"
+                )}>
+                  {pnlSummary.total >= 0 ? "+" : "-"}${Math.abs(pnlSummary.total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
             </div>
             <div></div>
           </div>
 
-          <div className="divide-y divide-white/5">
+          <div className="divide-y divide-white/5 max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
             {trades.filter((t) =>
               activeTab === "AKTIF"
                 ? t.status === "FILLED" || t.status === "PENDING"
@@ -664,22 +744,24 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                   const {
                     bullCount,
                     bearCount,
-                    bullPct,
+                    goodCount,
+                    badCount,
+                    goodPct,
                     verdictText,
                     verdictColor,
                     avgMtfScore,
-                  } = calculateMtfVerdict(allTfs);
+                  } = calculateMtfVerdict(allTfs, trade.side);
 
                   return (
                     <div
                       key={trade.id}
                       className={cn(
-                        "group transition-all duration-300",
-                        !isClosed && "hover:bg-cyan-400/[0.03]",
-                        isBuyExit &&
-                          "bg-emerald-500/5 opacity-80 border-l-2 border-emerald-500/20",
-                        isSellExit &&
-                          "bg-rose-500/5 opacity-80 border-l-2 border-rose-500/20",
+                        "group transition-all duration-300 relative",
+                        pnlPercent >= 0 
+                          ? "bg-emerald-500/5 border-l-2 border-emerald-500/20" 
+                          : "bg-rose-500/5 border-l-2 border-rose-500/20",
+                        !isClosed && (pnlPercent >= 0 ? "hover:bg-emerald-500/[0.08]" : "hover:bg-rose-500/[0.08]"),
+                        isClosed && "opacity-80"
                       )}
                     >
                       <div
@@ -953,25 +1035,44 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                               if (!d) return null;
 
                               const hasBuySignal =
-                                d.f4ConfirmedBuy || d.f4EarlyBuy;
+                                d.f4ConfirmedBuy || 
+                                d.f4EarlyBuy || 
+                                d.trend?.toUpperCase() === "BULLISH" || 
+                                d.signal?.toUpperCase() === "BUY";
+                              
                               const hasSellSignal =
-                                d.f4ConfirmedSell || d.f4EarlySell;
+                                d.f4ConfirmedSell || 
+                                d.f4EarlySell || 
+                                d.trend?.toUpperCase() === "BEARISH" || 
+                                d.signal?.toUpperCase() === "SELL";
 
-                              const tfColor = hasBuySignal
-                                ? "bg-emerald-500/10 border-emerald-500/20"
-                                : hasSellSignal
-                                  ? "bg-rose-500/10 border-rose-500/20"
-                                  : "bg-slate-800/10 border-slate-700/30";
-                              const textColor = hasBuySignal
-                                ? "text-emerald-400"
-                                : hasSellSignal
-                                  ? "text-rose-400"
-                                  : "text-slate-500";
-                              const tfVerdict = hasBuySignal
-                                ? "AL"
-                                : hasSellSignal
-                                  ? "SAT"
-                                  : "NÖTR";
+                              let tfColor = "bg-slate-800/10 border-slate-700/30";
+                              let textColor = "text-slate-500";
+                              let tfVerdict = "NÖTR";
+
+                              // Context-aware coloring:
+                              if (trade.side === "BUY") {
+                                if (hasBuySignal) {
+                                  tfColor = "bg-emerald-500/10 border-emerald-500/20";
+                                  textColor = "text-emerald-400";
+                                  tfVerdict = "AL";
+                                } else if (hasSellSignal) {
+                                  tfColor = "bg-rose-500/10 border-rose-500/20";
+                                  textColor = "text-rose-400";
+                                  tfVerdict = "SAT";
+                                }
+                              } else {
+                                // For SELL (Cover) trades, selling indicators are GOOD (Green AL)
+                                if (hasSellSignal) {
+                                  tfColor = "bg-emerald-500/10 border-emerald-500/20";
+                                  textColor = "text-emerald-400";
+                                  tfVerdict = "AL"; // It's aligned with our short!
+                                } else if (hasBuySignal) {
+                                  tfColor = "bg-rose-500/10 border-rose-500/20";
+                                  textColor = "text-rose-400";
+                                  tfVerdict = "SAT"; // It's against our short!
+                                }
+                              }
 
                               return (
                                 <div
@@ -1068,19 +1169,25 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                                 title={`Ortalama Skor: ${avgMtfScore}%`}
                               >
                                 <div
-                                  className={`h-full transition-all duration-1000 ${bullPct >= 55 ? "bg-emerald-500" : bullPct <= 45 ? "bg-rose-500" : "bg-amber-500"}`}
-                                  style={{ width: `${bullPct}%` }}
+                                  className={`h-full transition-all duration-1000 ${goodPct >= 55 ? "bg-emerald-500" : goodPct <= 45 ? "bg-rose-500" : "bg-amber-500"}`}
+                                  style={{ width: `${goodPct}%` }}
                                 />
                               </div>
 
                               <div className="flex items-center gap-1 bg-slate-900/50 px-1.5 py-1 rounded border border-white/5 shadow-inner">
-                                <span className="text-[10px] font-black text-emerald-500">
+                                <span className={cn(
+                                  "text-[10px] font-black",
+                                  trade.side === "BUY" ? "text-emerald-500" : "text-rose-500"
+                                )}>
                                   {bullCount} BOĞA
                                 </span>
                                 <span className="text-[8px] text-slate-600 opacity-50">
                                   |
                                 </span>
-                                <span className="text-[10px] font-black text-rose-500">
+                                <span className={cn(
+                                  "text-[10px] font-black",
+                                  trade.side === "BUY" ? "text-rose-500" : "text-emerald-500"
+                                )}>
                                   {bearCount} AYI
                                 </span>
                               </div>

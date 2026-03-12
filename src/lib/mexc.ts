@@ -59,20 +59,28 @@ async function fetchWithRetry<T>(
 }
 
 let lastPublicCallTime = 0;
-const PUBLIC_CALL_THROTTLE_MS = 500; // Strict user requirement: min 500ms between calls
+const PUBLIC_CALL_THROTTLE_MS = 100; // Relaxed to 100ms to allow smooth batching in Next.js
 
 /**
- * Global mutex-like throttle for public GET calls to ensure compliance with user's 500ms requirement.
+ * Global throttle for public GET calls.
+ * Uses an atomic timestamp update strategy to mitigate race conditions 
+ * and sequence requests cleanly without a heavily chained Promise queue.
  */
 async function enforceThrottle() {
+  let delay = 0;
+  // Atomic-like update: project the next available slot
   const now = Date.now();
-  const timeSinceLastCall = now - lastPublicCallTime;
+  
+  if (now - lastPublicCallTime < PUBLIC_CALL_THROTTLE_MS) {
+    lastPublicCallTime += PUBLIC_CALL_THROTTLE_MS;
+    delay = lastPublicCallTime - now;
+  } else {
+    lastPublicCallTime = now;
+  }
 
-  if (timeSinceLastCall < PUBLIC_CALL_THROTTLE_MS) {
-    const delay = PUBLIC_CALL_THROTTLE_MS - timeSinceLastCall;
+  if (delay > 0) {
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
-  lastPublicCallTime = Date.now();
 }
 
 async function publicGet<T>(

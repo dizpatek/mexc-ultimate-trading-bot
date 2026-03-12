@@ -6,80 +6,129 @@ import {
   setTradingModeClient,
 } from "./trading-mode";
 import type { TradingMode } from "./trading-mode";
+import { INITIAL_PORTFOLIO } from "./trading-simulator";
 
 export { getTradingMode, getTradingModeSync, setTradingModeClient };
 export type { TradingMode };
 
 const _lastSavePromises = new Map<number, Promise<void>>();
+const _syncPromises = new Map<number, Promise<void>>();
+const _lastSaveTime = new Map<number, number>();
+const MAX_SYNC_MAP_SIZE = 500;
 
 export async function syncSimulator(
   userId: number,
   simulator: TradingSimulator,
 ) {
   if (typeof window !== "undefined") return;
-  try {
-    // One-time migration: Force reset old balances to new $70k defaults
-    const migrated = await getSetting("SIM_V2_MIGRATED", userId);
-    if (!migrated) {
-      console.log(
-        `[Simulator] Migrating user ${userId} to V2 ($70k portfolio)...`,
-      );
-      simulator.reset(); // This calls initializeTestBalance() with new values
-      await setSetting(
-        "SIMULATED_BALANCES",
-        JSON.stringify(simulator.getAllBalances()),
-        userId,
-      );
-      await setSetting("SIM_V2_MIGRATED", "true", userId);
-      return;
-    }
 
-    const saved = await getSetting("SIMULATED_BALANCES", userId);
-    if (saved) {
-      const balances = JSON.parse(saved);
-      simulator.loadBalances(balances);
-    } else {
-      simulator.reset();
-      await setSetting(
-        "SIMULATED_BALANCES",
-        JSON.stringify(simulator.getAllBalances()),
-        userId,
-      );
-    }
-  } catch (err) {
-    console.error(`[Simulator] Sync failed for user ${userId}:`, err);
+  // P4.2: Prevent memory leak by capping map size
+  if (_syncPromises.size >= MAX_SYNC_MAP_SIZE) {
+    const firstKey = _syncPromises.keys().next().value;
+    if (firstKey !== undefined) _syncPromises.delete(firstKey);
   }
+
+  const existingSync = _syncPromises.get(userId);
+  if (existingSync) return existingSync;
+
+  const syncPromise = (async () => {
+    try {
+      // One-time check: If already migrated to V3, we only check for consistency
+      const migrated = await getSetting("SIM_V3_MIGRATED", userId);
+
+      const saved = await getSetting("SIMULATED_BALANCES", userId);
+      if (saved) {
+        const balances = JSON.parse(saved);
+        // P2: Force migration if the portfolio is not diversified (less than 8 assets)
+        if (Array.isArray(balances) && balances.length < 8) {
+          const names = balances.map((b: { asset: string }) => b.asset).join(", ");
+          console.log(
+            `[Simulator] Under-diversified portfolio for user ${userId} (${balances.length} assets: ${names}). Forcing V3 migration...`,
+          );
+
+          // Force update with 11 assets directly to bypass stale reset() methods in cached instances
+          simulator.loadBalances(
+            INITIAL_PORTFOLIO.map((asset) => ({
+              asset: asset.s,
+              free: asset.q,
+              locked: 0,
+            })),
+          );
+
+          const newBalances = simulator.getAllBalances();
+          await setSetting(
+            "SIMULATED_BALANCES",
+            JSON.stringify(newBalances),
+            userId,
+          );
+          await setSetting("SIM_V3_MIGRATED", "true", userId);
+          return;
+        }
+
+        if (!migrated) {
+          console.log(`[Simulator] Setting migration flag to V3 for user ${userId} (already diversified).`);
+          await setSetting("SIM_V3_MIGRATED", "true", userId);
+        }
+        simulator.loadBalances(balances);
+      } else {
+        // No saved state found, start fresh
+        console.log(`[Simulator] No saved balances for user ${userId}. Initializing Defaults...`);
+        simulator.resetInMemoryState();
+        await setSetting(
+          "SIMULATED_BALANCES",
+          JSON.stringify(simulator.getAllBalances()),
+          userId,
+        );
+        await setSetting("SIM_V3_MIGRATED", "true", userId);
+      }
+    } catch (err) {
+      console.error(`[Simulator] Sync failed for user ${userId}:`, err);
+    } finally {
+      // Cleanup the promise after completion or failure
+      _syncPromises.delete(userId);
+    }
+  })();
+
+  _syncPromises.set(userId, syncPromise);
+  return syncPromise;
 }
 
 function queueBalancePersistence(userId: number, simulator: TradingSimulator) {
   if (typeof window !== "undefined") return;
-  // P4.1: Need a deep snapshot because simulator.balances mutation would affect the background task
-  const balancesSnapshot = structuredClone(simulator.getAllBalances());
-  const prevTask = _lastSavePromises.get(userId) || Promise.resolve();
+  
+  const now = Date.now();
+  _lastSaveTime.set(userId, now);
+  
+  // P4.1: Non-chaining "Last-Win" persistence to prevent promise backlog.
+  // We capture the snapshot synchronously.
+  const balancesSnapshot = Array.from(simulator.getAllBalances().values());
 
-  const nextTask = prevTask
-    .then(async () => {
-      try {
-        await setSetting(
-          "SIMULATED_BALANCES",
-          JSON.stringify(balancesSnapshot),
-          userId,
-        );
-      } catch (err) {
-        console.error(
-          `[Simulator] Background persistence failed for user ${userId}:`,
-          err,
-        );
-      }
-    })
-    .finally(() => {
-      // P4.2: Prevent memory leak by cleaning up resolved promises
-      if (_lastSavePromises.get(userId) === nextTask) {
-        _lastSavePromises.delete(userId);
-      }
-    });
+  // we await the PREVIOUS TASK if it exists to avoid concurrent database writes,
+  // but we don't chain .then() infinitely to avoid backlog.
+  const existingTask = _lastSavePromises.get(userId);
+  
+  const currentTask = (async () => {
+    try {
+      // Wait for any prior save to finish to avoid concurrent write issues
+      if (existingTask) await existingTask.catch(() => {});
+      
+      // P4.4: If a newer save was started while we were waiting, this snapshot is stale. Skip.
+      if (_lastSaveTime.get(userId) !== now) return;
 
-  _lastSavePromises.set(userId, nextTask);
+      await setSetting("SIMULATED_BALANCES", JSON.stringify(balancesSnapshot), userId);
+    } catch (err) {
+      console.error(`[Simulator] Persistence failed for user ${userId}:`, err);
+    }
+  })();
+
+  _lastSavePromises.set(userId, currentTask);
+
+  // cleanup outside the main async body to avoid reference/hoisting errors
+  currentTask.finally(() => {
+    if (_lastSavePromises.get(userId) === currentTask) {
+      _lastSavePromises.delete(userId);
+    }
+  });
 }
 
 import { OrderResult } from "./mexc";
@@ -98,6 +147,11 @@ export async function getPrice(symbol: string): Promise<number> {
 export async function get24hrTicker(symbol: string) {
   const { get24hrTicker: getMexcTicker } = await getMexcModule();
   return getMexcTicker(symbol);
+}
+
+export async function getTopAssets(limit: number = 20) {
+  const { getTopAssets: getMexcTopAssets } = await getMexcModule();
+  return getMexcTopAssets(limit);
 }
 
 export async function getKlines(
@@ -132,7 +186,10 @@ export async function getOpenOrders(
   symbol: string | null = null,
   mode: TradingMode = "test",
 ) {
-  if (mode === "test") return []; // Simulator hasn't implemented open orders yet
+  if (mode === "test") {
+    const simulator = getSimulator(userId);
+    return simulator.getOpenOrders(symbol || undefined);
+  }
   const { getOpenOrders: getMexcOpenOrders } = await getMexcModule();
   return getMexcOpenOrders(userId, symbol);
 }
@@ -171,9 +228,7 @@ export async function marketBuyByQty(
     const simulator = getSimulator(userId);
     await syncSimulator(userId, simulator);
     const currentPrice = await getPrice(symbol);
-    // Simulator buy with qty (calculates cost internally)
-    const cost = parseFloat(qty) * currentPrice;
-    const res = await simulator.executeMarketBuy(symbol, cost, currentPrice);
+    const res = await simulator.executeMarketBuyByBaseQty(symbol, parseFloat(qty), currentPrice);
     queueBalancePersistence(userId, simulator);
     return res as unknown as OrderResult;
   }
@@ -224,11 +279,12 @@ export async function placeStopMarket(
   side: string,
   stopPrice: string,
   qty: string,
+  modeOverride?: TradingMode,
 ) {
-  const mode = getTradingMode();
+  const mode = modeOverride || getTradingMode();
   if (mode === "test") {
     // Simple simulator market entry for now
-    return postOrder(userId, pair, side, qty, stopPrice);
+    return postOrder(userId, pair, side, qty, stopPrice, "MARKET", mode);
   }
   const { placeStopMarket: mexcStop } = await getMexcModule();
   return mexcStop(userId, pair, side, stopPrice, qty);
@@ -241,18 +297,24 @@ export async function postOrder(
   qty: string,
   _price: string,
   type: string = "MARKET",
+  modeOverride?: TradingMode,
 ) {
-  const mode = getTradingMode();
+  const mode = modeOverride || getTradingMode();
   if (mode === "test") {
     const simulator = getSimulator(userId);
     await syncSimulator(userId, simulator);
     const currentPrice = await getPrice(symbol);
 
+    if (type.toUpperCase() !== "MARKET") {
+      console.warn(`[Simulator] ${type} order @ ${_price} requested for ${symbol}. Falling back to MARKET execution for simulation.`);
+    } else {
+      console.log(`[Simulator] Posting MARKET ${side} for ${symbol}. Qty: ${qty}`);
+    }
+
     if (side.toUpperCase() === "BUY") {
-      const totalQuote = parseFloat(qty) * currentPrice;
-      const res = await simulator.executeMarketBuy(
+      const res = await simulator.executeMarketBuyByBaseQty(
         symbol,
-        totalQuote,
+        parseFloat(qty),
         currentPrice,
       );
       queueBalancePersistence(userId, simulator);

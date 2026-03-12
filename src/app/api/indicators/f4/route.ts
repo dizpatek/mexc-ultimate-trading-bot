@@ -6,9 +6,11 @@ import { MatrixV5Engine } from "@/lib/matrix-v5-engine";
 import { fetchKlines } from "@/lib/mexc";
 import { getSessionUser } from "@/lib/auth-utils";
 import { logSystemEvent } from "@/lib/db";
+import { resolveTradeMode } from "@/lib/db";
 import { waitUntil } from "@vercel/functions";
+import { evaluateRisk } from "@/lib/engine/risk-management";
 
-const engine = new MatrixV5Engine();
+const engine = new MatrixV5Engine({});
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -54,10 +56,13 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // Proxy OTHERS.D to ETHUSDT for mathematical operations since MEXC doesn't support OTHERS.D
+    const fetchSymbol = symbolUpper === "OTHERS.D" ? "ETHUSDT" : symbolUpper;
+
     // Step 1: Fetch real data
-    const klines = await fetchKlines(symbolUpper, interval, 500).catch(err => {
-      console.error(`[IndicatorAPI/V5] Mexc fetch failed for ${symbolUpper}:`, err.message);
-      throw err;
+    const klines = await fetchKlines(fetchSymbol, interval, 500).catch(err => {
+      console.error(`[IndicatorAPI/V5] Mexc fetch failed for ${fetchSymbol}:`, err.message);
+      throw new Error(`Market data unavailable: ${err.message}`);
     });
 
     if (!klines || klines.length < 20) {
@@ -85,7 +90,6 @@ export async function GET(request: NextRequest) {
       globalCache[CACHE_KEY] = { data: botConfig, timestamp: now };
     }
 
-    // Step 3: Analyze with Matrix V5 (pass persistent parameters)
     const result = engine.analyze(
       closes,
       highs,
@@ -94,10 +98,7 @@ export async function GET(request: NextRequest) {
       interval,
       riskMode,
       {
-        f4Length: botConfig.f4_length,
-        whaleVolumeMultiplier: botConfig.whale_multiplier,
-        fiboLength: botConfig.fibo_length,
-        minAiScore: botConfig.ai_threshold,
+        tradeMode: resolveTradeMode(botConfig),
       }
     );
 
@@ -150,6 +151,17 @@ export async function GET(request: NextRequest) {
     let confidenceValue = 0.88;
     if (symbolUpper.includes("ETH")) confidenceValue = 0.45;
     if (symbolUpper.includes("BTC")) confidenceValue = 0.95;
+    // Step 4: Evaluate Risk Management
+    const riskDecision = evaluateRisk(
+      {
+        maxRiskPerTradePct: 0.02,
+        maxDailyDrawdownPct: 0.05,
+        winRate: (result.whaleTrust || 50) / 100,
+        profitFactor: 1.5,
+      },
+      result.aiScore,
+      0 // currentDailyDrawdown - will be connected to portfolio tracker
+    );
 
     const payload = {
       symbol: symbolUpper,
@@ -242,38 +254,38 @@ export async function GET(request: NextRequest) {
       liquidityBonus: result.liquidityBonus,
       mtfWeightedScore: result.mtfWeightedScore,
       dynamicWeights: result.dynamicWeights,
+
+      // === V5.5 Institutional Risk Management ===
+      riskManagement: riskDecision,
     };
 
     return NextResponse.json(payload);
-  } catch (error: unknown) {
-    const err = error instanceof Error ? error : new Error(String(error));
-    console.error(`[IndicatorAPI/V5] Error for ${symbolUpper}:`, err.message);
+  } catch (err: any) {
+    const symbolUpper = (request.nextUrl.searchParams.get("symbol") || "UNKNOWN").toUpperCase();
+    console.error(`[IndicatorAPI/V5] CRITICAL ERROR for ${symbolUpper}:`, err.stack || err.message);
 
-    // Log critical API errors (Non-blocking DB buffer)
-    if (sessionUid !== null) {
-      const uid = sessionUid; // Closure
-      waitUntil(
-        Promise.resolve().then(() => {
-          try {
-            logSystemEvent(
-              uid,
-              "ERROR",
-              `AI Motoru Hatası: ${symbolUpper}`,
-              err.message,
-            );
-          } catch {
-            /* silent */
-          }
-        }),
-      );
-    }
+    // FIX: Use verified sessionUid (fallback to 0 for system/unauth) and use waitUntil
+    const uid = sessionUid ?? 0;
+    waitUntil(
+      (async () => {
+        try {
+          await logSystemEvent(
+            uid,
+            "ERROR",
+            `AI Motoru Hatası: ${symbolUpper}`,
+            err.message,
+          );
+        } catch { /* silent */ }
+      })()
+    );
 
     return NextResponse.json(
-      {
-        error: "SERVER_EXCEPTION",
-        message: err.message || "V5 Engine failure",
+      { 
+        error: "Indicator Analysis Error", 
+        details: err.message,
+        symbol: symbolUpper 
       },
-      { status: 500 },
+      { status: err.message.includes("Market data") ? 503 : 500 }
     );
   }
 }

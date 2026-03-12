@@ -1,7 +1,7 @@
 import pkg from 'pg';
 const { Pool } = pkg;
 
-const connectionString = "postgresql://_2f70cc4a3ea5b8f7:_d22ac6f3ba99d77c9748a6968eb248@primary.mexc-db--2b7df8pbxjzq.addon.code.run:5432/_169a43476a1c";
+const connectionString = process.env.DATABASE_URL;
 
 async function checkAdmin() {
     const pool = new Pool({ connectionString });

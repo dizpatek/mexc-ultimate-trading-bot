@@ -11,6 +11,7 @@
  * 6. ADM (Asset Drift Model) & VPA (Volume Price Analysis)
  * 7. GIGA MASTER AI Score (Combined formula)
  */
+import { evaluateSAE, SAEInput } from "./engine/signal-arbitration";
 
 // ===========================
 // TYPES & INTERFACES
@@ -52,6 +53,11 @@ export interface MatrixV5Config {
   f4PowerLossThreshold: number;
   f4LookbackBars: number;
   f4SqueezeThreshold: number;
+  useTrendSafety: boolean;
+  riskTolerance: number;
+  maFast: number;
+  maSlow: number;
+  maSignal: number;
 }
 
 export type MarketRegime = "RISK_ON" | "RISK_OFF" | "NEUTRAL";
@@ -217,6 +223,7 @@ export interface MatrixV5Result {
   targets: { t1: number; t2: number; sl: number };
 
   // V5.3/V5.4 New Fields
+  f4Power: number; // ATR Normalized F4 Momentum [-100, 100]
   f4PowerLoss: number; // Güç kaybı yüzdesi (0-100)
   f4EarlyBuy: boolean; // Erken alış sinyali (Fibo divergence)
   f4EarlySell: boolean; // Erken satış sinyali (Fibo divergence)
@@ -231,6 +238,9 @@ export interface MatrixV5Result {
     market: number;
     trend: number;
   };
+  indicatorBullCount: number;
+  /** @deprecated Use indicatorBullCount for single-TF indicator consensus */
+  mtfBullCount: number;
 }
 
 // ===========================
@@ -246,41 +256,93 @@ export class MatrixV5Engine {
   };
 
   constructor(config: Partial<MatrixV5Config> = {}) {
-    this.config = {
-      f4Length: config.f4Length || 10,
-      f4Alpha: config.f4Alpha || 3.7,
-      fiboLength: config.fiboLength || 5,
-      fiboAlpha: config.fiboAlpha || 0.618,
-      f4SlopeThreshold: config.f4SlopeThreshold || 0.01,
-      whaleVolumeMultiplier: config.whaleVolumeMultiplier || 1.8,
-      minAiScore: config.minAiScore || 65,
-      minConfluenceScore: config.minConfluenceScore || 60,
-      useWhaleEngine: config.useWhaleEngine ?? true,
-      tradeMode: config.tradeMode || "Scalp",
-      confluenceWeightTech: config.confluenceWeightTech || 30,
-      confluenceWeightMomentum: config.confluenceWeightMomentum || 15,
-      confluenceWeightVol: config.confluenceWeightVol || 20,
-      confluenceWeightTrend: config.confluenceWeightTrend || 15,
-      confluenceWeightMarket: config.confluenceWeightMarket || 15,
-      confluenceWeightTiming: config.confluenceWeightTiming || 5,
-      rsiPeriod: config.rsiPeriod || 14,
-      rsiOB: config.rsiOB || 70,
-      rsiOS: config.rsiOS || 30,
-      macdFast: config.macdFast || 12,
-      macdSlow: config.macdSlow || 26,
-      macdSignal: config.macdSignal || 9,
-      stFactor: config.stFactor || 3.0,
-      stAtrPeriod: config.stAtrPeriod || 10,
-      stochRsiLen: config.stochRsiLen || 14,
-      stochK: config.stochK || 3,
-      stochD: config.stochD || 3,
-      adxPeriod: config.adxPeriod || 14,
-      adxThreshold: config.adxThreshold || 25,
-      // V5.3/V5.4
-      f4PowerLossThreshold: config.f4PowerLossThreshold || 50,
-      f4LookbackBars: config.f4LookbackBars || 10,
-      f4SqueezeThreshold: config.f4SqueezeThreshold || 40,
+    const d = (val: unknown, def: number, name?: string) => {
+      if (val === undefined) return def;
+      if (typeof val !== "number" || isNaN(val)) {
+        if (name) console.warn(`Matrix V5: Invalid value for ${name}, using default: ${def}`);
+        return def;
+      }
+      return val as number;
     };
+
+    this.config = {
+      f4Length: d(config.f4Length, 8, "f4Length"),
+      f4Alpha: d(config.f4Alpha, 0.7, "f4Alpha"),
+      fiboLength: d(config.fiboLength, 8, "fiboLength"),
+      fiboAlpha: d(config.fiboAlpha, 0.618, "fiboAlpha"),
+      f4SlopeThreshold: d(config.f4SlopeThreshold, 0.5, "f4SlopeThreshold"),
+      whaleVolumeMultiplier: d(config.whaleVolumeMultiplier, 1.8, "whaleVolumeMultiplier"),
+      minAiScore: d(config.minAiScore, 65, "minAiScore"),
+      minConfluenceScore: d(config.minConfluenceScore, 60, "minConfluenceScore"),
+      useWhaleEngine: config.useWhaleEngine ?? true,
+      useTrendSafety: config.useTrendSafety ?? true,
+      riskTolerance: d(config.riskTolerance, 0.5, "riskTolerance"),
+      tradeMode: config.tradeMode || "Scalp",
+      confluenceWeightTech: d(config.confluenceWeightTech, 30, "confluenceWeightTech"),
+      confluenceWeightMomentum: d(config.confluenceWeightMomentum, 15, "confluenceWeightMomentum"),
+      confluenceWeightVol: d(config.confluenceWeightVol, 20, "confluenceWeightVol"),
+      confluenceWeightTrend: d(config.confluenceWeightTrend, 15, "confluenceWeightTrend"),
+      confluenceWeightMarket: d(config.confluenceWeightMarket, 15, "confluenceWeightMarket"),
+      confluenceWeightTiming: d(config.confluenceWeightTiming, 5, "confluenceWeightTiming"),
+      rsiPeriod: d(config.rsiPeriod, 14, "rsiPeriod"),
+      rsiOB: d(config.rsiOB, 70, "rsiOB"),
+      rsiOS: d(config.rsiOS, 30, "rsiOS"),
+      maFast: d(config.maFast, 12, "maFast"),
+      maSlow: d(config.maSlow, 26, "maSlow"),
+      maSignal: d(config.maSignal, 9, "maSignal"),
+      macdFast: d(config.macdFast, 12, "macdFast"),
+      macdSlow: d(config.macdSlow, 26, "macdSlow"),
+      macdSignal: d(config.macdSignal, 9, "macdSignal"),
+      stFactor: d(config.stFactor, 3, "stFactor"),
+      stAtrPeriod: d(config.stAtrPeriod, 10, "stAtrPeriod"),
+      stochRsiLen: d(config.stochRsiLen, 14, "stochRsiLen"),
+      stochK: d(config.stochK, 3, "stochK"),
+      stochD: d(config.stochD, 3, "stochD"),
+      adxPeriod: d(config.adxPeriod, 14, "adxPeriod"),
+      adxThreshold: d(config.adxThreshold, 20, "adxThreshold"),
+      f4PowerLossThreshold: d(config.f4PowerLossThreshold, 15, "f4PowerLossThreshold"),
+      f4LookbackBars: d(config.f4LookbackBars, 24, "f4LookbackBars"),
+      f4SqueezeThreshold: d(config.f4SqueezeThreshold, 1.5, "f4SqueezeThreshold"),
+    };
+  }
+
+  /**
+   * Calculates autonomous parameters based on tradeMode and volatility (ATR)
+   */
+  private getAutonomousConfig(atr: number, basePrice: number, currentConfig: MatrixV5Config, overrides: Partial<MatrixV5Config>) {
+    const isScalp = currentConfig.tradeMode === "Scalp";
+    const volatilityFactor = atr / basePrice; // Relative volatility
+    const volAdjustment = volatilityFactor > 0.02 ? 1.2 : volatilityFactor < 0.005 ? 0.8 : 1.0;
+
+    // Helper to prioritize overrides safely
+    // Priority: 1. Runtime configOverrides (overrides param) 2. Dynamic Autonomous Logic 3. Global Engine Config
+    const getVal = (autoVal: number, key: keyof MatrixV5Config): number => {
+      const val = currentConfig[key];
+      return (key in overrides && typeof val === "number") ? val : autoVal;
+    };
+
+    if (isScalp) {
+      return {
+        f4Length: getVal(Math.round(8 * volAdjustment), "f4Length"),
+        fiboLength: getVal(Math.round(13 * volAdjustment), "fiboLength"),
+        whaleVolumeMultiplier: getVal(1.5 * volAdjustment, "whaleVolumeMultiplier"),
+        minAiScore: getVal(50, "minAiScore"), // Reduced from 60
+        minConfluenceScore: getVal(45, "minConfluenceScore"), // Reduced from 55
+        f4SlopeThreshold: getVal(0.2, "f4SlopeThreshold"), // Reduced from 0.3
+        lookback: 12
+      };
+    } else {
+      // Swing Mode
+      return {
+        f4Length: getVal(Math.round(21 * volAdjustment), "f4Length"),
+        fiboLength: getVal(Math.round(34 * volAdjustment), "fiboLength"),
+        whaleVolumeMultiplier: getVal(2.2 * volAdjustment, "whaleVolumeMultiplier"),
+        minAiScore: getVal(60, "minAiScore"), // Reduced from 70
+        minConfluenceScore: getVal(55, "minConfluenceScore"), // Reduced from 65
+        f4SlopeThreshold: getVal(0.5, "f4SlopeThreshold"), // Reduced from 0.7
+        lookback: 48
+      };
+    }
   }
 
   // ===========================
@@ -289,8 +351,11 @@ export class MatrixV5Engine {
 
   private calculateSMA(source: number[], length: number): number {
     if (source.length < length || length <= 0) return 0;
-    const slice = source.slice(source.length - length);
-    return slice.reduce((a, b) => a + b, 0) / length;
+    let sum = 0;
+    for (let i = source.length - length; i < source.length; i++) {
+      sum += source[i];
+    }
+    return sum / length;
   }
 
   private calculateEMA(source: number[], length: number): number {
@@ -530,38 +595,49 @@ export class MatrixV5Engine {
     length: number,
     alpha: number,
   ): number {
-    // F4 = c1*e6 + c2*e5 + c3*e4 + c4*e3
+    const series = this.calculateF4Series(closes, highs, lows, length, alpha);
+    return series[series.length - 1] || 0;
+  }
+
+  private calculateF4Series(
+    closes: number[],
+    highs: number[],
+    lows: number[],
+    length: number,
+    alpha: number,
+  ): number[] {
     const source = closes.map((c, i) => (highs[i] + lows[i] + 2 * c) / 4);
-    const e1Series = this.buildEMASeries(source, length);
-    const e2Series = this.buildEMASeries(e1Series, length);
-    const e3 = this.calculateEMA(e2Series, length);
-    const e3Series = this.buildEMASeries(e2Series, length);
-    const e4 = this.calculateEMA(e3Series, length);
-    const e4Series = this.buildEMASeries(e3Series, length);
-    const e5 = this.calculateEMA(e4Series, length);
-    const e5Series = this.buildEMASeries(e4Series, length);
-    const e6 = this.calculateEMA(e5Series, length);
+    const e1 = this.buildEMASeries(source, length);
+    const e2 = this.buildEMASeries(e1, length);
+    const e3 = this.buildEMASeries(e2, length);
+    const e4 = this.buildEMASeries(e3, length);
+    const e5 = this.buildEMASeries(e4, length);
+    const e6 = this.buildEMASeries(e5, length);
 
     const c1 = -alpha * alpha * alpha;
     const c2 = 3 * alpha * alpha + 3 * alpha * alpha * alpha;
     const c3 = -6 * alpha * alpha - 3 * alpha - 3 * alpha * alpha * alpha;
     const c4 = 1 + 3 * alpha + alpha * alpha * alpha + 3 * alpha * alpha;
 
-    return c1 * e6 + c2 * e5 + c3 * e4 + c4 * e3;
+    return source.map((_, i) => c1 * e6[i] + c2 * e5[i] + c3 * e4[i] + c4 * e3[i]);
   }
 
   private buildEMASeries(source: number[], length: number): number[] {
-    if (source.length < length) return [...source];
+    if (source.length === 0) return [];
     const k = 2 / (length + 1);
-    const result: number[] = [];
-    let ema = source.slice(0, length).reduce((a, b) => a + b, 0) / length;
-    for (let i = 0; i < source.length; i++) {
-      if (i < length) {
-        result.push(source[i]);
-        continue;
-      }
-      ema = source[i] * k + ema * (1 - k);
-      result.push(ema);
+    const result: number[] = new Array(source.length);
+
+    // Standard initialization: SMA for the first 'length' items
+    let sum = 0;
+    const initialLen = Math.min(length, source.length);
+    for (let i = 0; i < initialLen; i++) {
+      sum += source[i];
+      result[i] = source[i];
+    }
+    result[initialLen - 1] = sum / initialLen;
+
+    for (let i = initialLen; i < source.length; i++) {
+        result[i] = source[i] * k + result[i - 1] * (1 - k);
     }
     return result;
   }
@@ -666,7 +742,7 @@ export class MatrixV5Engine {
     const buyVol = totalVol * buyPct;
     const sellVol = totalVol * (1 - buyPct);
     const delta = buyVol - sellVol;
-    const netPressure = totalVol > 0 ? (delta / totalVol) * 100 : 0;
+    const netPressure = totalVol > 0 ? (buyVol / totalVol) * 100 : 50;
 
     return {
       buyVolume: buyVol,
@@ -674,9 +750,9 @@ export class MatrixV5Engine {
       delta,
       netPressure,
       state:
-        netPressure > 20
+        netPressure > 50
           ? "ALIM BASKISI"
-          : netPressure < -20
+          : netPressure < 50
             ? "SATIM BASKISI"
             : "NÖTR",
     };
@@ -711,6 +787,13 @@ export class MatrixV5Engine {
     const lastHigh = Math.max(...highs.slice(len - swingLen - 1, len - 1));
     const lastLow = Math.min(...lows.slice(len - swingLen - 1, len - 1));
 
+    // EMAs for Trend Persistence (V5.4 Enhancement)
+    const ema8 = this.calculateEMA(closes, 8);
+    const ema21 = this.calculateEMA(closes, 21);
+    const ema55 = this.calculateEMA(closes, 55);
+    const emaAlignmentBull = ema8 > ema21 && ema21 > ema55;
+    const emaAlignmentBear = ema8 < ema21 && ema21 < ema55;
+
     let bos = currentClose > lastHigh || currentClose < lastLow;
     const choch = false; // logic would go here
     let swingTrend: "BULLISH" | "BEARISH" | "NEUTRAL" = "NEUTRAL";
@@ -721,6 +804,10 @@ export class MatrixV5Engine {
     } else if (currentClose < lastLow) {
       bos = true;
       swingTrend = "BEARISH";
+    } else {
+      // P4.1: Persist trend based on EMA alignment if no fresh breakout
+      if (emaAlignmentBull) swingTrend = "BULLISH";
+      else if (emaAlignmentBear) swingTrend = "BEARISH";
     }
 
     // FVG Detection (3 bar pattern)
@@ -736,7 +823,7 @@ export class MatrixV5Engine {
 
     // Order Block Detection (Simplified)
     const orderBlocks: OrderBlock[] = [];
-    if (bos) {
+    if (bos || swingTrend !== "NEUTRAL") {
       orderBlocks.push({
         high: currentHigh,
         low: currentLow,
@@ -836,9 +923,8 @@ export class MatrixV5Engine {
     configOverrides: Partial<MatrixV5Config> = {},
   ): MatrixV5Result {
     // Determine the configuration for this specific analysis run (Thread-safe)
-    const activeConfig = Object.keys(configOverrides).length > 0 
-      ? { ...this.config, ...configOverrides } 
-      : this.config;
+    // Always branch from the base engine config to avoid side effects
+    const activeConfig = { ...this.config, ...configOverrides };
 
     const len = closes.length;
     if (len < 50) {
@@ -847,22 +933,25 @@ export class MatrixV5Engine {
       );
     }
 
+    // 0. Initialize Dynamic Autonomous Parameters
     const currentPrice = closes[len - 1];
+    const atrValue = this.calculateATR(highs, lows, closes, 14);
+    const autoParams = this.getAutonomousConfig(atrValue, currentPrice, activeConfig, configOverrides);
+
+    // 1. F4 TREND ENGINE (Dynamic per tradeMode)
+    const f4Len = autoParams.f4Length;
+    const f4Alpha = activeConfig.f4Alpha;
+    const f4WholeSeries = this.calculateF4Series(closes, highs, lows, f4Len, f4Alpha);
+    const f4Value = f4WholeSeries[f4WholeSeries.length - 1];
+    const fiboWholeSeries = this.calculateF4Series(closes, highs, lows, autoParams.fiboLength, activeConfig.fiboAlpha);
+    const f4FiboValue = fiboWholeSeries[fiboWholeSeries.length - 1];
+
     const tfAdapt = this.getTfAdaptFactor(interval);
 
-    // ===============================
-    // 1. F4 TREND ENGINE
-    // ===============================
-    const f4Len = activeConfig.f4Length;
-    const f4Alpha = activeConfig.f4Alpha;
-    const f4Value = this.calculateF4(closes, highs, lows, f4Len, f4Alpha);
-    const f4FiboValue = this.calculateF4(
-      closes,
-      highs,
-      lows,
-      activeConfig.fiboLength,
-      activeConfig.fiboAlpha,
-    );
+    // V5.4 Add F4 Power calculation (ATR normalized)
+    const f4ValuePrev5 = f4WholeSeries[f4WholeSeries.length - 6] || f4Value;
+    const f4PowerRaw = atrValue > 0 ? ((f4Value - f4ValuePrev5) / atrValue) * 100 : 0;
+    const f4Power = Math.max(-100, Math.min(100, f4PowerRaw));
 
     // Slope via LinReg
     const adaptSlopeLen = this.adaptPeriod(20, tfAdapt);
@@ -1007,6 +1096,8 @@ export class MatrixV5Engine {
     const vwapAbove = currentPrice > vwap;
     const vwapState = vwapAbove ? "ÜZERİNDE (BOĞA)" : "ALTINDA (AYI)";
     const vwapColor: V5IndicatorState["color"] = vwapAbove ? "green" : "red";
+
+    // 0. (Already initialized above)
 
     // EMA Ribbon
     const ema8 = this.calculateEMA(closes, this.adaptPeriod(8, tfAdapt));
@@ -1233,6 +1324,12 @@ export class MatrixV5Engine {
     const zScore =
       zScoreStdev > 0 ? (currentPrice - zScoreSMA) / zScoreStdev : 0;
 
+    // Fixed: Anomalous Flow constraint
+    if (Math.abs(zScore) > 2.0 && whaleStatus === "NEUTRAL") {
+      whaleStatus = isGreen ? "BUY_ACTIVE" : "SELL_ACTIVE";
+      whaleSignalText = isGreen ? "Z-DAĞILIM ALIMI 🐋" : "Z-DAĞILIM SATIŞI 🐋";
+    }
+
     // Momentum State
     const momentumState =
       slope > 0 && acceleration > 0
@@ -1251,59 +1348,24 @@ export class MatrixV5Engine {
           ? "red"
           : "gray";
 
-    // ===============================
     // 5. V5.4 F4 EARLY WARNING SYSTEM (Fibo Divergence + Power Loss)
-    // ===============================
-    // F4 slope: direction of main line
-    const prevF4Value = this.calculateF4(
-      closes.slice(0, -1),
-      highs.slice(0, -1),
-      lows.slice(0, -1),
-      f4Len,
-      f4Alpha,
-    );
+    const prevF4Value = f4WholeSeries[f4WholeSeries.length - 2] || f4Value;
     const f4Slope = f4Value - prevF4Value;
-    // F4 slope SMA (3-bar smoothing)
-    const f4SlopeSMA = f4Slope; // Simplified: single bar available server-side
+    const f4SlopeSMA = f4Slope;
 
-    // Fibo slope: direction of Fibo line (faster, leading indicator)
-    const prevFiboValue = this.calculateF4(
-      closes.slice(0, -1),
-      highs.slice(0, -1),
-      lows.slice(0, -1),
-      activeConfig.fiboLength,
-      activeConfig.fiboAlpha,
-    );
-    const fiboSlope = f4FiboValue - prevFiboValue;
+    const fiboSlope = f4FiboValue - (fiboWholeSeries[fiboWholeSeries.length - 2] || f4FiboValue);
 
-    // Fibo Divergence: Fibo reversed but F4 hasn't yet
-    const fiboDivergingBuy = fiboSlope > 0 && f4SlopeSMA < 0; // Fibo turned up, F4 still falling
-    const fiboDivergingSell = fiboSlope < 0 && f4SlopeSMA > 0; // Fibo turned down, F4 still rising
+    // Fibo Divergence
+    const fiboDivergingBuy = fiboSlope > 0 && f4SlopeSMA < 0;
+    const fiboDivergingSell = fiboSlope < 0 && f4SlopeSMA > 0;
 
-    // Power Loss Calculation
+    // Power Loss (O(N) optimized via series)
     const f4SlopeStrength = Math.abs(f4SlopeSMA);
-    // Build slope history for max calculation
     const slopeHistory: number[] = [];
-    for (
-      let i = 0;
-      i < Math.min(activeConfig.f4LookbackBars, closes.length - 2);
-      i++
-    ) {
-      const prevI = this.calculateF4(
-        closes.slice(0, -(i + 1)),
-        highs.slice(0, -(i + 1)),
-        lows.slice(0, -(i + 1)),
-        f4Len,
-        f4Alpha,
-      );
-      const prevI2 = this.calculateF4(
-        closes.slice(0, -(i + 2)),
-        highs.slice(0, -(i + 2)),
-        lows.slice(0, -(i + 2)),
-        f4Len,
-        f4Alpha,
-      );
-      slopeHistory.push(Math.abs(prevI - prevI2));
+    const lb = Math.min(autoParams.lookback, f4WholeSeries.length - 2);
+    for (let i = 0; i < lb; i++) {
+        const idx = f4WholeSeries.length - 1 - i;
+        slopeHistory.push(Math.abs(f4WholeSeries[idx] - f4WholeSeries[idx - 1]));
     }
     const f4SlopeMax =
       slopeHistory.length > 0
@@ -1344,28 +1406,10 @@ export class MatrixV5Engine {
     const f4EarlySell = f4EarlySellFibo || f4EarlySellClassic;
 
     // Confirmed signals (line color change — second confirmation)
-    const f4ConfirmedBuy =
-      f4Value > prevF4Value &&
-      prevF4Value <=
-        (this.calculateF4(
-          closes.slice(0, -2),
-          highs.slice(0, -2),
-          lows.slice(0, -2),
-          f4Len,
-          f4Alpha,
-        ) || 0) &&
-      f4NotFlat;
-    const f4ConfirmedSell =
-      f4Value < prevF4Value &&
-      prevF4Value >=
-        (this.calculateF4(
-          closes.slice(0, -2),
-          highs.slice(0, -2),
-          lows.slice(0, -2),
-          f4Len,
-          f4Alpha,
-        ) || prevF4Value) &&
-      f4NotFlat;
+    const prevPrevF4Value = f4WholeSeries[f4WholeSeries.length - 3] || prevF4Value;
+
+    const f4ConfirmedBuy = f4Value > prevF4Value && prevF4Value <= prevPrevF4Value && f4NotFlat;
+    const f4ConfirmedSell = f4Value < prevF4Value && prevF4Value >= prevPrevF4Value && f4NotFlat;
 
     // ===============================
     // 5b. LIQUIDITY ZONE DETECTION (OB/FVG Bonus)
@@ -1641,56 +1685,93 @@ export class MatrixV5Engine {
     if (riskMode === "safe") aiRaw -= 12;
     else if (riskMode === "aggressive") aiRaw += 12;
 
-    const aiScore = Math.max(5, Math.min(99, aiRaw));
+    // Fix: Confidence Paradox
+    const rawConf = Math.max(5, Math.min(99, aiRaw));
+    const aiScore = Math.min(rawConf, Math.max(predictionUpProb, predictionDownProb));
 
     // ===============================
     // 9. SMC & SYSTEM HEALTH (smc already calculated in section 5b)
     // ===============================
     const liquidity = this.calculateLiquidity(highs, lows);
-    const whaleTrust = this.bayesianMetrics.currentWinRate;
+    let whaleTrust = this.bayesianMetrics.currentWinRate;
+    
+    // Z-Score 2.40 Mapping (Anomalous Flow check)
+    if (Math.abs(zScore) >= 2.4) {
+      const rawExtremity = (Math.abs(zScore) - 2.4) / 1.0;
+      if (whaleStatus === "BUY_ACTIVE" || whaleStatus === "SELL_ACTIVE") {
+        whaleTrust = Math.max(0.80, Math.min(1.0, 0.80 + rawExtremity * 0.20));
+      } else {
+        whaleTrust = Math.min(0.20, Math.max(0, 0.20 - rawExtremity * 0.20));
+      }
+    }
     const deathRisk =
       this.bayesianMetrics.currentWinRate < 0.4 &&
       this.bayesianMetrics.totalSignals > 5;
+      
+    let finalAiScore = aiScore;
+    if (deathRisk) finalAiScore -= 15;
+    finalAiScore = Math.max(5, finalAiScore);
+
     const systemRestModeValue =
-      confluenceScore < 40 && volatilityRegime === "NORMAL";
+      confluenceScore < 30 && volatilityRegime === "NORMAL";
 
     // ===============================
-    // 10. SYSTEM DECISION & RISK THRESHOLDS
+    // 10. SAE (SIGNAL ARBITRATION ENGINE) & DECISION
     // ===============================
-    let currentMinAi = activeConfig.minAiScore;
-    let currentMinConf = activeConfig.minConfluenceScore;
+    // P4.1: Use Dynamic Autonomous thresholds as the baseline
+    let currentMinAi = autoParams.minAiScore;
+    let currentMinConf = autoParams.minConfluenceScore;
 
     if (riskMode === "safe") {
-      currentMinAi = 75;
-      currentMinConf = 72;
+      currentMinAi = Math.max(currentMinAi + 10, 75);
+      currentMinConf = Math.max(currentMinConf + 12, 72);
     } else if (riskMode === "aggressive") {
-      currentMinAi = 45;
-      currentMinConf = 40;
+      currentMinAi = Math.min(currentMinAi - 15, 45);
+      currentMinConf = Math.min(currentMinConf - 15, 40);
     }
 
-    const longCondition =
-      confluenceScore >= currentMinConf &&
-      predictionUpProb >= 55 &&
-      smc.swingTrend !== "BEARISH";
-    const shortCondition =
-      confluenceScore >= currentMinConf &&
-      predictionDownProb >= 55 &&
-      smc.swingTrend !== "BULLISH";
-    const systemDecision: SystemDecision = longCondition
-      ? "GO_LONG"
-      : shortCondition
-        ? "GO_SHORT"
-        : "WAIT";
+    const rawSystemDecision: SystemDecision = 
+      (confluenceScore >= currentMinConf && predictionUpProb >= 55) ? "GO_LONG" :
+      (confluenceScore >= currentMinConf && predictionDownProb >= 55) ? "GO_SHORT" : "WAIT";
 
-    // Final Coherence Check: If decision is WAIT, Ensure prediction text represents this
+    const saeInput: SAEInput = {
+      smc,
+      whaleStatus, // string form
+      zScore,
+      vpa,
+      f4Power,
+      ribbonState,
+      volatilityRegime,
+      currentWinRate: this.bayesianMetrics.currentWinRate,
+      rawSystemDecision
+    };
+
+    const saeResult = evaluateSAE(saeInput);
+
+    let systemDecision: SystemDecision = "WAIT";
+    if (saeResult.finalDecision === "GO_LONG") systemDecision = "GO_LONG";
+    else if (saeResult.finalDecision === "GO_SHORT") systemDecision = "GO_SHORT";
+
+    // Note: AI Penalty is handled directly inside evaluateSAE and applies extra penalties
+    // if there are conflicts/loss of trust.
+    finalAiScore += saeResult.aiPenalty;
+    if (saeResult.finalDecision === "NO_TRADE") {
+      finalAiScore = 0; // Forced neutral due to conflict/SMC violation
+    }
+    finalAiScore = Math.max(0, finalAiScore);
+
+    const longCondition = systemDecision === "GO_LONG";
+    const shortCondition = systemDecision === "GO_SHORT";
+
+    // SAE Strict Coherence Check
     if (systemDecision === "WAIT") {
-      // Only allow trend text if it's very high confidence but confluence is missing
-      if (predictionUpProb < 75 && predictionDownProb < 75) {
+      finalAiScore = Math.max(0, finalAiScore - 20); // P4.1: Reduce but don't zero out completely
+      // Only force FLAT if probabilities are truly neutral (Relaxed from 75 to 60)
+      if (predictionUpProb < 60 && predictionDownProb < 60) {
         prediction.text = "YATAY";
         prediction.direction = "FLAT";
       }
     } else {
-      // Ensure prediction text matches decision direction if decision is NOT wait
       if (systemDecision === "GO_LONG") {
         prediction.text = "YUKARI 📈";
         prediction.direction = "UP";
@@ -1701,8 +1782,8 @@ export class MatrixV5Engine {
     }
 
     let signal: "BUY" | "SELL" | null = null;
-    if (longCondition && aiScore >= currentMinAi) signal = "BUY";
-    else if (shortCondition && aiScore >= currentMinAi) signal = "SELL";
+    if (longCondition && finalAiScore >= currentMinAi) signal = "BUY";
+    else if (shortCondition && finalAiScore >= currentMinAi) signal = "SELL";
 
     // ===============================
     // 11. REGIME PREDICTION
@@ -1793,7 +1874,8 @@ export class MatrixV5Engine {
     const targets = {
       t1: currentPrice + direction * atrTarget * 1.5,
       t2: currentPrice + direction * atrTarget * 3.0,
-      sl: currentPrice - direction * atrTarget * 1.0,
+      sl: currentPrice - direction * atrTarget * 1.2,
+      buyDev: atrTarget * 0.6,
     };
 
     const payload: MatrixV5Result = {
@@ -1806,7 +1888,7 @@ export class MatrixV5Engine {
       signal,
       f4Value,
       f4FiboValue,
-      aiScore,
+      aiScore: finalAiScore,
       aiComponents: components,
       marketRegime,
       volatilityRegime,
@@ -1843,6 +1925,7 @@ export class MatrixV5Engine {
       swingTrend: smc.swingTrend,
       targets,
       // V5.3/V5.4 New Fields
+      f4Power,
       f4PowerLoss,
       f4EarlyBuy,
       f4EarlySell,
@@ -1852,6 +1935,8 @@ export class MatrixV5Engine {
       liquidityBonus,
       mtfWeightedScore,
       dynamicWeights,
+      mtfBullCount: bullIndicators, // Alias for backward compat
+      indicatorBullCount: bullIndicators,
     };
 
     return payload;

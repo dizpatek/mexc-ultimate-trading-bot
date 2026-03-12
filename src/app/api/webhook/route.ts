@@ -31,10 +31,12 @@ export async function POST(request: Request) {
     }
 
     if (signal === "buy") {
-      const result = await handleBuySignal(payload);
+      // SECURITY: Explicitly hardcode or derive userId from a trusted source, ignore payload.userId (P3.1 fix)
+      const result = await handleBuySignal({ ...payload, pair, userId: 1 });
       return NextResponse.json({ ok: true, result });
     } else if (signal === "sell") {
-      const result = await handleSellSignal(payload);
+      // SECURITY: Explicitly hardcode or derive userId from a trusted source, ignore payload.userId (P3.1 fix)
+      const result = await handleSellSignal({ ...payload, pair, userId: 1 });
       return NextResponse.json({ ok: true, result });
     } else {
       return NextResponse.json({ error: "unknown signal" }, { status: 400 });

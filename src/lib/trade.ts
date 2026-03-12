@@ -66,6 +66,7 @@ export interface BuySignalOptions {
   usdt?: number | null;
   balancePercent?: number | null;
   userId?: number;
+  mode?: import("./trading-mode").TradingMode;
 }
 
 export async function getSymbolPrecision(symbol: string) {
@@ -90,28 +91,30 @@ export async function getSymbolPrecision(symbol: string) {
   return { base: 4, quote: 2 };
 }
 
-export async function handleBuySignal({
-  pair,
-  risk = 0.01,
-  tp = null,
-  sl = null,
-  usdt = null,
-  balancePercent = null,
-  userId = 1,
-}: BuySignalOptions) {
+export async function handleBuySignal(options: BuySignalOptions) {
+  let {
+    pair,
+    risk = 0.01,
+    tp = null,
+    sl = null,
+    usdt = null,
+    balancePercent = null,
+    userId = 1,
+    mode = "test",
+  } = options;
+
   try {
-    console.log("Buy signal received", {
-      pair,
-      risk,
-      tp,
-      sl,
-      usdt,
-      balancePercent,
-    });
+    // SECURITY: In a production multi-user system, ensure userId is validated against session at the endpoint level.
+    console.log(`[TRADE] Buy signal: ${pair} for user ${userId} (Mode: ${mode})`);
 
     // Check global bot config
     const { getBotConfig } = await import("./db");
     const botConfig = await getBotConfig();
+    
+    if (!botConfig) {
+      console.log("System: Bot config is missing.");
+      return { ok: false, message: "Bot ayarları bulunamadı." };
+    }
 
     // Only enforce auto_trade if it's not a manual trade (usdt or balancePercent provided)
     const isAutomated = !usdt && !balancePercent;
@@ -132,30 +135,29 @@ export async function handleBuySignal({
       console.log(`[Pilot] Routing ${pair} to Standardized Smart Trade...`);
 
       const currentPrice = await getPrice(pair);
-      const defaultTp = currentPrice * 1.03; // +3%
-      const defaultSl = currentPrice * 0.985; // -1.5%
+      // P3.1: Strictly prioritize AI targets if they exist (not null/undefined)
+      const finalTp = (tp !== null && tp !== undefined) ? tp : (currentPrice * 1.03);
+      const finalSl = (sl !== null && sl !== undefined) ? sl : (currentPrice * 0.985);
 
       try {
         const smartResult = await handleSmartTrade({
           user_id: userId,
           symbol: pair,
           mode: "TRADE",
-          amount: "20", // Default quote amount if not specified
+          amount: "20",
           buyPrice: currentPrice.toString(),
           buyType: "MARKET",
-          trailingBuy: botConfig.pilot_trailing_buy ?? true,
-          trailingBuyDev: Number(botConfig.pilot_trailing_buy_dev ?? 0.3),
           takeProfit: {
-            price: defaultTp.toString(),
+            price: finalTp.toString(),
             trailing: botConfig.pilot_tp_trailing ?? true,
             deviation: Number(botConfig.pilot_tp_deviation ?? 0.5),
           },
           stopLoss: {
-            price: defaultSl.toString(),
+            price: finalSl.toString(),
             trailing: botConfig.pilot_sl_trailing ?? true,
             deviation: Number(botConfig.pilot_sl_deviation ?? 0.5),
           },
-        });
+        }, mode);
 
         notify(
           `[Smart Pilot] 🚀 ${pair} için Trailing Buy & SL/TP ile Smart Trade başlatıldı.`,
@@ -170,7 +172,7 @@ export async function handleBuySignal({
 
     if (risk <= 0 || risk > 0.2) risk = Math.min(Math.max(risk, 0.001), 0.05);
 
-    const usdtBalance = await getBalance("USDT", userId);
+    const usdtBalance = await getBalance("USDT", userId, mode);
     const availableUsdt = usdtBalance.free;
     const minBalance = Number(process.env.MIN_USDT_BALANCE) || 10;
 
@@ -221,7 +223,7 @@ export async function handleBuySignal({
     const finalQuote = parseFloat(quoteToSpend.toFixed(precision.quote));
 
     // Place market buy and process result
-    const res = (await marketBuyByQuote(userId, pair, String(finalQuote))) as {
+    const res = (await marketBuyByQuote(userId, pair, String(finalQuote), mode)) as {
       orderId: string;
       executedQty: string;
       cummulativeQuoteQty: string;
@@ -237,29 +239,43 @@ export async function handleBuySignal({
     const avgPrice = calculateAvgPrice(res, currentPrice);
 
     // Record primary order in DB
+    const executedQty =
+      parseFloat(res.executedQty || "0") ||
+      (res.fills &&
+        res.fills.reduce(
+          (s: number, f: { qty: string }) => s + Number(f.qty),
+          0,
+        )) ||
+      0;
+
+    // Record primary order in DB
     const dbId = (await insertOrder({
       mexc_order_id: res.orderId || undefined,
       symbol: pair,
       side: "BUY",
       type: "MARKET",
-      qty: res.executedQty ? parseFloat(res.executedQty) : undefined,
+      qty: executedQty,
       quote: res.cummulativeQuoteQty
         ? parseFloat(res.cummulativeQuoteQty)
         : undefined,
       price: avgPrice,
       status: "FILLED",
       meta: res as unknown as Record<string, unknown>,
+      trading_mode: mode,
     })) as number;
 
     // Record in trade history
     await insertTradeHistory({
+      user_id: userId,
       order_id: dbId,
       symbol: pair,
       side: "BUY",
       type: "MARKET",
-      qty: parseFloat(res.executedQty || "0"),
+      qty: executedQty,
       price: avgPrice,
-      quote_qty: parseFloat(res.cummulativeQuoteQty || "0") || quoteToSpend,
+      quote_qty: res.cummulativeQuoteQty
+        ? parseFloat(res.cummulativeQuoteQty)
+        : executedQty * avgPrice,
       commission: res.fills
         ? res.fills.reduce(
             (sum: number, f: { commission?: string }) =>
@@ -269,16 +285,10 @@ export async function handleBuySignal({
         : 0,
       commission_asset:
         res.fills && res.fills[0] ? res.fills[0].commissionAsset : undefined,
-    });
-
-    const executedQty =
-      parseFloat(res.executedQty || "0") ||
-      (res.fills &&
-        res.fills.reduce(
-          (s: number, f: { qty: string }) => s + Number(f.qty),
-          0,
-        )) ||
-      0;
+      profit_loss: 0,
+      profit_loss_percentage: 0,
+      trading_mode: mode,
+    } as any);
 
     // Place TP/SL if provided
     if (executedQty > 0) {
@@ -290,6 +300,7 @@ export async function handleBuySignal({
             "SELL",
             String(sl),
             String(executedQty),
+            mode,
           );
           notify(`Placed stop market SELL @ trigger ${sl}`);
         }
@@ -300,6 +311,7 @@ export async function handleBuySignal({
             "SELL",
             String(tp),
             String(executedQty),
+            mode,
           );
           notify(`Placed take-profit SELL @ trigger ${tp}`);
         }
@@ -325,14 +337,20 @@ export interface SellSignalOptions {
   pair: string;
   amount?: number | null;
   percent?: number | null;
+  tp?: number | null;
+  sl?: number | null;
   userId?: number;
+  mode?: import("./trading-mode").TradingMode;
 }
 
 export async function handleSellSignal({
   pair,
   amount = null,
   percent = null,
+  tp = null,
+  sl = null,
   userId = 1,
+  mode = "test",
 }: SellSignalOptions) {
   try {
     console.log("Sell signal received", { pair, amount, percent });
@@ -340,6 +358,11 @@ export async function handleSellSignal({
     // Check global bot config
     const { getBotConfig } = await import("./db");
     const botConfig = await getBotConfig();
+    
+    if (!botConfig) {
+      console.log("System: Bot config is missing.");
+      return { ok: false, message: "Bot ayarları bulunamadı." };
+    }
 
     // Only enforce auto_trade if it's not a manual trade (amount provided) or panic sell (percent: 100 with purpose)
     const isAutomated = !amount && !percent;
@@ -351,43 +374,48 @@ export async function handleSellSignal({
         return { ok: false, message: "Bot pasif (Otomatik Pilot Kapalı)" };
       }
 
-      // Check if we already have an active Smart Trade for this pair to close it
-      // Or just initiate a Trailing Sell if it's a generic sell signal
-      console.log(
-        `[Pilot] Routing ${pair} to Standardized Trailing Sell/Exit...`,
-      );
-
       try {
-        // Determine current held qty
-        const baseAsset = pair.replace(/USDT|USDC|BTC$/, "");
-        const balance = await getBalance(baseAsset, userId);
+        const balanceAsset = pair.replace(/USDT|USDC|BTC$/, "");
+        const balance = await getBalance(balanceAsset, userId, mode);
 
         if (balance.free > 0) {
-          // Redirection for automated SELL: use handleSmartTrade for consistency and tracking
+          const currentPrice = await getPrice(pair);
+          
+          // P3.1: Properly prioritize AI targets and fix direction for exiting LONG positions
+          // For a LONG exit: Take Profit > currentPrice, Stop Loss < currentPrice
+          const finalTp = (tp !== null && tp !== undefined) ? tp : (currentPrice * 1.03); 
+          const finalSl = (sl !== null && sl !== undefined) ? sl : (currentPrice * 0.98);
+
           const smartResult = await handleSmartTrade({
             user_id: userId,
             symbol: pair,
-            mode: "COVER", // Sell to close existing position
+            mode: "COVER",
             amount: balance.free.toString(),
-            buyPrice: (await getPrice(pair)).toString(),
+            buyPrice: currentPrice.toString(),
             buyType: "MARKET",
-            takeProfit: null, // Don't set illogical TP for an immediate exit signal
-            stopLoss: null,
-          });
-          notify(
-            `[Smart Pilot] 🔻 ${pair} için Trailing Sell ile kapatma işlemi başlatıldı.`,
-          );
+            takeProfit: {
+              price: finalTp.toString(),
+              trailing: botConfig.pilot_tp_trailing ?? true,
+              deviation: Number(botConfig.pilot_tp_deviation ?? 0.5),
+            },
+            stopLoss: {
+              price: finalSl.toString(),
+              trailing: botConfig.pilot_sl_trailing ?? true,
+              deviation: Number(botConfig.pilot_sl_deviation ?? 0.5),
+            },
+          }, mode);
+
+          notify(`[Smart Pilot] 🔻 ${pair} için Trailing Sell ile kapatma işlemi başlatıldı.`);
           return { ok: true, ...smartResult };
         }
       } catch (err) {
         console.error("[Pilot] Smart Sell redirection failed:", err);
-        // Fallback to direct sell if smart fails
       }
     }
 
     let sellAmount = amount;
     const baseAsset = pair.replace(/USDT|USDC|BTC$/, "");
-    const balance = await getBalance(baseAsset, userId);
+    const balance = await getBalance(baseAsset, userId, mode);
 
     if (!sellAmount) {
       if (balance.free <= 0) {
@@ -419,7 +447,7 @@ export async function handleSellSignal({
     const currentPrice = await getPrice(pair);
     notify(`${pair} satış: ${finalQty} adet @ ${currentPrice} USDT`);
 
-    const res = (await marketSellByQty(userId, pair, String(finalQty))) as {
+    const res = (await marketSellByQty(userId, pair, String(finalQty), mode)) as {
       orderId: string;
       executedQty: string;
       cummulativeQuoteQty: string;
@@ -446,6 +474,7 @@ export async function handleSellSignal({
       price: avgPrice,
       status: "FILLED",
       meta: res as unknown as Record<string, unknown>,
+      trading_mode: mode,
     })) as number;
 
     const previousBuys = (await getTradeHistoryBySymbol(pair, 10)) as Array<{

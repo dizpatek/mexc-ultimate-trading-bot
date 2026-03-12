@@ -13,8 +13,12 @@ api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
     const token = localStorage.getItem("token");
     if (token) {
-      // Using set() to avoid Axios 1.x header assignment issues
       config.headers.set("Authorization", `Bearer ${token}`);
+    }
+
+    const mode = localStorage.getItem("TRADING_MODE");
+    if (mode) {
+      config.headers.set("Trading-Mode", mode);
     }
   }
   return config;

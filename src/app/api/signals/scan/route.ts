@@ -71,7 +71,7 @@ export async function GET(request: Request) {
 
     const scanSymbols = await SignalScanner.resolveScanSymbols(userId, mode);
     const scanStartTime = Date.now();
-    const allResults = await SignalScanner.runScan(scanSymbols, targetTimeframe);
+    const allResults = await SignalScanner.runScan(scanSymbols, targetTimeframe, mode);
     const scanDuration = Date.now() - scanStartTime;
 
     console.log(

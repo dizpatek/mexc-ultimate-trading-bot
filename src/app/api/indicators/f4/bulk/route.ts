@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MatrixV5Engine } from "@/lib/matrix-v5-engine";
 import { fetchKlines } from "@/lib/mexc";
+import { getBotConfig, resolveTradeMode } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-const engine = new MatrixV5Engine();
+const engine = new MatrixV5Engine({});
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,6 +24,12 @@ export async function POST(request: NextRequest) {
     const symbolsToProcess = symbols.slice(0, 30);
     const intervalVal = interval || "1h";
     const mode = riskMode || "normal";
+
+    let tradeMode: "Scalp" | "Swing" = "Scalp";
+    try {
+      const botConfig = await getBotConfig();
+      tradeMode = resolveTradeMode(botConfig);
+    } catch { /* use default Scalp */ }
 
     const results = await Promise.all(
       symbolsToProcess.map(async (symbol) => {
@@ -45,7 +52,8 @@ export async function POST(request: NextRequest) {
             lows,
             volumes,
             intervalVal,
-            mode
+            mode,
+            { tradeMode }
           );
 
           return {

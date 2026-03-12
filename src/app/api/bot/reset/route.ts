@@ -12,8 +12,7 @@ export async function POST(request: Request) {
 
     console.log(`[ResetAPI] Resetting simulator for user ${user.id}`);
     const simulator = getSimulator();
-    simulator.reset();
-    simulator.initializeTestBalance();
+    simulator.resetInMemoryState();
 
     return NextResponse.json({
       success: true,

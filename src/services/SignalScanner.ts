@@ -1,4 +1,4 @@
-import { MatrixV5Engine } from "@/lib/matrix-v5-engine";
+import { MatrixV5Strategy } from "@/lib/strategies";
 import { fetchKlines } from "@/lib/mexc";
 import {
   createStrategySignalsBulk,
@@ -6,13 +6,20 @@ import {
   StrategySignalInput,
 } from "@/lib/db";
 import { getAccountInfo } from "@/lib/mexc-wrapper";
+import { getBotConfig, resolveTradeMode, BotConfig } from "@/lib/db";
 
-const engine = new MatrixV5Engine();
 
 const DEFAULT_SCAN_SYMBOLS = [
   "BTCUSDT",
   "ETHUSDT",
   "SOLUSDT",
+  "BNBUSDT",
+  "XRPUSDT",
+  "ADAUSDT",
+  "DOGEUSDT",
+  "AVAXUSDT",
+  "LINKUSDT",
+  "DOTUSDT",
 ];
 
 const DEDUP_WINDOW_MS = 5 * 60 * 1000;
@@ -24,24 +31,7 @@ export interface ScanResult {
   detail: string;
   aiScore: number;
   inserted: boolean;
-}
-
-interface EngineResult {
-  aiScore: number;
-  systemDecision: string;
-  prediction?: { text?: string };
-  trend: string;
-  whaleStatus: string;
-  whaleSignalText?: string;
-  smc: { bos: boolean; choch: boolean; swingTrend: string };
-  inPremium: boolean;
-  inDiscount: boolean;
-  f4EarlyBuy: boolean;
-  f4ConfirmedBuy: boolean;
-  f4EarlySell: boolean;
-  f4ConfirmedSell: boolean;
-  slope: number;
-  acceleration: number;
+  vetoReason?: string;
 }
 
 export class SignalScanner {
@@ -69,15 +59,23 @@ export class SignalScanner {
     ).slice(0, 60);
   }
 
-  static async runScan(symbols: string[], targetTimeframe?: string): Promise<ScanResult[]> {
+  static async runScan(symbols: string[], targetTimeframe?: string, mode: "test" | "production" = "test"): Promise<ScanResult[]> {
     const allResults: ScanResult[] = [];
     const allSignalsToInsert: StrategySignalInput[] = [];
     
     // Use targetTimeframe if provided, otherwise default to a conservative set
     const TIMEFRAMES = targetTimeframe ? [targetTimeframe] : ["1h", "4h"];
 
+    // P4.3: Pre-fetch botConfig once for the entire scan to reduce DB load
+    let botConfig: BotConfig | undefined;
+    try {
+      botConfig = await getBotConfig();
+    } catch { /* defaults handled in scanSymbol */ }
+
+
     // P4.1: Fetch all recent signals for the entire set in one go to prevent N+1 queries
-    const recentSignals = await getRecentSignalsBulk(symbols, DEDUP_WINDOW_MS);
+    const recentSignals = await getRecentSignalsBulk(symbols, DEDUP_WINDOW_MS, mode);
+
 
     // Group by symbol_timeframe for O(1) lookup
     const recentSignalsMap = new Map<string, string[]>();
@@ -88,21 +86,35 @@ export class SignalScanner {
       recentSignalsMap.set(key, list);
     });
 
+    const scanTasks: Array<{symbol: string, tf: string, existingTypes: string[]}> = [];
     for (const symbol of symbols) {
       for (const tf of TIMEFRAMES) {
         const key = `${symbol}_${tf}`;
-        const existingTypes = recentSignalsMap.get(key) || [];
-        
-        try {
-          const item = await this.scanSymbol(symbol, existingTypes, tf);
-          allResults.push(...item.results);
-          allSignalsToInsert.push(...item.signalsToInsert);
-          
-        } catch (err: unknown) {
-          const errorMessage = err instanceof Error ? err.message : String(err);
-          console.error(`[SignalScanner] Error scanning ${symbol} on ${tf}:`, errorMessage);
-        }
+        scanTasks.push({
+          symbol,
+          tf,
+          existingTypes: recentSignalsMap.get(key) || []
+        });
       }
+    }
+
+    // P3.2 PERFORMANCE: Bounded parallel scan (concurrency: 8)
+    const CONCURRENCY = 8;
+    for (let i = 0; i < scanTasks.length; i += CONCURRENCY) {
+      const chunk = scanTasks.slice(i, i + CONCURRENCY);
+      const chunkResults = await Promise.allSettled(
+        chunk.map(t => this.scanSymbol(t.symbol, t.existingTypes, t.tf, mode, botConfig))
+      );
+
+      chunkResults.forEach((res, index) => {
+        const task = chunk[index];
+        if (res.status === "fulfilled") {
+          allResults.push(...res.value.results);
+          allSignalsToInsert.push(...res.value.signalsToInsert);
+        } else {
+          console.error(`[SignalScanner] Error scanning ${task.symbol} on ${task.tf}:`, res.reason);
+        }
+      });
     }
 
     if (allSignalsToInsert.length > 0) {
@@ -116,151 +128,92 @@ export class SignalScanner {
     symbol: string,
     existingTypes: string[],
     interval: string = "4h",
+    tradingMode: "test" | "production" = "test",
+    botConfig?: BotConfig
   ): Promise<{
     results: ScanResult[];
     signalsToInsert: StrategySignalInput[];
   }> {
     const results: ScanResult[] = [];
-    const klines = await fetchKlines(symbol, interval, 200);
-    if (!klines || klines.length < 50) return { results, signalsToInsert: [] };
+    const signalsToInsert: StrategySignalInput[] = [];
 
-    const closes = klines.map((k) => k.close);
-    const highs = klines.map((k) => k.high);
-    const lows = klines.map((k) => k.low);
-    const volumes = klines.map((k) => k.volume);
+    try {
+      const config = botConfig || await getBotConfig();
 
-    const result = engine.analyze(
-      closes,
-      highs,
-      lows,
-      volumes,
-      interval,
-      "normal",
-    ) as unknown as EngineResult;
-    const currentPrice = closes[closes.length - 1];
-    const volume = volumes[volumes.length - 1];
-
-    const candidates = this.evaluateSignals(symbol, result);
-
-    const newSignals = candidates.filter(
-      (c) => !existingTypes.includes(c.signalType),
-    );
-    const deduplicatedSignals = candidates.filter((c) =>
-      existingTypes.includes(c.signalType),
-    );
-
-    for (const sig of deduplicatedSignals) {
-      results.push({
-        symbol,
-        signalType: sig.signalType,
-        price: currentPrice,
-        detail: `${sig.signalType} (deduplicated)`,
-        aiScore: result.aiScore,
-        inserted: false,
-      });
-    }
-
-    const signalsToInsert = newSignals.map((sig) => {
-      const detailWithTimeframe = {
-        ...sig.detail,
-        detail: `${sig.detail.detail} (${interval})`,
-      };
-
-      results.push({
-        symbol,
-        signalType: sig.signalType,
-        price: currentPrice,
-        detail: String(detailWithTimeframe.detail),
-        aiScore: result.aiScore,
-        inserted: true,
-      });
-
-      return {
-        symbol,
-        signal_type: sig.signalType,
-        price: currentPrice,
-        volume: volume || 0,
-        timestamp: Date.now(),
-        executed: false,
-        execution_result: detailWithTimeframe,
+      // P4.1 Optimizer: Pre-fetch klines here and pass to strategy if possible, 
+      // but since MatrixV5Strategy expects to fetch its own for analysis consistency,
+      // we at least ensure we don't fetch the EXACT same 1-candle kline twice.
+      const strategy = new MatrixV5Strategy(symbol, {
         timeframe: interval,
-      };
-    });
+        minAiScore: config.ai_threshold || 65,
+        mtfVeto: config.pilot_mtf_veto,
+        mtfThreshold: config.pilot_mtf_threshold
+      });
 
-    return { results, signalsToInsert };
-  }
+      const signal = await strategy.analyze();
+      if (!signal) return { results, signalsToInsert };
 
-  private static evaluateSignals(
-    _symbol: string,
-    result: EngineResult,
-  ): { signalType: string; detail: Record<string, unknown> }[] {
-    const signals: { signalType: string; detail: Record<string, unknown> }[] =
-      [];
+      const timestamp = Date.now();
+      const currentPrice = signal.price || 0;
+      
+      // Fetch actual volume from recent klines for better metadata
+      // P4.1 Optimizer: We still need volume, but the strategy.analyze already fetched klines.
+      // Ideally we'd expose volume from StrategySignal, but for now we note the redundancy.
+      const recentKlines = await fetchKlines(symbol, interval, 1);
+      const volume = recentKlines?.[0]?.volume || 0;
 
-    if (result.aiScore >= 75 && result.systemDecision !== "WAIT") {
-      const signalType =
-        result.systemDecision === "GO_LONG"
-          ? "BUY"
-          : result.systemDecision === "GO_SHORT"
-            ? "SELL"
-            : "AI_ANALYSIS";
-      signals.push({
+      let signalType = signal.signal || (signal.indicators.whaleDetected ? "WHALE" : "INFO");
+      
+      // Check for veto
+      let vetoReason: string | undefined = undefined;
+      if (signal.reason && signal.reason.includes("🛑")) {
+        vetoReason = signal.reason.split("🛑")[1].trim();
+      }
+
+      // If already exists, skip
+      if (existingTypes.includes(signalType)) {
+        const detailPrefix = vetoReason ? `VETOED: ${vetoReason}` : signal.reason;
+        results.push({
+          symbol,
+          signalType,
+          price: currentPrice,
+          detail: `${detailPrefix} (deduplicated)`,
+          aiScore: Number(signal.indicators.aiScore) || 0,
+          inserted: false,
+          vetoReason
+        });
+        return { results, signalsToInsert };
+      }
+
+      const detailWithTimeframe = vetoReason ? `🛑 VETOED: ${vetoReason} (${interval})` : `${signal.reason} (${interval})`;
+
+      results.push({
+        symbol,
         signalType,
-        detail: {
-          detail: `AI Skoru: ${result.aiScore} | ${result.prediction?.text || result.systemDecision} | Trend: ${result.trend}`,
-          aiScore: result.aiScore,
-          trend: result.trend,
-        },
+        price: currentPrice,
+        detail: detailWithTimeframe,
+        aiScore: Number(signal.indicators.aiScore) || 0,
+        inserted: true,
+        vetoReason
       });
-    }
 
-    if (result.whaleStatus && result.whaleStatus !== "NEUTRAL") {
-      signals.push({
-        signalType: "WHALE",
-        detail: {
-          detail: ` Whale: ${result.whaleSignalText || result.whaleStatus}`,
-          whaleStatus: result.whaleStatus,
-        },
+      signalsToInsert.push({
+        symbol,
+        signal_type: signalType,
+        price: currentPrice,
+        volume: volume,
+        timestamp,
+        executed: false,
+        execution_result: { ...signal.indicators, reason: signal.reason, targets: (signal as any).targets, aiScore: (signal.indicators as any).aiScore },
+        timeframe: interval,
+        trading_mode: tradingMode,
+        veto_reason: vetoReason
       });
-    }
 
-    if (result.smc?.bos || result.smc?.choch) {
-      const structureType = result.smc.bos ? "BOS" : "CHoCH";
-      signals.push({
-        signalType: structureType,
-        detail: {
-          detail: ` ${structureType}: ${result.smc.swingTrend} | Premium: ${result.inPremium ? "EVET" : "HAYIR"} | Discount: ${result.inDiscount ? "EVET" : "HAYIR"}`,
-          smc: {
-            bos: result.smc.bos,
-            choch: result.smc.choch,
-            swingTrend: result.smc.swingTrend,
-          },
-        },
-      });
+      return { results, signalsToInsert };
+    } catch (err) {
+      console.error(`[SignalScanner] scanSymbol failure for ${symbol}:`, err);
+      return { results, signalsToInsert };
     }
-
-    if (result.f4EarlyBuy || result.f4ConfirmedBuy) {
-      const type = result.f4ConfirmedBuy ? "F4_CONFIRMED_BUY" : "F4_EARLY_BUY";
-      signals.push({
-        signalType: type,
-        detail: {
-          detail: ` F4 ${type.replace(/_/g, " ").replace("F4 ", "")}: Slope=${result.slope?.toFixed(4)} | Accel=${result.acceleration?.toFixed(4)}`,
-        },
-      });
-    }
-
-    if (result.f4EarlySell || result.f4ConfirmedSell) {
-      const type = result.f4ConfirmedSell
-        ? "F4_CONFIRMED_SELL"
-        : "F4_EARLY_SELL";
-      signals.push({
-        signalType: type,
-        detail: {
-          detail: ` F4 ${type.replace(/_/g, " ").replace("F4 ", "")}: Slope=${result.slope?.toFixed(4)} | Accel=${result.acceleration?.toFixed(4)}`,
-        },
-      });
-    }
-
-    return signals;
   }
 }

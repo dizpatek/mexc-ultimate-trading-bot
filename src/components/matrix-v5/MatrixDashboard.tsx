@@ -12,6 +12,7 @@ import {
   Fish,
 } from "lucide-react";
 import { fetchGlobalMarketData } from "@/lib/market-data";
+import { api } from "@/services/api";
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 
@@ -207,13 +208,11 @@ export const MatrixDashboard = () => {
 
   const refresh = useCallback(async () => {
     try {
-      const [res, marketData] = await Promise.all([
-        fetch("/api/indicators/f4?symbol=BTCUSDT&interval=4h").then((r) =>
-          r.json(),
-        ),
+      const [resData, marketData] = await Promise.all([
+        api.get("/indicators/f4?symbol=BTCUSDT&interval=4h").then((r) => r.data),
         fetchGlobalMarketData().catch(() => null),
       ]);
-      if (res && !res.error) setData(res);
+      if (resData && !resData.error) setData(resData);
       if (marketData) {
         setBtcdVal(marketData.btcd?.value ?? 0);
         setUsdtdVal(marketData.usdtd?.value ?? 0);

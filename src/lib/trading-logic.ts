@@ -560,7 +560,7 @@ export function calculateTrailingExitTarget(
   entryPrice: number,
   devPercent: number
 ): number {
-  const dev = devPercent / 100;
+  const dev = Math.abs(devPercent) / 100;
   if (mode === "COVER") {
     // For Shorts (COVER), price goes down, we track the local `lowestPrice` to protect gains by trailing down.
     // The target to buy back is above the lowest price.
@@ -581,7 +581,7 @@ export function calculateTrailingBuyTarget(
   entryPrice: number,
   devPercent: number
 ): number {
-  const dev = devPercent / 100;
+  const dev = Math.abs(devPercent) / 100;
   if (mode === "COVER") {
     // Trailing Short Entry: wait for price to rise, track local `highestPrice`,
     // enter short when drops dev% from peak
@@ -615,16 +615,16 @@ export function interpretTradingStatus(
 
   // --- 0. SIRA - KAPANIŞ DURUMLARI (EN YÜKSEK ÖNCELİK) ---
   if (isClosed && meta?.exitReason) {
-    const reason = meta.exitReason;
+    const reason = String(meta.exitReason);
     if (reason.includes("TP_HIT") || reason.includes("TAKE_PROFIT")) {
-      statusText = payload.takeProfit?.trailing
+      statusText = (payload as any).takeProfit?.trailing
         ? "TTP GERÇEKLEŞTİ ✅"
         : "TP VURULDU ✅";
       statusColor = "text-emerald-500 font-black";
       return { statusText, statusColor, liveAiScore };
     }
     if (reason.includes("SL_HIT") || reason.includes("STOP_LOSS")) {
-      statusText = payload.stopLoss?.trailing
+      statusText = (payload as any).stopLoss?.trailing
         ? "TSL GERÇEKLEŞTİ ❌"
         : "SL VURULDU ❌";
       statusColor = "text-rose-600 font-black";
@@ -646,7 +646,7 @@ export function interpretTradingStatus(
   }
 
   // --- 0.5. SIRA - AKTİF TRAILING DURUMLARI ---
-  if (tradeStatus === "PENDING" && payload.trailingBuy) {
+  if (tradeStatus === "PENDING" && (payload as any).trailingBuy) {
     if (meta?.entryTriggered) {
       statusText = "TBUY TAKİPDE 🔍";
       statusColor = "text-cyan-300 animate-pulse font-bold";
@@ -663,13 +663,13 @@ export function interpretTradingStatus(
     // Do not return yet, allow Proximity Checks to override if TP/SL is near
   }
 
-  if (meta?.tpTriggered && payload.takeProfit?.trailing && !isClosed) {
+  if (meta?.tpTriggered && (payload as any).takeProfit?.trailing && !isClosed) {
     statusText = "TTP BAŞLADI 🚀";
     statusColor = "text-emerald-400 animate-pulse font-bold";
     return { statusText, statusColor, liveAiScore };
   }
 
-  if (meta?.tslActivated && payload.stopLoss?.trailing && !isClosed) {
+  if (meta?.tslActivated && (payload as any).stopLoss?.trailing && !isClosed) {
     statusText = "TSL BAŞLADI 🚨";
     statusColor = "text-rose-400 animate-pulse font-bold";
     return { statusText, statusColor, liveAiScore };
@@ -712,17 +712,18 @@ export function interpretTradingStatus(
 
   // 2. Canlı Sinyal Yorumlama
   if (statusText === "SİNYAL..." && !isClosed && liveData) {
-    const upP = liveData.prediction?.upProb ?? 50;
-    const isBull = liveData.trend === "BULLISH";
-    const isBear = liveData.trend === "BEARISH";
+    const ld = liveData as Record<string, any>;
+    const upP = ld.prediction?.upProb ?? 50;
+    const isBull = ld.trend === "BULLISH";
+    const isBear = ld.trend === "BEARISH";
     const hasBuy =
-      liveData.f4EarlyBuy ||
-      liveData.f4ConfirmedBuy ||
-      liveData.signal === "BUY";
+      ld.f4EarlyBuy ||
+      ld.f4ConfirmedBuy ||
+      ld.signal === "BUY";
     const hasSell =
-      liveData.f4EarlySell ||
-      liveData.f4ConfirmedSell ||
-      liveData.signal === "SELL";
+      ld.f4EarlySell ||
+      ld.f4ConfirmedSell ||
+      ld.signal === "SELL";
 
     if (hasBuy && upP >= 60) {
       statusText = "DİP BÖLGESİ 🟢";
@@ -737,16 +738,16 @@ export function interpretTradingStatus(
       statusText = "AYI MOD 📉";
       statusColor = "text-rose-400";
     } else if (
-      liveData.whaleDetected &&
-      (liveData.whaleStatus === "BUY_ACTIVE" ||
-        liveData.whaleStatus === "ALIM_AKTİF")
+      ld.whaleDetected &&
+      (ld.whaleStatus === "BUY_ACTIVE" ||
+        ld.whaleStatus === "ALIM_AKTİF")
     ) {
       statusText = "BALİNA AL 🐋"; // Fixed spelling
       statusColor = "text-amber-400";
     } else if (
-      liveData.whaleDetected &&
-      (liveData.whaleStatus === "SELL_ACTIVE" ||
-        liveData.whaleStatus === "SATIM_AKTİF")
+      ld.whaleDetected &&
+      (ld.whaleStatus === "SELL_ACTIVE" ||
+        ld.whaleStatus === "SATIM_AKTİF")
     ) {
       statusText = "BALİNA SAT 🐋"; // Fixed spelling
       statusColor = "text-amber-400";

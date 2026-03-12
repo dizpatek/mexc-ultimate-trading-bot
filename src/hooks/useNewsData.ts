@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { analyzeSentiment } from "@/lib/sentiment";
+import { api } from "@/services/api";
 
 export interface NewsItem {
   id: string;
@@ -38,9 +39,8 @@ export function useNewsData() {
   const fetchNews = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/news");
-      if (!res.ok) throw new Error("API request failed");
-      const data = await res.json();
+      const res = await api.get("/news");
+      const data = res.data;
 
       if (Array.isArray(data)) {
         const now = Math.floor(Date.now() / 1000);

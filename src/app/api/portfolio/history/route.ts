@@ -15,7 +15,7 @@ export async function GET(request: Request) {
     const snapshots = await getPortfolioSnapshots(days);
 
     const history = snapshots.map((snapshot) => ({
-      date: new Date(snapshot.snapshot_date).toISOString(),
+      date: new Date(snapshot.snapshot_date as string).toISOString(),
       totalValue: snapshot.total_value,
       totalAssets: snapshot.total_assets,
     }));

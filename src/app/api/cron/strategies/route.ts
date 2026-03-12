@@ -14,11 +14,21 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const immediate = searchParams.get("immediate") === "true";
+    const queryMode = searchParams.get("tradingMode");
 
-    console.log(`[Cron] Triggering strategy execution... (immediate: ${immediate}, user: ${userId})`);
+    // Read trading mode from URL, then cookie, fallback to test
+    const cookieHeader = request.headers.get("cookie") || "";
+    const modeCookie = cookieHeader
+      .split(";")
+      .find((c) => c.trim().startsWith("TRADING_MODE="));
+    const tradingMode = (queryMode as "test" | "production") || (modeCookie
+      ? (modeCookie.split("=")[1].trim() as "test" | "production")
+      : "test");
+
+    console.log(`[Cron] Triggering strategy execution... (immediate: ${immediate}, user: ${userId}, mode: ${tradingMode})`);
 
     // Run asynchronously to not timeout
-    await runActiveStrategies(immediate, userId);
+    await runActiveStrategies(immediate, userId, tradingMode);
 
     return NextResponse.json({ success: true, timestamp: Date.now() });
   } catch (error: unknown) {

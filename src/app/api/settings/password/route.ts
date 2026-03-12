@@ -41,7 +41,7 @@ export async function POST(request: Request) {
 
     const isMatch = await comparePassword(
       currentPassword,
-      dbUser.password_hash,
+      String(dbUser.password_hash),
     );
 
     if (!isMatch) {

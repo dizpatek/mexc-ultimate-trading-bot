@@ -1,0 +1,9 @@
+{
+  "name": "northflank-deploy-tools",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "deploy.mjs",
+  "dependencies": {
+    "dotenv": "^16.4.7"
+  }
+}

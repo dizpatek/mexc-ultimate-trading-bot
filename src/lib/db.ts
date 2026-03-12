@@ -15,6 +15,7 @@ export interface Order {
   created_at: number;
   updated_at: number;
   meta: Record<string, unknown>;
+  trading_mode?: string;
 }
 
 export interface User {
@@ -69,6 +70,20 @@ export interface PerformanceMetrics {
   worst_trade: number;
 }
 
+export interface BotTimeframeSettings {
+  tradeMode?: "Scalp" | "Swing";
+  pilot_trade_allocation?: number;
+  pilot_tp_percent?: number;
+  pilot_sl_percent?: number;
+  cover_tp_percent?: number;
+  cover_sl_percent?: number;
+  cover_tp_trailing?: boolean;
+  cover_tp_deviation?: number;
+  cover_sl_trailing?: boolean;
+  cover_sl_deviation?: number;
+  [key: string]: unknown;
+}
+
 export interface BotConfig {
   id: number;
   f4_length: number;
@@ -83,8 +98,24 @@ export interface BotConfig {
   pilot_sl_trailing: boolean;
   pilot_sl_deviation: number;
   pilot_timeframe: string;
+  pilot_mtf_veto: boolean;
+  pilot_mtf_threshold: number;
+  pilot_only_holdings: boolean;
   fibo_length: number;
   updated_at: number;
+  timeframe_settings: BotTimeframeSettings;
+}
+
+// @eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function resolveTradeMode(botConfig: BotConfig | null | undefined): "Scalp" | "Swing" {
+  try {
+    const tfSettings = (typeof botConfig?.timeframe_settings === "object" && botConfig?.timeframe_settings) || {};
+    const mode = tfSettings.tradeMode;
+    if (mode === "Swing") return "Swing";
+    return "Scalp";
+  } catch {
+    return "Scalp";
+  }
 }
 
 const DEFAULT_UID = 1;
@@ -122,8 +153,8 @@ export async function insertOrder(obj: Partial<Order>) {
   try {
     const now = Date.now();
     const result = await sql`
-            INSERT INTO orders (user_id, mexc_order_id, symbol, side, type, qty, quote, price, status, created_at, updated_at, meta) 
-            VALUES (${obj.user_id || null}, ${obj.mexc_order_id || null}, ${obj.symbol}, ${obj.side}, ${obj.type}, ${obj.qty || null}, ${obj.quote || null}, ${obj.price || null}, ${obj.status || "NEW"}, ${now}, ${now}, ${JSON.stringify(obj.meta || {})}) 
+            INSERT INTO orders (user_id, mexc_order_id, symbol, side, type, qty, quote, price, status, created_at, updated_at, meta, trading_mode) 
+            VALUES (${obj.user_id || DEFAULT_UID}, ${obj.mexc_order_id || null}, ${obj.symbol}, ${obj.side}, ${obj.type}, ${obj.qty || null}, ${obj.quote || null}, ${obj.price || null}, ${obj.status || "NEW"}, ${now}, ${now}, ${JSON.stringify(obj.meta || {})}, ${obj.trading_mode || "test"}) 
             RETURNING id
         `;
     return result.rows[0].id;
@@ -148,6 +179,17 @@ export async function getOpenOrders() {
   const { rows } =
     await sql`SELECT * FROM orders WHERE status NOT IN ('CLOSED', 'FILLED')`;
   return rows;
+}
+
+export async function getActiveOrderSymbols(userId: number, tradingMode: string = "test"): Promise<string[]> {
+  const { rows } = await sql`
+        SELECT DISTINCT symbol FROM orders 
+        WHERE user_id = ${userId} 
+        AND trading_mode = ${tradingMode} 
+        AND status NOT IN ('CLOSED', 'CANCELED', 'REJECTED')
+        AND (status != 'FILLED' OR meta::jsonb->>'smartTrade' = 'true')
+    `;
+  return rows.map(r => r.symbol as string);
 }
 
 export async function getAllOrders(limit = 100) {
@@ -179,9 +221,9 @@ export async function insertTradeHistory(obj: Partial<Trade>) {
   }
 }
 
-export async function getTradeHistory(limit = 100) {
+export async function getTradeHistory(limit = 100, mode = "test") {
   const { rows } =
-    await sql`SELECT * FROM trade_history ORDER BY created_at DESC LIMIT ${limit}`;
+    await sql`SELECT * FROM trade_history WHERE trading_mode = ${mode} ORDER BY created_at DESC LIMIT ${limit}`;
   return rows;
 }
 
@@ -392,7 +434,9 @@ export interface StrategySignalInput {
   timestamp: number;
   executed: boolean;
   execution_result: Record<string, unknown>;
+  veto_reason?: string | null;
   timeframe?: string;
+  trading_mode?: string;
 }
 
 export async function createStrategySignalsBulk(
@@ -400,32 +444,33 @@ export async function createStrategySignalsBulk(
 ) {
   if (signals.length === 0) return;
 
-  const values: unknown[] = [];
   const placeholders = signals
-    .map((s, i) => {
-      const offset = i * 9;
-      const tf = s.timeframe || "1m";
-      values.push(
-        s.strategy_id || null,
-        s.symbol,
-        s.signal_type,
-        s.price,
-        s.volume || null,
-        s.timestamp,
-        s.executed || false,
-        JSON.stringify(s.execution_result || {}),
-        tf,
-      );
-      return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9})`;
-    })
-    .join(", ");
+    .map(
+      (_, i) =>
+        `($${i * 11 + 1}, $${i * 11 + 2}, $${i * 11 + 3}, $${i * 11 + 4}, $${i * 11 + 5}, $${i * 11 + 6}, $${i * 11 + 7}, $${i * 11 + 8}, $${i * 11 + 9}, $${i * 11 + 10}, $${i * 11 + 11})`,
+    )
+    .join(",");
+
+  const values = signals.flatMap((s) => [
+    s.strategy_id || null,
+    s.symbol || null,
+    s.signal_type || "NONE",
+    s.price ?? null,
+    s.volume ?? null,
+    s.timestamp,
+    s.executed || false,
+    typeof s.execution_result === 'object' ? JSON.stringify(s.execution_result) : (s.execution_result || null),
+    s.trading_mode || "test",
+    s.timeframe || null,
+    s.veto_reason || null,
+  ]);
 
   const query = `
-        INSERT INTO strategy_signals (strategy_id, symbol, signal_type, price, volume, timestamp, executed, execution_result, timeframe)
-        VALUES ${placeholders}
-    `;
+    INSERT INTO strategy_signals (strategy_id, symbol, signal_type, price, volume, timestamp, executed, execution_result, trading_mode, timeframe, veto_reason)
+    VALUES ${placeholders}
+  `;
 
-  await (pool as Pool).query(query, values);
+  await pool.query(query, values);
 }
 
 export async function createStrategySignal(signalData: {
@@ -437,6 +482,9 @@ export async function createStrategySignal(signalData: {
   timestamp: number;
   executed?: boolean;
   execution_result?: unknown;
+  trading_mode?: string;
+  timeframe?: string;
+  veto_reason?: string;
 }) {
   const {
     strategy_id,
@@ -447,13 +495,32 @@ export async function createStrategySignal(signalData: {
     timestamp,
     executed,
     execution_result,
+    trading_mode,
+    timeframe,
+    veto_reason,
   } = signalData;
   const { rows } = await sql`
-        INSERT INTO strategy_signals (strategy_id, symbol, signal_type, price, volume, timestamp, executed, execution_result)
-        VALUES (${strategy_id || null}, ${symbol || null}, ${signal_type}, ${price || null}, ${volume || null}, ${timestamp}, ${executed || false}, ${JSON.stringify(execution_result || {})})
+        INSERT INTO strategy_signals (strategy_id, symbol, signal_type, price, volume, timestamp, executed, execution_result, trading_mode, timeframe, veto_reason)
+        VALUES (${strategy_id || null}, ${symbol || null}, ${signal_type || 'NONE'}, ${price ?? null}, ${volume ?? null}, ${timestamp}, ${executed || false}, ${JSON.stringify(execution_result || {})}, ${trading_mode || "test"}, ${timeframe || "1m"}, ${veto_reason || null})
         RETURNING id
     `;
   return rows[0].id;
+}
+
+/**
+ * Marks a strategy signal as executed in the DB.
+ * Critical for the pilot pipeline: prevents the same signal from re-appearing
+ * in the toast auto-approve loop. Called after successful order creation.
+ */
+export async function markSignalExecuted(
+  signalId: number,
+  result: Record<string, unknown> = {},
+) {
+  await sql`
+    UPDATE strategy_signals
+    SET executed = true, execution_result = ${JSON.stringify(result)}
+    WHERE id = ${signalId}
+  `;
 }
 
 export async function getStrategySignals(strategyId: number, limit = 100) {
@@ -470,16 +537,16 @@ export async function getStrategySignals(strategyId: number, limit = 100) {
 export async function getRecentSignalsBulk(
   symbols: string[],
   windowMs: number,
+  tradingMode: string = "test",
 ): Promise<Array<{ symbol: string; signal_type: string; timeframe: string }>> {
   if (symbols.length === 0) return [];
   const cutoff = Date.now() - windowMs;
-  // Note: Using ANY(ARRAY[...]) for efficient batch lookup
   const { rows } = await (pool as Pool).query(
     `
         SELECT symbol, signal_type, timeframe FROM strategy_signals 
-        WHERE symbol = ANY($1) AND timestamp > $2
+        WHERE symbol = ANY($1) AND timestamp > $2 AND (trading_mode = $3 OR trading_mode IS NULL)
     `,
-    [symbols, cutoff],
+    [symbols, cutoff, tradingMode],
   );
   return rows;
 }
@@ -496,14 +563,27 @@ export async function getBotConfig(): Promise<BotConfig> {
       auto_trade: false,
       defense_mode: false,
       pilot_trailing_buy: true,
-      pilot_trailing_buy_dev: 0.3,
+      pilot_trailing_buy_dev: 0.3, // TTP 0.3
       pilot_tp_trailing: true,
-      pilot_tp_deviation: 0.5,
+      pilot_tp_deviation: 1.0, // Iz süren 1
       pilot_sl_trailing: true,
-      pilot_sl_deviation: 0.5,
+      pilot_sl_deviation: 0.5, // SL 0.5
       pilot_timeframe: "4h",
+      pilot_mtf_veto: true,
+      pilot_mtf_threshold: 60,
+      pilot_only_holdings: false,
       fibo_length: 20,
       updated_at: Date.now(),
+      timeframe_settings: {
+        pilot_tp_percent: 1.0, // TP 1
+        pilot_sl_percent: 0.5, // SL 0.5
+        cover_tp_percent: 0.5, // TP 0.5
+        cover_sl_percent: 0.3, // SL 0.3
+        cover_tp_trailing: true,
+        cover_tp_deviation: 0.3, // TTP 0.3
+        cover_sl_trailing: false, // Kapalı gelecek
+        cover_sl_deviation: 1.0,  // TSL 1
+      }
     } as BotConfig;
   }
   return rows[0] as unknown as BotConfig;
@@ -651,7 +731,7 @@ export async function updateBotConfig(updates: Partial<BotConfig>) {
       String(
         updates.pilot_tp_deviation !== undefined
           ? updates.pilot_tp_deviation
-          : (current.pilot_tp_deviation ?? 0.5),
+          : (current.pilot_tp_deviation ?? 1.0),
       ),
     );
     const pt_sl = !!(updates.pilot_sl_trailing !== undefined
@@ -670,6 +750,10 @@ export async function updateBotConfig(updates: Partial<BotConfig>) {
         ? String(updates.pilot_timeframe)
         : current.pilot_timeframe || "4h";
 
+    const p_only = !!(updates.pilot_only_holdings !== undefined
+      ? updates.pilot_only_holdings
+      : (current.pilot_only_holdings ?? false));
+
     const now = Date.now();
 
     console.log(`[DB] Updating bot config ID=1 with:`, updates);
@@ -677,11 +761,11 @@ export async function updateBotConfig(updates: Partial<BotConfig>) {
     await sql`
             INSERT INTO bot_configs (
                 id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, updated_at,
-                pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation, pilot_timeframe, fibo_length
+                pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation, pilot_timeframe, fibo_length, timeframe_settings, pilot_only_holdings
             )
             VALUES (
                 1, ${f4}, ${whale}, ${ai}, ${auto}, ${defense}, ${now},
-                ${pt_buy}, ${pt_buy_dev}, ${pt_tp}, ${pt_tp_dev}, ${pt_sl}, ${pt_sl_dev}, ${ptf}, ${fibo}
+                ${pt_buy}, ${pt_buy_dev}, ${pt_tp}, ${pt_tp_dev}, ${pt_sl}, ${pt_sl_dev}, ${ptf}, ${fibo}, ${JSON.stringify(updates.timeframe_settings || current.timeframe_settings || {})}, ${p_only}
             )
             ON CONFLICT (id) DO UPDATE SET
                 f4_length = EXCLUDED.f4_length,
@@ -697,7 +781,9 @@ export async function updateBotConfig(updates: Partial<BotConfig>) {
                 pilot_sl_deviation = EXCLUDED.pilot_sl_deviation,
                 pilot_timeframe = EXCLUDED.pilot_timeframe,
                 fibo_length = EXCLUDED.fibo_length,
-                updated_at = EXCLUDED.updated_at
+                updated_at = EXCLUDED.updated_at,
+                timeframe_settings = EXCLUDED.timeframe_settings,
+                pilot_only_holdings = EXCLUDED.pilot_only_holdings
         `;
     console.log(
       `[DB] Bot config updated successfully at ${new Date(now).toISOString()}`,
@@ -709,4 +795,36 @@ export async function updateBotConfig(updates: Partial<BotConfig>) {
     );
     throw err;
   }
+}// --- LOCKING MECHANISM ---
+export async function acquireLock(
+  lockId: string,
+  owner: string,
+  timeoutMs: number = 30000,
+): Promise<boolean> {
+  const now = Date.now();
+  const expires = now + timeoutMs;
+
+  try {
+    // Atomic attempt to acquire lock using UPSERT with condition
+    // Only update if current lock is expired
+    const result = await sql`
+            INSERT INTO system_locks (id, owner, expires_at)
+            VALUES (${lockId}, ${owner}, ${expires})
+            ON CONFLICT (id) 
+            DO UPDATE SET 
+                owner = ${owner}, 
+                expires_at = ${expires}
+            WHERE system_locks.expires_at < ${now}
+            RETURNING id
+        `;
+    
+    return (result.rowCount ?? 0) > 0;
+  } catch (err) {
+    // Other errors (e.g. connection)
+    return false;
+  }
+}
+
+export async function releaseLock(lockId: string, owner: string): Promise<void> {
+  await sql`DELETE FROM system_locks WHERE id = ${lockId} AND owner = ${owner}`;
 }

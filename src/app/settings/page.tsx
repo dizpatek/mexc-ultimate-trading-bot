@@ -12,16 +12,18 @@ import {
   ShieldAlert,
   AlertTriangle,
 } from "lucide-react";
+import { useNotification } from "@/context/NotificationContext";
 import { setTradingModeClient, getTradingModeSync } from "@/lib/trading-mode";
 import type { TradingMode } from "@/lib/trading-mode";
 import { updateTradingMode } from "@/app/actions/trading-mode";
 import { api } from "@/services/api";
 import { useAuth } from "@/hooks/useAuth";
-import type { User, BotConfig } from "@/lib/db";
+import type { User } from "@/lib/db";
 
 export default function SettingsPage() {
   const router = useRouter();
   const { user } = useAuth();
+  const { notify, confirm } = useNotification();
   const [mode, setMode] = useState("test");
   const [apiKey, setApiKey] = useState("");
   const [apiSecret, setApiSecret] = useState("");
@@ -31,36 +33,11 @@ export default function SettingsPage() {
 
   // Admin States
   const [users, setUsers] = useState<User[]>([]);
-  const [globalConfig, setGlobalConfig] = useState<BotConfig>({
-    id: 1,
-    f4_length: 10,
-    whale_multiplier: 1.8,
-    ai_threshold: 65,
-    auto_trade: false,
-    defense_mode: false,
-    pilot_trailing_buy: true,
-    pilot_trailing_buy_dev: 0.3,
-    pilot_tp_trailing: true,
-    pilot_tp_deviation: 0.5,
-    pilot_sl_trailing: true,
-    pilot_sl_deviation: 0.5,
-    updated_at: Date.now(),
-  });
-  const [adminLoading, setAdminLoading] = useState(false);
-  const [globalConfigLoaded, setGlobalConfigLoaded] = useState(false);
-  const [showConfigSuccess, setShowConfigSuccess] = useState(false);
 
   const fetchAdminData = useCallback(async () => {
     try {
-      const [usersRes, configRes] = await Promise.all([
-        api.get("/admin/users"),
-        api.get("/admin/system"),
-      ]);
+      const usersRes = await api.get("/admin/users");
       setUsers(usersRes.data.users);
-      if (configRes.data.config) {
-        setGlobalConfig(configRes.data.config);
-        setGlobalConfigLoaded(true);
-      }
     } catch (err) {
       console.error("Failed to fetch admin data", err);
     }
@@ -73,8 +50,24 @@ export default function SettingsPage() {
     }
   }, [user, fetchAdminData]);
 
+  const disablePilot = async () => {
+    try {
+      await api.post("/bot/config", { auto_trade: false });
+      localStorage.removeItem("bot_config_cache_test");
+      localStorage.removeItem("bot_config_cache_production");
+      // Trigger a local event so useBotConfig updates immediately before reload 
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("botConfigUpdated"));
+      }
+    } catch (e) {
+      console.error("Failed to turn off auto_trade", e);
+    }
+  };
+
   const toggleMode = async (m: string) => {
     const newMode = m as TradingMode;
+
+    await disablePilot();
 
     // 1. Client-side update (local storage, cookies)
     setTradingModeClient(newMode);
@@ -89,77 +82,67 @@ export default function SettingsPage() {
   };
 
   const handleDeleteUser = async (id: number) => {
-    if (
-      !confirm(
-        "Are you sure you want to delete this user? All their data will be purged.",
-      )
-    )
-      return;
-    try {
-      await api.delete(`/admin/users?id=${id}`);
-      setUsers(users.filter((u) => u.id !== id));
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      console.error("Delete failed:", message);
-      alert("Failed to delete user");
-    }
+    confirm({
+      message: "Are you sure you want to delete this user? All their data will be purged.",
+      onConfirm: async () => {
+        try {
+          await api.delete(`/admin/users?id=${id}`);
+          setUsers(users.filter((u) => u.id !== id));
+          notify("User deleted successfully.", "success");
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : "Unknown error";
+          console.error("Delete failed:", message);
+          notify("Failed to delete user", "error");
+        }
+      }
+    });
   };
 
-  const handleUpdateConfig = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAdminLoading(true);
-    try {
-      const res = await api.post("/admin/system", globalConfig);
-      if (res.data.success) {
-        setShowConfigSuccess(true);
-        setTimeout(() => setShowConfigSuccess(false), 3000);
-      } else {
-        alert(`❌ Failed: ${res.data.error || "Server error"}`);
-      }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      console.error("Config update failed:", message);
-      alert(`❌ Failed to update global config: ${message}`);
-    } finally {
-      setAdminLoading(false);
-    }
-  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!apiKey || !apiSecret) return alert("Fill all fields");
+    if (!apiKey || !apiSecret) return notify("Fill all fields", "warning");
     setSaving(true);
     try {
       await api.post("/settings/keys", { apiKey, apiSecret });
-      alert("✅ API Keys updated.");
+      notify("✅ API Keys updated.", "success");
       setApiKey("");
       setApiSecret("");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
       console.error("Save keys failed:", message);
-      alert("❌ Connection failed.");
+      notify("❌ Connection failed.", "error");
     } finally {
       setSaving(false);
     }
   };
 
   const handleReset = async () => {
-    setResetting(true);
-    setPendingReset(false);
-    try {
-      const res = await api.post("/portfolio/reset-simulator");
-      if (res.data.success) {
-        alert("✅ Simülatör başarıyla sıfırlandı!");
-        window.location.href = "/";
-      } else {
-        throw new Error(res.data.error || "Sunucu hatası");
+    confirm({
+      message: "Tüm simülatör verileri (emirler, portföy, karlar) sıfırlanacak. Emin misiniz?",
+      onConfirm: async () => {
+        setResetting(true);
+        setPendingReset(false);
+        try {
+          await disablePilot();
+
+          const res = await api.post("/portfolio/reset-simulator");
+          if (res.data.success) {
+            localStorage.removeItem("bot_config_cache_test");
+            localStorage.removeItem("bot_config_cache_live");
+            notify("✅ Simülatör başarıyla sıfırlandı!", "success");
+            window.location.href = "/";
+          } else {
+            throw new Error(res.data.error || "Sunucu hatası");
+          }
+        } catch (e: unknown) {
+          const message = e instanceof Error ? e.message : "Bilinmeyen hata";
+          notify("❌ Sıfırlama başarısız: " + message, "error");
+        } finally {
+          setResetting(false);
+        }
       }
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : "Bilinmeyen hata";
-      alert("❌ Sıfırlama başarısız: " + message);
-    } finally {
-      setResetting(false);
-    }
+    });
   };
 
   return (
@@ -317,109 +300,6 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              {/* Global Config Management - Spans full width on mobile, but fits in remaining space or new row on large screens.
-                                Let's make it col-span-full so it's a wide strip at the bottom (or top if we reordered).
-                                Or, better yet, make it span 4 cols (full row) to keep the "horizontal strip" look for controls.
-                             */}
-              <div className="stat-card border-blue-500/20 col-span-1 md:col-span-2 lg:col-span-4 mt-0">
-                <div className="flex items-center gap-4 mb-4">
-                  <h3 className="text-sm font-black uppercase tracking-widest text-blue-400">
-                    Core Engine Parameters
-                  </h3>
-                  {showConfigSuccess && (
-                    <div className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 text-[10px] font-black uppercase tracking-wider animate-in fade-in slide-in-from-left-2 duration-300">
-                      ✓ Settings Saved
-                    </div>
-                  )}
-                </div>
-                <form
-                  onSubmit={handleUpdateConfig}
-                  className="grid grid-cols-2 md:grid-cols-6 lg:grid-cols-6 gap-4 items-end"
-                >
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black text-muted-foreground uppercase ml-1">
-                      F4 Length
-                    </label>
-                    <input
-                      type="number"
-                      value={globalConfig.f4_length ?? 10}
-                      onChange={(e) =>
-                        setGlobalConfig({
-                          ...globalConfig,
-                          f4_length: parseInt(e.target.value) || 0,
-                        })
-                      }
-                      className="input-field w-full text-xs h-9"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black text-muted-foreground uppercase ml-1">
-                      Whale Mul
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={globalConfig.whale_multiplier ?? 1.8}
-                      onChange={(e) => {
-                        const val = e.target.value.replace(",", ".");
-                        setGlobalConfig({
-                          ...globalConfig,
-                          whale_multiplier: parseFloat(val) || 0,
-                        });
-                      }}
-                      className="input-field w-full text-xs h-9"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black text-muted-foreground uppercase ml-1">
-                      AI Thresh
-                    </label>
-                    <input
-                      type="number"
-                      value={globalConfig.ai_threshold ?? 65}
-                      onChange={(e) =>
-                        setGlobalConfig({
-                          ...globalConfig,
-                          ai_threshold: parseInt(e.target.value) || 0,
-                        })
-                      }
-                      className="input-field w-full text-xs h-9"
-                    />
-                  </div>
-
-                  <div className="flex items-center h-9 pb-1">
-                    <label className="flex items-center gap-2 cursor-pointer group whitespace-nowrap">
-                      <input
-                        type="checkbox"
-                        checked={!!globalConfig.defense_mode}
-                        onChange={(e) =>
-                          setGlobalConfig({
-                            ...globalConfig,
-                            defense_mode: e.target.checked,
-                          })
-                        }
-                        className="w-3.5 h-3.5 rounded border-white/10 bg-black/50 checked:bg-rose-500 transition-colors"
-                      />
-                      <span className="text-[10px] font-bold text-muted-foreground group-hover:text-rose-400 transition-colors uppercase">
-                        DEFENSE MODE
-                      </span>
-                    </label>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={adminLoading || !globalConfigLoaded}
-                    className="h-9 btn-primary !bg-blue-600 hover:!bg-blue-550 border-blue-400/30 flex items-center justify-center gap-2 text-[10px]"
-                  >
-                    {adminLoading ? (
-                      <RefreshCw className="animate-spin w-3 h-3" />
-                    ) : (
-                      <Save className="w-3 h-3" />
-                    )}
-                    {globalConfigLoaded ? "UPDATE" : "..."}
-                  </button>
-                </form>
-              </div>
             </>
           )}
         </div>

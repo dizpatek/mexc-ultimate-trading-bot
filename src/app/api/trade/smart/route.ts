@@ -58,9 +58,9 @@ export async function GET(request: Request) {
 
     // Fetch orders for this user only
     const { rows } = await sql`
-            SELECT id, user_id, symbol, side, type, qty, price, status, created_at, meta 
+            SELECT id, user_id, symbol, side, type, qty, price, status, created_at, meta, trading_mode 
             FROM orders 
-            WHERE user_id = ${user.id}
+            WHERE user_id = ${user.id} AND trading_mode = ${mode}
             ORDER BY created_at DESC
         `;
 
@@ -151,7 +151,7 @@ async function fetchCurrentPrice(symbol: string): Promise<number | undefined> {
 async function fetchAllPrices(): Promise<Record<string, number>> {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout for batch call
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout for batch call
 
     const res = await fetch(`https://api.mexc.com/api/v3/ticker/price`, {
       signal: controller.signal,
@@ -554,14 +554,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Read trading mode from cookie
+    // Read trading mode from payload directly first, then cookie
     const cookieHeader = request.headers.get("cookie") || "";
     const modeCookie = cookieHeader
       .split(";")
       .find((c) => c.trim().startsWith("TRADING_MODE="));
-    const tradingMode = modeCookie
+    const tradingMode = payload.tradingMode ? (payload.tradingMode as "test" | "production") : (modeCookie
       ? (modeCookie.split("=")[1].trim() as "test" | "production")
-      : "test";
+      : "test");
 
     console.log("[API] Trading Mode:", tradingMode);
 

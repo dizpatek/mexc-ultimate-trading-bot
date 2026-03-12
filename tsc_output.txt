@@ -1,0 +1,35 @@
+src/app/api/bot/reset/route.ts(15,15): error TS2339: Property 'reset' does not exist on type 'TradingSimulator'.
+src/app/api/bot/reset/route.ts(16,15): error TS2339: Property 'initializeTestBalance' does not exist on type 'TradingSimulator'.
+src/app/api/portfolio/history/route.ts(18,22): error TS2769: No overload matches this call.
+  Overload 1 of 4, '(value: string | number | Date): Date', gave the following error.
+    Argument of type 'unknown' is not assignable to parameter of type 'string | number | Date'.
+  Overload 2 of 4, '(value: string | number): Date', gave the following error.
+    Argument of type 'unknown' is not assignable to parameter of type 'string | number'.
+src/app/api/portfolio/trades/route.ts(19,55): error TS2554: Expected 0-1 arguments, but got 2.
+src/app/api/settings/password/route.ts(44,7): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'string'.
+src/lib/settings.ts(11,7): error TS2322: Type 'unknown' is not assignable to type 'string | null'.
+src/lib/trade.ts(290,7): error TS2353: Object literal may only specify known properties, and 'trading_mode' does not exist in type 'Partial<Trade>'.
+src/lib/trading-logic.ts(619,16): error TS2339: Property 'includes' does not exist on type '{}'.
+src/lib/trading-logic.ts(619,45): error TS2339: Property 'includes' does not exist on type '{}'.
+src/lib/trading-logic.ts(620,28): error TS2339: Property 'takeProfit' does not exist on type '{}'.
+src/lib/trading-logic.ts(626,16): error TS2339: Property 'includes' does not exist on type '{}'.
+src/lib/trading-logic.ts(626,45): error TS2339: Property 'includes' does not exist on type '{}'.
+src/lib/trading-logic.ts(627,28): error TS2339: Property 'stopLoss' does not exist on type '{}'.
+src/lib/trading-logic.ts(649,44): error TS2339: Property 'trailingBuy' does not exist on type '{}'.
+src/lib/trading-logic.ts(666,36): error TS2339: Property 'takeProfit' does not exist on type '{}'.
+src/lib/trading-logic.ts(672,37): error TS2339: Property 'stopLoss' does not exist on type '{}'.
+src/lib/trading-logic.ts(715,26): error TS2339: Property 'prediction' does not exist on type '{}'.
+src/lib/trading-logic.ts(716,29): error TS2339: Property 'trend' does not exist on type '{}'.
+src/lib/trading-logic.ts(717,29): error TS2339: Property 'trend' does not exist on type '{}'.
+src/lib/trading-logic.ts(719,16): error TS2339: Property 'f4EarlyBuy' does not exist on type '{}'.
+src/lib/trading-logic.ts(720,16): error TS2339: Property 'f4ConfirmedBuy' does not exist on type '{}'.
+src/lib/trading-logic.ts(721,16): error TS2339: Property 'signal' does not exist on type '{}'.
+src/lib/trading-logic.ts(723,16): error TS2339: Property 'f4EarlySell' does not exist on type '{}'.
+src/lib/trading-logic.ts(724,16): error TS2339: Property 'f4ConfirmedSell' does not exist on type '{}'.
+src/lib/trading-logic.ts(725,16): error TS2339: Property 'signal' does not exist on type '{}'.
+src/lib/trading-logic.ts(740,16): error TS2339: Property 'whaleDetected' does not exist on type '{}'.
+src/lib/trading-logic.ts(741,17): error TS2339: Property 'whaleStatus' does not exist on type '{}'.
+src/lib/trading-logic.ts(742,18): error TS2339: Property 'whaleStatus' does not exist on type '{}'.
+src/lib/trading-logic.ts(747,16): error TS2339: Property 'whaleDetected' does not exist on type '{}'.
+src/lib/trading-logic.ts(748,17): error TS2339: Property 'whaleStatus' does not exist on type '{}'.
+src/lib/trading-logic.ts(749,18): error TS2339: Property 'whaleStatus' does not exist on type '{}'.

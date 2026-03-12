@@ -1,5 +1,6 @@
 import { getKlines } from "./mexc";
 import { calculateRSI, calculateMACD, calculateSMA } from "./indicators";
+import { getBotConfig, resolveTradeMode } from "./db";
 
 // Simple logger replacement to avoid dependency on winston for now
 const logger = {
@@ -8,10 +9,16 @@ const logger = {
   info: (msg: string, meta?: Record<string, unknown>) => console.log(msg, meta),
 };
 
+// P4.3: Cache for MTF checks to avoid reaching API limits during bulk scans
+const mtfResultsCache = new Map<string, { result: number | null; timestamp: number }>();
+const MTF_CACHE_TTL = 30000; // 30 seconds
+
+
 export interface StrategySignal {
   symbol: string;
   strategy: string;
   signal: "BUY" | "SELL" | null;
+  price: number;
   reason: string;
   indicators: Record<string, unknown>;
   targets?: { t1: number; t2: number; sl: number };
@@ -29,6 +36,8 @@ export interface StrategyParameters {
   whaleVolumeMultiplier?: number;
   minAiScore?: number;
   timeframe?: string;
+  mtfVeto?: boolean;
+  mtfThreshold?: number;
   [key: string]: string | number | boolean | undefined;
 }
 
@@ -100,6 +109,7 @@ class RSIStrategy extends BaseStrategy {
       symbol: this.symbol,
       strategy: "rsi",
       signal,
+      price: prices[prices.length - 1],
       reason,
       indicators: {
         rsi: currentRSI,
@@ -152,6 +162,7 @@ class MACDStrategy extends BaseStrategy {
       symbol: this.symbol,
       strategy: "macd",
       signal,
+      price: prices[prices.length - 1],
       reason,
       indicators: {
         macd: {
@@ -205,6 +216,7 @@ class MACrossoverStrategy extends BaseStrategy {
       symbol: this.symbol,
       strategy: "ma_crossover",
       signal,
+      price: prices[prices.length - 1],
       reason,
       indicators: {
         fastMA: currentFast,
@@ -233,9 +245,9 @@ export class MatrixV5Strategy extends BaseStrategy {
     });
 
     this.engine = new MatrixV5Engine({
-      f4Length: Number(this.parameters.f4Length),
-      whaleVolumeMultiplier: Number(this.parameters.whaleVolumeMultiplier),
-      minAiScore: Number(this.parameters.minAiScore),
+      f4Length: this.parameters.f4Length ? Number(this.parameters.f4Length) : undefined,
+      whaleVolumeMultiplier: this.parameters.whaleVolumeMultiplier ? Number(this.parameters.whaleVolumeMultiplier) : undefined,
+      minAiScore: this.parameters.minAiScore ? Number(this.parameters.minAiScore) : undefined,
     });
   }
 
@@ -261,6 +273,8 @@ export class MatrixV5Strategy extends BaseStrategy {
       const riskMode =
         (this.parameters.riskMode as "safe" | "normal" | "aggressive") ||
         "normal";
+      const tradeMode = (this.parameters.tradeMode as "Scalp" | "Swing") || "Scalp";
+
       const result = this.engine.analyze(
         closes,
         highs,
@@ -268,53 +282,77 @@ export class MatrixV5Strategy extends BaseStrategy {
         volumes,
         timeframeStr,
         riskMode,
+        { tradeMode }
       );
 
-      let signalType: "BUY" | "SELL" | null =
-        result.systemDecision === "GO_LONG"
-          ? "BUY"
-          : result.systemDecision === "GO_SHORT"
-            ? "SELL"
-            : null;
-
+      let signalType: "BUY" | "SELL" | null = result.signal;
       let reasonText = `[MatrixV5] ${result.whaleSignalText ? result.whaleSignalText + " | " : ""}AI: ${result.aiScore}`;
 
-      // 🧠 Deepseek-R1-distill Groq AI Integration
-      // Intercept execution and run the high-level full contextual orchestration
+
+      // V5.5 Optimization: True MTF Consensus Veto
+      // P4.3: Only run expensive MTF scanning if we have a potential trade signal (Fix)
+      let mtfScore = 50;
+      let mtfVerdictText = "ATLANDI";
+
       if (signalType) {
-         try {
-             // Only run deepseek if we have an internal signal, to save rate limits
-             const { data } = await runFullOrchestraAnalysis(this.symbol, timeframeStr, false);
-             const prompt = buildOrchestraPrompt(this.symbol, timeframeStr, data, false);
-             const groqVerdict = await fetchGroqAnalysis(prompt);
-             
-             if (groqVerdict) {
-                 if (groqVerdict.verdict.includes("BEKLE") || groqVerdict.verdict === "KESİNLİKLE BEKLE") {
-                     signalType = null; // AI vetoes the trade
-                     reasonText += ` | 🛑 Groq Veto: ${groqVerdict.reasoning}`;
-                 } else if (signalType === "BUY" && (groqVerdict.verdict.includes("SAT") || groqVerdict.direction === "SHORT")) {
-                     signalType = null; // AI vetoes the long
-                     reasonText += ` | 🛑 Groq Bearish Veto: ${groqVerdict.reasoning}`;
-                 } else {
-                     // AI approves
-                     reasonText += ` | 🧠 Groq Onay (${groqVerdict.confidence}%): ${groqVerdict.reasoning}`;
-                 }
-             }
-         } catch (e: unknown) {
-             const errorMessage = e instanceof Error ? e.message : String(e);
-             console.warn("[MatrixV5Strategy] Groq Analysis skipped/failed (Rate Limit?):", errorMessage);
-             reasonText += ` | ⚠️ Groq Kapalı (Fallback İhtimali)`;
-         }
+        const mtfVetoEnabled = !!this.parameters.mtfVeto;
+        const mtfThreshold = Number(this.parameters.mtfThreshold) || 60;
+
+        const tfsToScan: ("15m" | "1h" | "4h" | "1d")[] = ["15m", "1h", "4h", "1d"];
+        const tfsToFetch = tfsToScan.filter(tf => tf !== timeframeStr);
+        
+        const engineBullCount = (result as any).indicatorBullCount ?? (result as any).mtfBullCount ?? 0;
+        let mtfBullCount = engineBullCount >= 3 ? 1 : 0;
+        let mtfTotal = 1;
+
+        try {
+          const mtfResults = await Promise.all(tfsToFetch.map(async (tf) => {
+            return await this.performLiteMtfCheck(tf);
+          }));
+
+          for (const res of mtfResults) {
+            if (res !== null) {
+              mtfBullCount += res;
+              mtfTotal++;
+            }
+          }
+        } catch (err) {
+          console.error(`[MTF-Lite] Parallel check failed for ${this.symbol}:`, err);
+        }
+
+        mtfScore = mtfTotal > 0 ? (mtfBullCount / mtfTotal) * 100 : 50;
+        mtfVerdictText = `${mtfBullCount}/${mtfTotal} TF Sinyal`;
+
+        // Veto logic: BUY only if MTF >= threshold, SELL only if MTF <= (100-threshold) (Strict Mode)
+        if (mtfVetoEnabled) {
+          if (signalType === "BUY" && mtfScore < mtfThreshold) {
+              reasonText += ` | 🛑 MTF Veto: Trend (${mtfVerdictText}) zayıf (Threshold: ${mtfThreshold}%).`;
+              signalType = null;
+          } else if (signalType === "SELL" && mtfScore > (100 - mtfThreshold)) {
+              reasonText += ` | 🛑 MTF Veto: Trend (${mtfVerdictText}) zayıf (Threshold: ${mtfThreshold}%).`;
+              signalType = null;
+          }
+        } else {
+          reasonText += ` | ℹ️ MTF Check: ${mtfVerdictText} (Veto Disabled)`;
+        }
       }
 
-      // Return signal for trade OR if it's an informational event (Whale etc)
-      if (!signalType && !result.whaleDetected && result.aiScore < 80)
-        return null;
+
+      // Final check: if we have no signal (BUY/SELL) and no Whale, return null unless AI is very high
+      if (!signalType && !result.whaleDetected && result.aiScore < 80) {
+        if (reasonText.includes("🛑 MTF Veto")) {
+           // We still return so PilotEngine can record the veto reason to the DB
+           signalType = "NONE" as any;
+        } else {
+           return null;
+        }
+      }
 
       return {
         symbol: this.symbol,
         strategy: "matrix_v5",
         signal: signalType,
+        price: closes[closes.length - 1],
         reason: reasonText,
         indicators: {
           aiScore: result.aiScore,
@@ -323,10 +361,14 @@ export class MatrixV5Strategy extends BaseStrategy {
           prediction: result.prediction.text,
           whaleDetected: result.whaleDetected,
           whaleStatus: result.whaleStatus,
+          mtfWeightedScore: mtfScore,
+          mtfVerdict: mtfVerdictText,
         },
         targets: result.targets,
         timestamp: Date.now(),
       };
+
+
     } catch (error: unknown) {
       console.error(
         `[MatrixV5Strategy] Analyze Error for ${this.symbol}:`,
@@ -334,6 +376,32 @@ export class MatrixV5Strategy extends BaseStrategy {
       );
       return null;
     }
+  }
+
+  /**
+   * P4.2: Separating lite trend detection logic for better quality.
+   */
+  private async performLiteMtfCheck(tf: string): Promise<number | null> {
+    const cacheKey = `${this.symbol}_${tf}`;
+    const cached = mtfResultsCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < MTF_CACHE_TTL) {
+      return cached.result;
+    }
+
+    try {
+      const klines = await getKlines(this.symbol, tf, 50);
+      if (klines && klines.length >= 21) {
+        const closes = klines.map((k) => parseFloat(String(k[4])));
+        const lastClose = closes[closes.length - 1];
+        const ema20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+        const result = lastClose > ema20 ? 1 : 0;
+        mtfResultsCache.set(cacheKey, { result, timestamp: Date.now() });
+        return result;
+      }
+    } catch (e) {
+      console.warn(`[MTF-Lite] Fetch error for ${this.symbol} on ${tf}:`, e);
+    }
+    return null;
   }
 }
 
@@ -350,8 +418,7 @@ export function createStrategy(
       return new MACDStrategy(symbol, parameters);
     case "ma_crossover":
       return new MACrossoverStrategy(symbol, parameters);
-    case "matrix_v3":
-      return new MatrixV5Strategy(symbol, parameters);
+    case "matrix_v3": // V3 is now superseded by V5 but kept for backward-compat mapping
     case "matrix_v5":
       return new MatrixV5Strategy(symbol, parameters);
     default:

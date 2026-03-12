@@ -12,7 +12,11 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get("limit") || "50");
 
-    const tradeHistory = await getTradeHistory(limit);
+    const { cookies } = await import("next/headers");
+    const cookieStore = await cookies();
+    const mode = (cookieStore.get("TRADING_MODE")?.value as "test" | "production") || "test";
+
+    const tradeHistory = await getTradeHistory(limit, mode);
 
     const safeDate = (dateVal: unknown) => {
       const d = new Date(dateVal as string | number | Date);
@@ -21,8 +25,8 @@ export async function GET(request: Request) {
 
     const trades = tradeHistory.map((trade) => ({
       id: String(trade.id),
-      symbol: trade.symbol,
-      type: trade.side.toLowerCase(),
+      symbol: trade.symbol as string,
+      type: (trade.side as string).toLowerCase(),
       price: trade.price,
       amount: trade.qty,
       total: trade.quote_qty,

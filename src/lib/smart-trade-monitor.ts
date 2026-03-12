@@ -9,7 +9,7 @@ import {
 import { MatrixV5Engine } from "./matrix-v5-engine";
 import { fetchKlines } from "./mexc";
 import { calculateTrailingExitTarget, calculateTrailingBuyTarget } from "./trading-logic";
-import { getBotConfig } from "./db";
+import { getBotConfig, resolveTradeMode } from "./db";
 
 // Cache for klines to avoid redundant API calls in the same monitor cycle
 interface KlineCacheItem {
@@ -65,14 +65,18 @@ export async function monitorSmartTrades() {
     let pilotEnabled = true;
     try {
       const botConfig = await getBotConfig();
-      pilotEnabled = !!botConfig.auto_trade;
+      pilotEnabled = !!botConfig?.auto_trade;
+      // Store tradeMode for engine analyze calls
+      const tradeMode = resolveTradeMode(botConfig);
+      // P4.5: Type-safe context passing instead of untyped Record
+      (cycleCache as { __tradeMode?: string }).__tradeMode = tradeMode;
     } catch {
       // If config fetch fails, default to SAFE (no exit)
       pilotEnabled = false;
     }
 
     const { rows } = await sql`
-            SELECT id, user_id, symbol, side, qty, price, meta, status 
+            SELECT id, user_id, symbol, side, qty, price, meta, status, trading_mode 
             FROM orders 
             WHERE meta::jsonb->>'smartTrade' = 'true' 
             AND status IN ('FILLED', 'PENDING')
@@ -105,6 +109,7 @@ interface MonitoredTrade {
   price: number;
   meta: Record<string, unknown>;
   status: string;
+  trading_mode: "test" | "production";
 }
 
 interface TPTarget {
@@ -237,7 +242,8 @@ async function processTradeMonitoring(trade: MonitoredTrade, pilotEnabled: boole
         result.newHighest !== stateUpdates.highestPrice ||
         result.newLowest !== stateUpdates.lowestPrice ||
         result.newQty !== currentQty ||
-        result.tpTriggered !== stateUpdates.tpTriggered
+        result.tpTriggered !== stateUpdates.tpTriggered ||
+        result.hasSlChanged
       )
         isDirty = true;
       if (Object.keys(result.metaUpdates).length > 0) isDirty = true;
@@ -320,6 +326,7 @@ async function runAiAnalysis(symbol: string, meta: Record<string, unknown>, cycl
 
     if (klines && klines.length >= 50) {
       type KlineData = { close: number; high: number; low: number; volume: number };
+      const cycleTradeMode = (cycleCache as { __tradeMode?: "Scalp" | "Swing" }).__tradeMode || "Scalp";
       const res = sharedEngine.analyze(
         klines.map((k: KlineData) => k.close),
         klines.map((k: KlineData) => k.high),
@@ -327,6 +334,7 @@ async function runAiAnalysis(symbol: string, meta: Record<string, unknown>, cycl
         klines.map((k: KlineData) => k.volume),
         timeframe,
         "normal",
+        { tradeMode: cycleTradeMode }
       );
       return {
         aiScore: res.aiScore,
@@ -391,6 +399,7 @@ async function evaluateActiveTrade(
     exitReason = slResult.reason || "STOP LOSS";
     shouldExit = true;
   }
+  const hasSlChanged = slResult.hasSlChanged;
 
   // 2. Evaluate Take Profit (only if SL not hit)
   if (!shouldExit) {
@@ -437,6 +446,7 @@ async function evaluateActiveTrade(
     tpTriggered,
     newQty,
     metaUpdates,
+    hasSlChanged,
   };
 }
 
@@ -505,6 +515,7 @@ function evaluateStopLoss(
     }
 
     metaUpdates.activeStopLoss = finalSL;
+    const hasSlChanged = finalSL !== prevSl;
 
     const slHit =
       finalSL > 0 &&
@@ -546,14 +557,17 @@ function evaluateStopLoss(
           shouldExit: true,
           reason: `Trailing Stop Loss vuruldu (TSL: $${finalSL.toFixed(2)})`,
           metaUpdates,
+          hasSlChanged,
         };
       }
     } else if (meta.slTimeoutStart) {
       metaUpdates.slTimeoutStart = null;
     }
+    return { shouldExit: false, reason: "", metaUpdates, hasSlChanged };
   } else if (slPrice > 0) {
     // FIXED (NON-TRAILING) SL PATH
     metaUpdates.activeStopLoss = slPrice;
+    const hasSlChanged = (meta.activeStopLoss as number) !== slPrice;
     const slHit = isLong ? currentPrice <= slPrice : currentPrice >= slPrice;
 
     // Diagnostic Log: When price is near fixed SL
@@ -571,10 +585,12 @@ function evaluateStopLoss(
         shouldExit: true,
         reason: `Sabit Stop Loss'a ulaşıldı ($${slPrice.toFixed(2)})`,
         metaUpdates,
+        hasSlChanged,
       };
     }
+    return { shouldExit: false, reason: "", metaUpdates, hasSlChanged };
   }
-  return { shouldExit: false, reason: "", metaUpdates };
+  return { shouldExit: false, reason: "", metaUpdates, hasSlChanged: false };
 }
 
 function evaluateTakeProfit(

@@ -138,6 +138,12 @@ function crossunder(current: number, previous: number): boolean {
 export function calculateF3WithSignals(
   ohlc: OHLCData[],
   showF3Fibo: boolean = false,
+  params?: {
+    length?: number;
+    volumeFactor?: number;
+    fiboLength?: number;
+    fiboVolumeFactor?: number;
+  },
 ): F3Result[] {
   if (ohlc.length < 50) {
     throw new Error(
@@ -145,8 +151,8 @@ export function calculateF3WithSignals(
     );
   }
 
-  const f3Values = calculateF3(ohlc);
-  const f3FiboValues = calculateF3Fibo(ohlc);
+  const f3Values = calculateF3(ohlc, params?.length, params?.volumeFactor);
+  const f3FiboValues = calculateF3Fibo(ohlc, params?.fiboLength, params?.fiboVolumeFactor);
 
   const results: F3Result[] = [];
 
@@ -195,7 +201,15 @@ export function calculateF3WithSignals(
 /**
  * Get the latest F3 signal
  */
-export function getLatestF3Signal(ohlc: OHLCData[]): {
+export function getLatestF3Signal(
+  ohlc: OHLCData[],
+  params?: {
+    length?: number;
+    volumeFactor?: number;
+    fiboLength?: number;
+    fiboVolumeFactor?: number;
+  },
+): {
   signal: "BUY" | "SELL" | "NEUTRAL";
   f3: number;
   f3Fibo: number;
@@ -203,7 +217,7 @@ export function getLatestF3Signal(ohlc: OHLCData[]): {
 } | null {
   if (ohlc.length < 50) return null;
 
-  const results = calculateF3WithSignals(ohlc, true);
+  const results = calculateF3WithSignals(ohlc, true, params);
   const latest = results[results.length - 1];
 
   return {

@@ -22,6 +22,7 @@ import { SmartTradeOrder } from "./ActiveSmartTrades";
 import { useTrade } from "@/context/TradeContext";
 import { TakeProfitPanel } from "./smart-trade/TakeProfitPanel";
 import { StopLossPanel } from "./smart-trade/StopLossPanel";
+import { useBotConfig } from "@/hooks/useBotConfig";
 
 type OrderType = "LIMIT" | "MARKET" | "CONDITIONAL";
 type TPType = "LIMIT" | "MARKET";
@@ -109,6 +110,18 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
   const [_allocationPercent, _setAllocationPercent] = useState(0);
   const allocationPercent = controlledAllocationPercent ?? _allocationPercent;
   const setAllocationPercent = onAllocationPercentChange ?? _setAllocationPercent;
+
+  const { config } = useBotConfig();
+
+  // Enforce Pilot rules: If Pilot is ON, Varlıkları Kullan must be TRUE
+  useEffect(() => {
+    if (config?.auto_trade) {
+      setUseExisting(true);
+    }
+  }, [config?.auto_trade, setUseExisting]);
+
+  const isExistingForced = !!config?.auto_trade;
+
   const [_buyPrice, _setBuyPrice] = useState("0");
   const [buyType] = useState<OrderType>("MARKET");
   const [trailingBuy, setTrailingBuy] = useState(false);
@@ -1235,25 +1248,32 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                       >
                         <span
                           className={cn(
-                            "font-bold text-slate-500 uppercase",
+                            "font-bold text-slate-500 uppercase flex flex-col justify-end items-end h-[32px] leading-tight",
                             compact ? "text-[9px]" : "text-xs",
                           )}
                         >
                           Varlıkları Kullan
+                          {isExistingForced && <span className="text-[8px] text-cyan-500">(Pilot)</span>}
                         </span>
                         <button
-                          onClick={() => setUseExisting(!useExisting)}
+                          onClick={() => {
+                            if (!isExistingForced) setUseExisting(!useExisting);
+                          }}
+                          disabled={isExistingForced}
                           className={cn(
                             "rounded-full transition-all relative px-0.5",
                             compact ? "w-6 h-3.5" : "w-10 h-5 px-1",
                             useExisting ? "bg-cyan-500" : "bg-slate-700",
+                            isExistingForced ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
                           )}
                           title={
-                            useExisting
-                              ? "Mevcut portföydeki varlıkları kullan"
-                              : "Cüzdandaki USDT ile yeni alım yap"
+                            isExistingForced
+                              ? "Pilot aktif olduğu için SADECE portföy kullanılabilir."
+                              : useExisting
+                                ? "Mevcut portföydeki varlıkları kullan"
+                                : "Cüzdandaki USDT ile yeni alım yap"
                           }
-                          aria-label="Varlıkları Kullan Switçh"
+                          aria-label="Varlıkları Kullan Switch"
                         >
                           <div
                             className={cn(

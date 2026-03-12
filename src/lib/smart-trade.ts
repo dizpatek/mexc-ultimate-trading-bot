@@ -222,12 +222,14 @@ export async function handleSmartTrade(
 
     let initialStatus = entryResult.status || "FILLED";
 
-    // If it's a standalone exit (COVER/SELL) OR standalone entry (TRADE/BUY) and has no TP/SL targets,
+    // If it's a standalone exit (COVER/SELL) and has no TP/SL targets,
     // we mark it as CLOSED immediately to move it to history.
-    if (!hasFollowUp && initialStatus === "FILLED") {
+    // STANDALONE BUY (TRADE) orders must remain FILLED (Active) even without targets
+    // so they are visible in the UI for manual monitoring.
+    if (!hasFollowUp && initialStatus === "FILLED" && mode === "COVER") {
       initialStatus = "CLOSED";
       console.log(
-        `[SmartTrade] Standalone ${mode} detected for ${pair}. Marking as CLOSED immediately.`,
+        `[SmartTrade] Standalone COVER detected for ${pair}. Marking as CLOSED immediately.`,
       );
     }
 
@@ -251,21 +253,35 @@ export async function handleSmartTrade(
       quote: isNaN(quoteToRecord) ? 0 : quoteToRecord,
       price: avgPrice,
       status: entryResult?.status || "NEW",
-      meta: {
-        initial_result: entryResult,
-        payload,
-        smartTrade: true,
-        mode,
-        highestPrice: avgPrice,
-        lowestPrice: avgPrice,
-        lastUpdate: Date.now(),
-        exitReason:
-          initialStatus === "CLOSED"
-            ? "TP/SL olmayan tek seferlik işlem"
-            : undefined,
-        closedAt: initialStatus === "CLOSED" ? Date.now() : undefined,
-        initialQty: qty,
-      },
+        meta: {
+          initial_result: entryResult,
+          payload,
+          smartTrade: true,
+          mode,
+          tradeState: mode === "COVER" 
+            ? ((entryResult?.side || "SELL") === "SELL" ? "COVER_SOLD" : "COVER_BOUGHT") 
+            : "TRADE_ACTIVE",
+          activeTakeProfit: takeProfit?.price || null,
+          activeStopLoss: stopLoss?.price || null,
+          highestPrice: avgPrice,
+          lowestPrice: avgPrice,
+          lastUpdate: Date.now(),
+          exitReason:
+            initialStatus === "CLOSED"
+              ? "TP/SL olmayan tek seferlik işlem"
+              : undefined,
+          closedAt: initialStatus === "CLOSED" ? Date.now() : undefined,
+          initialQty: qty,
+          activityLog: [
+            {
+              time: Date.now(),
+              type: "ENTRY",
+              msg: `${mode} işlemi ${avgPrice} fiyatından açıldı.`,
+            },
+            ...(takeProfit?.price ? [{ time: Date.now(), type: "TP_SET", msg: `Kâr Al: ${takeProfit.price}` }] : []),
+            ...(stopLoss?.price ? [{ time: Date.now(), type: "SL_SET", msg: `Zarar Durdur: ${stopLoss.price}` }] : []),
+          ],
+        },
     });
     dbId = recordId as number;
   } catch (dbError: unknown) {

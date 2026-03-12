@@ -83,6 +83,7 @@ export function MatrixPortfolio() {
     null,
   );
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [isSectionExpanded, setIsSectionExpanded] = useState(true);
 
   // --- Sorting (via dedicated hook) ---
   const { sortedHoldings, sortKey, sortDir, handleSort } = useSortedHoldings({
@@ -221,7 +222,10 @@ export function MatrixPortfolio() {
 
   return (
     <div className="bg-transparent text-slate-200 rounded-lg h-full flex flex-col font-sans">
-      <div className="flex justify-between items-center p-3 border-b border-slate-800/60 bg-slate-900/40 backdrop-blur-md">
+      <div 
+        className="flex justify-between items-center p-3 border-b border-slate-800/60 bg-slate-900/40 backdrop-blur-md cursor-pointer group"
+        onClick={() => setIsSectionExpanded(!isSectionExpanded)}
+      >
         <div className="flex items-center text-[10px] gap-3">
           <div
             className={`flex items-center gap-1.5 px-2 py-1 rounded bg-slate-800/50 border border-slate-700 ${isConnected ? "text-emerald-400 border-emerald-500/20" : "text-rose-400 border-rose-500/20"}`}
@@ -245,7 +249,10 @@ export function MatrixPortfolio() {
             {intervals.map((item) => (
               <button
                 key={item.id}
-                onClick={() => setIntervalState(item.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIntervalState(item.id);
+                }}
                 className={cn(
                   "px-2.5 py-0.5 text-[9px] font-bold rounded transition-all duration-200",
                   interval === item.id
@@ -257,13 +264,26 @@ export function MatrixPortfolio() {
               </button>
             ))}
           </div>
-          <div className="text-[10px] font-bold text-slate-500 tracking-widest px-2 py-1 bg-slate-950 rounded border border-slate-800">
-            Matrix Portföy
+          <div className="flex items-center gap-2 group/header">
+            <div className="text-[10px] font-bold text-slate-500 group-hover/header:text-cyan-400 tracking-widest px-2 py-1 bg-slate-950 rounded border border-slate-800 transition-colors">
+              Matrix Portföy
+            </div>
+            {isSectionExpanded ? (
+              <ChevronUp className="w-4 h-4 text-slate-500 group-hover/header:text-cyan-400 transition-colors" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-slate-500 group-hover/header:text-cyan-400 transition-colors" />
+            )}
           </div>
         </div>
       </div>
 
-      <div className="overflow-x-auto flex-1 custom-scrollbar">
+      <div className={cn(
+        "transition-all duration-500 overflow-hidden flex-1 flex flex-col",
+        isSectionExpanded
+          ? "max-h-[5000px] opacity-100"
+          : "max-h-0 opacity-0"
+      )}>
+        <div className="overflow-x-auto flex-1 custom-scrollbar">
         <table className="min-w-full divide-y divide-slate-800/40">
           <thead className="bg-slate-900/60 backdrop-blur-md sticky top-0 z-10 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
             <tr>
@@ -304,6 +324,7 @@ export function MatrixPortfolio() {
               <th className="px-3 py-3 text-center border-slate-800/40 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
                 HIZLI İŞLEM (USDT)
               </th>
+              <th className="w-8"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/30">
@@ -813,6 +834,15 @@ export function MatrixPortfolio() {
                           )}
                         </div>
                       </td>
+
+                      {/* 10. EXPAND ICON */}
+                      <td className="px-3 py-2.5 text-center">
+                        {expandedRow === fullSymbol ? (
+                          <ChevronUp className="w-4 h-4 text-cyan-400 mx-auto" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4 text-slate-600 group-hover:text-cyan-500 transition-colors mx-auto" />
+                        )}
+                      </td>
                     </tr>
 
                     {/* EXPANDED DETAILS — GELİŞMİŞ SINYAL AÇIKLAMASI */}
@@ -821,7 +851,7 @@ export function MatrixPortfolio() {
                         const sp = calculateSmartPrediction(signalData);
                         return (
                           <tr className="bg-slate-900/90 border-b border-slate-800/40">
-                            <td colSpan={9} className="p-0">
+                            <td colSpan={10} className="p-0">
                               <div className="p-4 space-y-4">
                                 {/* KARAR BANNER */}
                                 <div
@@ -1098,6 +1128,7 @@ export function MatrixPortfolio() {
       <div className="px-4 py-2 border-t border-slate-800 bg-slate-900/50 flex justify-between items-center text-[9px] text-slate-600 font-mono uppercase">
         <span>Matrix Portföy // AKTİF</span>
         <span>SYNC: {new Date().toLocaleTimeString()}</span>
+      </div>
       </div>
 
       {/* CHART MODAL */}

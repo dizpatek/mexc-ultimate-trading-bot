@@ -2,6 +2,7 @@ import { MatrixV5Engine, MatrixV5Result } from "./matrix-v5-engine";
 import { getKlines } from "./mexc-wrapper"; // Use wrapper!
 import { sql } from "@/lib/postgres";
 import { executePanicSell } from "./panic-service";
+import { getBotConfig, BotConfig, resolveTradeMode } from "./db";
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 
@@ -43,14 +44,25 @@ function mapToArrays(rawKlines: unknown[][]): KlineData {
 export async function checkAlarms() {
   console.log("[AlarmEngine] Starting alarm check cycle...");
 
-  // Instantiate a fresh engine per cycle (V5 Migration)
-  const engine = new MatrixV5Engine({ f4Length: 7 });
+  // Fetch bot config for dynamic parameters
+  let botConfig: BotConfig | null = null;
+  try {
+    botConfig = await getBotConfig();
+  } catch { /* use defaults */ }
+
+  const tradeMode = resolveTradeMode(botConfig);
+  const scanTimeframe = botConfig?.pilot_timeframe || "1h";
+
+  // Instantiate engine with core mode (Parameters will be autonomous)
+  const engine = new MatrixV5Engine({ tradeMode });
 
   // 1. Fetch active alarms
   try {
-    const { rows: alarms } = await sql<Alarm>`
+    const { rows } = await sql`
             SELECT * FROM alarms WHERE is_active = true
         `;
+
+    const alarms = rows as unknown as Alarm[];
 
     if (alarms.length === 0) {
       console.log("[AlarmEngine] No active alarms");
@@ -60,14 +72,23 @@ export async function checkAlarms() {
     console.log(`[AlarmEngine] Checking ${alarms.length} active alarms`);
 
     // P4.3: O(A) Grouping (Map symbols to alarm lists)
-    const alarmsBySymbol = alarms.reduce((acc, a) => {
+    const alarmsBySymbol = alarms.reduce((acc: Map<string, Alarm[]>, a: Alarm) => {
       if (!acc.has(a.symbol)) acc.set(a.symbol, []);
       acc.get(a.symbol)!.push(a);
       return acc;
     }, new Map<string, Alarm[]>());
 
-    for (const [symbol, symbolAlarms] of alarmsBySymbol.entries()) {
-      await processSymbolAlarms(symbol, symbolAlarms, engine);
+    // P4.2 PERFORMANCE: Parallel process symbols (concurrency: 5)
+    const entries = Array.from(alarmsBySymbol.entries());
+    const CONCURRENCY = 5;
+    
+    for (let i = 0; i < entries.length; i += CONCURRENCY) {
+      const chunk = entries.slice(i, i + CONCURRENCY);
+      await Promise.allSettled(
+        chunk.map(([symbol, symbolAlarms]) => 
+          processSymbolAlarms(symbol, symbolAlarms, engine, scanTimeframe)
+        )
+      );
     }
   } catch (error) {
     console.error("[AlarmEngine] Failed to run alarm cycle:", error);
@@ -78,13 +99,15 @@ async function processSymbolAlarms(
   symbol: string,
   alarms: Alarm[],
   engine: MatrixV5Engine,
+  scanTimeframe: string = "1h",
 ) {
   try {
     // 2. Fetch OHLC Data
-    // Default to 1h interval for now as per F4 standard
+    // Use config timeframe instead of hardcoded 60m
+    const mexcInterval = scanTimeframe === "1h" ? "60m" : scanTimeframe === "4h" ? "4h" : "60m";
     const rawKlines: unknown[][] = (await getKlines(
       symbol,
-      "60m",
+      mexcInterval,
     )) as unknown[][];
     if (!rawKlines || rawKlines.length < 100) {
       console.warn(`[AlarmEngine] Insufficient data for ${symbol}`);
@@ -94,7 +117,7 @@ async function processSymbolAlarms(
     const { high, low, close, volume } = mapToArrays(rawKlines);
 
     // 3. Calculate Indicator (V5)
-    const v5Result = engine.analyze(close, high, low, volume, "1h", "normal");
+    const v5Result = engine.analyze(close, high, low, volume, scanTimeframe, "normal");
 
     const f4Signal = v5Result.signal;
 

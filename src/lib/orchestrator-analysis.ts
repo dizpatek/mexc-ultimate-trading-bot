@@ -28,6 +28,8 @@ const TF_UPPER: Record<string, string> = {
 
 import { getKlines } from "./mexc-wrapper";
 
+type KlineData = (string | number)[];
+
 export async function fetchKlinesBackendSide(
   symbol: string,
   interval: string,
@@ -77,22 +79,22 @@ export async function runFullOrchestraAnalysis(symbol: string, tfValue: string, 
 
   if (klines.length < 10) throw new Error(`Insufficient data for ${symbol}`);
 
-  const opens = klines.map((k: any) => parseFloat(k[1]));
-  const highs = klines.map((k: any) => parseFloat(k[2]));
-  const lows = klines.map((k: any) => parseFloat(k[3]));
-  const closes = klines.map((k: any) => parseFloat(k[4]));
-  const vols = klines.map((k: any) => parseFloat(k[5]));
+  const opens = klines.map((k: KlineData) => parseFloat(k[1] as string));
+  const highs = klines.map((k: KlineData) => parseFloat(k[2] as string));
+  const lows = klines.map((k: KlineData) => parseFloat(k[3] as string));
+  const closes = klines.map((k: KlineData) => parseFloat(k[4] as string));
+  const vols = klines.map((k: KlineData) => parseFloat(k[5] as string));
 
   let htfBull = false,
     dailyBull = false;
 
   if (htfKlines.length > 0) {
-    const htfC = htfKlines.map((k: any) => parseFloat(k[4]));
+    const htfC = htfKlines.map((k: KlineData) => parseFloat(k[4] as string));
     htfBull = calcSlope(htfC, 20) > 0;
   }
 
   if (dailyKlines.length > 0) {
-    const dC = dailyKlines.map((k: any) => parseFloat(k[4]));
+    const dC = dailyKlines.map((k: KlineData) => parseFloat(k[4] as string));
     dailyBull = calcSlope(dC, 20) > 0;
   } else if (tfValue === "1d" || tfValue === "1w") {
     dailyBull = htfBull;
@@ -199,7 +201,14 @@ export async function runFullOrchestraAnalysis(symbol: string, tfValue: string, 
   return { data, isMeme };
 }
 
-const TF_PARAMS: Record<string, any> = {
+interface TFParam {
+  slPct: number;
+  tpR: string;
+  style: string;
+  noise: string;
+}
+
+const TF_PARAMS: Record<string, TFParam> = {
   "1m": { slPct: 0.3, tpR: "1:1.5", style: "ultra scalp", noise: "ÇOK YÜKSEK" },
   "5m": { slPct: 0.5, tpR: "1:2", style: "scalp", noise: "YÜKSEK" },
   "15m": { slPct: 0.8, tpR: "1:2.5", style: "scalp", noise: "ORTA-YÜKSEK" },
@@ -210,9 +219,24 @@ const TF_PARAMS: Record<string, any> = {
   "1w": { slPct: 8.0, tpR: "1:5+", style: "uzun vadeli", noise: "MİNİMAL" },
 };
 
-export const buildOrchestraPrompt = (symbol: string, tf: string, data: any, isMeme: boolean, dashboardState?: any) => {
-  const p = TF_PARAMS[tf] || TF_PARAMS["1h"];
+/* eslint-disable @typescript-eslint/no-explicit-any */
+export const buildOrchestraPrompt = (
+  symbol: string,
+  tf: string,
+  data: any,
+  isMeme: boolean,
+  dashboardState?: any,
+) => {
+  const p = { ...(TF_PARAMS[tf] || TF_PARAMS["1h"]) };
   
+  // O3: Dynamic ATR-based SL calculation
+  if (data?.volatility?.atr && data?.meta?.price) {
+     const atrPct = (data.volatility.atr / data.meta.price) * 100;
+     // We set SL to 2x ATR for conservative, 1.5x for aggressive. Default to 2x.
+     p.slPct = +(atrPct * 2).toFixed(2);
+     p.noise = atrPct > 1.5 ? "YÜKSEK (Volatil)" : atrPct > 0.8 ? "ORTA" : "DÜŞÜK";
+  }
+
   let dsText = "";
   if (dashboardState) {
     // We sanitize large arrays to not overflow the context
@@ -234,7 +258,7 @@ export const buildOrchestraPrompt = (symbol: string, tf: string, data: any, isMe
 Sana sağlanan hem standart indikatörleri hem de derin "Dashboard State" (Kokpit Durumu) verilerini kullanarak matematiksel ve stratejik bir analiz yapmalısın.
 
 VARLIK: ${symbol} | TF: ${tf} (${p.style}) | FİYAT: ${data.meta.price} | DEĞİŞİM: %${data.meta.change24h}
-PARAMETRELER: SL:%${p.slPct}, TP:${p.tpR}, Gürültü:${p.noise}, Vol.Regime:${data.volatility.regime}
+PARAMETRELER: SL:%${p.slPct} (ATR-Adaptive), TP:${p.tpR}, Gürültü:${p.noise}, Vol.Regime:${data.volatility.regime}
 ${isMeme ? "⚠️ MEME COIN: Risk yönetimi gereği maksimum YARIM pozisyon önerilebilir." : ""}
 
 [STANDART VERİLER]:

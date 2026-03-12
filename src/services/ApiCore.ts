@@ -241,6 +241,13 @@ class ApiCore {
       console.log("[ApiCore] Client environment detected, starting kernels...");
       this.market.start();
       this.portfolio.start();
+
+      // Listen for mode changes to force immediate data refresh
+      window.addEventListener("tradingModeChanged", () => {
+        console.log("[ApiCore] Trading mode changed, refreshing kernels...");
+        this.portfolio.refresh();
+        this.market.refresh();
+      });
     } else {
       console.log("[ApiCore] SSR environment detected, kernels in idle mode.");
     }

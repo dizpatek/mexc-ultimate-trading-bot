@@ -128,5 +128,6 @@ CREATE TABLE IF NOT EXISTS bot_configs (
   pilot_tp_deviation NUMERIC DEFAULT 0.5,
   pilot_sl_trailing BOOLEAN DEFAULT TRUE,
   pilot_sl_deviation NUMERIC DEFAULT 0.5,
-  updated_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL,
+  timeframe_settings JSONB DEFAULT '{}'
 );

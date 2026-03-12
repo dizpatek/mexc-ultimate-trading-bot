@@ -24,15 +24,21 @@ interface TradeProgressBarProps {
 }
 
 // ── Helpers ──────────────────────────────────────────────
-const fmt = (p: number) => {
-  if (!p || !isFinite(p)) return "--";
+const fmt = (val: any) => {
+  const p = Number(val);
+  if (isNaN(p) || !isFinite(p)) return "--";
+  if (p === 0) return "0";
   if (p < 0.01) return p.toFixed(6);
   if (p < 1) return p.toFixed(4);
   if (p < 10) return p.toFixed(3);
   return p.toFixed(2);
 };
 
-const pct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
+const pct = (val: any) => {
+  const v = Number(val);
+  if (isNaN(v)) return "--%";
+  return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
+};
 
 /** Safe normalized position within a price range (0..100) */
 const normalizePos = (price: number, lo: number, hi: number): number => {
@@ -504,12 +510,12 @@ const ActiveTradeBar: React.FC<ActiveBarProps> = ({
     trailingSlDev,
   ]);
 
-  const tooltipText = `$${currentPrice.toLocaleString()} | ${isProfit ? "+" : ""}${pnlUsdt.toLocaleString(undefined, { style: "currency", currency: "USD" })} (${pnlPercent.toFixed(2)}%)`;
+  const tooltipText = `$${Number(currentPrice).toLocaleString()} | ${isProfit ? "+" : ""}${Number(pnlUsdt).toLocaleString(undefined, { style: "currency", currency: "USD" })} (${Number(pnlPercent).toFixed(2)}%)`;
 
   return (
     <div className="px-1.5 py-1 flex flex-col gap-0.5">
-      {/* Header: SL left ─ TP right */}
-      <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-tighter leading-none">
+      {/* Header: matches the price axis (Low price on Left, High on Right) */}
+      <div className={cn("flex justify-between items-center text-[9px] font-black uppercase tracking-tighter leading-none", side === "SELL" ? "flex-row-reverse" : "")}>
         <span className="text-rose-500 flex items-center gap-1">
           SL:{sl > 0 ? fmt(data.dynSl) : "--"}
           {sl > 0 && (
@@ -526,7 +532,7 @@ const ActiveTradeBar: React.FC<ActiveBarProps> = ({
         <span className="text-emerald-500 flex items-center gap-1">
           {isTtpActive && (
             <span className="text-emerald-400 bg-emerald-500/15 px-1 rounded text-[8px] animate-pulse">
-              TTP +{data.tpPassedPct.toFixed(1)}%
+              TTP +{Number(data.tpPassedPct).toFixed(1)}%
             </span>
           )}
           {tp > 0 && (

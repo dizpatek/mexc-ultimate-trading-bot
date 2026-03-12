@@ -8,7 +8,7 @@ export async function getSetting(
     const { rows } =
       await sql`SELECT value FROM system_settings WHERE key = ${key} AND user_id = ${userId}`;
     if (rows.length > 0) {
-      return rows[0].value;
+      return String(rows[0].value);
     }
     return null;
   } catch (error) {

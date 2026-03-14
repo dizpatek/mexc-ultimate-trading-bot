@@ -370,7 +370,7 @@ export const IntelligenceHub = () => {
     alert: latestWhaleAlert,
     alerts: whaleHistory,
     status,
-  } = useWhaleRadar(topAsset);
+  } = useWhaleRadar(topAsset ? [topAsset] : ["BTC/USDT", "ETH/USDT"]);
 
   const handleNewsTrade = useCallback(
     (item: NewsItem, direction: "BUY" | "SELL") => {

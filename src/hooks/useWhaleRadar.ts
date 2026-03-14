@@ -56,7 +56,7 @@ function alertReducer(state: AlertState, action: AlertAction): AlertState {
   }
 }
 
-export function useWhaleRadar(symbol?: string) {
+export function useWhaleRadar(symbols?: string | string[]) {
   const [{ latest: alert, history: alerts }, dispatch] = useReducer(
     alertReducer,
     {
@@ -98,7 +98,7 @@ export function useWhaleRadar(symbol?: string) {
     return () => clearTimeout(timeoutId);
   }, [alerts]);
 
-  // Periodic cleanup — runs every 30s, not on every WS message
+  // Periodic cleanup — runs every 30s
   useEffect(() => {
     const cleanup = setInterval(
       () => dispatch({ type: "CLEANUP" }),
@@ -108,7 +108,6 @@ export function useWhaleRadar(symbol?: string) {
   }, []);
 
   const connect = useCallback(() => {
-    // P4.1: Ensure no orphaned connection exists before starting a new one
     if (wsRef.current) {
       wsRef.current.onopen = null;
       wsRef.current.onmessage = null;
@@ -122,34 +121,50 @@ export function useWhaleRadar(symbol?: string) {
       wsRef.current = null;
     }
 
-    if (!symbol) {
+    // Default monitored symbols (Market benchmarks)
+    const baseSymbols = ["BTC/USDT", "ETH/USDT", "SOL/USDT"];
+    const userSymbols = symbols ? (Array.isArray(symbols) ? symbols : [symbols]) : [];
+    
+    // Merge and deduplicate
+    const finalSymbols = Array.from(new Set([...userSymbols, ...baseSymbols])).filter(Boolean);
+    
+    if (finalSymbols.length === 0) {
       setStatus("disconnected");
       return;
     }
 
     setStatus("connecting");
-    const normalizedSym = symbol.replace("/", "").toLowerCase();
-    const activeSymbol = symbol; // P4.1: Capture the symbol for this connection's message handler
+    
+    // Normalize for Binance combined streams: <symbol>@aggTrade
+    // Example: btcbusd@aggTrade/ethbusd@aggTrade
+    const streams = finalSymbols.map(s => {
+      let norm = s.toUpperCase().replace("/", "").replace("USDT", "usdt").toLowerCase();
+      if (!norm.endsWith("usdt")) norm += "usdt"; // Fallback to USDT if not specified
+      return `${norm}@aggTrade`;
+    });
 
-    const ws = new WebSocket(
-      `wss://stream.binance.com:9443/ws/${normalizedSym}@aggTrade`,
-    );
+    const combinedStreamUrl = `wss://stream.binance.com:9443/stream?streams=${streams.join("/")}`;
+
+    const ws = new WebSocket(combinedStreamUrl);
 
     ws.onopen = () => setStatus("connected");
 
     ws.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
+        const msg = JSON.parse(event.data);
+        const data = msg.data;
         const price = parseFloat(data.p);
         const quantity = parseFloat(data.q);
         const valueUsd = price * quantity;
-        if (valueUsd > 100000) {
-          // P4.1: Use CAPTURED activeSymbol instead of potentially changed outer symbol
+        
+        // threshold lowered to $50k to make radar more active
+        if (valueUsd >= 50000) {
+          const rawSymbol = data.s; // e.g., 'BTCUSDT'
           dispatch({
             type: "ADD",
             payload: {
               id: String(data.a),
-              symbol: activeSymbol.replace("USDT", "").replace("/", ""),
+              symbol: rawSymbol.replace("USDT", ""),
               amount: quantity,
               valueUsd,
               side: (data.m as boolean) ? "SELL" : "BUY",
@@ -157,7 +172,7 @@ export function useWhaleRadar(symbol?: string) {
             },
           });
         }
-      } catch {
+      } catch (e) {
         // Ignore parse errors
       }
     };
@@ -170,7 +185,7 @@ export function useWhaleRadar(symbol?: string) {
     ws.onclose = () => setStatus("disconnected");
 
     wsRef.current = ws;
-  }, [symbol]); // Re-connect when symbol changes
+  }, [symbols]);
 
   const disconnect = useCallback(() => {
     if (wsRef.current) {
@@ -182,7 +197,6 @@ export function useWhaleRadar(symbol?: string) {
   }, []);
 
   useEffect(() => {
-    // P4.2: Add small 1s debounce to avoid rapid re-connections when portfolio values fluctuate
     const timeoutId = setTimeout(() => {
       connect();
     }, 1000);

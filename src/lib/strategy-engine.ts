@@ -257,6 +257,9 @@ async function runPilotCycle(
   holdings: any[]
 ) {
   try {
+    // Load re-entry map from DB ONCE per cycle instead of per-symbol (Performance Fix P4.2)
+    await PilotExecutor.ensureReEntryMapLoaded();
+
     const activeOrderSymbols = await getActiveOrderSymbols(userId, mode);
     
     // STRICT ASSET ENFORCEMENT: Only scan what the user actually owns.

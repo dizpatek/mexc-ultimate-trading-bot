@@ -3,6 +3,7 @@
  * Provides simulated trading functionality for testing without risking real assets
  */
 import { normalizeSymbol, extractBaseAsset } from "@/lib/symbol-utils";
+import { DEFAULT_TIMEFRAME_SETTINGS, DEFAULT_BOT_CONFIG } from "@/lib/constants/bot-defaults";
 
 interface SimulatedBalance {
   asset: string;
@@ -37,17 +38,6 @@ export const INITIAL_PORTFOLIO = [
   { s: 'LINK', q: 650.0 },
   { s: 'DOT',  q: 1400.0 },
 ];
-
-export const DEFAULT_TIMEFRAME_SETTINGS = {
-  pilot_tp_percent: 1.0,
-  pilot_sl_percent: 0.5,
-  cover_tp_percent: 0.5,
-  cover_sl_percent: 0.3,
-  cover_tp_trailing: true,
-  cover_tp_deviation: 0.3,
-  cover_sl_trailing: false,
-  cover_sl_deviation: 1.0
-};
 
 /**
  * P4.4: BalanceManager - Encapsulates balance and ledger management.
@@ -170,9 +160,14 @@ export class TradingSimulator {
       actualQuoteQty = Math.max(0, actualQuoteQty);
     }
 
-    const fee = actualQuoteQty * 0.001;
+    // P4.2: Real Exchange Simulation - Add Spread/Slippage Friction
+    // In a real exchange, market buy happens at 'Ask' (above last price)
+    const MARKET_SLIPPAGE = 0.0005; // 0.05% friction
+    const effectiveEntryPrice = currentPrice * (1 + MARKET_SLIPPAGE);
+
+    const fee = actualQuoteQty * 0.0005; // 0.05% MEXC current taker fee
     const netAmount = actualQuoteQty - fee;
-    const quantity = netAmount / currentPrice;
+    const quantity = netAmount / effectiveEntryPrice;
 
     // Update balances via Manager
     this.balanceManager.updateBalance(quoteAsset, -actualQuoteQty);
@@ -189,7 +184,7 @@ export class TradingSimulator {
       side: "BUY",
       type: "MARKET",
       quoteOrderQty: actualQuoteQty,
-      price: currentPrice.toString(),
+      price: effectiveEntryPrice.toString(),
       status: isPartial ? "PARTIALLY_FILLED" : "FILLED",
       executedQty: quantity.toString(),
       cummulativeQuoteQty: actualQuoteQty.toString(),
@@ -214,8 +209,12 @@ export class TradingSimulator {
     const baseAsset = extractBaseAsset(cleanSymbol);
     const quoteBalance = this.getBalance(quoteAsset);
 
+    // P4.2: Real Exchange Simulation - Add Spread/Slippage Friction
+    const MARKET_SLIPPAGE = 0.0005; // 0.05% friction
+    const effectiveEntryPrice = currentPrice * (1 + MARKET_SLIPPAGE);
+
     // Standard inclusive fee: user spends (quantity * price) and receives (quantity * 0.999)
-    const quoteNeeded = quantity * currentPrice;
+    const quoteNeeded = quantity * effectiveEntryPrice;
     let actualQuoteQty = quoteNeeded;
 
     // Cap to available balance
@@ -224,9 +223,9 @@ export class TradingSimulator {
       actualQuoteQty = quoteBalance.free;
     }
 
-    const fee = actualQuoteQty * 0.001;
+    const fee = actualQuoteQty * 0.0005;
     const netAmount = actualQuoteQty - fee;
-    const actualQuantity = netAmount / currentPrice;
+    const actualQuantity = netAmount / effectiveEntryPrice;
 
     // Update balances via Manager
     this.balanceManager.updateBalance(quoteAsset, -actualQuoteQty);
@@ -241,7 +240,7 @@ export class TradingSimulator {
       symbol: cleanSymbol,
       side: "BUY",
       type: "MARKET",
-      price: currentPrice.toString(),
+      price: effectiveEntryPrice.toString(),
       status: isPartial ? "PARTIALLY_FILLED" : "FILLED",
       executedQty: actualQuantity.toString(),
       cummulativeQuoteQty: actualQuoteQty.toString(),
@@ -286,8 +285,13 @@ export class TradingSimulator {
       quantity = baseBalance.free;
     }
 
-    const grossAmount = quantity * currentPrice;
-    const fee = grossAmount * 0.001;
+    // P4.2: Real Exchange Simulation - Add Spread/Slippage Friction
+    // In a real exchange, market sell happens at 'Bid' (below last price)
+    const MARKET_SLIPPAGE = 0.0005; // 0.05% friction
+    const effectiveExitPrice = currentPrice * (1 - MARKET_SLIPPAGE);
+
+    const grossAmount = quantity * effectiveExitPrice;
+    const fee = grossAmount * 0.0005; // 0.05% MEXC current taker fee
     const netAmount = grossAmount - fee;
 
     // Update balances via Manager
@@ -306,7 +310,7 @@ export class TradingSimulator {
       side: "SELL",
       type: "MARKET",
       quantity,
-      price: currentPrice.toString(),
+      price: effectiveExitPrice.toString(),
       status: "FILLED",
       executedQty: quantity.toString(),
       cummulativeQuoteQty: grossAmount.toString(),
@@ -444,22 +448,22 @@ export async function resetSimulatorDatabase(userId: number) {
     await sql`
       UPDATE bot_configs 
       SET 
-        f4_length = 10,
-        whale_multiplier = 1.8,
-        ai_threshold = 65,
-        auto_trade = false,
-        defense_mode = false,
-        pilot_trailing_buy = true,
-        pilot_trailing_buy_dev = 0.3,
-        pilot_tp_trailing = true,
-        pilot_tp_deviation = 1.0,
-        pilot_sl_trailing = true,
-        pilot_sl_deviation = 0.5,
-        pilot_timeframe = '4h',
-        fibo_length = 20,
-        pilot_mtf_veto = true,
-        pilot_mtf_threshold = 60,
-        pilot_only_holdings = false,
+        f4_length = ${DEFAULT_BOT_CONFIG.f4_length},
+        whale_multiplier = ${DEFAULT_BOT_CONFIG.whale_multiplier},
+        ai_threshold = ${DEFAULT_BOT_CONFIG.ai_threshold},
+        auto_trade = ${DEFAULT_BOT_CONFIG.auto_trade},
+        defense_mode = ${DEFAULT_BOT_CONFIG.defense_mode},
+        pilot_trailing_buy = ${DEFAULT_BOT_CONFIG.pilot_trailing_buy},
+        pilot_trailing_buy_dev = ${DEFAULT_BOT_CONFIG.pilot_trailing_buy_dev},
+        pilot_tp_trailing = ${DEFAULT_BOT_CONFIG.pilot_tp_trailing},
+        pilot_tp_deviation = ${DEFAULT_BOT_CONFIG.pilot_tp_deviation},
+        pilot_sl_trailing = ${DEFAULT_BOT_CONFIG.pilot_sl_trailing},
+        pilot_sl_deviation = ${DEFAULT_BOT_CONFIG.pilot_sl_deviation},
+        pilot_timeframe = ${DEFAULT_BOT_CONFIG.pilot_timeframe},
+        fibo_length = ${DEFAULT_BOT_CONFIG.fibo_length},
+        pilot_mtf_veto = ${DEFAULT_BOT_CONFIG.pilot_mtf_veto},
+        pilot_mtf_threshold = ${DEFAULT_BOT_CONFIG.pilot_mtf_threshold},
+        pilot_only_holdings = ${DEFAULT_BOT_CONFIG.pilot_only_holdings},
         timeframe_settings = ${JSON.stringify(DEFAULT_TIMEFRAME_SETTINGS)}::jsonb
       WHERE id = 1
     `;

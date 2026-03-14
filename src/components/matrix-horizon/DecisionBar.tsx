@@ -60,28 +60,13 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
             </span>
           </div>
           <div className="flex items-center gap-2 justify-center">
-            <div className="p-1.5 rounded-lg bg-slate-900 border border-white/5 shadow-lg hidden lg:block">
-              <Shield className="w-4 h-4 text-cyan-400" />
-            </div>
             <div className="flex flex-col flex-1 min-w-0">
-              <span className="text-[11px] sm:text-xs lg:text-sm font-black text-white tracking-[0.1em] uppercase leading-none truncate whitespace-nowrap">
+              <span className="text-[10px] sm:text-[11px] lg:text-xs font-black text-white tracking-[0.05em] uppercase leading-none truncate whitespace-nowrap">
                 {mode}
               </span>
               <span className="text-[7px] lg:text-[8px] font-bold text-slate-500 uppercase mt-1 tracking-widest">
                 Matrix Online
               </span>
-              {pilotStatus !== "IDLE" && (
-                <span className={cn(
-                  "text-[8px] font-black uppercase mt-1 tracking-widest flex items-center gap-1 justify-center",
-                  pilotStatus === "SCANNING" ? "text-cyan-400 animate-pulse" : "text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]"
-                )}>
-                  {pilotStatus === "SCANNING" ? (
-                    <><Activity className="w-2 h-2 animate-spin" /> PİLOT TARANIYOR</>
-                  ) : (
-                    <><Zap className="w-2 h-2 animate-bounce" /> PİLOT AKTİF</>
-                  )}
-                </span>
-              )}
             </div>
           </div>
         </div>
@@ -125,7 +110,7 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
             )}
 
             <div className="flex items-center gap-1.5">
-              <span className="text-base font-black font-mono tracking-[-0.05em] uppercase drop-shadow-lg leading-none">
+              <span className="text-[13px] lg:text-sm font-black font-mono tracking-[-0.05em] uppercase drop-shadow-lg leading-none">
                 {decision.split(" ")[0]}
               </span>
 
@@ -136,7 +121,7 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
                 />
               )}
               {!isWait && (
-                <span className="text-base drop-shadow-[0_0_10px_currentColor] leading-none">
+                <span className="text-[13px] lg:text-sm drop-shadow-[0_0_10px_currentColor] leading-none">
                   {decision.split(" ")[1]}
                 </span>
               )}
@@ -154,7 +139,12 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
           </div>
           <div className="relative group/suggest w-full flex justify-center h-full items-center">
             <div className="bg-slate-900 border border-indigo-500/30 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg flex items-center justify-center w-full shadow-sm max-w-[150px]">
-              <span className="text-[9px] sm:text-[10px] lg:text-[11px] font-black font-mono text-white tracking-widest uppercase truncate whitespace-nowrap text-center leading-tight">
+              <span className={cn(
+                "text-[9px] sm:text-[10px] lg:text-[10px] font-black font-mono tracking-wider uppercase truncate whitespace-nowrap text-center leading-tight transition-colors duration-500",
+                aiSuggestion.includes("YUKARI") || aiSuggestion.includes("📈") ? "text-emerald-400" :
+                aiSuggestion.includes("AŞAĞI") || aiSuggestion.includes("📉") ? "text-rose-400" :
+                "text-white"
+              )}>
                 {aiSuggestion}
               </span>
             </div>
@@ -169,19 +159,19 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
           {[
             {
               id: "safe",
-              label: "SAFE",
+              label: "GÜVENLİ",
               icon: Shield,
               color: "text-emerald-400",
             },
             {
               id: "normal",
-              label: "SCALP",
+              label: "DENGELİ",
               icon: Activity,
               color: "text-cyan-400",
             },
             {
               id: "aggressive",
-              label: "AGGRESSIVE",
+              label: "ATAK",
               icon: Zap,
               color: "text-rose-500",
             },

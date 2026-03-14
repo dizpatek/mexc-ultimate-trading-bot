@@ -137,12 +137,7 @@ export const UnifiedControlStrip = ({
   return (
     <>
       {/* Toggle Button for Tablet/Mobile */}
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="fixed bottom-6 right-6 z-[60] p-4 rounded-2xl bg-cyan-500 text-black shadow-[0_0_30px_rgba(6,182,212,0.4)] flex lg:hidden items-center justify-center transition-transform active:scale-95"
-      >
-        {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-      </button>
+      {/* Floating menu button removed as per user request */}
 
       {/* Desktop Spacer to push main content */}
       <div

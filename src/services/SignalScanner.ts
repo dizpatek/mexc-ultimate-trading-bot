@@ -147,7 +147,7 @@ export class SignalScanner {
         timeframe: interval,
         minAiScore: config.ai_threshold || 65,
         mtfVeto: config.pilot_mtf_veto,
-        mtfThreshold: config.pilot_mtf_threshold
+        mtfThreshold: 80 // Hard-force to 80% as requested by user to ensure consistency
       });
 
       const signal = await strategy.analyze();

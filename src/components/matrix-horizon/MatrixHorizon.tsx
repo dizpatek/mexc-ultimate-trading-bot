@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { DEFAULT_BOT_CONFIG } from "@/lib/constants/bot-defaults";
 import { cn } from "@/lib/utils";
 import { DecisionBar } from "./DecisionBar";
 import { CentralCommand } from "./CentralCommand";
@@ -113,6 +114,8 @@ export interface V5Signal {
     market: number;
     trend: number;
   };
+  fundingRate?: number | null;
+  fundingImpact?: "POSITIVE" | "NEGATIVE" | "NEUTRAL";
 }
 interface BotConfig {
   f4_length: number;
@@ -131,6 +134,7 @@ interface BotConfig {
   pilot_mtf_threshold?: number;
   pilot_only_holdings?: boolean;
   fibo_length: number;
+  f4_power_loss_threshold: number; // F4 Güç Kaybı Eşiği
   timeframe_settings?: {
     tradeMode?: string;
     pilot_trade_allocation?: number;
@@ -238,35 +242,11 @@ export const MatrixHorizon = () => {
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [socketOnline, setSocketOnline] = useState(true);
   const [riskMode, setRiskMode] = useState<"safe" | "normal" | "aggressive">(
-    "aggressive",
+    () => (typeof window !== "undefined" ? (localStorage.getItem("mx_riskMode") as "safe" | "normal" | "aggressive" | null) ?? "aggressive" : "aggressive"),
   );
 
   // Command State
-  const [config, setConfig] = useState<BotConfig>({
-    f4_length: 10,
-    whale_multiplier: 1.8,
-    ai_threshold: 65,
-    auto_trade: false,
-    defense_mode: false,
-    pilot_trailing_buy: true,
-    pilot_trailing_buy_dev: 0.3, // TTP 0.3
-    pilot_tp_trailing: true,
-    pilot_tp_deviation: 1.0, // Iz süren 1
-    pilot_sl_trailing: true,
-    pilot_sl_deviation: 0.5, // SL 0.5
-    fibo_length: 20,
-    timeframe_settings: { 
-      tradeMode: "Scalp",
-      pilot_tp_percent: 1.0,
-      pilot_sl_percent: 0.5,
-      cover_tp_percent: 0.5,
-      cover_sl_percent: 0.3,
-      cover_tp_trailing: true,
-      cover_tp_deviation: 0.3,
-      cover_sl_trailing: false,
-      cover_sl_deviation: 1.0,
-    },
-  });
+  const [config, setConfig] = useState<BotConfig>(DEFAULT_BOT_CONFIG);
   const [showSettings, setShowSettings] = useState(false);
   const [isActionLoading, setIsActionLoading] = useState(false);
 
@@ -406,19 +386,30 @@ export const MatrixHorizon = () => {
 
   // Centralized BTC Ticker (using ApiCore for batching)
   useEffect(() => {
+    setCurrentPrice(null);
     const COMPONENT_ID = "MatrixHorizon_Ticker";
-    // Register interest in BTCUSDT
+    // Register interest in both BTCUSDT (for top bar) and activeSymbol (for live box)
+    const normalizedSymbol = activeSymbol.toUpperCase().replace(/\//g, "");
+    
     import("@/services/ApiCore").then(({ core }) => {
-      core.market.registerSymbols(COMPONENT_ID, ["BTCUSDT"]);
+      core.market.registerSymbols(COMPONENT_ID, ["BTCUSDT", normalizedSymbol]);
       
       const unsub = core.market.subscribe((data) => {
+        // 1. Update Global BTC Ticker
         if (data["BTCUSDT"]) {
-          const newPrice = parseFloat(data["BTCUSDT"].price);
+          const btcPrice = parseFloat(data["BTCUSDT"].price);
           setLiveBtcPrice((prev) => {
             if (prev !== null) setPrevLivePrice(prev);
-            return newPrice;
+            return btcPrice;
           });
-          setCurrentPrice(newPrice);
+          // If normalized activeSymbol is BTC, setCurrentPrice will be handled below anyway
+          if (normalizedSymbol === "BTCUSDT") setCurrentPrice(btcPrice);
+        }
+
+        // 2. Update Active Asset Price (Canlı Fiyat Box)
+        if (data[normalizedSymbol]) {
+          const assetPrice = parseFloat(data[normalizedSymbol].price);
+          setCurrentPrice(assetPrice);
         }
       });
 
@@ -438,7 +429,7 @@ export const MatrixHorizon = () => {
     }, 150);
 
     return () => clearInterval(microInterval);
-  }, []);
+  }, [activeSymbol]);
 
   useEffect(() => {
     if (
@@ -466,29 +457,7 @@ export const MatrixHorizon = () => {
     fetchSentiment();
   }, []);
 
-  useEffect(() => {
-    const fetchPrediction = async () => {
-      try {
-        const res = await api.get(
-          `/indicators/f4?symbol=${activeSymbol}&interval=${interval}`,
-        );
-        if (res.data && !res.data.error) {
-          const d = res.data;
-          setPrediction({
-            predictedPrice:
-              d.predictedPrice || d.currentPrice * (1 + (d.f4Slope || 0) / 100),
-            trend:
-              d.prediction?.direction ||
-              (d.f4Slope > 0 ? "UP" : d.f4Slope < 0 ? "DOWN" : "FLAT"),
-            confidence: d.confluenceScore || d.aiScore || 75,
-          });
-        }
-      } catch {
-        /* silent */
-      }
-    };
-    fetchPrediction();
-  }, [interval, activeSymbol]);
+  // Prediction is derived from fetchSignal (no separate F4 call needed)
 
   const rotation = sentiment ? (sentiment.score / 100) * 90 : 0;
 
@@ -531,7 +500,18 @@ export const MatrixHorizon = () => {
           fetchGlobalMarketData().catch(() => null),
         ]);
         const r1 = res.data;
-        if (r1 && !r1.error) setSignal(r1);
+        if (r1 && !r1.error) {
+          setSignal(r1);
+          // Derive prediction from the same F4 response — no separate API call needed
+          // Use r1.currentPrice (backend value) so we don't depend on possibly-null frontend currentPrice
+          if (r1.prediction) {
+            setPrediction({
+              predictedPrice: r1.targets?.t1 ?? r1.currentPrice ?? 0,
+              trend: r1.prediction.direction ?? "FLAT",
+              confidence: r1.confluenceScore ?? 75,
+            });
+          }
+        }
         if (mkt) {
           setBtcDom(mkt.btcd?.value ?? 58.4);
           setUsdtDom(mkt.usdtd?.value ?? 4.2);
@@ -718,7 +698,6 @@ export const MatrixHorizon = () => {
         : "BEKLE ❌";
 
   return (
-    <>
     <div className="w-full h-full min-h-[600px] bg-[#020617] relative px-4 py-1.5 flex flex-col gap-2 overflow-hidden rounded-xl border border-slate-800">
       {/* GRID BACKGROUND */}
       <div
@@ -730,474 +709,45 @@ export const MatrixHorizon = () => {
       />
       <div className="absolute inset-0 bg-gradient-to-t from-[#020617] via-transparent to-transparent pointer-events-none" />
 
-      {/* HEADER BAR */}
-      <div className="relative z-20 flex items-center justify-between pb-1 border-b border-slate-800/50 mb-1 font-mono">
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <LayoutTemplate className="w-5 h-5 text-cyan-400" />
-              <h2 className="text-sm font-bold tracking-[0.2em] text-cyan-100 uppercase font-mono shadow-cyan-500/50 drop-shadow-[0_0_10px_rgba(34,211,238,0.3)]">
-                Matrix Horizon
-              </h2>
-            </div>
-            {/* AI SOURCE TOGGLE */}
-            <div className="flex bg-slate-950 rounded p-0.5 border border-slate-800">
-              <button
-                onClick={() => setAiSource("ETH")}
-                className={cn("px-4 py-1 text-[10px] font-black tracking-widest uppercase rounded transition-all", aiSource === "ETH" ? "bg-cyan-500 text-slate-950 shadow-[0_0_10px_rgba(34,211,238,0.5)]" : "text-slate-500 hover:text-white")}
-              >
-                ETH
-              </button>
-              <button
-                onClick={() => setAiSource("ASSETS")}
-                className={cn("px-4 py-1 text-[10px] font-black tracking-widest uppercase rounded transition-all flex items-center gap-2", aiSource === "ASSETS" ? "bg-emerald-500 text-slate-950 shadow-[0_0_10px_rgba(16,185,129,0.5)]" : "text-slate-500 hover:text-white")}
-              >
-                <span>ÖZEL:</span>
-                <span className={cn("px-1.5 py-0.5 rounded bg-black/20", aiSource === "ASSETS" ? "text-slate-900" : "text-emerald-400")}>{(selectedAsset || "BTCUSDT").replace('USDT', '').replace('/', '')}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* SOCKET STATUS */}
-          <div className="flex items-center gap-2 px-3 py-1 bg-slate-900/50 rounded-full border border-slate-800">
-            <div
-              className={cn(
-                "w-1.5 h-1.5 rounded-full",
-                socketOnline
-                  ? "bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]"
-                  : "bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]",
-              )}
-            />
-            <span
-              className={cn(
-                "text-[10px] font-black uppercase tracking-widest",
-                socketOnline ? "text-emerald-400" : "text-rose-400",
-              )}
-            >
-              SOCKET: {socketOnline ? "ONLINE" : "OFFLINE"}
-            </span>
-          </div>
-
-          {/* TIMEFRAME INDICATOR (now controlled globally from sidebar) */}
-          <div className="flex items-center bg-slate-950 rounded-lg px-3 py-1.5 border border-slate-800 ml-4">
-            <span className="text-[10px] font-black text-cyan-400 tracking-widest uppercase font-mono">
-              ⏱ {interval.toUpperCase()}
-            </span>
-          </div>
-        </div>
-
-        {/* CENTER: LIVE BTC TICKER (High Precision) */}
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-3">
-           <div className="flex flex-col items-center group cursor-crosshair">
-             <div className="flex items-center gap-2 px-2 py-1 relative">
-                <div className="relative flex items-center gap-3 perspective-1000">
-                    {/* 3D Rotating BTC Logo */}
-                    <div className="relative transform-gpu transition-transform duration-1000 group-hover:rotate-y-180 preserve-3d">
-                        {/* Outer Glow Circle */}
-                        <div className="absolute inset-0 bg-amber-500/20 rounded-full blur-md animate-pulse" />
-                        <AssetIcon 
-                            symbol="BTC" 
-                            size={24} 
-                            className="relative z-10 drop-shadow-[0_0_12px_rgba(247,147,26,0.8)] filter brightness-110 contrast-125" 
-                        />
-                    </div>
-                    
-                    <div className="flex items-baseline gap-1.5 font-mono relative">
-                      {/* Numbers with 3D Depth/Shadow */}
-                      <span className={cn(
-                        "text-2xl font-black tracking-[-0.05em] transition-all duration-300 transform-gpu hover:scale-110",
-                        "relative drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] [text-shadow:0_0_20px_var(--glow)]",
-                        !liveBtcPrice ? "text-cyan-400 [--glow:rgba(34,211,238,0.6)]" : 
-                        (prevLivePrice && liveBtcPrice >= prevLivePrice ? "text-emerald-400 [--glow:rgba(16,185,129,0.6)]" : "text-rose-400 [--glow:rgba(244,63,94,0.6)]")
-                      )}>
-                        {liveBtcPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || "00000.00"}
-                        
-                        {/* 3D Glass Reflection Overlay */}
-                        <div className="absolute inset-x-0 top-0 h-[40%] bg-gradient-to-b from-white/20 to-transparent pointer-events-none opacity-50 rounded-t" />
-                      </span>
-                      
-                      <span className="text-sm font-black text-slate-500/60 w-[20px] tabular-nums self-end mb-1">
-                        {microDigits}
-                      </span>
-                    </div>
-                </div>
-
-                {/* Status Pulse Node - Minimal */}
-                <div className={cn(
-                  "absolute -right-2 top-1 w-1 h-1 rounded-full",
-                  !liveBtcPrice ? "bg-cyan-500 animate-ping" : (prevLivePrice && liveBtcPrice >= prevLivePrice ? "bg-emerald-500 shadow-[0_0_8px_#10b981]" : "bg-rose-500 shadow-[0_0_8px_#f43f5e]")
-                )} />
-             </div>
-           </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-950 rounded-lg border border-slate-800">
-            <button
-              onClick={() => {
-                if (!config.auto_trade) {
-                  // Direct ON with current timeframe
-                  const activeTradingMode = (typeof window !== "undefined" && localStorage.getItem("TRADING_MODE") === "production") ? "production" : "test";
-                  saveConfig({ auto_trade: true, pilot_timeframe: interval }, () => {
-                     // Trigger immediate first-run evaluation after saving
-                     api.get(`/cron/strategies?immediate=true&tradingMode=${activeTradingMode}`).catch(() => null);
-                  });
-                } else {
-                  // Turning OFF → just disable
-                  saveConfig({ auto_trade: false });
-                }
-              }}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-black uppercase transition-all",
-                config.auto_trade
-                  ? "bg-emerald-500 text-slate-950 shadow-[0_0_10px_rgba(16,185,129,0.5)]"
-                  : "text-slate-500 hover:text-white",
-              )}
-            >
-              <Power className="w-3.5 h-3.5" />{" "}
-              {config.auto_trade ? `PİLOT ON (${(config.pilot_timeframe || interval).toUpperCase()})` : "PİLOT OFF"}
-            </button>
-            <div className="w-[1px] h-3.5 bg-slate-800 mx-1.5" />
-            <div className="flex bg-slate-900 rounded-md p-1 border border-slate-800 gap-1">
-              <button
-                onClick={() => {
-                  const currentTf = config.timeframe_settings || {};
-                  saveConfig({ timeframe_settings: { ...currentTf, tradeMode: "Scalp" } });
-                }}
-                className={cn(
-                  "px-3 py-1 rounded text-[10px] font-black tracking-widest uppercase transition-all",
-                  resolveTradeMode(config) === "Scalp"
-                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                    : "text-slate-500 hover:text-white",
-                )}
-              >
-                SCALP
-              </button>
-              <button
-                onClick={() => {
-                  const currentTf = config.timeframe_settings || {};
-                  saveConfig({ timeframe_settings: { ...currentTf, tradeMode: "Swing" } });
-                }}
-                className={cn(
-                  "px-3 py-1 rounded text-[10px] font-black tracking-widest uppercase transition-all",
-                  resolveTradeMode(config) === "Swing"
-                    ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
-                    : "text-slate-500 hover:text-white",
-                )}
-              >
-                SWING
-              </button>
-            </div>
-            <div className="w-[1px] h-3.5 bg-slate-800 mx-1.5" />
-            <button
-              onClick={() => saveConfig({ defense_mode: !config.defense_mode })}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-black uppercase transition-all",
-                config.defense_mode
-                  ? "bg-cyan-500 text-slate-950"
-                  : "text-slate-500 hover:text-white",
-              )}
-            >
-              <ShieldCheck className="w-3.5 h-3.5" /> SAVUNMA
-            </button>
-            <div className="w-[1px] h-3.5 bg-slate-800 mx-1.5" />
-            {!isPanicActive ? (
-              <button
-                disabled={isActionLoading}
-                onClick={handlePanicSell}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-black uppercase text-rose-500 hover:bg-rose-500/10 transition-all"
-              >
-                <AlertTriangle className="w-3.5 h-3.5" /> PANİK SAT
-              </button>
-            ) : (
-              <button
-                disabled={isActionLoading}
-                onClick={handlePanicBuy}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-black uppercase text-emerald-500 hover:bg-emerald-500/10 transition-all"
-              >
-                <RefreshCw className="w-3.5 h-3.5 underline decoration-emerald-500/50 underline-offset-2" />{" "}
-                GERİ AL
-              </button>
-            )}
-            <div className="w-[1px] h-3.5 bg-slate-800 mx-1.5" />
-            <button
-              onClick={runAiAnalysis}
-              disabled={aiLoading || (!isAdmin && aiCooldown > 0)}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-black uppercase transition-all",
-                aiResult ? "bg-violet-500 text-white shadow-[0_0_10px_rgba(139,92,246,0.5)]" : "text-violet-400 hover:bg-violet-500/10",
-              )}
-            >
-              <Brain className="w-3.5 h-3.5" />
-              {aiLoading ? "ANALİZ..." : (!isAdmin && aiCooldown > 0) ? `ŞEF (${Math.floor(aiCooldown/60)}:${(aiCooldown%60).toString().padStart(2, "0")})` : "ŞEF"}
-            </button>
-          </div>
-
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            className={cn(
-              "p-1.5 rounded-lg border transition-all",
-              showSettings
-                ? "bg-cyan-500/10 border-cyan-500/50 text-cyan-400"
-                : "border-slate-800 text-slate-500 hover:text-white",
-            )}
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
+      {/* UNIFIED COMMAND BAR (Header) */}
+      <CommandBar 
+        aiSource={aiSource}
+        setAiSource={setAiSource}
+        selectedAsset={activeSymbol}
+        socketOnline={socketOnline}
+        interval={interval}
+        liveBtcPrice={liveBtcPrice}
+        prevLivePrice={prevLivePrice}
+        microDigits={microDigits}
+        config={config}
+        saveConfig={saveConfig}
+        pilotStatus={pilotStatus}
+        isPanicActive={isPanicActive}
+        isActionLoading={isActionLoading}
+        handlePanicSell={handlePanicSell}
+        handlePanicBuy={handlePanicBuy}
+        runAiAnalysis={runAiAnalysis}
+        aiLoading={aiLoading}
+        isAdmin={isAdmin}
+        aiCooldown={aiCooldown}
+        aiResult={aiResult}
+        showSettings={showSettings}
+        setShowSettings={setShowSettings}
+      />
 
       {/* SETTINGS PANEL */}
       {showSettings && (
-        <div className="relative z-30 bg-slate-950/90 backdrop-blur-xl border border-cyan-500/20 rounded-xl p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in slide-in-from-top-4 duration-300 mb-2">
-          
-          {/* COL 1: SYSTEM & CONSOLE (Left Module + Right Module Merged) */}
-          <div className="lg:col-span-3 space-y-4 flex flex-col">
-            <div className="flex items-center gap-2 text-xs font-black text-white uppercase tracking-widest mb-1 pb-2 border-b border-white/5">
-              <Zap className="w-4 h-4 text-cyan-400" /> SİSTEM KONTROL
-            </div>
-            <div className="flex items-center gap-2 text-[10px] font-black text-cyan-400/60 uppercase tracking-widest bg-cyan-500/5 p-2 rounded-lg border border-cyan-500/10">
-              <Zap className="w-3 h-3 animate-pulse" /> OTONOM PARAMETRE: AKTİF
-            </div>
-            
-            <div className="bg-slate-900/80 border border-slate-800/80 rounded-xl p-3 text-[10px] text-slate-400 font-mono leading-relaxed flex-1 shadow-inner relative overflow-hidden group">
-              <div className="absolute top-0 left-0 w-1 h-full bg-cyan-500/50 group-hover:bg-cyan-400 transition-all duration-500" />
-              <span className="text-cyan-400 font-bold block mb-2 uppercase text-[9px] tracking-widest flex items-center gap-2">
-                <Activity size={10} /> ENGINE CONSOLE
-              </span>
-              <div className="space-y-1 opacity-80">
-                <div>{">"} Matrix Smart Engine Ready</div>
-                <div>{">"} Mode: {resolveTradeMode(config).toUpperCase()}</div>
-                <div>{">"} Defense: {config.defense_mode ? "REINFORCED" : "STANDARD"}</div>
-              </div>
-            </div>
-
-            <div className="p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
-              <div className="flex items-center gap-2 text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1">
-                <ShieldCheck className="w-3 h-3" /> CANLI SENKRONİZASYON
-              </div>
-            </div>
-          </div>
-
-          {/* COL 2: GENERAL PILOT SETTINGS */}
-          <div className="lg:col-span-3 space-y-4 px-2 border-l border-white/5">
-            <div className="flex items-center gap-2 text-xs font-black text-amber-400 uppercase tracking-widest pb-2 border-b border-white/10">
-              <Power className="w-4 h-4" /> GENEL PARAMETRELER
-            </div>
-            
-            <div className="space-y-4">
-              <div className="flex items-center justify-between bg-slate-900/50 p-2.5 rounded-lg border border-white/5">
-                <div className="flex flex-col">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    Gecikmeli Alım
-                  </span>
-                </div>
-                <button
-                  onClick={() => saveConfig({ pilot_trailing_buy: !config.pilot_trailing_buy })}
-                  className={cn(
-                    "px-2.5 py-1 rounded text-[9px] font-black uppercase transition-all shadow-sm",
-                    config.pilot_trailing_buy ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-slate-950 text-slate-600 border border-slate-800"
-                  )}
-                >
-                  {config.pilot_trailing_buy ? "AKTİF" : "PASİF"}
-                </button>
-              </div>
-              
-              <div className="flex items-center justify-between bg-slate-900/50 p-2.5 rounded-lg border border-white/5">
-                <div className="flex flex-col">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    Portföyü Tara
-                  </span>
-                </div>
-                <button
-                  onClick={() => saveConfig({ pilot_only_holdings: !config.pilot_only_holdings })}
-                  className={cn(
-                    "px-2.5 py-1 rounded text-[9px] font-black uppercase transition-all shadow-sm",
-                    config.pilot_only_holdings ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30" : "bg-slate-950 text-slate-600 border border-slate-800"
-                  )}
-                >
-                  {config.pilot_only_holdings ? "AKTİF" : "PASİF"}
-                </button>
-              </div>
-
-              <div className="bg-slate-900/50 p-3 rounded-lg border border-white/5">
-                <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
-                  <span>İşlem Büyüklüğü</span>
-                  <span className="text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded">
-                    {((config.timeframe_settings as any)?.pilot_trade_allocation || 10)}%
-                  </span>
-                </div>
-                <input
-                  type="range" min="5" max="100" step="5"
-                  value={(config.timeframe_settings as any)?.pilot_trade_allocation || 10}
-                  onChange={(e) => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), pilot_trade_allocation: parseInt(e.target.value) } })}
-                  className="w-full h-1.5 accent-cyan-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer shadow-cyan-500/50"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* COL 3: TRADE (LONG) SETTINGS */}
-          <div className="lg:col-span-3 space-y-4 px-2 border-l border-white/5">
-            <div className="flex items-center gap-2 text-xs font-black text-emerald-500 uppercase tracking-widest pb-2 border-b border-white/10">
-              📈 TRADE (LONG)
-            </div>
-            
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-2 border border-emerald-500/20 bg-emerald-500/5 p-2 rounded-lg shadow-inner shadow-emerald-500/5">
-                  <div className="flex justify-between items-center bg-slate-950/50 rounded p-1">
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Sabit TP</span>
-                    <span className="text-[10px] font-black text-emerald-400">{config.timeframe_settings?.pilot_tp_percent || 1.0}%</span>
-                  </div>
-                  <input
-                    type="range" min="0.5" max="10.0" step="0.1"
-                    value={config.timeframe_settings?.pilot_tp_percent || 1.0}
-                    onChange={(e) => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), pilot_tp_percent: parseFloat(e.target.value) } })}
-                    className="w-full h-1 accent-emerald-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer"
-                  />
-                </div>
-                <div className="space-y-2 border border-rose-500/20 bg-rose-500/5 p-2 rounded-lg shadow-inner shadow-rose-500/5">
-                  <div className="flex justify-between items-center bg-slate-950/50 rounded p-1">
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Sabit SL</span>
-                    <span className="text-[10px] font-black text-rose-400">{config.timeframe_settings?.pilot_sl_percent || 0.5}%</span>
-                  </div>
-                  <input
-                    type="range" min="0.5" max="10.0" step="0.1"
-                    value={config.timeframe_settings?.pilot_sl_percent || 0.5}
-                    onChange={(e) => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), pilot_sl_percent: parseFloat(e.target.value) } })}
-                    className="w-full h-1 accent-rose-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-rose-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2 border border-emerald-500/20 bg-emerald-500/5 p-2.5 rounded-lg">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-[10px] font-black text-emerald-500 uppercase">İz Süren Kar (TSL)</span>
-                  <button
-                    onClick={() => saveConfig({ pilot_tp_trailing: !config.pilot_tp_trailing })}
-                    className={cn("px-2 py-0.5 text-[8px] font-bold rounded transition-all", config.pilot_tp_trailing ? "bg-emerald-400 text-slate-950" : "bg-slate-800 text-slate-500")}
-                  >
-                    {config.pilot_tp_trailing ? "AÇIK" : "KAPALI"}
-                  </button>
-                </div>
-                <div className="flex justify-between text-[9px] font-bold text-slate-500 bg-slate-950/50 p-1 rounded">
-                  <span>Sapma (Dev)</span>
-                  <span className="text-emerald-400">{config.pilot_tp_deviation || 1.0}%</span>
-                </div>
-                <input
-                  type="range" min="0.1" max="5.0" step="0.1"
-                  value={config.pilot_tp_deviation || 1.0}
-                  onChange={(e) => saveConfig({ pilot_tp_deviation: parseFloat(e.target.value) })}
-                  className="w-full h-1 accent-emerald-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer"
-                />
-              </div>
-
-              <div className="space-y-2 border border-rose-500/20 bg-rose-500/5 p-2.5 rounded-lg">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-[10px] font-black text-rose-500 uppercase">İz Süren Zarar Kes</span>
-                  <button
-                    onClick={() => saveConfig({ pilot_sl_trailing: !config.pilot_sl_trailing })}
-                    className={cn("px-2 py-0.5 text-[8px] font-bold rounded transition-all", config.pilot_sl_trailing ? "bg-rose-400 text-slate-950" : "bg-slate-800 text-slate-500")}
-                  >
-                    {config.pilot_sl_trailing ? "AÇIK" : "KAPALI"}
-                  </button>
-                </div>
-                <div className="flex justify-between text-[9px] font-bold text-slate-500 bg-slate-950/50 p-1 rounded">
-                  <span>Sapma (Dev)</span>
-                  <span className="text-rose-400">{config.pilot_sl_deviation || 0.5}%</span>
-                </div>
-                <input
-                  type="range" min="0.1" max="5.0" step="0.1"
-                  value={config.pilot_sl_deviation || 0.5}
-                  onChange={(e) => saveConfig({ pilot_sl_deviation: parseFloat(e.target.value) })}
-                  className="w-full h-1 accent-rose-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-rose-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* COL 4: COVER (SHORT) SETTINGS */}
-          <div className="lg:col-span-3 space-y-4 px-2 border-l border-white/5">
-            <div className="flex items-center gap-2 text-xs font-black text-purple-400 uppercase tracking-widest pb-2 border-b border-white/10">
-              📉 COVER (SHORT)
-            </div>
-            
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-2 border border-purple-500/20 bg-purple-500/5 p-2 rounded-lg shadow-inner shadow-purple-500/5">
-                  <div className="flex justify-between items-center bg-slate-950/50 rounded p-1">
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Geri Alım (TP)</span>
-                    <span className="text-[10px] font-black text-purple-400">{config.timeframe_settings?.cover_tp_percent || 0.5}%</span>
-                  </div>
-                  <input
-                    type="range" min="0.5" max="10.0" step="0.1"
-                    value={config.timeframe_settings?.cover_tp_percent || 0.5}
-                    onChange={(e) => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), cover_tp_percent: parseFloat(e.target.value) } })}
-                    className="w-full h-1 accent-purple-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer"
-                  />
-                </div>
-                <div className="space-y-2 border border-rose-500/20 bg-rose-500/5 p-2 rounded-lg shadow-inner shadow-rose-500/5">
-                  <div className="flex justify-between items-center bg-slate-950/50 rounded p-1">
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Aşım (SL)</span>
-                    <span className="text-[10px] font-black text-rose-400">{config.timeframe_settings?.cover_sl_percent || 0.3}%</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="10.0" step="0.1"
-                    value={config.timeframe_settings?.cover_sl_percent || 0.3}
-                    onChange={(e) => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), cover_sl_percent: parseFloat(e.target.value) } })}
-                    className="w-full h-1 accent-rose-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-rose-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2 border border-purple-500/20 bg-purple-500/5 p-2.5 rounded-lg">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-[10px] font-black text-purple-400 uppercase">Geri Alım TTP</span>
-                  <button
-                    onClick={() => saveConfig({ timeframe_settings: { ...config.timeframe_settings, cover_tp_trailing: !(config.timeframe_settings?.cover_tp_trailing ?? true) } })}
-                    className={cn("px-2 py-0.5 text-[8px] font-bold rounded transition-all", (config.timeframe_settings?.cover_tp_trailing ?? true) ? "bg-purple-400 text-slate-950" : "bg-slate-800 text-slate-500")}
-                  >
-                    {(config.timeframe_settings?.cover_tp_trailing ?? true) ? "AÇIK" : "KAPALI"}
-                  </button>
-                </div>
-                <div className="flex justify-between text-[9px] font-bold text-slate-500 bg-slate-950/50 p-1 rounded">
-                  <span>Sapma (Dev)</span>
-                  <span className="text-purple-400">{config.timeframe_settings?.cover_tp_deviation || 0.3}%</span>
-                </div>
-                <input
-                  type="range" min="0.1" max="5.0" step="0.1"
-                  value={config.timeframe_settings?.cover_tp_deviation || 0.3}
-                  onChange={(e) => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), cover_tp_deviation: parseFloat(e.target.value) } })}
-                  className="w-full h-1 accent-purple-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer"
-                />
-              </div>
-
-              <div className="space-y-2 border border-rose-500/20 bg-rose-500/5 p-2.5 rounded-lg">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-[10px] font-black text-rose-500 uppercase">Aşım Kes TSL</span>
-                  <button
-                    onClick={() => saveConfig({ timeframe_settings: { ...config.timeframe_settings, cover_sl_trailing: !(config.timeframe_settings?.cover_sl_trailing ?? false) } })}
-                    className={cn("px-2 py-0.5 text-[8px] font-bold rounded transition-all", (config.timeframe_settings?.cover_sl_trailing ?? false) ? "bg-rose-400 text-slate-950" : "bg-slate-800 text-slate-500")}
-                  >
-                    {(config.timeframe_settings?.cover_sl_trailing ?? false) ? "AÇIK" : "KAPALI"}
-                  </button>
-                </div>
-                <div className="flex justify-between text-[9px] font-bold text-slate-500 bg-slate-950/50 p-1 rounded">
-                  <span>Sapma (Dev)</span>
-                  <span className="text-rose-400">{config.timeframe_settings?.cover_sl_deviation || 1.0}%</span>
-                </div>
-                <input
-                  type="range" min="0.1" max="5.0" step="0.1"
-                  value={config.timeframe_settings?.cover_sl_deviation || 1.0}
-                  onChange={(e) => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), cover_sl_deviation: parseFloat(e.target.value) } })}
-                  className="w-full h-1 accent-rose-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-rose-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
+        <SettingsPanel 
+          config={config}
+          saveConfig={saveConfig}
+          isAdmin={isAdmin}
+          lastSync={lastSync}
+          riskMode={riskMode}
+          setRiskMode={setRiskMode}
+        />
       )}
+
+
 
       {/* UNIFIED COCKPIT LAYOUT */}
       <div className="flex-1 relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -1232,9 +782,9 @@ export const MatrixHorizon = () => {
               label="Tahmin"
               value={signal?.prediction?.text ?? "---"}
               cls={
-                upProb >= 60
+                upProb >= 60 || (signal?.prediction?.text || "").includes("YUKARI") || (signal?.prediction?.text || "").includes("📈")
                   ? "text-emerald-400"
-                  : downProb >= 60
+                  : downProb >= 60 || (signal?.prediction?.text || "").includes("AŞAĞI") || (signal?.prediction?.text || "").includes("📉")
                     ? "text-rose-400"
                     : "text-slate-400"
               }
@@ -1527,6 +1077,7 @@ export const MatrixHorizon = () => {
                 riskMode={riskMode}
                 onRiskModeChange={(val) => {
                   setRiskMode(val);
+                  localStorage.setItem("mx_riskMode", val);
                 }}
               />
             </div>
@@ -1564,6 +1115,17 @@ export const MatrixHorizon = () => {
                 <MiniBar value={val} color={color} />
               </div>
             ))}
+            <Row
+              label="Funding Rate"
+              value={signal?.fundingRate !== undefined && signal.fundingRate !== null ? `${(signal.fundingRate * 100).toFixed(4)}%` : "---"}
+              cls={
+                (signal?.fundingRate ?? 0) > 0
+                  ? "text-emerald-400"
+                  : (signal?.fundingRate ?? 0) < 0
+                    ? "text-rose-400"
+                    : "text-slate-400"
+              }
+            />
             <Row
               label="Piyasa Rejimi"
               value={
@@ -1966,13 +1528,13 @@ export const MatrixHorizon = () => {
                 </span>
                 <div className="h-[1px] flex-1 bg-gradient-to-r from-slate-800 to-transparent" />
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {aiHistory.map((h, i) => {
                   const hv = AI_VS[h.verdict] || AI_VS["BEKLE"];
                   return (
                     <div
                       key={i}
-                      className="px-2.5 py-1.5 bg-slate-900/40 border border-slate-800/50 rounded-lg flex items-center gap-3 transition-all hover:border-slate-700/50"
+                      className="px-2.5 py-1.5 bg-slate-900/40 border border-slate-800/50 rounded-lg flex items-center gap-3 transition-all hover:border-slate-700/50 w-full"
                     >
                       <span className="text-[9px] font-medium text-slate-600 font-mono italic">
                         {h.time}
@@ -2000,8 +1562,214 @@ export const MatrixHorizon = () => {
           )}
         </div>
       </div>
-
     </div>
-
-  </>);
+  );
 };
+
+// --- SUB-COMPONENTS ---
+
+interface CommandBarProps {
+  aiSource: string;
+  setAiSource: (s: "ETH" | "ASSETS") => void;
+  selectedAsset: string;
+  socketOnline: boolean;
+  interval: string;
+  liveBtcPrice: number | null;
+  prevLivePrice: number | null;
+  microDigits: string;
+  config: BotConfig;
+  saveConfig: (updates: Partial<BotConfig>, cb?: () => void) => void;
+  pilotStatus: string;
+  isPanicActive: boolean;
+  isActionLoading: boolean;
+  handlePanicSell: () => void;
+  handlePanicBuy: () => void;
+  runAiAnalysis: () => void;
+  aiLoading: boolean;
+  isAdmin: boolean;
+  aiCooldown: number;
+  aiResult: any;
+  showSettings: boolean;
+  setShowSettings: (s: boolean) => void;
+}
+
+const CommandBar = ({
+  aiSource, setAiSource, selectedAsset, socketOnline, interval,
+  liveBtcPrice, prevLivePrice, microDigits, config, saveConfig,
+  pilotStatus, isPanicActive, isActionLoading, handlePanicSell, handlePanicBuy,
+  runAiAnalysis, aiLoading, isAdmin, aiCooldown, aiResult, showSettings, setShowSettings
+}: CommandBarProps) => (
+  <div className="relative z-20 flex flex-wrap items-center justify-center sm:justify-between py-2 px-2 gap-3 border-b border-slate-800/40 bg-slate-950/20 backdrop-blur-sm rounded-t-xl mb-2 font-mono">
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/60 border border-slate-800/80 rounded-xl shadow-lg">
+        <LayoutTemplate className="w-4 h-4 text-cyan-400" />
+        <h2 className="text-[10px] font-black tracking-[0.2em] text-cyan-100 uppercase hidden lg:block">Matrix Horizon</h2>
+      </div>
+      <div className="flex items-center p-1 bg-slate-950/60 border border-slate-800/80 rounded-xl">
+        <button onClick={() => setAiSource("ETH")} className={cn("px-3 py-1 text-[9px] font-black tracking-widest uppercase rounded-lg transition-all", aiSource === "ETH" ? "bg-cyan-500 text-slate-950 shadow-lg" : "text-slate-500 hover:text-white")}>ETH</button>
+        <button onClick={() => setAiSource("ASSETS")} className={cn("px-3 py-1 text-[9px] font-black tracking-widest uppercase rounded-lg transition-all flex items-center gap-2", aiSource === "ASSETS" ? "bg-emerald-500 text-slate-950 shadow-lg" : "text-slate-500 hover:text-white")}>
+          <span>ÖZEL</span>
+          <span className={cn("px-1.5 py-0.5 rounded bg-black/20 text-[8px]", aiSource === "ASSETS" ? "text-slate-900" : "text-emerald-400")}>{(selectedAsset || "BTCUSDT").replace('USDT', '').replace('/', '')}</span>
+        </button>
+      </div>
+    </div>
+    <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/60 border border-slate-800/80 rounded-xl">
+        <div className={cn("w-1.5 h-1.5 rounded-full", socketOnline ? "bg-emerald-500 animate-pulse" : "bg-rose-500")} />
+        <span className={cn("text-[9px] font-black uppercase tracking-widest", socketOnline ? "text-emerald-400" : "text-rose-400")}>{socketOnline ? "ONLINE" : "OFFLINE"}</span>
+        <div className="w-[1px] h-3 bg-slate-800 mx-1" />
+        <span className="text-[9px] font-black text-cyan-400 tracking-widest">⏱{interval.toUpperCase()}</span>
+      </div>
+    </div>
+    <div className="flex items-center px-4 py-1.5 bg-slate-950/60 border border-slate-800/80 rounded-xl shadow-inner min-w-[160px] justify-center">
+      <div className="flex items-center gap-3">
+        <AssetIcon symbol="BTC" size={20} className="drop-shadow-[0_0_8px_rgba(247,147,26,0.6)]" />
+        <div className="flex items-baseline gap-1">
+          <span className={cn("text-lg font-black tracking-tight", !liveBtcPrice ? "text-cyan-400" : (prevLivePrice && liveBtcPrice >= prevLivePrice ? "text-emerald-400" : "text-rose-400"))}>{liveBtcPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || "00000.00"}</span>
+          <span className="text-[10px] font-bold text-slate-600 font-mono tabular-nums leading-none mb-0.5">{microDigits}</span>
+        </div>
+      </div>
+    </div>
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center p-1 bg-slate-950/60 border border-slate-800/80 rounded-xl gap-1">
+        <button onClick={() => { if (!config.auto_trade) { const mode = (typeof window !== "undefined" && localStorage.getItem("TRADING_MODE") === "production") ? "production" : "test"; saveConfig({ auto_trade: true, pilot_timeframe: interval }, () => { api.get(`/cron/strategies?immediate=true&tradingMode=${mode}`).catch(() => null); }); } else { saveConfig({ auto_trade: false }); } }} className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all", config.auto_trade ? "bg-emerald-500 text-slate-950 shadow-md" : "text-slate-500 hover:text-white")}><Power className="w-3 h-3" /><span className="hidden sm:inline">PİLOT</span> {config.auto_trade ? "ON" : "OFF"}</button>
+        {pilotStatus !== "IDLE" && (
+          <div className={cn("px-2 py-1 rounded bg-slate-900 border border-slate-800 text-[8px] font-black uppercase tracking-tighter flex items-center gap-1", pilotStatus === "SCANNING" ? "text-cyan-400" : "text-emerald-400")}>{pilotStatus === "SCANNING" ? <Activity className="w-2.5 h-2.5 animate-spin" /> : <Zap className="w-2.5 h-2.5 animate-bounce" />}<span className="hidden md:inline">{pilotStatus}</span></div>
+        )}
+        <div className="w-[1px] h-4 bg-slate-800 mx-1" />
+        <div className="flex items-center gap-1 px-1">
+          <button onClick={() => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), tradeMode: "Scalp" } })} className={cn("px-2 py-1 rounded text-[8px] font-black tracking-widest uppercase transition-all", resolveTradeMode(config) === "Scalp" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40" : "text-slate-500 hover:text-white")}>SCALP</button>
+          <button onClick={() => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), tradeMode: "Swing" } })} className={cn("px-2 py-1 rounded text-[8px] font-black tracking-widest uppercase transition-all", resolveTradeMode(config) === "Swing" ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/40" : "text-slate-500 hover:text-white")}>SWING</button>
+        </div>
+      </div>
+    </div>
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center p-1 bg-slate-950/60 border border-slate-800/80 rounded-xl gap-1">
+        <button onClick={() => saveConfig({ defense_mode: !config.defense_mode })} className={cn("px-2 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all flex items-center gap-1.5", config.defense_mode ? "bg-cyan-500 text-slate-950" : "text-slate-500 hover:text-white")} title="Savunma Modu"><ShieldCheck className="w-3 h-3" /><span className="hidden xl:inline">SAVUNMA</span></button>
+        <button disabled={isActionLoading} onClick={isPanicActive ? handlePanicBuy : handlePanicSell} className={cn("px-2 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all flex items-center gap-1.5", isPanicActive ? "text-emerald-500 hover:bg-emerald-500/10" : "text-rose-500 hover:bg-rose-500/10")} title={isPanicActive ? "Piyasaya Dön" : "Panik Satış"}>{isPanicActive ? <RefreshCw className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}<span className="hidden xl:inline">{isPanicActive ? "GERİ AL" : "PANİK SAT"}</span></button>
+        <button onClick={runAiAnalysis} disabled={aiLoading || (!isAdmin && aiCooldown > 0)} className={cn("px-2 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all flex items-center gap-1.5", aiResult ? "bg-violet-500 text-white" : "text-violet-400 hover:bg-violet-500/10")} title="AI Analizi Çalıştır"><Brain className="w-3 h-3" /><span className="hidden xl:inline">ŞEF</span></button>
+        <div className="w-[1px] h-4 bg-slate-800 mx-1" />
+        <button onClick={() => setShowSettings(!showSettings)} className={cn("p-1.5 rounded-lg border transition-all", showSettings ? "bg-cyan-500/10 border-cyan-500/50 text-cyan-400" : "border-slate-800 text-slate-500 hover:text-white")}><Settings className="w-3.5 h-3.5" /></button>
+      </div>
+    </div>
+  </div>
+);
+
+interface SettingsPanelProps {
+  config: BotConfig;
+  saveConfig: (updates: Partial<BotConfig>, cb?: () => void) => void;
+  isAdmin: boolean;
+  lastSync?: Date | null;
+  riskMode: string;
+  setRiskMode: (m: any) => void;
+}
+
+const SettingsPanel = ({ config, saveConfig, isAdmin, lastSync, riskMode, setRiskMode }: SettingsPanelProps) => (
+  <div className="relative z-30 bg-slate-950/90 backdrop-blur-xl border border-cyan-500/20 rounded-xl p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in slide-in-from-top-4 duration-300 mb-2">
+    <div className="lg:col-span-3 space-y-4 flex flex-col">
+      <div className="flex items-center gap-2 text-xs font-black text-white uppercase tracking-widest mb-1 pb-2 border-b border-white/5"><Zap className="w-4 h-4 text-cyan-400" /> SİSTEM KONTROL</div>
+      <div className="flex items-center gap-2 text-[10px] font-black text-cyan-400/60 uppercase tracking-widest bg-cyan-500/5 p-2 rounded-lg border border-cyan-500/10"><Zap className="w-3 h-3 animate-pulse" /> OTONOM PARAMETRE: AKTİF</div>
+      <div className="bg-slate-900/80 border border-slate-800/80 rounded-xl p-3 text-[10px] text-slate-400 font-mono leading-relaxed flex-1 shadow-inner relative overflow-hidden group">
+        <div className="absolute top-0 left-0 w-1 h-full bg-cyan-500/50 group-hover:bg-cyan-400 transition-all duration-500" /><span className="text-cyan-400 font-bold block mb-2 uppercase text-[9px] tracking-widest flex items-center gap-2"><Activity size={10} /> ENGINE CONSOLE</span>
+        <div className="space-y-1 opacity-80"><div>{">"} Matrix Smart Engine Ready</div><div>{">"} Mode: {resolveTradeMode(config).toUpperCase()}</div><div>{">"} Defense: {config.defense_mode ? "REINFORCED" : "STANDARD"}</div></div>
+      </div>
+      <div className="p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl"><div className="flex items-center gap-2 text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1"><ShieldCheck className="w-3 h-3" /> CANLI SENKRONİZASYON</div></div>
+    </div>
+    <div className="lg:col-span-3 space-y-4 px-2 border-l border-white/5">
+      <div className="flex items-center gap-2 text-xs font-black text-amber-400 uppercase tracking-widest pb-2 border-b border-white/10"><Power className="w-4 h-4" /> GENEL PARAMETRELER</div>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between bg-slate-900/50 p-2.5 rounded-lg border border-white/5"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gecikmeli Alım</span><button onClick={() => saveConfig({ pilot_trailing_buy: !config.pilot_trailing_buy })} className={cn("px-2.5 py-1 rounded text-[9px] font-black uppercase transition-all shadow-sm", config.pilot_trailing_buy ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-slate-950 text-slate-600 border border-slate-800")}>{config.pilot_trailing_buy ? "AKTİF" : "PASİF"}</button></div>
+        <div className="flex items-center justify-between bg-slate-900/50 p-2.5 rounded-lg border border-white/5"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Portföyü Tara</span><button onClick={() => saveConfig({ pilot_only_holdings: !config.pilot_only_holdings })} className={cn("px-2.5 py-1 rounded text-[9px] font-black uppercase transition-all shadow-sm", config.pilot_only_holdings ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30" : "bg-slate-950 text-slate-600 border border-slate-800")}>{config.pilot_only_holdings ? "AKTİF" : "PASİF"}</button></div>
+        <div className="bg-slate-900/50 p-3 rounded-lg border border-white/5"><div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2"><span>İşlem Büyüklüğü</span><span className="text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded">{((config.timeframe_settings as any)?.pilot_trade_allocation || 10)}%</span></div><input type="range" min="5" max="100" step="5" value={(config.timeframe_settings as any)?.pilot_trade_allocation || 10} onChange={(e) => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), pilot_trade_allocation: parseInt(e.target.value) } })} className="w-full h-1.5 accent-cyan-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" /></div>
+      </div>
+    </div>
+    <div className="lg:col-span-3 space-y-4 px-2 border-l border-white/5">
+      <div className="flex items-center gap-2 text-xs font-black text-emerald-500 uppercase tracking-widest pb-2 border-b border-white/10">📈 TRADE (LONG)</div>
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-2 border border-emerald-500/20 bg-emerald-500/5 p-2 rounded-lg shadow-inner shadow-emerald-500/5"><div className="flex justify-between items-center bg-slate-950/50 rounded p-1"><span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Sabit TP</span><span className="text-[10px] font-black text-emerald-400">{config.timeframe_settings?.pilot_tp_percent || DEFAULT_BOT_CONFIG.timeframe_settings.pilot_tp_percent}%</span></div><input type="range" min="0.5" max="10.0" step="0.1" value={config.timeframe_settings?.pilot_tp_percent || DEFAULT_BOT_CONFIG.timeframe_settings.pilot_tp_percent} onChange={(e) => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), pilot_tp_percent: parseFloat(e.target.value) } })} className="w-full h-1 accent-emerald-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" /></div>
+          <div className="space-y-2 border border-rose-500/20 bg-rose-500/5 p-2 rounded-lg shadow-inner shadow-rose-500/5"><div className="flex justify-between items-center bg-slate-950/50 rounded p-1"><span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Sabit SL</span><span className="text-[10px] font-black text-rose-400">{config.timeframe_settings?.pilot_sl_percent || DEFAULT_BOT_CONFIG.timeframe_settings.pilot_sl_percent}%</span></div><input type="range" min="0.5" max="10.0" step="0.1" value={config.timeframe_settings?.pilot_sl_percent || DEFAULT_BOT_CONFIG.timeframe_settings.pilot_sl_percent} onChange={(e) => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), pilot_sl_percent: parseFloat(e.target.value) } })} className="w-full h-1 accent-rose-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-rose-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" /></div>
+        </div>
+        {/* TTP — Trailing Take Profit (yeşil) */}
+        <div className="space-y-2 border border-emerald-500/20 bg-emerald-500/5 p-2.5 rounded-lg">
+          <div className="flex justify-between items-center mb-1">
+            <div className="flex flex-col">
+              <span className="text-[10px] font-black text-emerald-400 uppercase">TTP — İz Kâr Al</span>
+              <span className="text-[8px] text-slate-500">TP'ye ulaşınca aktif, TP'yi izler ↑</span>
+            </div>
+            <button onClick={() => saveConfig({ pilot_tp_trailing: !config.pilot_tp_trailing })} className={cn("px-2 py-0.5 text-[8px] font-bold rounded transition-all", config.pilot_tp_trailing ? "bg-emerald-400 text-slate-950" : "bg-slate-800 text-slate-500")}>{config.pilot_tp_trailing ? "AÇIK" : "KAPALI"}</button>
+          </div>
+          <div className="flex justify-between text-[9px] font-bold text-slate-500 bg-slate-950/50 p-1 rounded"><span>Sapma (Dev)</span><span className="text-emerald-400">{config.pilot_tp_deviation || DEFAULT_BOT_CONFIG.pilot_tp_deviation}%</span></div>
+          <input type="range" min="0.1" max="5.0" step="0.1" value={config.pilot_tp_deviation || DEFAULT_BOT_CONFIG.pilot_tp_deviation} onChange={(e) => saveConfig({ pilot_tp_deviation: parseFloat(e.target.value) })} className="w-full h-1 accent-emerald-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
+        </div>
+        {/* TSL — Trailing Stop Loss (kırmızı) */}
+        <div className="space-y-2 border border-rose-500/20 bg-rose-500/5 p-2.5 rounded-lg">
+          <div className="flex justify-between items-center mb-1">
+            <div className="flex flex-col">
+              <span className="text-[10px] font-black text-rose-400 uppercase">TSL — İz Zarar Kes</span>
+              <span className="text-[8px] text-slate-500">TP tetiklenince aktif, SL'yi yukarı taşır ↑</span>
+            </div>
+            <button onClick={() => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), pilot_sl_trailing: !(config.timeframe_settings as any)?.pilot_sl_trailing } })} className={cn("px-2 py-0.5 text-[8px] font-bold rounded transition-all", (config.timeframe_settings as any)?.pilot_sl_trailing ? "bg-rose-400 text-slate-950" : "bg-slate-800 text-slate-500")}>{(config.timeframe_settings as any)?.pilot_sl_trailing ? "AÇIK" : "KAPALI"}</button>
+          </div>
+          <div className="flex justify-between text-[9px] font-bold text-slate-500 bg-slate-950/50 p-1 rounded"><span>Sapma (Dev)</span><span className="text-rose-400">{(config.timeframe_settings as any)?.pilot_sl_deviation || DEFAULT_BOT_CONFIG.pilot_sl_deviation}%</span></div>
+          <input type="range" min="0.1" max="5.0" step="0.1" value={(config.timeframe_settings as any)?.pilot_sl_deviation || DEFAULT_BOT_CONFIG.pilot_sl_deviation} onChange={(e) => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), pilot_sl_deviation: parseFloat(e.target.value) } })} className="w-full h-1 accent-rose-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-rose-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
+        </div>
+      </div>
+    </div>
+    <div className="lg:col-span-3 space-y-4 px-2 border-l border-white/5">
+      <div className="flex items-center gap-2 text-xs font-black text-purple-400 uppercase tracking-widest pb-2 border-b border-white/10">📉 COVER (SHORT)</div>
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-2 border border-purple-500/20 bg-purple-500/5 p-2 rounded-lg shadow-inner shadow-purple-500/5"><div className="flex justify-between items-center bg-slate-950/50 rounded p-1"><span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Geri Alım (TP)</span><span className="text-[10px] font-black text-purple-400">{config.timeframe_settings?.cover_tp_percent || DEFAULT_BOT_CONFIG.timeframe_settings.cover_tp_percent}%</span></div><input type="range" min="0.5" max="10.0" step="0.1" value={config.timeframe_settings?.cover_tp_percent || DEFAULT_BOT_CONFIG.timeframe_settings.cover_tp_percent} onChange={(e) => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), cover_tp_percent: parseFloat(e.target.value) } })} className="w-full h-1 accent-purple-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" /></div>
+          <div className="space-y-2 border border-rose-500/20 bg-rose-500/5 p-2 rounded-lg shadow-inner shadow-rose-500/5"><div className="flex justify-between items-center bg-slate-950/50 rounded p-1"><span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Aşım (SL)</span><span className="text-[10px] font-black text-rose-400">{config.timeframe_settings?.cover_sl_percent || DEFAULT_BOT_CONFIG.timeframe_settings.cover_sl_percent}%</span></div><input type="range" min="0.1" max="10.0" step="0.1" value={config.timeframe_settings?.cover_sl_percent || DEFAULT_BOT_CONFIG.timeframe_settings.cover_sl_percent} onChange={(e) => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), cover_sl_percent: parseFloat(e.target.value) } })} className="w-full h-1 accent-rose-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-rose-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" /></div>
+        </div>
+        {/* Cover TTP — İz Geri Alım (mor/yeşil: aşağı yönlü trailing) */}
+        <div className="space-y-2 border border-purple-500/20 bg-purple-500/5 p-2.5 rounded-lg">
+          <div className="flex justify-between items-center mb-1">
+            <div className="flex flex-col">
+              <span className="text-[10px] font-black text-purple-400 uppercase">TTP — İz Geri Alım</span>
+              <span className="text-[8px] text-slate-500">TP'ye düşünce aktif, geri alımı aşağı izler ↓</span>
+            </div>
+            <button
+              onClick={() => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), cover_tp_trailing: !(config.timeframe_settings as any)?.cover_tp_trailing } })}
+              className={cn("px-2 py-0.5 text-[8px] font-bold rounded transition-all", (config.timeframe_settings as any)?.cover_tp_trailing ? "bg-purple-400 text-slate-950" : "bg-slate-800 text-slate-500")}
+            >
+              {(config.timeframe_settings as any)?.cover_tp_trailing ? "AÇIK" : "KAPALI"}
+            </button>
+          </div>
+          <div className="flex justify-between text-[9px] font-bold text-slate-500 bg-slate-950/50 p-1 rounded">
+            <span>Sapma (Dev)</span>
+            <span className="text-purple-400">{(config.timeframe_settings as any)?.cover_tp_deviation || DEFAULT_BOT_CONFIG.timeframe_settings.cover_tp_deviation}%</span>
+          </div>
+          <input type="range" min="0.1" max="5.0" step="0.1"
+            value={(config.timeframe_settings as any)?.cover_tp_deviation || DEFAULT_BOT_CONFIG.timeframe_settings.cover_tp_deviation}
+            onChange={(e) => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), cover_tp_deviation: parseFloat(e.target.value) } })}
+            className="w-full h-1 accent-purple-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
+        </div>
+        {/* Cover TSL — İz Aşım Kes (kırmızı: yukarı kırılımda SL izle) */}
+        <div className="space-y-2 border border-rose-500/20 bg-rose-500/5 p-2.5 rounded-lg">
+          <div className="flex justify-between items-center mb-1">
+            <div className="flex flex-col">
+              <span className="text-[10px] font-black text-rose-400 uppercase">TSL — İz Zarar Kes</span>
+              <span className="text-[8px] text-slate-500">TP geçilince aktif, SL'yi aşağı taşır ↓</span>
+            </div>
+            <button
+              onClick={() => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), cover_sl_trailing: !(config.timeframe_settings as any)?.cover_sl_trailing } })}
+              className={cn("px-2 py-0.5 text-[8px] font-bold rounded transition-all", (config.timeframe_settings as any)?.cover_sl_trailing ? "bg-rose-400 text-slate-950" : "bg-slate-800 text-slate-500")}
+            >
+              {(config.timeframe_settings as any)?.cover_sl_trailing ? "AÇIK" : "KAPALI"}
+            </button>
+          </div>
+          <div className="flex justify-between text-[9px] font-bold text-slate-500 bg-slate-950/50 p-1 rounded">
+            <span>Sapma (Dev)</span>
+            <span className="text-rose-400">{(config.timeframe_settings as any)?.cover_sl_deviation || DEFAULT_BOT_CONFIG.timeframe_settings.cover_sl_deviation}%</span>
+          </div>
+          <input type="range" min="0.1" max="5.0" step="0.1"
+            value={(config.timeframe_settings as any)?.cover_sl_deviation || DEFAULT_BOT_CONFIG.timeframe_settings.cover_sl_deviation}
+            onChange={(e) => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), cover_sl_deviation: parseFloat(e.target.value) } })}
+            className="w-full h-1 accent-rose-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-rose-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
+        </div>
+      </div>
+    </div>
+  </div>
+);

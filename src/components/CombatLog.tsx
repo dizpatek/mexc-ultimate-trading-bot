@@ -6,6 +6,7 @@ import {
   Activity,
   Crosshair,
   Zap,
+  Clock,
   Radar,
   Target,
   AlertTriangle,
@@ -28,49 +29,42 @@ const DEFAULT_SYSTEM_LOGS: LogEntry[] = [
     timestamp: Date.now() - 5000,
     type: "SYSTEM",
     message: "Veri akışı optimize edildi, ağ senkronizasyonu tamamlandı.",
-    level: "SUCCESS",
   },
   {
     id: "def-2",
     timestamp: Date.now() - 15000,
     type: "SYSTEM",
     message: "Yedek sunucular bekleme konumuna alındı.",
-    level: "INFO",
   },
   {
     id: "def-3",
     timestamp: Date.now() - 25000,
     type: "SYSTEM",
     message: "API hız sınırları kontrol edildi: Optimal.",
-    level: "INFO",
   },
   {
     id: "def-4",
     timestamp: Date.now() - 35000,
     type: "SYSTEM",
     message: "Güvenlik duvarı güncellendi, yeni protokoller devrede.",
-    level: "WARN",
   },
   {
     id: "def-5",
     timestamp: Date.now() - 45000,
     type: "SYSTEM",
     message: "Piyasa dalgalanma analizi arka planda algılandı.",
-    level: "INFO",
   },
   {
     id: "def-6",
     timestamp: Date.now() - 55000,
     type: "SYSTEM",
     message: "Veritabanı bağlantısı kuruldu, gecikme < 5ms.",
-    level: "SUCCESS",
   },
   {
     id: "def-7",
     timestamp: Date.now() - 65000,
     type: "SYSTEM",
     message: "Matrix Engine v5.3.4 ALPHA sistem başlangıcı yapıldı.",
-    level: "INFO",
   },
 ];
 
@@ -93,7 +87,7 @@ export const CombatLog = () => {
   const [signalFilter, setSignalFilter] = useState<"ALL" | "ASSETS">("ASSETS");
 
   const tradeLogs = useMemo(
-    () => logs.filter((l: LogEntry) => l.type !== "SYSTEM"),
+    () => logs.filter((l: LogEntry) => l.type === "EXECUTION"),
     [logs],
   );
 
@@ -103,7 +97,7 @@ export const CombatLog = () => {
   }, [tradeLogs, signalFilter, holdings]);
 
   const systemLogs = useMemo(
-    () => deduplicateSystemLogs(logs, DEFAULT_SYSTEM_LOGS),
+    () => deduplicateSystemLogs(logs.filter(l => l.type !== "EXECUTION"), DEFAULT_SYSTEM_LOGS),
     [logs],
   );
 
@@ -139,48 +133,35 @@ export const CombatLog = () => {
     }
   };
 
-  const getSystemLogStyle = (level?: string) => {
-    switch (level) {
-      case "ERROR":
-        return {
-          text: "text-rose-400",
-          bg: "bg-rose-500/10",
-          border: "border-rose-500/20",
-          icon: "text-rose-500",
-        };
-      case "WARN":
-        return {
-          text: "text-amber-400",
-          bg: "bg-amber-500/10",
-          border: "border-amber-500/20",
-          icon: "text-amber-500",
-        };
-      case "SUCCESS":
+  const getSystemLogStyle = (sentiment?: string) => {
+    switch (sentiment) {
+      case "POSITIVE":
         return {
           text: "text-emerald-400",
           bg: "bg-emerald-500/10",
           border: "border-emerald-500/20",
           icon: "text-emerald-500 glow-text-emerald",
         };
-      case "INFO":
+      case "NEGATIVE":
+        return {
+          text: "text-rose-400",
+          bg: "bg-rose-500/10",
+          border: "border-rose-500/20",
+          icon: "text-rose-500",
+        };
+      case "NEUTRAL":
+      default:
         return {
           text: "text-cyan-400",
           bg: "bg-transparent",
           border: "border-transparent",
           icon: "text-cyan-500",
         };
-      default:
-        return {
-          text: "text-slate-400",
-          bg: "bg-transparent",
-          border: "border-transparent",
-          icon: "text-slate-600",
-        };
     }
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#020617] border border-slate-800 rounded-xl overflow-hidden shadow-2xl shadow-black/50">
+    <div className="flex flex-col h-full max-h-[600px] bg-[#020617] border border-slate-800 rounded-xl overflow-hidden shadow-2xl shadow-black/50">
       {/* Main Header */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800 bg-slate-900/40 backdrop-blur-xl">
         <div className="flex items-center gap-3">
@@ -274,7 +255,7 @@ export const CombatLog = () => {
           </div>
           <div
             ref={tradeScrollRef}
-            className="flex-1 overflow-y-auto p-3 space-y-2.5 font-mono text-[11px] custom-scrollbar"
+            className="flex-1 overflow-y-auto p-3 space-y-2.5 font-mono text-[11px] cyber-scrollbar"
           >
             {isLoadingHoldings && signalFilter === "ASSETS" ? (
               <div className="flex flex-col items-center justify-center h-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2">
@@ -336,7 +317,7 @@ export const CombatLog = () => {
           </div>
           <div
             ref={systemScrollRef}
-            className="flex-1 overflow-y-auto p-2 space-y-1.5 font-mono text-[10px] custom-scrollbar"
+            className="flex-1 overflow-y-auto p-2 space-y-1.5 font-mono text-[10px] cyber-scrollbar"
           >
             {isLoading ? (
               <div className="flex flex-col items-center justify-center h-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2">
@@ -361,7 +342,7 @@ export const CombatLog = () => {
               </div>
             ) : (
               systemLogs.map((log) => {
-                const style = getSystemLogStyle(log.level);
+                const style = getSystemLogStyle(log.sentiment);
                 return (
                   <div
                     key={log.id}
@@ -466,32 +447,37 @@ const LogLine = ({
 
   return (
     <div className="group flex gap-2.5 animate-in fade-in slide-in-from-left-1 duration-300 hover:bg-white/5 p-1 rounded transition-colors relative">
-      <div className="text-slate-600 shrink-0 select-none opacity-50 text-[10px] mt-0.5 min-w-[50px]">
-        {new Date(log.timestamp).toLocaleTimeString([], {
-          hour12: false,
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        })}
-      </div>
       <div className="mt-0.5 shrink-0 opacity-80 group-hover:opacity-100 transition-all">
         {icon}
       </div>
       <div className="flex flex-col flex-1 min-w-0">
-        <div className="flex items-center justify-between">
-          <span
-            className={cn(
-              "font-black tracking-tight flex items-center gap-2",
-              log.sentiment === "POSITIVE"
-                ? "text-emerald-400"
-                : log.sentiment === "NEGATIVE"
-                  ? "text-rose-400"
-                  : log.type === "WHALE_ALERT"
-                    ? "text-cyan-400"
-                    : "text-slate-300",
-            )}
-          >
-            {log.message}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <span
+              className={cn(
+                "font-black tracking-tight flex items-center gap-2 truncate",
+                log.sentiment === "POSITIVE"
+                  ? "text-emerald-400"
+                  : log.sentiment === "NEGATIVE"
+                    ? "text-rose-400"
+                    : log.type === "WHALE_ALERT"
+                      ? "text-cyan-400"
+                      : "text-slate-300",
+              )}
+            >
+              {log.message}
+            </span>
+            <span className="text-slate-600 font-mono text-[9px] opacity-40 shrink-0">
+              {new Date(log.timestamp).toLocaleTimeString([], {
+                hour12: false,
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              })}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
             {isExecution && (
               <span
                 className={cn(
@@ -511,7 +497,7 @@ const LogLine = ({
               </span>
             )}
             {log.type === "STRUCTURE" && (
-              <span className="text-[8px] bg-amber-400/10 px-1 border border-amber-400/20 rounded">
+              <span className="text-[8px] bg-amber-400/10 px-1 border border-amber-400/20 rounded text-amber-500">
                 SMC
               </span>
             )}
@@ -532,7 +518,7 @@ const LogLine = ({
             {isHeld && (
               <Target size={10} className="text-blue-500 animate-pulse" />
             )}
-          </span>
+          </div>
 
           {/* Quick Trade Buttons */}
           {asset && (
@@ -552,11 +538,89 @@ const LogLine = ({
             </div>
           )}
         </div>
-        {log.details && (
-          <span className="text-slate-500 text-[10px] truncate opacity-70 group-hover:opacity-100 transition-opacity">
-            {log.details}
-          </span>
-        )}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
+          {/* Strategy / Source Badge */}
+          {log.strategyName && (
+            <span className="text-[9px] text-cyan-400 font-bold uppercase tracking-tight flex items-center gap-1 bg-cyan-950/40 px-1.5 py-0.5 rounded border border-cyan-500/30 shadow-[0_0_5px_rgba(6,182,212,0.1)]">
+              <Activity size={10} className="text-cyan-400" /> {log.strategyName}
+            </span>
+          )}
+
+          {/* Timeframe Badge (Fallback if not in message) */}
+          {log.timeframe && (
+            <span className="text-[9px] bg-slate-800/60 border border-slate-700/50 text-slate-400 font-bold px-1.5 py-0.5 rounded flex items-center gap-1">
+               <Clock size={9} /> {log.timeframe}
+            </span>
+          )}
+
+          {/* F4 POWER BADGE (GIGA MASTER) */}
+          {log.meta?.f4Power !== undefined && (
+            <div className="flex items-center gap-1">
+              <span className={cn(
+                "text-[9px] font-black px-1.5 py-0.5 rounded border flex items-center gap-1 shadow-sm",
+                Math.abs(log.meta.f4Power) >= 70 ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-300 shadow-cyan-500/20" :
+                Math.abs(log.meta.f4Power) >= 40 ? "bg-blue-500/15 border-blue-500/30 text-blue-300" :
+                "bg-slate-800/40 border-slate-700 text-slate-400"
+              )}>
+                <Zap size={10} fill={Math.abs(log.meta.f4Power) >= 70 ? "currentColor" : "none"} />
+                F4: {Math.round(log.meta.f4Power)}%
+              </span>
+              
+              {log.meta.f4PowerLoss !== undefined && log.meta.f4PowerLoss > 20 && (
+                <span className="text-[8px] text-rose-400 font-bold animate-pulse">
+                  -{Math.round(log.meta.f4PowerLoss)}% GÜÇ KAYBI
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* AI SCORE */}
+          {log.meta?.aiScore !== undefined && (
+            <span className={cn(
+              "text-[9px] font-black px-1.5 py-0.5 rounded border flex items-center gap-1",
+              log.meta.aiScore >= 80 ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400 shadow-sm shadow-emerald-500/10" :
+              log.meta.aiScore >= 50 ? "bg-amber-500/10 border-amber-500/30 text-amber-400" :
+              "bg-rose-500/10 border-rose-500/30 text-rose-400"
+            )}>
+              AI: {Math.round(log.meta.aiScore)}
+            </span>
+          )}
+
+          {/* REGIME */}
+          {log.meta?.regime && (
+            <span className="text-[9px] bg-purple-500/10 border border-purple-500/30 text-purple-400 font-bold px-1.5 py-0.5 rounded uppercase tracking-tighter shadow-sm shadow-purple-500/5">
+              RGM: {log.meta.regime.replace(/_/g, " ")}
+            </span>
+          )}
+
+          {/* MTF VERDICT */}
+          {log.meta?.mtf && (
+            <span className="text-[9px] bg-blue-500/10 border border-blue-500/30 text-blue-300 font-bold px-1.5 py-0.5 rounded">
+              MTF: {log.meta.mtf}
+            </span>
+          )}
+
+          {/* PREDICTION */}
+          {log.meta?.prediction && (
+            <span className="text-[9px] bg-slate-800/80 border border-slate-700 text-slate-300 font-bold px-1.5 py-0.5 rounded flex items-center gap-1">
+              {log.meta.prediction}
+            </span>
+          )}
+
+          {/* VETO REASON */}
+          {log.meta?.veto && (
+            <span className="text-[9px] bg-amber-900/20 border border-amber-500/30 text-amber-500/90 italic px-1.5 py-0.5 rounded flex items-center gap-1 border-dashed">
+              <AlertTriangle size={9} /> {log.meta.veto}
+            </span>
+          )}
+
+          {/* RAW DETAILS (Fallback) */}
+          {log.details && !log.meta?.veto && (
+            <span className="text-slate-500 text-[9px] break-words opacity-60 italic">
+              {log.details}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );

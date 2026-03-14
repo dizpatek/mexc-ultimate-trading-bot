@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 
 // Monitoring cooldown to prevent resource exhaustion during frequent polling (P4.2 fix)
 let lastMonitorTime = 0;
-const MONITOR_COOLDOWN_MS = 60000; // 1 minute
+const MONITOR_COOLDOWN_MS = 2000; // Reduced from 1m to 2s for extreme responsiveness
 
 export async function GET(request: Request) {
   try {
@@ -97,8 +97,11 @@ export async function GET(request: Request) {
       })
       .filter((row) => row.meta.smartTrade === true);
 
-    // Efficiently fetch all current prices in a single batch call to avoid rate limits and sequential delay
-    const allPrices = await fetchAllPrices();
+    // Extract unique symbols to fetch only what we need (P4.2: Massive performance gain)
+    const uniqueSymbols = Array.from(new Set(smartTradesRaw.map(t => t.symbol)));
+    
+    // Efficiently fetch targeted prices in a single batch call to avoid rate limits and sequential delay
+    const allPrices = await fetchAllPrices(uniqueSymbols);
 
     const smartTrades = smartTradesRaw.map((trade) => ({
       ...trade,
@@ -148,35 +151,48 @@ async function fetchCurrentPrice(symbol: string): Promise<number | undefined> {
 }
 
 // New function to fetch all ticker prices in a single batch call
-async function fetchAllPrices(): Promise<Record<string, number>> {
+async function fetchAllPrices(symbols?: string[]): Promise<Record<string, number>> {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout for batch call
 
-    const res = await fetch(`https://api.mexc.com/api/v3/ticker/price`, {
+    let url = `https://api.mexc.com/api/v3/ticker/price`;
+    
+    // P4.2: Only fetch what we need if symbols are provided
+    if (symbols && symbols.length > 0) {
+      const cleanSymbols = symbols.map(s => s.replace("/", "").toUpperCase());
+      url += `?symbols=${JSON.stringify(cleanSymbols)}`;
+    }
+
+    const res = await fetch(url, {
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
 
     if (!res.ok) {
       console.error(
-        "Failed to fetch all ticker prices:",
+        "Failed to fetch ticker prices:",
         res.status,
         res.statusText,
       );
       return {};
     }
-    const data: Array<{ symbol: string; price: string }> = await res.json();
+    const dataRaw = await res.json();
+    const data: Array<{ symbol: string; price: string }> = Array.isArray(dataRaw) ? dataRaw : [dataRaw];
     const priceMap: Record<string, number> = {};
     for (const item of data) {
+      // P4.1: Strict validation of ticker items
+      if (!item || typeof item !== "object" || !item.symbol || !item.price) continue;
+
       const p = parseFloat(item.price);
       if (!isNaN(p) && p > 0) {
         // Store BOTH BTCUSDT and BTC/USDT formats to ensure compatibility with various symbol storage styles
-        priceMap[item.symbol] = p;
+        const sym = item.symbol;
+        priceMap[sym] = p;
 
         // If it's a USDT pair, also store with / format
-        if (item.symbol.endsWith("USDT")) {
-          const base = item.symbol.replace("USDT", "");
+        if (sym.endsWith("USDT")) {
+          const base = sym.replace("USDT", "");
           priceMap[`${base}/USDT`] = p;
         }
       }

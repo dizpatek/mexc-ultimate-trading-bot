@@ -199,47 +199,53 @@ export const ExpandedTradePanel: React.FC<ExpandedTradePanelProps> = ({
 
   return (
     <div
-      className="border-t border-white/5 bg-slate-950/60 divide-x divide-white/[0.04]"
+      className="border-t border-white/5 bg-slate-950/60 overflow-x-auto custom-scrollbar"
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="grid grid-cols-[1.2fr_3fr_1.2fr] gap-px bg-white/[0.04]">
+      <div className="flex divide-x divide-white/[0.04] bg-white/[0.04] min-w-[1200px]">
         {/* ── SEGMENT 1: LOGS (LEFT) ── */}
-        <LogSegment logs={activityLogs} isClosed={isClosed} />
+        <div className="w-[300px] shrink-0 border-r border-white/5">
+          <LogSegment logs={activityLogs} isClosed={isClosed} />
+        </div>
 
         {/* ── SEGMENT 2: STATS (CENTER) ── */}
-        <StatSegment
-          trade={trade}
-          meta={meta}
-          currentPrice={currentPrice}
-          entry={entry}
-          tp={tp}
-          sl={sl}
-          pnlPercent={pnlPercent}
-          pnlUsdt={pnlUsdt}
-          aiScore={aiScore}
-          statusText={statusText}
-          statusColor={statusColor}
-          liveDuration={liveDuration}
-          isClosed={isClosed}
-          liveData={liveData}
-        />
+        <div className="flex-1 min-w-[600px]">
+          <StatSegment
+            trade={trade}
+            meta={meta}
+            currentPrice={currentPrice}
+            entry={entry}
+            tp={tp}
+            sl={sl}
+            pnlPercent={pnlPercent}
+            pnlUsdt={pnlUsdt}
+            aiScore={aiScore}
+            statusText={statusText}
+            statusColor={statusColor}
+            liveDuration={liveDuration}
+            isClosed={isClosed}
+            liveData={liveData}
+          />
+        </div>
 
         {/* ── SEGMENT 3: ACTIONS (RIGHT) ── */}
-        <ActionSegment
-          trade={trade}
-          isClosed={isClosed}
-          isTradeMode={isTradeMode}
-          loadingAction={loadingAction}
-          payload={payload}
-          onEdit={onEdit}
-          onTpTrigger={onTpTrigger}
-          onSlUpdate={onSlUpdate}
-          handlePanicClose={handlePanicClose}
-          handleSilentClose={handleSilentClose}
-          handleFlashOpen={handleFlashOpen}
-          setLoadingAction={setLoadingAction}
-          fetchTrades={fetchTrades}
-        />
+        <div className="w-[300px] shrink-0 border-l border-white/5">
+          <ActionSegment
+            trade={trade}
+            isClosed={isClosed}
+            isTradeMode={isTradeMode}
+            loadingAction={loadingAction}
+            payload={payload}
+            onEdit={onEdit}
+            onTpTrigger={onTpTrigger}
+            onSlUpdate={onSlUpdate}
+            handlePanicClose={handlePanicClose}
+            handleSilentClose={handleSilentClose}
+            handleFlashOpen={handleFlashOpen}
+            setLoadingAction={setLoadingAction}
+            fetchTrades={fetchTrades}
+          />
+        </div>
       </div>
     </div>
   );

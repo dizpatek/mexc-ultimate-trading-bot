@@ -124,8 +124,19 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
 
   const [_buyPrice, _setBuyPrice] = useState("0");
   const [buyType] = useState<OrderType>("MARKET");
-  const [trailingBuy, setTrailingBuy] = useState(false);
-  const [trailingBuyDev, setTrailingBuyDev] = useState(0.1);
+  
+  // Independent Trailing States for TRADE vs COVER
+  const [tradeTrailing, setTradeTrailing] = useState(false);
+  const [tradeTrailingDev, setTradeTrailingDev] = useState(0.1);
+  const [coverTrailing, setCoverTrailing] = useState(false);
+  const [coverTrailingDev, setCoverTrailingDev] = useState(0.1);
+
+  // Derived trailing values based on active mode
+  const trailingBuy = mode === "TRADE" ? tradeTrailing : coverTrailing;
+  const setTrailingBuy = mode === "TRADE" ? setTradeTrailing : setCoverTrailing;
+  const trailingBuyDev = mode === "TRADE" ? tradeTrailingDev : coverTrailingDev;
+  const setTrailingBuyDev = mode === "TRADE" ? setTradeTrailingDev : setCoverTrailingDev;
+
   const [assetDropdownOpen, setAssetDropdownOpen] = useState(false);
   const buyPriceInputRef = React.useRef<HTMLInputElement>(null);
   const unitsSectionRef = React.useRef<HTMLDivElement>(null);
@@ -137,8 +148,10 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     sl: string;
   } | null>(null);
 
-  // Track previous trailingBuy value to detect toggle transitions
-  const prevTrailingBuyRef = useRef<boolean>(false);
+  // Track previous trailing values PER MODE to detect transitions accurately
+  const prevTradeTrailingRef = useRef<boolean>(false);
+  const prevCoverTrailingRef = useRef<boolean>(false);
+  const currentTrailingRef = mode === "TRADE" ? prevTradeTrailingRef : prevCoverTrailingRef;
 
   // Auto-focus & Scroll logic when editing starts
   useEffect(() => {
@@ -495,11 +508,11 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     setSlPrice,
   ]);
 
-  const scrollToChart = useCallback(() => {
-    // Scroll to chart with offset for the sticky header if needed
-    const chart = document.getElementById("portfolio-chart-section");
-    if (chart) {
-      chart.scrollIntoView({ behavior: "smooth", block: "center" });
+  const scrollToActiveTrades = useCallback(() => {
+    // Scroll to the active trades list after submission
+    const target = document.getElementById("active-smart-trades-section");
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, []);
 
@@ -633,7 +646,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
         setTimeout(() => {
           if (onCancelEdit) onCancelEdit();
           if (onSaveSuccess) onSaveSuccess();
-          scrollToChart(); // Scroll to see the updated chart
+          scrollToActiveTrades(); // Scroll to see the active trades list
         }, 1500);
       } else {
         await createSmartTrade(payload as Record<string, unknown>);
@@ -689,13 +702,17 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
         const oldBuy = parseFloat(buyPrice) || 0;
         setBuyPrice(newBuy.toString());
 
+        // During trailing buy, skip proportional scaling —
+        // the trailing useEffect handles TP/SL via fixed absolute offsets.
+        if (trailingBuy) return;
+
         // Update deviation if trailing is active
-        if (trailingBuy && marketPrice && marketPrice > 0 && mode === "TRADE") {
+        if (marketPrice && marketPrice > 0 && mode === "TRADE") {
           const newDev = Math.abs((newBuy / marketPrice - 1) * 100);
           setTrailingBuyDev(Number(newDev.toFixed(2)));
         }
 
-        // If ONLY buy was moved (dragged individually or auto-tracking), move TP and SL proportionally
+        // If ONLY buy was moved (dragged individually), move TP and SL proportionally
         if (oldBuy > 0) {
           const currentTpP = parseFloat(tpPrice) || 0;
           const currentSlP = parseFloat(slPrice) || 0;
@@ -726,7 +743,12 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
           }
         }
       } else {
-        if (p.buy !== undefined) setBuyPrice(p.buy.toString());
+        // Explicit multi-field or single TP/SL update (chart drag drop or input change)
+        if (p.buy !== undefined) {
+          setBuyPrice(p.buy.toString());
+          // User manually dragged the buy line → stop auto-following market price
+          if (priceSync) setPriceSync(false);
+        }
         if (p.tp !== undefined) setTpPrice(p.tp.toString());
         if (p.sl !== undefined) setSlPrice(p.sl.toString());
       }
@@ -742,25 +764,30 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
       trailingBuy,
       marketPrice,
       mode,
+      priceSync,
     ],
   );
 
   // Keep the ref always pointing to the latest handlePricesChange (avoids stale closure in transition effect)
   handlePricesChangeRef.current = handlePricesChange;
 
-  // Detect trailing buy OFF transition → snap buy to market proportionally so TP/SL don't drift
+  // Detect trailing buy OFF transition → immediately snap buy to market price and re-enable sync
+  // Uses mode-specific refs to ensure isolation
   useEffect(() => {
-    const wasOn = prevTrailingBuyRef.current;
-    prevTrailingBuyRef.current = trailingBuy;
+    const prevRef = mode === "TRADE" ? prevTradeTrailingRef : prevCoverTrailingRef;
+    const wasOn = prevRef.current;
+    prevRef.current = trailingBuy;
 
     // Only act on the true → false edge
     if (!wasOn || trailingBuy) return;
-    // Trailing just turned OFF: restore buy to market price and scale TP/SL proportionally
-    if (marketPrice && marketPrice > 0 && handlePricesChangeRef.current) {
-      handlePricesChangeRef.current({ buy: marketPrice });
+
+    // Immediately snap buy back to market price (don't wait for next 1s tick)
+    if (marketPrice && marketPrice > 0 && !useExisting && !editingTrade) {
+      setBuyPrice(marketPrice.toString());
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trailingBuy]);
+    // Re-enable price sync so subsequent ticks keep following market
+    setPriceSync(true);
+  }, [trailingBuy, marketPrice, useExisting, editingTrade, setBuyPrice, mode]);
 
   // Dynamic calculations
   const buyP = parseFloat(buyPrice) || 0;
@@ -794,14 +821,26 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
   const lowestSeenRef = useRef<number>(Infinity);
   const highestSeenRef = useRef<number>(-Infinity);
 
-  // Reset lowest when trailing buy is toggled or mode changes
+  // Reset lowest/highest when trailing buy is toggled or mode changes.
   useEffect(() => {
     lowestSeenRef.current = Infinity;
     highestSeenRef.current = -Infinity;
   }, [trailingBuy, mode, symbol, isTradeActive]);
 
-  // When trailing buy is ON and we are NOT in an active trade (Form Phase),
-  // continuously auto-update buyPrice to track the 2-way deviation line.
+  // Batch all trailing price updates into a single rAF to guarantee one render per tick
+  const pendingTrailingRef = useRef<{ buy: string; tp?: string; sl?: string } | null>(null);
+  const trailingRafRef = useRef<number | null>(null);
+
+  // Keep a ref to the latest prices so the trailing useEffect can read them
+  // without adding them to the dependency array (which would cause infinite loops)
+  const latestPricesRef = useRef({ buyPrice, tpPrice, slPrice, buyP });
+  useEffect(() => {
+    latestPricesRef.current = { buyPrice, tpPrice, slPrice, buyP };
+  });
+
+  // When trailing buy is ON, continuously auto-update buyPrice.
+  // TP and SL are moved using a FIXED absolute offset captured at the first trailing tick
+  // to prevent cumulative drift/compounding errors.
   useEffect(() => {
     if (
       trailingBuy &&
@@ -810,52 +849,75 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     ) {
       let trailingSnap: number;
       if (mode === "TRADE") {
-        if (!isTradeActive) {
-          // Form Phase: 2-way tracking (following market price + deviation)
-          trailingSnap = marketPrice * (1 + trailingBuyDev / 100);
-        } else {
-          // Active Order Phase: 1-way downward ratcheting
-          lowestSeenRef.current = Math.min(lowestSeenRef.current, marketPrice);
-          trailingSnap = lowestSeenRef.current * (1 + trailingBuyDev / 100);
-        }
+        // Always 1-way downward ratchet: TBuy only tracks price going DOWN.
+        // The entry trigger price = lowest market price seen × (1 + dev%)
+        lowestSeenRef.current = Math.min(lowestSeenRef.current, marketPrice);
+        trailingSnap = lowestSeenRef.current * (1 + trailingBuyDev / 100);
       } else {
-        // mode === "COVER" (Trailing Sell)
-        // Follows market price upward, triggers on -% deviation (Trailing Sell/Take Profit)
+        // COVER mode (Trailing Sell): 1-way upward ratchet
         highestSeenRef.current = Math.max(highestSeenRef.current, marketPrice);
         trailingSnap = highestSeenRef.current * (1 - trailingBuyDev / 100);
       }
 
-      // Proportional movement of TP and SL via handlePricesChange
-      // Performance: Only update if movement is significant (> 0.01% or absolute diff)
-      const diff = Math.abs(buyP - trailingSnap);
-      const threshold = buyP * 0.0001; // 0.01% threshold
+      // Only update if movement is significant (> 0.01%)
+      const currentBuyP = latestPricesRef.current.buyP;
+      const diff = Math.abs(currentBuyP - trailingSnap);
+      const threshold = Math.max(currentBuyP * 0.0001, 0.000001);
+      if (diff <= threshold) return;
 
-      if (diff > threshold && diff > 0.000001) {
-        handlePricesChange({ buy: trailingSnap });
+      // Derive TP/SL offsets dynamically from the LIVE user-set values each tick.
+      // This ensures manual edits to TP/SL are respected immediately —
+      // no one-time capture that would cause revert after user changes.
+      const captureBuy = parseFloat(latestPricesRef.current.buyPrice) || 0;
+      const captureTp = parseFloat(latestPricesRef.current.tpPrice) || 0;
+      const captureSl = parseFloat(latestPricesRef.current.slPrice) || 0;
+      // Only compute offsets if the user actually HAS set a TP/SL value
+      const tpOffset = captureBuy > 0 && captureTp > 0 ? captureTp - captureBuy : null;
+      const slOffset = captureBuy > 0 && captureSl > 0 ? captureSl - captureBuy : null;
+
+      // Compute next prices
+      const nextBuy = trailingSnap.toString();
+      let nextTp: string | undefined;
+      let nextSl: string | undefined;
+      if (tpOffset !== null && tpOffset !== 0) {
+        const v = trailingSnap + tpOffset;
+        if (v > 0) nextTp = Number(v.toFixed(6)).toString();
+      }
+      if (slOffset !== null && slOffset !== 0) {
+        const v = trailingSnap + slOffset;
+        if (v > 0) nextSl = Number(v.toFixed(6)).toString();
+      }
+
+      // Batch into a single rAF so all three state updates → one React render cycle
+      pendingTrailingRef.current = { buy: nextBuy, tp: nextTp, sl: nextSl };
+      if (!trailingRafRef.current) {
+        trailingRafRef.current = requestAnimationFrame(() => {
+          trailingRafRef.current = null;
+          const p = pendingTrailingRef.current;
+          if (!p) return;
+          pendingTrailingRef.current = null;
+          setBuyPrice(p.buy);
+          if (p.tp !== undefined) setTpPrice(p.tp);
+          if (p.sl !== undefined) setSlPrice(p.sl);
+        });
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trailingBuy, marketPrice, trailingBuyDev, mode, isTradeActive]);
+  }, [trailingBuy, marketPrice, trailingBuyDev, mode]); // buyPrice/tpPrice/slPrice read via latestPricesRef; isTradeActive no longer needed
+
 
   const trailingEntryViz = React.useMemo(() => {
     if (!trailingBuy || !marketPrice || marketPrice <= 0) return undefined;
 
     if (mode === "TRADE") {
-      if (!isTradeActive) {
-        // Form Phase: 2-way tracking (moves up and down with price)
-        return marketPrice * (1 + trailingBuyDev / 100);
-      } else {
-        // Active Order Phase: 1-way downward ratcheting
-        lowestSeenRef.current = Math.min(lowestSeenRef.current, marketPrice);
-        return lowestSeenRef.current * (1 + trailingBuyDev / 100);
-      }
+      // Always 1-way downward ratchet for visualization too
+      lowestSeenRef.current = Math.min(lowestSeenRef.current, marketPrice);
+      return lowestSeenRef.current * (1 + trailingBuyDev / 100);
     } else {
       // COVER mode: Trailing Sell
-      // Note: peak tracking is handled in useEffect to keep useMemo pure
       const peak = Math.max(highestSeenRef.current, marketPrice);
       return peak * (1 - trailingBuyDev / 100);
     }
-  }, [trailingBuy, marketPrice, trailingBuyDev, mode, isTradeActive]);
+  }, [trailingBuy, marketPrice, trailingBuyDev, mode]);
 
   // Reciprocal TP/SL price adjustment when mode changes
   // Only swaps if current targets are 'illogical' for the selected mode
@@ -1485,20 +1547,16 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                         <button
                           onClick={() => {
                             if (!trailingBuy) {
-                              // Snapshot current prices before entering trailing mode
+                              // Entering trailing mode — disable price sync, snapshot current prices
+                              setPriceSync(false);
                               priceSnapBeforeTrailingRef.current = {
                                 buy: buyPrice,
                                 tp: tpPrice,
                                 sl: slPrice,
                               };
-                            } else if (priceSnapBeforeTrailingRef.current) {
-                              // Restore prices when disabling trailing
-                              const snap = priceSnapBeforeTrailingRef.current;
-                              handlePricesChange({
-                                buy: parseFloat(snap.buy),
-                                tp: parseFloat(snap.tp),
-                                sl: parseFloat(snap.sl),
-                              });
+                            } else {
+                              // Leaving trailing mode — re-enable price sync so buy follows market
+                              setPriceSync(true);
                               priceSnapBeforeTrailingRef.current = null;
                             }
                             setTrailingBuy(!trailingBuy);

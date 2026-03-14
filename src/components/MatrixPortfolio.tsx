@@ -34,8 +34,9 @@ import { F4Data } from "@/lib/trading-logic";
 import { useSortedHoldings } from "@/hooks/useSortedHoldings";
 
 export function MatrixPortfolio() {
+  const lastSyncTime = useMemo(() => new Date().toLocaleTimeString(), []);
   // 1. Portfolio Data
-  const { data: holdings, isLoading: isHoldingsLoading } = useHoldings();
+  const { data: holdings, isLoading: isHoldingsLoading, refetch } = useHoldings();
   const [viewDetailAsset, setViewDetailAsset] = useState<{
     symbol: string;
     price: number;
@@ -83,7 +84,7 @@ export function MatrixPortfolio() {
     null,
   );
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
-  const [isSectionExpanded, setIsSectionExpanded] = useState(true);
+  const [isSectionExpanded, setIsSectionExpanded] = useState(false);
 
   // --- Sorting (via dedicated hook) ---
   const { sortedHoldings, sortKey, sortDir, handleSort } = useSortedHoldings({
@@ -222,30 +223,38 @@ export function MatrixPortfolio() {
 
   return (
     <div className="bg-transparent text-slate-200 rounded-lg h-full flex flex-col font-sans">
+      {/* UNIFIED COMMAND BAR (Header) */}
       <div 
-        className="flex justify-between items-center p-3 border-b border-slate-800/60 bg-slate-900/40 backdrop-blur-md cursor-pointer group"
+        className="relative z-20 flex flex-wrap items-center justify-center sm:justify-between py-2 px-2 gap-3 border-b border-slate-800/40 bg-slate-950/20 backdrop-blur-sm rounded-t-xl mb-2 font-mono cursor-pointer group"
         onClick={() => setIsSectionExpanded(!isSectionExpanded)}
       >
-        <div className="flex items-center text-[10px] gap-3">
-          <div
-            className={`flex items-center gap-1.5 px-2 py-1 rounded bg-slate-800/50 border border-slate-700 ${isConnected ? "text-emerald-400 border-emerald-500/20" : "text-rose-400 border-rose-500/20"}`}
-          >
-            <div
-              className={`w-1.5 h-1.5 rounded-full ${isConnected ? "bg-emerald-500 animate-pulse" : "bg-rose-500"}`}
-            />
-            <span className="font-bold tracking-wide">
-              {isConnected ? "SOKET: ÇEVRİMİÇİ" : "SOKET: ÇEVRİMDIŞI"}
-            </span>
-            {isLoadingSignals && (
-              <div className="ml-2 flex items-center gap-1 border-l border-slate-700 pl-2 text-cyan-400">
-                <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-                <span className="animate-pulse text-[9px]">SYNC</span>
-              </div>
-            )}
+        {/* GROUP 1: SECTION TITLE */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/60 border border-slate-800/80 rounded-xl shadow-lg">
+            <Wallet className="w-4 h-4 text-emerald-400" />
+            <h2 className="text-[10px] font-black tracking-[0.2em] text-cyan-100 uppercase hidden lg:block">
+              Matrix Portföy
+            </h2>
+          </div>
+
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/60 border border-slate-800/80 rounded-xl">
+             <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">VARLIK:</span>
+             <span className="text-[10px] font-black text-emerald-400">
+               {holdings?.length || 0}
+             </span>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex bg-slate-950/80 p-0.5 rounded-lg border border-slate-800/50 shadow-inner">
+
+        {/* GROUP 2: STATUS & INTERVAL */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 px-3 py-1 bg-slate-950/60 border border-slate-800/80 rounded-xl">
+            <div className={cn("w-1.5 h-1.5 rounded-full", isConnected ? "bg-emerald-500 animate-pulse" : "bg-rose-500")} />
+            <span className={cn("text-[9px] font-black uppercase tracking-widest leading-none", isConnected ? "text-emerald-400" : "text-rose-400")}>
+              {isConnected ? "ONLINE" : "OFFLINE"}
+            </span>
+          </div>
+
+          <div className="flex bg-slate-950/60 p-1 rounded-xl border border-slate-800/80">
             {intervals.map((item) => (
               <button
                 key={item.id}
@@ -254,25 +263,41 @@ export function MatrixPortfolio() {
                   setIntervalState(item.id);
                 }}
                 className={cn(
-                  "px-2.5 py-0.5 text-[9px] font-bold rounded transition-all duration-200",
+                  "px-2.5 py-1 text-[9px] font-black rounded-lg transition-all duration-200 uppercase tracking-tighter",
                   interval === item.id
-                    ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shadow-[0_0_8px_rgba(34,211,238,0.1)]"
-                    : "text-slate-500 hover:text-slate-300 hover:bg-white/5 border border-transparent",
+                    ? "bg-cyan-500 text-slate-950 shadow-lg"
+                    : "text-slate-500 hover:text-white"
                 )}
               >
                 {item.label}
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-2 group/header">
-            <div className="text-[10px] font-bold text-slate-500 group-hover/header:text-cyan-400 tracking-widest px-2 py-1 bg-slate-950 rounded border border-slate-800 transition-colors">
-              Matrix Portföy
-            </div>
-            {isSectionExpanded ? (
-              <ChevronUp className="w-4 h-4 text-slate-500 group-hover/header:text-cyan-400 transition-colors" />
-            ) : (
-              <ChevronDown className="w-4 h-4 text-slate-500 group-hover/header:text-cyan-400 transition-colors" />
-            )}
+        </div>
+
+        {/* GROUP 3: ACTIONS */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center p-1 bg-slate-950/60 border border-slate-800/80 rounded-xl gap-1">
+             <button
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                refetch();
+                if (activeSymbols.length > 0) {
+                  fetchIntervalForSymbols(activeSymbols, interval);
+                }
+              }}
+              className="p-1.5 rounded-lg border border-slate-800 text-slate-500 hover:text-white transition-all"
+              title="Yenile"
+            >
+              <RefreshCw className={cn("w-3.5 h-3.5", isLoadingSignals && "animate-spin text-cyan-400")} />
+            </button>
+            
+            <button
+               className="p-1.5 rounded-lg border border-slate-800 text-slate-500 hover:text-white transition-all"
+               onClick={(e) => { e.stopPropagation(); setIsSectionExpanded(!isSectionExpanded); }}
+            >
+              {isSectionExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
           </div>
         </div>
       </div>
@@ -430,8 +455,9 @@ export function MatrixPortfolio() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              const assetClean = assetName.replace("USDT", "");
                               window.open(
-                                `https://www.mexc.com/exchange/${assetName}_USDT`,
+                                `https://www.mexc.com/exchange/${assetClean}_USDT`,
                                 "_blank",
                               );
                             }}
@@ -503,7 +529,7 @@ export function MatrixPortfolio() {
                                   : "bg-rose-500 border-rose-400 text-black shadow-[0_0_10px_rgba(244,63,94,0.2)]",
                               )}
                             >
-                              {signalData?.aiScore || 0}/100
+                              {Math.round(signalData?.aiScore || 0)}/100
                             </div>
                           </div>
                           <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
@@ -606,8 +632,8 @@ export function MatrixPortfolio() {
                             className={cn(
                               "flex items-center gap-1.5 px-2 py-0.5 rounded border transition-all",
                               signalData?.whaleDetected
-                                ? signalData.whaleStatus === "ALIM_AKTİF" ||
-                                  signalData.whaleStatus === "RALLİ_HAZIRLIĞI"
+                                ? signalData.whaleStatus === "BUY_ACTIVE" ||
+                                  signalData.whaleStatus === "ACCUMULATING"
                                   ? "bg-emerald-500 border-emerald-400 text-white shadow-[0_0_10px_rgba(16,185,129,0.3)]"
                                   : "bg-rose-500 border-rose-400 text-black shadow-[0_0_10px_rgba(244,63,94,0.3)]"
                                 : "bg-slate-800 border-slate-700 text-slate-500",
@@ -625,10 +651,10 @@ export function MatrixPortfolio() {
                           <div
                             className={cn(
                               "flex items-center gap-1.5 mt-1 px-2 py-0.5 rounded border transition-all",
-                              signalData?.volatilityRegime === "PATLAMA" ||
-                                signalData?.volatilityRegime === "SIKIŞTIRMA"
+                              signalData?.volatilityRegime === "EXPLOSION" ||
+                                signalData?.volatilityRegime === "SQUEEZE"
                                 ? "bg-purple-500 border-purple-400 text-white animate-pulse"
-                                : signalData?.volatilityRegime === "YÜKSEK_VOL"
+                                : signalData?.volatilityRegime === "HIGH_VOL"
                                   ? "bg-amber-500 border-amber-400 text-black"
                                   : "bg-slate-800 border-slate-700 text-slate-500",
                             )}
@@ -641,89 +667,106 @@ export function MatrixPortfolio() {
                         </div>
                       </td>
 
-                      {/* 7. PREDICTION + SMART ANALYSIS */}
+                      {/* 7. PREDICTION + SMART ANALYSIS — Tüm Alt Kollar */}
                       <td className="px-3 py-2.5 border-r border-slate-800/30">
                         {(() => {
                           const sp = calculateSmartPrediction(signalData);
+                          const pred = signalData?.prediction;
+                          const adm = signalData?.adm;
+                          const vpa = signalData?.vpa;
                           return (
-                            <div className="flex flex-col gap-1 min-w-[130px]">
-                              {/* Ana etiket */}
-                              <span
-                                className={`text-[9px] font-black leading-tight ${sp.verdictColor}`}
-                              >
+                            <div className="flex flex-col gap-1 min-w-[160px]">
+                              {/* Ana Karar Etiketi */}
+                              <span className={`text-[9px] font-black leading-tight ${sp.verdictColor}`}>
                                 {sp.label}
                               </span>
-                              {/* Bull/bear yüzdesi bar */}
+
+                              {/* Boğa/Ayı Puan Barı */}
                               <div className="flex gap-0.5 items-center">
                                 <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
                                   <div
                                     className={`h-full rounded-full transition-all duration-500 ${
-                                      sp.bulletScore >= 60
-                                        ? "bg-emerald-500"
-                                        : sp.bulletScore <= 40
-                                          ? "bg-rose-500"
-                                          : "bg-amber-500"
+                                      sp.bulletScore >= 60 ? "bg-emerald-500" : sp.bulletScore <= 40 ? "bg-rose-500" : "bg-amber-500"
                                     }`}
                                     style={{ width: `${sp.bulletScore}%` }}
                                   />
                                 </div>
-                                <span
-                                  className={`text-[8px] font-mono w-7 text-right font-bold ${
-                                    sp.bulletScore >= 60
-                                      ? "text-emerald-400"
-                                      : sp.bulletScore <= 40
-                                        ? "text-rose-400"
-                                        : "text-amber-400"
-                                  }`}
-                                >
-                                  {sp.bulletScore}%
-                                </span>
+                                <span className={`text-[8px] font-mono w-6 text-right font-bold ${
+                                  sp.bulletScore >= 60 ? "text-emerald-400" : sp.bulletScore <= 40 ? "text-rose-400" : "text-amber-400"
+                                }`}>{sp.bulletScore}%</span>
                               </div>
-                              {/* Up prob mini bar */}
-                              {signalData?.prediction && (
-                                <div className="flex gap-0.5 items-center">
-                                  <div className="flex-1 h-1 bg-slate-800 rounded-full overflow-hidden">
-                                    <div
-                                      className="h-full bg-cyan-500/70 rounded-full"
-                                      style={{
-                                        width: `${signalData.prediction.upProb}%`,
-                                      }}
-                                    />
+
+                              {/* UpProb / DownProb İkili Bar */}
+                              {pred && (
+                                <div className="flex flex-col gap-0.5">
+                                  <div className="flex gap-0.5 items-center">
+                                    <div className="w-3 text-[7px] text-emerald-500 font-bold">↑</div>
+                                    <div className="flex-1 h-1 bg-slate-800 rounded-full overflow-hidden">
+                                      <div className="h-full bg-emerald-500/70 rounded-full transition-all" style={{ width: `${pred.upProb}%` }} />
+                                    </div>
+                                    <span className="text-[7px] text-emerald-400 font-mono w-6 text-right">{Math.round(pred.upProb)}%</span>
                                   </div>
-                                  <span className="text-[8px] text-cyan-500 font-mono w-7 text-right">
-                                    {Math.round(signalData.prediction.upProb)}%↑
-                                  </span>
+                                  <div className="flex gap-0.5 items-center">
+                                    <div className="w-3 text-[7px] text-rose-500 font-bold">↓</div>
+                                    <div className="flex-1 h-1 bg-slate-800 rounded-full overflow-hidden">
+                                      <div className="h-full bg-rose-500/70 rounded-full transition-all" style={{ width: `${pred.downProb}%` }} />
+                                    </div>
+                                    <span className="text-[7px] text-rose-400 font-mono w-6 text-right">{Math.round(pred.downProb)}%</span>
+                                  </div>
                                 </div>
                               )}
-                              {/* Tepe/dip sinyal özeti */}
-                              <div className="flex flex-wrap gap-0.5 mt-0.5">
-                                {sp.bullPoints
-                                  .slice(0, 2)
-                                  .map((p: string, i: number) => (
-                                    <span
-                                      key={i}
-                                      className="text-[7px] bg-emerald-500/10 text-emerald-400 px-1 py-0.5 rounded border border-emerald-500/15 leading-tight max-w-[120px] truncate"
-                                      title={p}
-                                    >
-                                      {p}
-                                    </span>
-                                  ))}
-                                {sp.bearPoints
-                                  .slice(0, 2)
-                                  .map((p: string, i: number) => (
-                                    <span
-                                      key={i}
-                                      className="text-[7px] bg-rose-500/10 text-rose-400 px-1 py-0.5 rounded border border-rose-500/15 leading-tight max-w-[120px] truncate"
-                                      title={p}
-                                    >
-                                      {p}
-                                    </span>
-                                  ))}
+
+                              {/* 4'lü Analiz Grubu (Yan Yana) */}
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {adm && adm.evidence && adm.evidence !== "YOK" && (
+                                  <span className={`text-[7px] px-1 py-0.5 rounded border font-black whitespace-nowrap ${
+                                    (adm.classification ?? 0) > 0
+                                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                      : "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                                  }`} title={`ADM: ${adm.bias}`}>
+                                    ADM {adm.evidence}
+                                  </span>
+                                )}
+                                {vpa && vpa.netPressure !== undefined && Math.abs(vpa.netPressure) > 10 && (
+                                  <span className={`text-[7px] px-1 py-0.5 rounded border font-black whitespace-nowrap ${
+                                    vpa.netPressure > 0
+                                      ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/20"
+                                      : "bg-orange-500/10 text-orange-400 border-orange-500/20"
+                                  }`} title={`VPA Baskı: ${vpa.netPressure?.toFixed(1)}`}>
+                                    VPA {vpa.netPressure > 0 ? "+" : ""}{vpa.netPressure.toFixed(0)}
+                                  </span>
+                                )}
+                                {(signalData?.f4ConfirmedBuy || signalData?.f4EarlyBuy ||
+                                  signalData?.f4ConfirmedSell || signalData?.f4EarlySell) && (
+                                  <span className={`text-[7px] font-black px-1 py-0.5 rounded border whitespace-nowrap ${
+                                    signalData.f4ConfirmedBuy ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30 animate-pulse" :
+                                    signalData.f4EarlyBuy ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                                    signalData.f4ConfirmedSell ? "bg-rose-500/20 text-rose-300 border-rose-500/30 animate-pulse" :
+                                    "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                                  }`}>
+                                    {signalData.f4ConfirmedBuy ? "✅ F4 ONAYLI" :
+                                     signalData.f4EarlyBuy ? "🔔 F4 ERKEN" :
+                                     signalData.f4ConfirmedSell ? "❌ F4 ONAYLI" : "🔕 F4 ERKEN"}
+                                  </span>
+                                )}
+                                {signalData?.regimePrediction && signalData.regimePrediction !== "NORMAL" && (
+                                  <span className={cn(
+                                    "text-[7px] px-1 py-0.5 rounded border font-mono whitespace-nowrap transition-colors",
+                                    signalData.regimePrediction.includes("YUKARI") || signalData.regimePrediction.includes("UP") || signalData.regimePrediction.includes("BULL") || signalData.regimePrediction.includes("BOTTOM")
+                                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                      : signalData.regimePrediction.includes("AŞAĞI") || signalData.regimePrediction.includes("DOWN") || signalData.regimePrediction.includes("BEAR") || signalData.regimePrediction.includes("DROP") || signalData.regimePrediction.includes("EXHAUSTION")
+                                        ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                                        : "bg-slate-800/40 text-slate-300 border-slate-700"
+                                  )} title={signalData.regimePrediction}>
+                                    📊 {signalData.regimePrediction.replace(/_/g, " ")}
+                                  </span>
+                                )}
                               </div>
-                              {(signalData?.aiComponents?.trapPenalty || 0) <
-                                0 && (
-                                <span className="text-[9px] text-rose-400 flex items-center gap-1">
-                                  <AlertCircle className="w-2.5 h-2.5" /> TUZAK
+
+                              {/* Tuzak Uyarısı */}
+                              {(signalData?.aiComponents?.trapPenalty || 0) < 0 && (
+                                <span className="text-[7px] text-rose-400 flex items-center gap-1 font-black">
+                                  <AlertCircle className="w-2.5 h-2.5" /> TUZAK TESPİT
                                 </span>
                               )}
                             </div>
@@ -1057,10 +1100,8 @@ export function MatrixPortfolio() {
                                               signalData?.regimePrediction ||
                                               "NÖTR",
                                             trap:
-                                              signalData?.whaleStatus ===
-                                                "TUZAK" ||
-                                              (signalData?.aiComponents
-                                                ?.trapPenalty ?? 0) < 0,
+                                              // trapPenalty < 0 is the actual engine-side trap signal
+                                              (signalData?.aiComponents?.trapPenalty ?? 0) < 0,
                                             smc: signalData?.smc,
                                             vpa: signalData?.vpa,
                                             adm: signalData?.adm,
@@ -1127,7 +1168,7 @@ export function MatrixPortfolio() {
 
       <div className="px-4 py-2 border-t border-slate-800 bg-slate-900/50 flex justify-between items-center text-[9px] text-slate-600 font-mono uppercase">
         <span>Matrix Portföy // AKTİF</span>
-        <span>SYNC: {new Date().toLocaleTimeString()}</span>
+        <span>SYNC: {lastSyncTime}</span>
       </div>
       </div>
 

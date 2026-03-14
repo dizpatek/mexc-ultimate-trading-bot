@@ -6,10 +6,15 @@ export interface SAEInput {
   zScore: number;
   vpa: VPAResult;
   f4Power: number; // [-100, 100]
+  f4EarlyBuy?: boolean;
+  f4EarlySell?: boolean;
+  f4ConfirmedBuy?: boolean;
+  f4ConfirmedSell?: boolean;
   ribbonState: string;
   volatilityRegime: VolatilityRegime;
   currentWinRate: number; // 0.0 to 1.0
   rawSystemDecision: "GO_LONG" | "GO_SHORT" | "WAIT";
+  isF4Priority?: boolean;
 }
 
 export interface SAEResult {
@@ -28,16 +33,21 @@ export function evaluateSAE(input: SAEInput): SAEResult {
   // 1. Bayesian Trust / Death Risk
   if (input.currentWinRate < 0.40) {
     deathRiskActive = true;
-    aiPenalty = -15; // -15 score penalty to AI
+    aiPenalty = -30; // Increased from -15 to -30 for poor winrates
   }
 
-  // 2. Hard-Coded Validation (SMC Mantık İhlali Koruması)
+  // Target direction is set by the raw decision
+  const isLong = input.rawSystemDecision === "GO_LONG";
+
+  const hasF4BuySignal = input.f4EarlyBuy || input.f4ConfirmedBuy || (isLong && input.isF4Priority);
+  const hasF4SellSignal = input.f4EarlySell || input.f4ConfirmedSell || (!isLong && input.isF4Priority);
+
+  // 2. Validation (SMC Mantık İhlali Koruması)
   
-  // Actually, wait, CHOCH or BOS must be present OR the trend must be strongly established
   const hasStructureConfirmationBull = input.smc.swingTrend === "BULLISH" && (input.smc.bos || input.smc.choch);
   const hasStructureConfirmationBear = input.smc.swingTrend === "BEARISH" && (input.smc.bos || input.smc.choch);
   
-  // SMC Bias check (Allows entry if trend is strong even without immediate break)
+  // SMC Bias check
   const isBullTrend = input.smc.swingTrend === "BULLISH";
   const isBearTrend = input.smc.swingTrend === "BEARISH";
   const isNeutralTrend = input.smc.swingTrend === "NEUTRAL";
@@ -46,7 +56,10 @@ export function evaluateSAE(input: SAEInput): SAEResult {
   const highConfidenceBull = isNeutralTrend && input.f4Power > 50 && input.ribbonState.includes("↑");
   const highConfidenceBear = isNeutralTrend && input.f4Power < -50 && input.ribbonState.includes("↓");
 
-  if (input.rawSystemDecision === "GO_LONG" && !isBullTrend && !highConfidenceBull) {
+  const smcValidForBull = isBullTrend || highConfidenceBull || hasF4BuySignal;
+  const smcValidForBear = isBearTrend || highConfidenceBear || hasF4SellSignal;
+
+  if (input.rawSystemDecision === "GO_LONG" && !smcValidForBull) {
     return {
       finalDecision: "NO_TRADE",
       signalConflictScore: 100,
@@ -57,7 +70,7 @@ export function evaluateSAE(input: SAEInput): SAEResult {
     };
   }
 
-  if (input.rawSystemDecision === "GO_SHORT" && !isBearTrend && !highConfidenceBear) {
+  if (input.rawSystemDecision === "GO_SHORT" && !smcValidForBear) {
     return {
       finalDecision: "NO_TRADE",
       signalConflictScore: 100,
@@ -79,23 +92,23 @@ export function evaluateSAE(input: SAEInput): SAEResult {
     };
   }
 
-  // Target direction is set by the raw decision
-  const isLong = input.rawSystemDecision === "GO_LONG";
-
   // 3. Signal Fusion & Weights (SMC 40%, Flow 30%, Trend 20%, Regime 10%)
   // Calculate agreements for the given direction
   let scoreSMC = 0;
   let scoreFlow = 0;
   let scoreTrend = 0;
   let scoreRegime = 0;
+  let f4BonusScore = 0; // High-weight integration for F4 Engine
   
-  // SMC (40%) - Award base 20 for trend alignment, full 40 if break confirmed
+  // F4 Direct Bonus (High tactical advantage integrated into standard scoring)
+  if (isLong && hasF4BuySignal) f4BonusScore = 50;
+  if (!isLong && hasF4SellSignal) f4BonusScore = 50;
   if (isLong) {
     if (isBullTrend) scoreSMC = hasStructureConfirmationBull ? 40 : 20;
-    else if (highConfidenceBull) scoreSMC = 30; // High reward for strong reversal even in neutral trend
+    else if (highConfidenceBull || hasF4BuySignal) scoreSMC = 20; // Allow counter-trend but don't give excessive SMC points
   } else {
     if (isBearTrend) scoreSMC = hasStructureConfirmationBear ? 40 : 20;
-    else if (highConfidenceBear) scoreSMC = 30;
+    else if (highConfidenceBear || hasF4SellSignal) scoreSMC = 20;
   }
 
   // Flow (30%) - Whale/Volume Map
@@ -113,34 +126,48 @@ export function evaluateSAE(input: SAEInput): SAEResult {
 
   // Trend (20%) - F4 Power & Ribbon
   let trendAgreement = 0;
-  if ((isLong && input.f4Power > 0) || (!isLong && input.f4Power < 0)) {
-    trendAgreement += 0.5;
+  
+  // If we have an actionable F4 signal, we max out the trend score.
+  if ((isLong && hasF4BuySignal) || (!isLong && hasF4SellSignal)) {
+    trendAgreement = 1.0;
+  } else {
+    if ((isLong && input.f4Power > 0) || (!isLong && input.f4Power < 0)) {
+      trendAgreement += 0.5;
+    }
+    if (isLong && (input.ribbonState === "TAM HIZALANMA ↑" || input.ribbonState === "BOĞA EĞİLİM" || input.ribbonState === "NÖTR EĞİLİM ↑")) {
+      trendAgreement += 0.5;
+    } else if (!isLong && (input.ribbonState === "TAM HIZALANMA ↓" || input.ribbonState === "AYI EĞİLİM" || input.ribbonState === "NÖTR EĞİLİM ↓")) {
+      trendAgreement += 0.5;
+    }
   }
-  if (isLong && (input.ribbonState === "TAM HIZALANMA ↑" || input.ribbonState === "BOĞA EĞİLİM" || input.ribbonState === "NÖTR EĞİLİM ↑")) {
-    trendAgreement += 0.5;
-  } else if (!isLong && (input.ribbonState === "TAM HIZALANMA ↓" || input.ribbonState === "AYI EĞİLİM" || input.ribbonState === "NÖTR EĞİLİM ↓")) {
-    trendAgreement += 0.5;
-  }
-  scoreTrend = trendAgreement * 20;
+  scoreTrend = Math.min(1.0, trendAgreement) * 20;
 
   // Regime (10%)
-  let regimeAgreement = 1.0; 
-  if (input.volatilityRegime === "NORMAL" || input.volatilityRegime === "EXPLOSION" || input.volatilityRegime === "SQUEEZE") {
-    regimeAgreement = 1.0;
+  // SQUEEZE = pre-explosion, direction unknown → partial
+  // EXPLOSION in correct direction → full
+  // HIGH_VOL → risky, penalize slightly
+  let regimeAgreement = 0.7; // NORMAL baseline
+  if (input.volatilityRegime === "SQUEEZE") {
+    regimeAgreement = 0.5; // Uncertain, can go either way
+  } else if (input.volatilityRegime === "EXPLOSION") {
+    const explosionFavorsLong = input.vpa.netPressure >= 0;
+    regimeAgreement = (isLong && explosionFavorsLong) || (!isLong && !explosionFavorsLong) ? 1.0 : 0.5;
+  } else if (input.volatilityRegime === "HIGH_VOL") {
+    regimeAgreement = 0.4; // High vol = risky entries, lower weight
   }
   scoreRegime = regimeAgreement * 10;
 
-  const totalAgreementScore = scoreSMC + scoreFlow + scoreTrend + scoreRegime;
-  const signalConflictScore = 100 - totalAgreementScore; // The lack of agreement is conflict
+  const totalAgreementScore = Math.min(100, Math.max(0, scoreSMC + scoreFlow + scoreTrend + scoreRegime + f4BonusScore + aiPenalty));
+  let signalConflictScore = 100 - totalAgreementScore;
 
-  // 4. Conflict Limit Rule (Increased from 60 to 70 for higher sensitivity)
-  if (signalConflictScore > 70) {
+  // 4. Conflict Limit Rule (Strict: Must be < 40 conflict, i.e., > 60 score)
+  if (signalConflictScore > 40) {
     return {
       finalDecision: "NO_TRADE",
       signalConflictScore,
       aiPenalty,
       deathRiskActive,
-      rejectionReason: "CONFLICT_LIMIT_EXCEEDED",
+      rejectionReason: `CONFLICT_LIMIT_EXCEEDED (${signalConflictScore.toFixed(0)} > 40)`,
       saeConfidence: totalAgreementScore
     };
   }

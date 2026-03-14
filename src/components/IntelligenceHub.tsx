@@ -411,7 +411,7 @@ export const IntelligenceHub = () => {
   }, [latestWhaleAlert]);
 
   return (
-    <div className="flex flex-col h-full bg-gradient-to-br from-[#020617] to-[#0f172a]/90 backdrop-blur-xl border border-blue-500/30 rounded-xl overflow-hidden shadow-[0_0_40px_rgba(59,130,246,0.15)] relative group/hub">
+    <div className="flex flex-col h-full max-h-[600px] bg-gradient-to-br from-[#020617] to-[#0f172a]/90 backdrop-blur-xl border border-blue-500/30 rounded-xl overflow-hidden shadow-[0_0_40px_rgba(59,130,246,0.15)] relative group/hub">
       <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-blue-400 to-transparent opacity-50 shadow-[0_0_15px_rgba(96,165,250,0.8)] animate-pulse" />
       <div className="absolute inset-0 bg-[linear-gradient(rgba(59,130,246,0.03)_1px,transparent_1px)] bg-[size:100%_4px] pointer-events-none opacity-30" />
 
@@ -476,7 +476,7 @@ export const IntelligenceHub = () => {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-0 scrollbar-hide">
+      <div className="flex-1 overflow-y-auto p-0 cyber-scrollbar">
         {error ? (
           <div className="h-full flex flex-col items-center justify-center p-4 text-center space-y-2">
             <Activity className="w-6 h-6 text-slate-700" />

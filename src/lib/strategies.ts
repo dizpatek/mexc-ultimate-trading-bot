@@ -11,6 +11,7 @@ const logger = {
 
 // P4.3: Cache for MTF checks to avoid reaching API limits during bulk scans
 const mtfResultsCache = new Map<string, { result: number | null; timestamp: number }>();
+const pendingRequests = new Map<string, Promise<number | null>>();
 const MTF_CACHE_TTL = 30000; // 30 seconds
 
 
@@ -248,7 +249,7 @@ export class MatrixV5Strategy extends BaseStrategy {
     this.engine = new MatrixV5Engine({
       f4Length: this.parameters.f4Length ? Number(this.parameters.f4Length) : undefined,
       whaleVolumeMultiplier: this.parameters.whaleVolumeMultiplier ? Number(this.parameters.whaleVolumeMultiplier) : undefined,
-      minAiScore: this.parameters.minAiScore ? Number(this.parameters.minAiScore) : undefined,
+      mtfThreshold: this.parameters.mtfThreshold ? Number(this.parameters.mtfThreshold) : 80,
     });
   }
 
@@ -266,9 +267,10 @@ export class MatrixV5Strategy extends BaseStrategy {
       const klines = await getKlines(this.symbol, timeframeStr, limit);
       if (!klines || klines.length < 200) return null;
 
-      const closes = klines.map((k) => parseFloat(String(k[4])));
+      const opens = klines.map((k) => parseFloat(String(k[1])));
       const highs = klines.map((k) => parseFloat(String(k[2])));
       const lows = klines.map((k) => parseFloat(String(k[3])));
+      const closes = klines.map((k) => parseFloat(String(k[4])));
       const volumes = klines.map((k) => parseFloat(String(k[5])));
 
       const riskMode =
@@ -286,17 +288,23 @@ export class MatrixV5Strategy extends BaseStrategy {
         timeframeStr,
         riskMode,
         fundingRate || 0,
-        { tradeMode }
+        { tradeMode, mtfThreshold: Number(this.parameters.mtfThreshold) || 80 },
+        opens
       );
 
       let signalType: "BUY" | "SELL" | null = result.signal;
-      let reasonText = `[MatrixV5] ${result.whaleSignalText ? result.whaleSignalText + " | " : ""}AI: ${result.aiScore}`;
+      let reasonText = `[MatrixV5] ${result.whaleSignalText ? result.whaleSignalText + " | " : ""}AI: ${result.aiScore} | ⚡ F4: ${Math.round(result.f4Power)}%`;
 
+      // [URGENT] F4 Mandate: Only generate signals if F4 is active
+      const isF4Active = !!(result.f4EarlyBuy || result.f4ConfirmedBuy || result.f4EarlySell || result.f4ConfirmedSell);
+      if (!isF4Active) {
+        return null;
+      }
 
       // V5.5 Optimization: True MTF Consensus Veto
       let mtfScore = 50;
       let mtfVerdictText = "ATLANDI";
-      
+
       if (signalType) {
         const consensus = await this.getMtfConsensus(timeframeStr, result);
         mtfScore = consensus.score;
@@ -307,14 +315,12 @@ export class MatrixV5Strategy extends BaseStrategy {
         reasonText += veto.reasonExtension;
       }
 
-
       // Final check: if we have no signal (BUY/SELL) and no Whale, return null unless AI is very high
       if (!signalType && !result.whaleDetected && result.aiScore < 80) {
         if (reasonText.includes("🛑 MTF Veto")) {
-           // We still return so PilotEngine can record the veto reason to the DB
-           signalType = "NONE" as any;
+          signalType = "NONE" as any;
         } else {
-           return null;
+          return null;
         }
       }
 
@@ -335,6 +341,12 @@ export class MatrixV5Strategy extends BaseStrategy {
           mtfVerdict: mtfVerdictText,
           fundingRate: result.fundingRate,
           fundingImpact: result.fundingImpact,
+          f4PowerLoss: result.f4PowerLoss,
+          f4Power: result.f4Power,
+          f4EarlyBuy: result.f4EarlyBuy,
+          f4EarlySell: result.f4EarlySell,
+          f4ConfirmedBuy: result.f4ConfirmedBuy,
+          f4ConfirmedSell: result.f4ConfirmedSell,
         },
         targets: result.targets,
         timestamp: Date.now(),
@@ -391,8 +403,8 @@ export class MatrixV5Strategy extends BaseStrategy {
     mtfScore: number,
     mtfVerdictText: string
   ): { signal: "BUY" | "SELL" | null; reasonExtension: string } {
-    const mtfVetoEnabled = !!this.parameters.mtfVeto;
-    const mtfThreshold = Number(this.parameters.mtfThreshold) || 60;
+    const mtfVetoEnabled = this.parameters.mtfVeto !== false; // Default to true if not explicitly false
+    const mtfThreshold = Number(this.parameters.mtfThreshold) || 80;
     let finalSignal = signal;
     let reasonExtension = "";
 
@@ -407,34 +419,48 @@ export class MatrixV5Strategy extends BaseStrategy {
     } else {
       reasonExtension = ` | ℹ️ MTF Check: ${mtfVerdictText} (Veto Disabled)`;
     }
-
     return { signal: finalSignal, reasonExtension };
   }
 
   /**
    * P4.2: Separating lite trend detection logic for better quality.
+   * Optimized with request deduplication to prevent rate-limit flooding.
    */
   private async performLiteMtfCheck(tf: string): Promise<number | null> {
     const cacheKey = `${this.symbol}_${tf}`;
+    
+    // 1. Check Memory Cache
     const cached = mtfResultsCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < MTF_CACHE_TTL) {
       return cached.result;
     }
 
-    try {
-      const klines = await getKlines(this.symbol, tf, 50);
-      if (klines && klines.length >= 21) {
-        const closes = klines.map((k) => parseFloat(String(k[4])));
-        const lastClose = closes[closes.length - 1];
-        const ema20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
-        const result = lastClose > ema20 ? 1 : 0;
-        mtfResultsCache.set(cacheKey, { result, timestamp: Date.now() });
-        return result;
+    // 2. Check for Pending Request (Deduplication)
+    const existingPromise = pendingRequests.get(cacheKey);
+    if (existingPromise) return existingPromise;
+
+    // 3. Perform Fetch with Lock
+    const fetchPromise = (async () => {
+      try {
+        const klines = await getKlines(this.symbol, tf, 50);
+        if (klines && klines.length >= 21) {
+          const closes = klines.map((k) => parseFloat(String(k[4])));
+          const lastClose = closes[closes.length - 1];
+          const ema20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+          const result = lastClose > ema20 ? 1 : 0;
+          mtfResultsCache.set(cacheKey, { result, timestamp: Date.now() });
+          return result;
+        }
+      } catch (e) {
+        console.warn(`[MTF-Lite] Fetch error for ${this.symbol} on ${tf}:`, e);
+      } finally {
+        pendingRequests.delete(cacheKey);
       }
-    } catch (e) {
-      console.warn(`[MTF-Lite] Fetch error for ${this.symbol} on ${tf}:`, e);
-    }
-    return null;
+      return null;
+    })();
+
+    pendingRequests.set(cacheKey, fetchPromise);
+    return fetchPromise;
   }
 }
 
@@ -517,7 +543,7 @@ export const AVAILABLE_STRATEGIES: Record<
         min: 1.1,
         max: 5.0,
       },
-      minAiScore: { type: "number", default: 65, min: 0, max: 100 },
+      mtfThreshold: { type: "number", default: 80, min: 0, max: 100 },
     },
   },
 };

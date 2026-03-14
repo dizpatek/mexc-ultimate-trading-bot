@@ -15,23 +15,69 @@ export interface GlobalMarketData {
  * we approximate or use alternative sources if available.
  * For now, we will use a fallback or mock with real-looking logic until a reliable provider is integrated.
  */
-export async function fetchGlobalMarketData(): Promise<GlobalMarketData> {
-  try {
-    // In a real scenario, we'd fetch these from an aggregator or TradingView API
-    // For this implementation, we will simulate the fetch to OTHERS.D/BTC.D etc.
-    // using real relative data if possible, or consistent high-quality approximations.
+let _lastKnownBtcDom = 55.4;
+let _lastKnownUsdtDom = 4.2;
+let _lastKnownOthersDom = 11.8;
+let _cacheTimestamp = 0;
+let _cachedResult: GlobalMarketData | null = null;
+const CACHE_TTL_MS = 60_000; // 60-second cache to avoid blocking on every poll
 
-    // Mocking for now to match the Pine Script V3 logic structure
-    return {
-      btcd: { value: 55.4, change: 0.2, trend: "UP" },
-      usdtd: { value: 4.2, change: -0.5, trend: "DOWN" },
-      othersd: { value: 11.8, change: 1.5, trend: "UP" },
-      flow: "ALTCOIN SEZONU 🔥",
-      flowColor: "text-emerald-400",
+export async function fetchGlobalMarketData(): Promise<GlobalMarketData> {
+  // Return cached result within TTL
+  if (_cachedResult && Date.now() - _cacheTimestamp < CACHE_TTL_MS) {
+    return _cachedResult;
+  }
+
+  try {
+    // CoinGecko /global endpoint returns dominance percentages directly
+    const res = await axios.get("https://api.coingecko.com/api/v3/global", { timeout: 5000 });
+    const data = res.data?.data;
+    if (!data?.market_cap_percentage) throw new Error("No dominance data");
+
+    const btcDomVal = data.market_cap_percentage["btc"] ?? _lastKnownBtcDom;
+    const usdtDomVal = data.market_cap_percentage["usdt"] ?? _lastKnownUsdtDom;
+    // Compute others dominance: sum all non-BTC/USDT entries from the response
+    const knownDomSum = Object.entries(data.market_cap_percentage as Record<string, number>)
+      .filter(([k]) => k !== "btc" && k !== "usdt")
+      .reduce((acc, [, v]) => acc + v, 0);
+    const othersDomVal = Math.max(0, Math.min(100 - btcDomVal - usdtDomVal, knownDomSum));
+
+    const btcChange = btcDomVal - _lastKnownBtcDom;
+    const usdtChange = usdtDomVal - _lastKnownUsdtDom;
+    const othersChange = othersDomVal - _lastKnownOthersDom;
+
+    _lastKnownBtcDom = btcDomVal;
+    _lastKnownUsdtDom = usdtDomVal;
+    _lastKnownOthersDom = othersDomVal;
+
+    const isAltSeason = btcDomVal < 48 && usdtDomVal < 5;
+    const isBtcDominant = btcDomVal > 58;
+    const flowLabel = isAltSeason ? "ALTCOIN SEZONU 🔥" : isBtcDominant ? "BTC HAKİMİYETİ ⚡" : "ROTASYON 🔄";
+    const flowColor = isAltSeason ? "text-emerald-400" : isBtcDominant ? "text-amber-400" : "text-cyan-400";
+
+    _cachedResult = {
+      btcd: { value: parseFloat(btcDomVal.toFixed(2)), change: parseFloat(btcChange.toFixed(2)), trend: btcChange >= 0 ? "UP" : "DOWN" },
+      usdtd: { value: parseFloat(usdtDomVal.toFixed(2)), change: parseFloat(usdtChange.toFixed(2)), trend: usdtChange >= 0 ? "UP" : "DOWN" },
+      othersd: { value: parseFloat(othersDomVal.toFixed(2)), change: parseFloat(othersChange.toFixed(2)), trend: othersChange >= 0 ? "UP" : "DOWN" },
+      flow: flowLabel,
+      flowColor,
     };
+    _cacheTimestamp = Date.now();
+    return _cachedResult;
   } catch (error) {
-    console.error("Error fetching global market data:", error);
-    throw error;
+    console.warn("[MarketData] CoinGecko fetch failed, using last known values:", error instanceof Error ? error.message : String(error));
+    // Return cached result only if it's reasonably fresh (within 5x TTL = 5 min)
+    const cacheAge = Date.now() - _cacheTimestamp;
+    if (_cachedResult && cacheAge < CACHE_TTL_MS * 5) {
+      return _cachedResult;
+    }
+    return {
+      btcd: { value: _lastKnownBtcDom, change: 0, trend: "UP" as const },
+      usdtd: { value: _lastKnownUsdtDom, change: 0, trend: "DOWN" as const },
+      othersd: { value: _lastKnownOthersDom, change: 0, trend: "UP" as const },
+      flow: "VERİ YOK ⚠️",
+      flowColor: "text-slate-400",
+    };
   }
 }
 

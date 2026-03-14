@@ -48,8 +48,8 @@ export const SmartOperationCenter = () => {
   const handleSaveSuccess = () => {
     setEditingTrade(null);
     setIsTradeFormOpen(false);
-    // Scroll to chart (terminalRef) instead of active trades as requested
-    terminalRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Scroll to active trades section so user can see their new/updated trade
+    activeTradesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const handleCancelEdit = () => {

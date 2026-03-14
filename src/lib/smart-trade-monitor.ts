@@ -6,8 +6,8 @@ import {
   executePartialTP,
   saveTradeUpdate,
 } from "./smart-trade-execution";
-import { MatrixV5Engine } from "./matrix-v5-engine";
-import { fetchKlines } from "./mexc";
+import { MatrixV5Engine, MatrixV5Config } from "./matrix-v5-engine";
+import { fetchKlines, batchFetchPrices } from "./mexc";
 import { calculateTrailingExitTarget, calculateTrailingBuyTarget } from "./trading-logic";
 import { getBotConfig, resolveTradeMode } from "./db";
 
@@ -19,11 +19,12 @@ interface KlineCacheItem {
 type KlineCache = Record<string, KlineCacheItem>;
 
 let lastRun = 0;
-const MONITOR_INTERVAL = 5000; // Reduced from 12s to 5s to save Vercel CPU time
+const MONITOR_INTERVAL = 1000; // Reduced from 5s to 1s for high-speed response
 const AI_ANALYSIS_INTERVAL = 60000;
-const CONCURRENCY_LIMIT = 5;
+const CONCURRENCY_LIMIT = 20; // Increased from 5 to 20 for faster batch processing
 
-const sharedEngine = new MatrixV5Engine();
+// MatrixV5Engine is now instantiated per-trade inside processTradeMonitoring 
+// to ensure thread-safety during concurrent processing.
 let isDbRepaired = false;
 let repairPromise: Promise<void> | null = null;
 
@@ -85,14 +86,21 @@ export async function monitorSmartTrades() {
     if (rows.length === 0) return;
     const trades = rows as unknown as MonitoredTrade[];
 
+    // ── HIGH SPEED: Pre-fetch ALL prices in one call ──
+    // Instead of each trade calling getPrice() (even with batching), 
+    // we fetch everything once at start of cycle.
+    const symbolSet = new Set(trades.map(t => t.symbol));
+    const priceMap = await batchFetchPrices(Array.from(symbolSet));
+
     for (let i = 0; i < trades.length; i += CONCURRENCY_LIMIT) {
       const chunk = trades.slice(i, i + CONCURRENCY_LIMIT);
       await Promise.allSettled(
-        chunk.map((trade) =>
-          processTradeMonitoring(trade, pilotEnabled, cycleCache).catch((err) =>
+        chunk.map((trade) => {
+          const currentPrice = priceMap[trade.symbol];
+          return processTradeMonitoring(trade, pilotEnabled, cycleCache, currentPrice).catch((err) =>
             console.error(`[SmartMonitor] Error for trade ${trade.id}:`, err),
-          ),
-        ),
+          );
+        }),
       );
     }
   } catch (error) {
@@ -174,7 +182,12 @@ interface TradeMeta extends Record<string, unknown> {
   filledAt?: number;
 }
 
-async function processTradeMonitoring(trade: MonitoredTrade, pilotEnabled: boolean, cycleCache: KlineCache) {
+async function processTradeMonitoring(
+  trade: MonitoredTrade, 
+  pilotEnabled: boolean, 
+  cycleCache: KlineCache,
+  preFetchedPrice?: number
+) {
   const {
     id,
     symbol,
@@ -189,7 +202,8 @@ async function processTradeMonitoring(trade: MonitoredTrade, pilotEnabled: boole
   ) as TradeMeta;
 
   try {
-    const currentPrice = await getPrice(symbol);
+    // Use pre-fetched price if available, fallback to getPrice for robustness
+    const currentPrice = preFetchedPrice || await getPrice(symbol);
     if (!currentPrice || isNaN(currentPrice)) return;
 
     let isDirty = false;
@@ -273,7 +287,15 @@ async function processTradeMonitoring(trade: MonitoredTrade, pilotEnabled: boole
     if (shouldExit) {
       await executeExit(trade, currentPrice, exitReason, meta, currentQty);
     } else if (isDirty) {
-      await saveTradeUpdate(id, currentQty, meta);
+      // P4.4: Selective update to reduce DB pressure
+      // Only save if price moved significantly (> 0.01%) for display accuracy
+      const lastSavedPrice = Number(meta.lastPrice) || 0;
+      const priceChangePct = lastSavedPrice > 0 ? Math.abs((currentPrice - lastSavedPrice) / lastSavedPrice) : 1;
+      
+      if (priceChangePct > 0.0001) {
+         meta.lastPrice = currentPrice;
+         await saveTradeUpdate(id, currentQty, meta);
+      }
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -325,16 +347,19 @@ async function runAiAnalysis(symbol: string, meta: Record<string, unknown>, cycl
     }
 
     if (klines && klines.length >= 50) {
+      const engine = new MatrixV5Engine(); // P3.2: Thread-safe instance per trade
       type KlineData = { close: number; high: number; low: number; volume: number };
       const cycleTradeMode = (cycleCache as { __tradeMode?: "Scalp" | "Swing" }).__tradeMode || "Scalp";
-      const res = sharedEngine.analyze(
+      const configOverrides: Partial<MatrixV5Config> = { tradeMode: cycleTradeMode };
+      const res = engine.analyze(
         klines.map((k: KlineData) => k.close),
         klines.map((k: KlineData) => k.high),
         klines.map((k: KlineData) => k.low),
         klines.map((k: KlineData) => k.volume),
         timeframe,
         "normal",
-        { tradeMode: cycleTradeMode }
+        0, // P3.1: Explicit fundingRate for correct positional parsing
+        configOverrides
       );
       return {
         aiScore: res.aiScore,
@@ -483,9 +508,12 @@ function evaluateStopLoss(
   const isTrailingSLEnabled =
     rawTrailing === true || rawTrailing === ("true" as unknown);
 
-  if (isTrailingSLEnabled && slPrice > 0) {
+  // FIX: TSL only activates AFTER at least one TP is hit (tpTriggered).
+  // This prevents early trailing and misleading "TSL BAŞLADI" messages.
+  const isTpAlreadyHit = !!meta.tpTriggered;
+
+  if (isTrailingSLEnabled && slPrice > 0 && isTpAlreadyHit) {
     // NEW TRAILING SL PATH: Trails using the initial SL distance dynamically.
-    // It starts trailing instantly when the price favors the trade. No waiting for TP.
     const sl = payload.stopLoss!;
     const isCover = payload.mode === "COVER";
 
@@ -504,6 +532,17 @@ function evaluateStopLoss(
       finalSL = prevSl > 0 ? Math.min(trailSL, prevSl) : trailSL;
     } else {
       finalSL = prevSl > 0 ? Math.max(trailSL, prevSl) : trailSL;
+    }
+
+    // MINIMUM DISTANCE GUARD: SL must be at least 0.8% from entry price
+    // This prevents TSL from being too close to entry during normal market noise
+    const minDistPct = 0.008; // 0.8%
+    if (isLong) {
+      const minSL = entryPrice * (1 - minDistPct);
+      if (finalSL > minSL) finalSL = minSL;
+    } else {
+      const maxSL = entryPrice * (1 + minDistPct);
+      if (finalSL < maxSL) finalSL = maxSL;
     }
 
     // Log when TSL upgrades the stop explicitly
@@ -532,6 +571,19 @@ function evaluateStopLoss(
     }
 
     if (slHit) {
+      // WARMUP PROTECTION: Don't trigger TSL in the first 2 minutes after entry
+      // This gives the trade time to settle and prevents instant SL hits from normal noise
+      const filledAt = Number(meta.filledAt || 0);
+      const warmupMs = 120_000; // 2 minutes
+      const isInWarmup = filledAt > 0 && (Date.now() - filledAt) < warmupMs;
+
+      if (isInWarmup) {
+        console.log(
+          `[SmartMonitor] TSL WARMUP: Trade ${tradeId} | SL hit but in warmup period (${Math.round((Date.now() - filledAt) / 1000)}s). Skipping exit.`,
+        );
+        return { shouldExit: false, reason: "", metaUpdates, hasSlChanged };
+      }
+
       const timeoutSeconds = sl.timeoutSeconds ? Number(sl.timeoutSeconds) : 0;
       if (sl.timeout && timeoutSeconds > 0) {
         if (!meta.slTimeoutStart) {

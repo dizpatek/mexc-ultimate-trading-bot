@@ -358,6 +358,11 @@ async function runSchemaMigrations() {
   } catch {
     /* ignore */
   }
+  try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS f4_power_loss_threshold NUMERIC DEFAULT 90`;
+  } catch {
+    /* ignore */
+  }
 }
 
 async function createDefaultConfigs() {
@@ -386,7 +391,7 @@ async function createDefaultConfigs() {
         INSERT INTO bot_configs (id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, updated_at, 
                                  pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation, pilot_timeframe, fibo_length, timeframe_settings)
         VALUES (1, 10, 1.8, 65, false, false, ${Date.now()}, 
-                true, 0.3, true, 1.0, true, 0.5, '4h', 20, '{"pilot_tp_percent": 1.0, "pilot_sl_percent": 0.5, "cover_tp_percent": 0.5, "cover_sl_percent": 0.3, "cover_tp_trailing": true, "cover_tp_deviation": 0.3, "cover_sl_trailing": false, "cover_sl_deviation": 1.0}')
+                true, 0.3, true, 1.0, true, 0.5, '4h', 20, '{"pilot_tp_percent": 1.5, "pilot_sl_percent": 0.5, "cover_tp_percent": 1.5, "cover_sl_percent": 0.5, "cover_tp_trailing": true, "cover_tp_deviation": 0.3, "cover_sl_trailing": false, "cover_sl_deviation": 1.0}')
             `;
       console.log("[DB-Init] Default bot config inserted.");
     }

@@ -12,6 +12,7 @@ import {
   Brain,
   Timer,
   Radar,
+  Archive,
 } from "lucide-react";
 import { api } from "@/services/api";
 import { cn } from "@/lib/utils";
@@ -23,188 +24,17 @@ import { ExpandedTradePanel } from "./matrix-horizon/ExpandedTradePanel";
 import { TradeHeader } from "./matrix-horizon/TradeHeader";
 import { StatusBadge } from "./matrix-horizon/StatusBadge";
 import { TradeProgressBar } from "./matrix-horizon/TradeProgressBar";
+import { TradeCommandBar } from "./matrix-horizon/TradeCommandBar";
 import { useNotification } from "@/context/NotificationContext";
+import { 
+  SmartTradeOrder, 
+  calculateTradePnl, 
+  calculateMtfVerdict 
+} from "@/lib/trade-utils";
 
 // --- Pure Helper Functions (Extracted to reduce Component God-Object antipattern) ---
 
-export function calculateTradePnl(
-  side: "BUY" | "SELL",
-  mode: string,
-  entry: number,
-  currentPrice: number,
-  qty: number,
-) {
-  const pnlPercent =
-    side === "BUY" && mode !== "COVER"
-      ? ((currentPrice - entry) / entry) * 100
-      : ((entry - currentPrice) / entry) * 100;
-
-  const pnlUsdt =
-    side === "BUY" && mode !== "COVER"
-      ? qty * (currentPrice - entry)
-      : qty * (entry - currentPrice);
-
-  return { pnlPercent, pnlUsdt };
-}
-
-export function calculateMtfVerdict(
-  allTfs: {
-    trend?: string;
-    signal?: string | null;
-    f4EarlyBuy?: boolean;
-    f4ConfirmedBuy?: boolean;
-    f4EarlySell?: boolean;
-    f4ConfirmedSell?: boolean;
-    aiScore?: number;
-  }[],
-  side: "BUY" | "SELL" = "BUY"
-) {
-  // If we are LONG (BUY), bullish is good. If we are SHORT (SELL), bearish is good.
-  const bullCountRaw = allTfs.filter(
-    (d) =>
-      d &&
-      (d.trend === "BULLISH" ||
-        d.signal === "BUY" ||
-        d.f4EarlyBuy ||
-        d.f4ConfirmedBuy),
-  ).length;
-  
-  const bearCountRaw = allTfs.filter(
-    (d) =>
-      d &&
-      (d.trend === "BEARISH" ||
-        d.signal === "SELL" ||
-        d.f4EarlySell ||
-        d.f4ConfirmedSell),
-  ).length;
-
-  // Context-aware scoring
-  const goodCount = side === "BUY" ? bullCountRaw : bearCountRaw;
-  const badCount = side === "BUY" ? bearCountRaw : bullCountRaw;
-  
-  const total = allTfs.length;
-  const goodPct = total > 0 ? Math.round((goodCount / total) * 100) : 50;
-
-  let verdictText = "NÖTR";
-  let verdictColor = "text-amber-400";
-  if (goodPct >= 70) {
-    verdictText = "GÜÇLÜ AL";
-    verdictColor = "text-emerald-400";
-  } else if (goodPct >= 55) {
-    verdictText = "AL";
-    verdictColor = "text-emerald-300";
-  } else if (goodPct <= 30) {
-    verdictText = "GÜÇLÜ SAT";
-    verdictColor = "text-rose-400";
-  } else if (goodPct <= 45) {
-    verdictText = "SAT";
-    verdictColor = "text-rose-300";
-  }
-
-  const avgMtfScore =
-    total > 0
-      ? Math.round(allTfs.reduce((sum, d) => sum + (d.aiScore || 0), 0) / total)
-      : 0;
-
-  return {
-    bullCount: bullCountRaw,
-    bearCount: bearCountRaw,
-    goodCount,
-    badCount,
-    total,
-    goodPct,
-    verdictText,
-    verdictColor,
-    avgMtfScore,
-  };
-}
-
-// --- Sub-components to reduce cognitive load ---
-
-// --- Sub-components extracted ---
-
-export interface SmartTradeOrder {
-  id: number;
-  symbol: string;
-  side: "BUY" | "SELL";
-  price: number;
-  currentPrice?: number;
-  qty: number;
-  status: string;
-  created_at: number;
-  meta: {
-    mode: string;
-    lastAiScore?: number | string;
-    smartTrade?: boolean;
-    dca?: boolean;
-    monitorError?: string;
-    exitPrice?: number | string;
-    exitResult?: { price: string; orderId: string };
-    entryReason?: string;
-    entryResult?: { price: string; orderId: string };
-    exitReason?: string;
-    closedAt?: number | string;
-    filledAt?: number | string;
-    highestPrice?: number;
-    lowestPrice?: number;
-    activeStopLoss?: number;
-    activeTakeProfit?: number;
-    tpTriggered?: boolean;
-    tslActivated?: boolean;
-    entryTriggered?: boolean;
-    // Activity log from backend (optional, synthesized client-side if missing)
-    activityLog?: Array<{
-      time: number;
-      type:
-        | "ENTRY"
-        | "SL_NEAR"
-        | "TP_TEST"
-        | "TTP_ACTIVE"
-        | "TSL_ACTIVE"
-        | "SL_UPDATE"
-        | "TP_UPDATE"
-        | "SL_HIT"
-        | "TP_HIT"
-        | "AI_SIGNAL"
-        | "WHALE"
-        | "MTF_CHANGE"
-        | "ERROR"
-        | "F4_SIGNAL"
-        | "PRICE_UPDATE"
-        | "STATUS_CHANGE";
-      message: string;
-      data?: Record<string, unknown>;
-    }>;
-    slUpdateHistory?: Array<{ time: number; from: number; to: number }>;
-    tpUpdateHistory?: Array<{ time: number; from: number; to: number }>;
-    peakDrawdown?: number;
-    payload: {
-      symbol: string;
-      amount: string;
-      buyPrice: string;
-      buyType: string;
-      trailingBuy?: boolean;
-      trailingBuyDev?: number;
-      takeProfit?: {
-        price: string;
-        type?: string;
-        trailing?: boolean;
-        deviation?: number;
-        isSplit?: boolean;
-        targets?: { price: string; volume: string }[];
-      } | null;
-      stopLoss?: {
-        price: string;
-        type?: string;
-        trailing?: boolean;
-        deviation?: number;
-        timeout?: boolean;
-        timeoutSeconds?: number;
-        breakeven?: boolean;
-      } | null;
-    };
-  };
-}
+// Logic and Interfaces extracted to src/lib/trade-utils.ts
 
 interface ActiveSmartTradesProps {
   onEdit?: (trade: SmartTradeOrder) => void;
@@ -225,7 +55,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
 
   const [error, setError] = useState<string | null>(null);
   const [clearingAction, setClearingAction] = useState<
-    "active" | "passive" | null
+    "active" | "passive" | "archive" | null
   >(null);
   const [pendingClear, setPendingClear] = useState<"active" | "passive" | null>(
     null,
@@ -354,55 +184,75 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
     });
   };
 
-  const handleClearAll = async (type: "active" | "passive") => {
-    console.log("[ClearAll] Executing:", type);
-    setClearingAction(type);
-    setPendingClear(null);
-
-    try {
-      let result;
-      if (type === "active") {
-        result = await api.delete("/trade/smart?all=true");
-        logger.warn(
-          "🧹 AKTİF İŞLEMLER TEMİZLENDİ",
-          "Kullanıcı tüm aktif pozisyonları piyasadan kapattı.",
-        );
-      } else {
-        result = await api.delete("/trade/smart?clearHistory=true");
-        logger.info(
-          "🗄️ İŞLEM GEÇMİŞİ SİLİNDİ",
-          "Arşivlenen eski işlemler sistemden temizlendi.",
-        );
-      }
-      console.log("[ClearAll] Success:", result.data);
-      await new Promise((r) => setTimeout(r, 500));
-      await fetchTrades();
-    } catch (err: unknown) {
-      const msg =
-        err && typeof err === "object" && "response" in err
-          ? (
-              err as {
-                response?: {
-                  data?: { error?: string; details?: string; message?: string };
-                };
-              }
-            ).response?.data?.error ||
-            (err as { response?: { data?: { details?: string } } }).response
-              ?.data?.details ||
-            "Bilinmeyen sunucu hatası"
-          : err instanceof Error
-            ? err.message
-            : String(err);
-      console.error("Clear all failed:", msg);
-      notify(`İŞLEM BAŞARISIZ: ${msg}`, "error");
-    } finally {
-      setClearingAction(null);
+  const handleClearAll = async (type: "active" | "passive" | "archive") => {
+    let message = "";
+    if (type === "active") {
+      message = "SİTE İÇİ KRİTİK TÜM ASSETLER SATILACAK! Devam etmek istediğinize emin misiniz?";
+    } else if (type === "archive") {
+      message = "DİKKAT: Pozisyonlar borsada KAPATILMAYACAK, sadece Robot listesinden kaldırılıp arşive taşınacak. Devam edilsin mi?";
+    } else {
+      message = "İşlem geçmişini temizlemek istediğinize emin misiniz?";
     }
+
+    confirm({
+      message,
+      onConfirm: async () => {
+        console.log("[ClearAll] Executing:", type);
+        setClearingAction(type);
+        setPendingClear(null);
+
+        try {
+          let result;
+          if (type === "active") {
+            result = await api.delete("/trade/smart?all=true");
+            logger.warn(
+              "🧹 AKTİF İŞLEMLER TEMİZLENDİ",
+              "Kullanıcı tüm aktif pozisyonları piyasadan kapattı.",
+            );
+          } else if (type === "archive") {
+            result = await api.delete("/trade/smart?all=true&silent=true");
+            logger.info(
+              "📦 TÜMÜ ARŞİVLENDİ",
+              "Aktif pozisyonlar satılmadan sistemden temizlendi.",
+            );
+          } else {
+            result = await api.delete("/trade/smart?clearHistory=true");
+            logger.info(
+              "🗄️ İŞLEM GEÇMİŞİ SİLİNDİ",
+              "Arşivlenen eski işlemler sistemden temizlendi.",
+            );
+          }
+          console.log("[ClearAll] Success:", result.data);
+          await new Promise((r) => setTimeout(r, 500));
+          await fetchTrades();
+        } catch (err: unknown) {
+          const msg =
+            err && typeof err === "object" && "response" in err
+              ? (
+                  err as {
+                    response?: {
+                      data?: { error?: string; details?: string; message?: string };
+                    };
+                  }
+                ).response?.data?.error ||
+                (err as { response?: { data?: { details?: string } } }).response
+                  ?.data?.details ||
+                "Bilinmeyen sunucu hatası"
+              : err instanceof Error
+                ? err.message
+                : String(err);
+          console.error("Clear all failed:", msg);
+          notify(`İŞLEM BAŞARISIZ: ${msg}`, "error");
+        } finally {
+          setClearingAction(null);
+        }
+      }
+    });
   };
 
   useEffect(() => {
     fetchTrades();
-    const interval = setInterval(fetchTrades, 5000); // 5s — trade status/meta doesn't change every second; live prices come from MarketKernel
+    const interval = setInterval(fetchTrades, 2000); // 2s - Increased refresh rate for real-time feel
     
     // Listen for pilot orders to instantly refresh the trade list
     const handlePilotOrder = () => {
@@ -538,34 +388,17 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
   }
 
   return (
-    <div className="mt-0 space-y-0.5">
-      {/* FUTURISTIC HEADER */}
-      <TradeHeader
-        isSectionExpanded={isSectionExpanded}
-        setIsSectionExpanded={setIsSectionExpanded}
-        tradesCount={
-          trades.filter((t) =>
-            activeTab === "AKTIF"
-              ? t.status === "FILLED" || t.status === "PENDING"
-              : t.status === "CLOSED",
-          ).length
-        }
-        lastFetchTime={lastFetchTime}
-        error={error}
+    <div id="active-smart-trades-section" className="mt-0 space-y-0.5">
+      {/* UNIFIED COMMAND BAR (Header) */}
+      <TradeCommandBar
+        activeTradesCount={trades.filter(t => t.status !== "CLOSED").length}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        onNewTrade={onNewTrade || (() => {})}
-        clearingAction={clearingAction}
-        pendingClear={pendingClear}
-        setPendingClear={setPendingClear}
+        onNewTrade={onNewTrade}
         handleClearAll={handleClearAll}
-        hasTradeItems={
-          trades.filter((t) =>
-            activeTab === "AKTIF"
-              ? t.status === "FILLED" || t.status === "PENDING"
-              : t.status === "CLOSED",
-          ).length > 0
-        }
+        clearingAction={clearingAction}
+        isSectionExpanded={isSectionExpanded}
+        setIsSectionExpanded={setIsSectionExpanded}
       />
 
       {/* TABLE-LIKE LIST (ACCORDION EFFECT) */}
@@ -577,49 +410,50 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
             : "max-h-0 opacity-0",
         )}
       >
-        <div className="bg-[#0f172a]/20 backdrop-blur-xl border border-slate-800/60 rounded-2xl overflow-hidden shadow-[0_0_50px_-12px_rgba(0,0,0,0.5)]">
+        <div className="bg-[#0f172a]/20 backdrop-blur-xl border border-slate-800/60 rounded-2xl overflow-x-auto custom-scrollbar shadow-[0_0_50px_-12px_rgba(0,0,0,0.5)]">
           {/* HEADERS */}
-          <div className="grid grid-cols-[0.7fr_0.8fr_0.5fr_0.6fr_2fr_1.4fr_0.7fr_0.7fr_28px] gap-1.5 px-3 py-2.5 border-b border-white/5 bg-slate-950/60 text-[9px] font-black text-slate-500 uppercase tracking-widest text-center">
-            <div className="flex items-center justify-center gap-1">PARİTE</div>
-            <div className="flex items-center justify-center gap-1">
+          <div className="flex items-center gap-1.5 pl-8 pr-3 py-2.5 border-b border-white/5 bg-slate-950/60 text-[9px] font-black text-slate-500 uppercase tracking-widest text-center min-w-[1240px] w-full">
+            <div className="w-[120px] shrink-0 flex items-center justify-center gap-1">PARİTE</div>
+            <div className="w-[150px] shrink-0 flex items-center justify-center gap-1">
               GİRİŞ / PİYASA
             </div>
-            <div className="flex items-center justify-center gap-1">
+            <div className="w-[100px] shrink-0 flex items-center justify-center gap-1">
               CANLI AI
             </div>
-            <div className="flex items-center justify-center gap-1">DURUM</div>
-            <div className="flex items-center justify-center gap-1">
+            <div className="w-[120px] shrink-0 flex items-center justify-center gap-1">DURUM</div>
+            <div className="flex-1 min-w-[240px] flex items-center justify-center gap-1">
               AKILLI HEDEFLER
             </div>
-            <div className="flex items-center justify-center gap-1">
+            <div className="w-[280px] shrink-0 flex items-center justify-center gap-1">
               MTF ANALİZİ
             </div>
-            <div className="flex items-center justify-center gap-1">
+            <div className="w-[150px] shrink-0 flex items-center justify-center gap-1">
               MTF SİNYALİ
             </div>
-            <div className="flex items-center justify-center gap-1.5 font-mono text-[9px]">
-              <span className="text-slate-500 font-black tracking-widest uppercase text-[8px]">KAR/ZARAR</span>
-              <div className="flex items-center gap-1 bg-black/40 px-2 py-0.5 rounded-full border border-white/5">
-                <span className="text-emerald-400 font-bold">
-                  +${pnlSummary.grossProfit.toLocaleString(undefined, { maximumFractionDigits: 1 })}
-                </span>
-                <span className="text-slate-700">/</span>
-                <span className="text-rose-400 font-bold">
-                  -${pnlSummary.grossLoss.toLocaleString(undefined, { maximumFractionDigits: 1 })}
-                </span>
-                <span className="text-slate-500 mx-1">=</span>
-                <span className={cn(
-                  "font-black text-[10px]",
+            <div className="flex flex-col items-center justify-center gap-1 font-mono shrink-0 w-[200px]">
+              <span className="text-slate-500 font-black tracking-widest uppercase text-[8px] mb-0.5">KAR/ZARAR</span>
+              <div className="flex flex-col items-center leading-none bg-black/40 px-2.5 py-1 rounded-lg border border-white/5 gap-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-emerald-400 font-bold text-[9px]">
+                    +${pnlSummary.grossProfit.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                  </span>
+                  <span className="text-slate-700 text-[8px]">/</span>
+                  <span className="text-rose-400 font-bold text-[9px]">
+                    -${pnlSummary.grossLoss.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                  </span>
+                </div>
+                <div className={cn(
+                  "font-black text-[11px] pt-1 border-t border-white/5 w-full text-center",
                   pnlSummary.total >= 0 ? "text-emerald-400 cyber-glow-text" : "text-rose-400"
                 )}>
                   {pnlSummary.total >= 0 ? "+" : "-"}${Math.abs(pnlSummary.total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
+                </div>
               </div>
             </div>
-            <div></div>
+            <div className="w-[28px] shrink-0"></div>
           </div>
 
-          <div className="divide-y divide-white/5 max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
+          <div className="divide-y divide-white/5 max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent min-w-[1240px] w-full">
             {trades.filter((t) =>
               activeTab === "AKTIF"
                 ? t.status === "FILLED" || t.status === "PENDING"
@@ -765,7 +599,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                       )}
                     >
                       <div
-                        className="grid grid-cols-[0.7fr_0.8fr_0.5fr_0.6fr_2fr_1.4fr_0.7fr_0.7fr_28px] gap-1.5 px-3 py-2 items-center cursor-pointer"
+                        className="flex items-center gap-1.5 pl-8 pr-3 py-2 cursor-pointer min-w-[1240px] w-full"
                         onClick={() => {
                           const next = isExpanded ? null : trade.id;
                           setExpandedTrade(next);
@@ -778,7 +612,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                         }}
                       >
                         {/* PAIR */}
-                        <div className="flex items-center gap-3 justify-center w-full">
+                        <div className="flex items-center gap-3 justify-center w-[120px] shrink-0">
                           <div className="relative">
                             <div
                               className={cn(
@@ -839,7 +673,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                         </div>
 
                         {/* ENTRY / MARKET */}
-                        <div className="flex flex-col items-center justify-center w-full min-w-0">
+                        <div className="flex flex-col items-center justify-center w-[150px] shrink-0">
                           <div className="text-xs font-black text-slate-300 font-mono whitespace-nowrap">
                             E:{" "}
                             <span className="text-white font-black">
@@ -866,7 +700,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                         </div>
 
                         {/* AI SCORE — CANLI 4H */}
-                        <div className="flex flex-col items-center justify-center gap-1 w-full">
+                        <div className="flex flex-col items-center justify-center gap-1 w-[100px] shrink-0">
                           <div className="flex items-center gap-1.5">
                             <Brain
                               className={cn(
@@ -933,7 +767,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                         </div>
 
                         {/* STATUS — CANLI SİNYAL */}
-                        <div className="flex justify-center w-full">
+                        <div className="flex justify-center w-[120px] shrink-0">
                           <StatusBadge
                             meta={meta}
                             side={trade.side}
@@ -946,7 +780,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                         </div>
 
                         {/* SMART TARGETS BAR */}
-                        <div className="flex flex-col justify-center w-full min-w-0">
+                        <div className="flex flex-col items-center justify-center flex-1 min-w-[240px]">
                           <TradeProgressBar
                             trade={trade}
                             entry={entry}
@@ -1008,7 +842,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
 
                         {/* YENİ SÜTUN 1: MTF ANALYSIS (COMPACT) */}
                         <div
-                          className="flex items-center justify-center gap-1 overflow-hidden w-full"
+                          className="flex items-center justify-center gap-1 overflow-hidden w-[280px] shrink-0"
                           onClick={(e) => {
                             e.stopPropagation();
                             fetchMtfAnalysis(
@@ -1134,7 +968,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                         </div>
 
                         {/* YENİ SÜTUN 2: MTF VERDICT */}
-                        <div className="flex flex-col items-center justify-center border-l border-white/5 overflow-hidden w-full">
+                        <div className="flex flex-col items-center justify-center overflow-hidden w-[150px] shrink-0">
                           {mtfData[trade.id] ? (
                             <div
                               className="flex flex-col items-center gap-1.5 w-full text-center"
@@ -1209,7 +1043,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                         </div>
 
                         {/* PNL REAL */}
-                        <div className="text-center flex flex-col items-center justify-center w-full">
+                        <div className="text-center flex flex-col items-center justify-center w-[200px] shrink-0">
                           <div className="flex items-center justify-center gap-1">
                             {pnlPercent >= 0 ? (
                               <TrendingUp className="w-3 h-3 text-emerald-500" />
@@ -1245,7 +1079,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                         </div>
 
                         {/* EXPAND ICON */}
-                        <div className="flex justify-center text-slate-700 mx-auto">
+                        <div className="flex justify-center text-slate-700 w-[28px] shrink-0">
                           {isExpanded ? (
                             <ChevronUp className="w-4 h-4 text-cyan-500" />
                           ) : (

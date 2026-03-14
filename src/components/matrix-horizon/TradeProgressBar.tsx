@@ -329,7 +329,7 @@ const TbuyBar: React.FC<{
   }, [entry, currentPrice, dev, sl, tp, trade.meta.lowestPrice, trade.meta.highestPrice, trade.meta.mode]);
 
   return (
-    <div className="px-1.5 py-1 flex items-center gap-2">
+    <div className="px-1.5 py-1 flex items-center gap-2 w-full">
       {/* Left label */}
       <div className="flex flex-col shrink-0 min-w-[30px] text-[8px] font-black leading-tight text-cyan-400 uppercase">
         <span>TBUY</span>
@@ -513,7 +513,7 @@ const ActiveTradeBar: React.FC<ActiveBarProps> = ({
   const tooltipText = `$${Number(currentPrice).toLocaleString()} | ${isProfit ? "+" : ""}${Number(pnlUsdt).toLocaleString(undefined, { style: "currency", currency: "USD" })} (${Number(pnlPercent).toFixed(2)}%)`;
 
   return (
-    <div className="px-1.5 py-1 flex flex-col gap-0.5">
+    <div className="px-1.5 py-1 flex flex-col gap-0.5 w-full">
       {/* Header: matches the price axis (Low price on Left, High on Right) */}
       <div className={cn("flex justify-between items-center text-[9px] font-black uppercase tracking-tighter leading-none", side === "SELL" ? "flex-row-reverse" : "")}>
         <span className="text-rose-500 flex items-center gap-1">
@@ -617,7 +617,7 @@ const MinimalBar: React.FC<{
   const currentPos = Math.min(95, Math.max(5, 50 + pnlPercent * 2));
 
   return (
-    <div className="px-1.5 py-1 flex flex-col gap-0.5">
+    <div className="px-1.5 py-1 flex flex-col gap-0.5 w-full">
       <div className="h-1.5 w-full bg-slate-800/50 rounded-full relative border border-white/5 mt-5 mb-4">
         <VLine pos={entryPos} color="bg-white/40" />
         <FillLine

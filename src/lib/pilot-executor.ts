@@ -1,4 +1,5 @@
 import { BotConfig, createStrategySignal } from "./db";
+import { DEFAULT_BOT_CONFIG, DEFAULT_TIMEFRAME_SETTINGS } from "./constants/bot-defaults";
 import { TradingMode, getPrice } from "./mexc-wrapper";
 import { handleSmartTrade } from "./smart-trade";
 import { sql } from "./postgres";
@@ -126,15 +127,15 @@ function hasReEntry(symbol: string): boolean {
   return pilotReEntryMap.has(symbol);
 }
 
-/**
- * Ensure the re-entry map is loaded from DB before processing signals.
- * Must be called before calculateAllocation.
- */
-export async function ensureReEntryMapLoaded(): Promise<void> {
-  await loadReEntryMapFromDB();
-}
-
 export class PilotExecutor {
+  /**
+   * Ensure the re-entry map is loaded from DB before processing signals.
+   * Must be called before calculateAllocation.
+   */
+  static async ensureReEntryMapLoaded(): Promise<void> {
+    await loadReEntryMapFromDB();
+  }
+
   /**
    * Calculates the target quantity and identifies if the signal is a new buy
    */
@@ -173,6 +174,58 @@ export class PilotExecutor {
   }
 
   /**
+   * Validates and adjusts TP/SL prices based on entry price and direction.
+   * Ensures TP/SL are in the correct direction and maintain minimum distance defined by user.
+   */
+  private static validatePilotTargets(
+    currentPrice: number,
+    signalTargets: { t1?: number; sl?: number },
+    tpPerc: number,
+    slPerc: number,
+    isLong: boolean
+  ) {
+    let finalTpPrice = Number(signalTargets?.t1 || 0);
+    let finalSlPrice = Number(signalTargets?.sl || 0);
+
+    const dirMultiplier = isLong ? 1 : -1;
+    
+    // Calculate required distance thresholds based on user % settings
+    const userTpThreshold = currentPrice * (1 + (dirMultiplier * tpPerc / 100));
+    const userSlThreshold = currentPrice * (1 - (dirMultiplier * slPerc / 100));
+
+    if (isLong) {
+      // Long: TP must be at least as high as user threshold.
+      // SL must be at most as high as user threshold (closest to price wins for safety, but user % is the fallback).
+      if (finalTpPrice <= userTpThreshold) finalTpPrice = userTpThreshold;
+      
+      // If signal SL is zero, too wide, or higher than current price, use user set threshold
+      if (finalSlPrice <= 0 || finalSlPrice >= currentPrice || finalSlPrice < userSlThreshold) {
+        finalSlPrice = userSlThreshold;
+      }
+    } else {
+      // Short / Cover: TP must be at least as low as user threshold.
+      if (finalTpPrice <= 0 || finalTpPrice >= currentPrice || finalTpPrice > userTpThreshold) {
+        finalTpPrice = userTpThreshold;
+      }
+
+      // SL must be at least as high as user threshold (further from price)
+      if (finalSlPrice <= currentPrice || finalSlPrice < userSlThreshold) {
+        finalSlPrice = userSlThreshold;
+      }
+    }
+
+    // ASYMMETRIC GUARD (Risk/Reward): Ensure TP distance >= 1.5x SL distance
+    const tpDist = Math.abs(finalTpPrice - currentPrice);
+    const slDist = Math.abs(finalSlPrice - currentPrice);
+    
+    if (tpDist < slDist * 1.5) {
+      finalTpPrice = currentPrice + (dirMultiplier * slDist * 1.5);
+    }
+
+    return { finalTpPrice, finalSlPrice };
+  }
+
+  /**
    * Executes a trade on an existing holding.
    * Based on config, it either bypasses the buy and applies TP/SL, or buys more.
    */
@@ -180,7 +233,18 @@ export class PilotExecutor {
     try {
       const currentPrice = await getPrice(symbol);
       
-      console.log(`[Pilot] ✈️ Applying Trade Protections for holding ${symbol} | Qty: ${targetQty.toFixed(8)} | UseExisting: ${botConfig.pilot_only_holdings}`);
+      const tpPerc = botConfig.timeframe_settings?.pilot_tp_percent ?? DEFAULT_TIMEFRAME_SETTINGS.pilot_tp_percent;
+      const slPerc = botConfig.timeframe_settings?.pilot_sl_percent ?? DEFAULT_TIMEFRAME_SETTINGS.pilot_sl_percent;
+      
+      const { finalTpPrice, finalSlPrice } = this.validatePilotTargets(
+        currentPrice, 
+        signal.targets || {}, 
+        tpPerc, 
+        slPerc, 
+        true // Trade mode is Long
+      );
+
+      console.log(`[Pilot] ✈️ Applying Trade Protections for holding ${symbol} | Qty: ${targetQty.toFixed(8)} | Entry: ${currentPrice} | TP: ${finalTpPrice.toFixed(4)} | SL: ${finalSlPrice.toFixed(4)}`);
       
       const res = await handleSmartTrade({
         mode: "TRADE",
@@ -191,16 +255,16 @@ export class PilotExecutor {
         useExisting: botConfig.pilot_only_holdings, // Tied to config
         user_id: userId,
         trailingBuy: false, // Don't trail buy since we likely own it
-        takeProfit: signal.targets?.t1 ? {
-          price: signal.targets.t1.toString(),
-          trailing: botConfig.pilot_tp_trailing,
-          deviation: botConfig.pilot_tp_deviation,
-        } : null,
-        stopLoss: signal.targets?.sl ? {
-          price: signal.targets.sl.toString(),
-          trailing: botConfig.pilot_sl_trailing,
-          deviation: botConfig.pilot_sl_deviation,
-        } : null,
+        takeProfit: {
+          price: finalTpPrice.toString(),
+          trailing: Boolean(botConfig.timeframe_settings?.pilot_tp_trailing ?? botConfig.pilot_tp_trailing ?? DEFAULT_BOT_CONFIG.pilot_tp_trailing),
+          deviation: Number(botConfig.timeframe_settings?.pilot_tp_deviation ?? botConfig.pilot_tp_deviation ?? DEFAULT_BOT_CONFIG.pilot_tp_deviation),
+        },
+        stopLoss: {
+          price: finalSlPrice.toString(),
+          trailing: Boolean(botConfig.timeframe_settings?.pilot_sl_trailing ?? botConfig.pilot_sl_trailing ?? DEFAULT_BOT_CONFIG.pilot_sl_trailing),
+          deviation: Number(botConfig.timeframe_settings?.pilot_sl_deviation ?? botConfig.pilot_sl_deviation ?? DEFAULT_BOT_CONFIG.pilot_sl_deviation),
+        },
         timeframe,
         source: "pilot_auto",
       }, mode);
@@ -231,13 +295,20 @@ export class PilotExecutor {
       }
 
       const baseQty = allocUsdt / currentPrice;
-      console.log(`[Pilot] ✈️ Executing NEW BUY (Increasing Position) for ${symbol} | Alloc DT: $${allocUsdt.toFixed(2)}`);
       
-      const tpPerc = botConfig.timeframe_settings?.pilot_tp_percent ?? 1.0;
-      const slPerc = botConfig.timeframe_settings?.pilot_sl_percent ?? 1.0;
-      const calcTp = currentPrice * (1 + (tpPerc / 100));
-      const calcSl = currentPrice * (1 - (slPerc / 100));
+      const tpPerc = botConfig.timeframe_settings?.pilot_tp_percent ?? DEFAULT_TIMEFRAME_SETTINGS.pilot_tp_percent;
+      const slPerc = botConfig.timeframe_settings?.pilot_sl_percent ?? DEFAULT_TIMEFRAME_SETTINGS.pilot_sl_percent;
 
+      const { finalTpPrice, finalSlPrice } = this.validatePilotTargets(
+        currentPrice, 
+        signal.targets || {}, 
+        tpPerc, 
+        slPerc, 
+        true // New Buy is Long
+      );
+
+      console.log(`[Pilot] ✈️ Executing NEW BUY (Increasing Position) for ${symbol} | Entry: ${currentPrice} | TP: ${finalTpPrice.toFixed(4)} | SL: ${finalSlPrice.toFixed(4)} | Alloc: $${allocUsdt.toFixed(2)}`);
+      
       const res = await handleSmartTrade({
         mode: "TRADE",
         symbol,
@@ -246,17 +317,17 @@ export class PilotExecutor {
         buyType: "MARKET",
         useExisting: false, // Brand new asset, we MUST buy
         user_id: userId,
-        trailingBuy: botConfig.pilot_trailing_buy ?? false,
-        trailingBuyDev: botConfig.pilot_trailing_buy_dev,
+        trailingBuy: botConfig.pilot_trailing_buy ?? DEFAULT_BOT_CONFIG.pilot_trailing_buy,
+        trailingBuyDev: botConfig.pilot_trailing_buy_dev ?? DEFAULT_BOT_CONFIG.pilot_trailing_buy_dev,
         takeProfit: {
-          price: (signal.targets?.t1 || calcTp).toString(),
-          trailing: botConfig.pilot_tp_trailing ?? true,
-          deviation: botConfig.pilot_tp_deviation ?? 0.5,
+          price: finalTpPrice.toString(),
+          trailing: Boolean(botConfig.timeframe_settings?.pilot_tp_trailing ?? botConfig.pilot_tp_trailing ?? DEFAULT_BOT_CONFIG.pilot_tp_trailing),
+          deviation: Number(botConfig.timeframe_settings?.pilot_tp_deviation ?? botConfig.pilot_tp_deviation ?? DEFAULT_BOT_CONFIG.pilot_tp_deviation),
         },
         stopLoss: {
-          price: (signal.targets?.sl || calcSl).toString(),
-          trailing: botConfig.pilot_sl_trailing ?? false,
-          deviation: botConfig.pilot_sl_deviation ?? 0.5,
+          price: finalSlPrice.toString(),
+          trailing: Boolean(botConfig.timeframe_settings?.pilot_sl_trailing ?? botConfig.pilot_sl_trailing ?? DEFAULT_BOT_CONFIG.pilot_sl_trailing),
+          deviation: Number(botConfig.timeframe_settings?.pilot_sl_deviation ?? botConfig.pilot_sl_deviation ?? DEFAULT_BOT_CONFIG.pilot_sl_deviation),
         },
         timeframe,
         source: "pilot_auto",
@@ -285,12 +356,19 @@ export class PilotExecutor {
 
       const currentPrice = await getPrice(symbol);
       const baseQty = allocUsdt / currentPrice;
-      console.log(`[Pilot] ♻️ Executing RE-ENTRY BUY for ${symbol} | USDT: $${allocUsdt.toFixed(2)} | Qty: ${baseQty.toFixed(8)}`);
+      
+      const tpPerc = botConfig.timeframe_settings?.pilot_tp_percent ?? DEFAULT_TIMEFRAME_SETTINGS.pilot_tp_percent;
+      const slPerc = botConfig.timeframe_settings?.pilot_sl_percent ?? DEFAULT_TIMEFRAME_SETTINGS.pilot_sl_percent;
 
-      const tpPerc = botConfig.timeframe_settings?.pilot_tp_percent ?? 1.0;
-      const slPerc = botConfig.timeframe_settings?.pilot_sl_percent ?? 1.0;
-      const calcTp = currentPrice * (1 + (tpPerc / 100));
-      const calcSl = currentPrice * (1 - (slPerc / 100));
+      const { finalTpPrice, finalSlPrice } = this.validatePilotTargets(
+        currentPrice, 
+        signal.targets || {}, 
+        tpPerc, 
+        slPerc, 
+        true // Re-entry is Long
+      );
+
+      console.log(`[Pilot] ♻️ Executing RE-ENTRY BUY for ${symbol} | Entry: ${currentPrice} | TP: ${finalTpPrice.toFixed(4)} | SL: ${finalSlPrice.toFixed(4)} | USDT: $${allocUsdt.toFixed(2)}`);
 
       const res = await handleSmartTrade({
         mode: "TRADE",
@@ -300,17 +378,17 @@ export class PilotExecutor {
         buyType: "MARKET",
         useExisting: false, // Re-entry MUST buy with USDT
         user_id: userId,
-        trailingBuy: botConfig.pilot_trailing_buy ?? false,
-        trailingBuyDev: botConfig.pilot_trailing_buy_dev,
+        trailingBuy: botConfig.pilot_trailing_buy ?? DEFAULT_BOT_CONFIG.pilot_trailing_buy,
+        trailingBuyDev: botConfig.pilot_trailing_buy_dev ?? DEFAULT_BOT_CONFIG.pilot_trailing_buy_dev,
         takeProfit: {
-          price: (signal.targets?.t1 || calcTp).toString(),
-          trailing: botConfig.pilot_tp_trailing ?? true,
-          deviation: botConfig.pilot_tp_deviation ?? 0.5,
+          price: finalTpPrice.toString(),
+          trailing: Boolean(botConfig.timeframe_settings?.pilot_tp_trailing ?? botConfig.pilot_tp_trailing ?? DEFAULT_BOT_CONFIG.pilot_tp_trailing),
+          deviation: Number(botConfig.timeframe_settings?.pilot_tp_deviation ?? botConfig.pilot_tp_deviation ?? DEFAULT_BOT_CONFIG.pilot_tp_deviation),
         },
         stopLoss: {
-          price: (signal.targets?.sl || calcSl).toString(),
-          trailing: botConfig.pilot_sl_trailing ?? false,
-          deviation: botConfig.pilot_sl_deviation ?? 0.5,
+          price: finalSlPrice.toString(),
+          trailing: Boolean(botConfig.timeframe_settings?.pilot_sl_trailing ?? botConfig.pilot_sl_trailing ?? DEFAULT_BOT_CONFIG.pilot_sl_trailing),
+          deviation: Number(botConfig.timeframe_settings?.pilot_sl_deviation ?? botConfig.pilot_sl_deviation ?? DEFAULT_BOT_CONFIG.pilot_sl_deviation),
         },
         timeframe,
         source: "pilot_auto",
@@ -330,10 +408,18 @@ export class PilotExecutor {
 
       console.log(`[Pilot] ✈️ Creating SmartTrade SELL (COVER) for ${symbol} | Qty: ${targetQty.toFixed(8)}`);
 
-      const tpPerc = botConfig.timeframe_settings?.cover_tp_percent ?? 1.0;
-      const slPerc = botConfig.timeframe_settings?.cover_sl_percent ?? 1.0;
-      const calcTp = currentPrice * (1 - (tpPerc / 100)); // TP lower for Cover
-      const calcSl = currentPrice * (1 + (slPerc / 100)); // SL higher for Cover
+      const tpPerc = botConfig.timeframe_settings?.cover_tp_percent ?? DEFAULT_TIMEFRAME_SETTINGS.cover_tp_percent;
+      const slPerc = botConfig.timeframe_settings?.cover_sl_percent ?? DEFAULT_TIMEFRAME_SETTINGS.cover_sl_percent;
+
+      const { finalTpPrice, finalSlPrice } = this.validatePilotTargets(
+        currentPrice, 
+        signal.targets || {}, 
+        tpPerc, 
+        slPerc, 
+        false // Cover is Short
+      );
+
+      console.log(`[Pilot] ✈️ Creating SmartTrade SELL (COVER) for ${symbol} | Entry: ${currentPrice} | TP: ${finalTpPrice.toFixed(4)} | SL: ${finalSlPrice.toFixed(4)} | Qty: ${targetQty.toFixed(8)}`);
 
       const res = await handleSmartTrade({
         mode: "COVER",
@@ -344,14 +430,14 @@ export class PilotExecutor {
         useExisting: true,
         user_id: userId,
         takeProfit: {
-          price: (signal.targets?.t1 || calcTp).toString(), 
-          trailing: botConfig.timeframe_settings?.cover_tp_trailing ?? botConfig.pilot_tp_trailing ?? true,
-          deviation: botConfig.timeframe_settings?.cover_tp_deviation ?? botConfig.pilot_tp_deviation ?? 0.5,
+          price: finalTpPrice.toString(), 
+          trailing: Boolean(botConfig.timeframe_settings?.cover_tp_trailing ?? DEFAULT_TIMEFRAME_SETTINGS.cover_tp_trailing),
+          deviation: Number(botConfig.timeframe_settings?.cover_tp_deviation ?? DEFAULT_TIMEFRAME_SETTINGS.cover_tp_deviation),
         },
         stopLoss: {
-          price: (signal.targets?.sl || calcSl).toString(),
-          trailing: botConfig.timeframe_settings?.cover_sl_trailing ?? botConfig.pilot_sl_trailing ?? false,
-          deviation: botConfig.timeframe_settings?.cover_sl_deviation ?? botConfig.pilot_sl_deviation ?? 1.0,
+          price: finalSlPrice.toString(),
+          trailing: Boolean(botConfig.timeframe_settings?.cover_sl_trailing ?? DEFAULT_TIMEFRAME_SETTINGS.cover_sl_trailing),
+          deviation: Number(botConfig.timeframe_settings?.cover_sl_deviation ?? DEFAULT_TIMEFRAME_SETTINGS.cover_sl_deviation),
         },
         timeframe,
         source: "pilot_auto",
@@ -414,9 +500,6 @@ export class PilotExecutor {
   }) {
     const { symbol, signal, scanTimeframe, botConfig, userId, mode, holdingsMap, recentSignals } = params;
     const timestamp = Date.now();
-
-    // Load re-entry map from DB (non-blocking, runs in background on first call)
-    ensureReEntryMapLoaded().catch(() => { /* already logged internally */ });
 
     // 1. Deduplication check
     const recentExecuted = recentSignals.find(s => 

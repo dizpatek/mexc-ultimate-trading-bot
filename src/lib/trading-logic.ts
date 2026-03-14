@@ -224,7 +224,7 @@ export function calculateSmartPrediction(sd: F4Data | null): SmartPrediction {
     bullScore += 4;
   } else if (ribbonInd?.state?.includes("AYI")) {
     bearPoints.push("EMA Ribbon Ayı Eğilimli");
-    bullScore += 4;
+    bearScore += 4; // Fixed: was bullScore += 4 (wrong direction)
   }
 
   // 8. Ichimoku
@@ -234,7 +234,7 @@ export function calculateSmartPrediction(sd: F4Data | null): SmartPrediction {
     bullScore += 7;
   } else if (ichiInd?.state?.includes("KUMO ALTI")) {
     bearPoints.push("Ichimoku: Fiyat Kumo Altında — Güçlü Ayı");
-    bullScore += 7;
+    bearScore += 7; // Fixed: was bullScore += 7 (wrong direction)
   } else {
     bearPoints.push("Ichimoku: Kumo İçinde (Belirsizlik)");
     bearScore += 1;
@@ -448,37 +448,37 @@ export function calculateSmartPrediction(sd: F4Data | null): SmartPrediction {
   // 21. Confluence Score
   const cs = sd.confluenceScore ?? sd.aiScore ?? 0;
   if (cs >= 75) {
-    bullPoints.push(`Birleşme Skoru ${cs}/100 — Mükemmel Uyum 🔥`);
+    bullPoints.push(`Birleşme Skoru ${cs.toFixed(0)}/100 — Mükemmel Uyum 🔥`);
     bullScore += 8;
   } else if (cs >= 60) {
-    bullPoints.push(`Birleşme Skoru ${cs}/100 — Güçlü`);
+    bullPoints.push(`Birleşme Skoru ${cs.toFixed(0)}/100 — Güçlü`);
     bullScore += 4;
   } else if (cs < 35) {
-    bearPoints.push(`Birleşme Skoru ${cs}/100 — Zayıf Sinyal`);
+    bearPoints.push(`Birleşme Skoru ${cs.toFixed(0)}/100 — Zayıf Sinyal`);
     bearScore += 5;
   }
 
-  // 22. Prediction Probability
+  // 22. Prediction Probability - Hysteresis: require 72/28 instead of 70/30
   const upProb = sd.prediction?.upProb || 50;
-  if (upProb >= 70) {
+  if (upProb >= 72) {
     bullPoints.push(
       `Yukarı İhtimali %${upProb.toFixed(0)} — Güçlü Alım Sinyali`,
     );
     bullScore += 8;
-  } else if (upProb >= 60) {
+  } else if (upProb >= 62) { // Hysteresis: 62% instead of 60%
     bullPoints.push(`Yukarı İhtimali %${upProb.toFixed(0)}`);
     bullScore += 4;
-  } else if (upProb <= 30) {
+  } else if (upProb <= 28) {
     bearPoints.push(
       `Aşağı İhtimali %${(100 - upProb).toFixed(0)} — Güçlü Satış Sinyali`,
     );
     bearScore += 8;
-  } else if (upProb <= 40) {
+  } else if (upProb <= 38) { // Hysteresis: 38% instead of 40%
     bearPoints.push(`Aşağı İhtimali %${(100 - upProb).toFixed(0)}`);
     bearScore += 4;
   }
 
-  // === KARAR MEKANIZMASI ===
+  // === KARAR MEKANİZMASI ===
   const totalPoints = bullScore + bearScore;
   const bulletScore =
     totalPoints > 0 ? Math.round((bullScore / totalPoints) * 100) : 50;
@@ -488,7 +488,8 @@ export function calculateSmartPrediction(sd: F4Data | null): SmartPrediction {
   let label: string;
   let explanation: string;
 
-  if (bulletScore >= 72) {
+  // Final Verdict Hysteresis: 74/26 instead of 72/28 for higher stability
+  if (bulletScore >= 74) {
     verdict = "AL";
     verdictColor = "text-emerald-300";
     if (bulletScore >= 85) {
@@ -498,7 +499,7 @@ export function calculateSmartPrediction(sd: F4Data | null): SmartPrediction {
       label = "✅ AL — KOŞULLAR UYGUN";
       explanation = `${bullPoints.length} pozitif sinyal aktif. Göstergeler toplu olarak alım fırsatını işaret ediyor.`;
     }
-  } else if (bulletScore <= 28) {
+  } else if (bulletScore <= 26) {
     verdict = "SAT";
     verdictColor = "text-rose-400";
     if (bulletScore <= 15) {
@@ -511,11 +512,11 @@ export function calculateSmartPrediction(sd: F4Data | null): SmartPrediction {
   } else {
     verdict = "BEKLE";
     verdictColor = "text-amber-400";
-    if (bulletScore >= 55) {
+    if (bulletScore >= 56) { // Hysteresis: 56 instead of 55
       label = "⏳ BEKLE — HAFIF BOĞA EĞİLİMİ";
       explanation =
         "Hafif boğa baskısı var ama yeterli konfirmasyon yok. Güçlü sinyal için bekle.";
-    } else if (bulletScore <= 45) {
+    } else if (bulletScore <= 44) { // Hysteresis: 44 instead of 45
       label = "⏳ BEKLE — HAFIF AYI EĞİLİMİ";
       explanation =
         "Hafif ayı baskısı var ama kesin dönüş sinyali henüz yok. Risk yönetimi öncelikli.";

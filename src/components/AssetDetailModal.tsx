@@ -114,7 +114,7 @@ export const AssetDetailModal = ({
 
           <div className="flex items-center gap-4">
             <a
-              href={`https://www.mexc.com/exchange/${assetName}_USDT`}
+              href={`https://www.mexc.com/exchange/${assetName.replace("USDT", "")}_USDT`}
               target="_blank"
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition-colors border border-slate-700"
             >
@@ -311,7 +311,7 @@ export const AssetDetailModal = ({
             {/* QUICK ACTION FOOTER */}
             <div className="mt-auto p-6 border-t border-slate-800 bg-slate-900/50">
               <a
-                href={`https://www.mexc.com/exchange/${assetName}_USDT`}
+                href={`https://www.mexc.com/exchange/${assetName.replace("USDT", "")}_USDT`}
                 target="_blank"
                 className="flex items-center justify-center gap-2 w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-cyan-900/20 active:scale-[0.98]"
               >

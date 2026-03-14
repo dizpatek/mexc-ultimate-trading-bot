@@ -81,16 +81,17 @@ const [,, command, arg1, arg2] = process.argv;
     case 'update-env':
       if (!arg1 || !arg2) return console.log('Usage: node deploy.mjs update-env <projectId> <serviceId>');
       
-      const groqVars = {
+      const envVars = {
         GROQ_API_KEY: process.env.GROQ_API_KEY,
-        GROQ_MODEL: process.env.GROQ_MODEL || "llama-3.3-70b-versatile"
+        GROQ_MODEL: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+        CRYPTOCOMPARE_API_KEY: process.env.CRYPTOCOMPARE_API_KEY
       };
 
-      if (!groqVars.GROQ_API_KEY) {
+      if (!envVars.GROQ_API_KEY) {
         return console.error('Error: GROQ_API_KEY is not set in .env');
       }
 
-      await updateEnv(arg1, arg2, groqVars);
+      await updateEnv(arg1, arg2, envVars);
       break;
     default:
       console.log(`

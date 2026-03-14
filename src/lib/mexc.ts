@@ -67,17 +67,13 @@ const PUBLIC_CALL_THROTTLE_MS = 100; // Relaxed to 100ms to allow smooth batchin
  * and sequence requests cleanly without a heavily chained Promise queue.
  */
 async function enforceThrottle() {
-  let delay = 0;
-  // Atomic-like update: project the next available slot
   const now = Date.now();
   
-  if (now - lastPublicCallTime < PUBLIC_CALL_THROTTLE_MS) {
-    lastPublicCallTime += PUBLIC_CALL_THROTTLE_MS;
-    delay = lastPublicCallTime - now;
-  } else {
-    lastPublicCallTime = now;
-  }
+  // P4.3: Atomic next-slot projection to prevent race conditions in high-concurrency
+  const nextSlot = Math.max(now, lastPublicCallTime + PUBLIC_CALL_THROTTLE_MS);
+  lastPublicCallTime = nextSlot;
 
+  const delay = nextSlot - now;
   if (delay > 0) {
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
@@ -209,7 +205,7 @@ export async function getPrice(symbol: string): Promise<number> {
 
     if (priceBatchTimeout) return;
 
-    // Collect all requests over 500ms (as requested by user for optimization)
+    // Collect all requests over short window
     priceBatchTimeout = setTimeout(async () => {
       const symbolsToFetch = Array.from(priceQueue);
       priceQueue.clear();
@@ -219,7 +215,6 @@ export async function getPrice(symbol: string): Promise<number> {
       priceWaiters.clear();
 
       try {
-        // MEXC supports ?symbols=["BTCUSDT","ETHUSDT"]
         const data = await publicGet<unknown>("/api/v3/ticker/price", {
           symbols: JSON.stringify(symbolsToFetch),
         });
@@ -234,29 +229,32 @@ export async function getPrice(symbol: string): Promise<number> {
           resultsMap.set(d.symbol, parseFloat(d.price));
         }
 
-        // Resolve all waiters
         currentWaiters.forEach((waiters, sym) => {
-          let price = resultsMap.get(sym);
-          if (price === undefined || isNaN(price)) {
-            // Fallbacks for critical assets
-            if (sym === "BTCUSDT") price = 95000;
-            else if (sym === "ETHUSDT") price = 3500;
-            else price = 0;
-          }
-          waiters.forEach((res) => res(price!));
+          const price = resultsMap.get(sym) || 0;
+          waiters.forEach((res) => res(price));
         });
       } catch (err) {
         console.error("[MEXC] Price batch fetch failed:", err);
-        // Fallback resolution
-        currentWaiters.forEach((waiters, sym) => {
-          let price = 0;
-          if (sym === "BTCUSDT") price = 95000;
-          else if (sym === "ETHUSDT") price = 3500;
-          waiters.forEach((res) => res(price));
+        currentWaiters.forEach((waiters) => {
+          waiters.forEach((res) => res(0));
         });
       }
-    }, 500);
+    }, 20);
   });
+}
+
+/**
+ * High-speed batch fetch for multiple symbols.
+ * Leverages the internal grouping logic of getPrice() for maximum efficiency.
+ */
+export async function batchFetchPrices(symbols: string[]): Promise<Record<string, number>> {
+  const results: Record<string, number> = {};
+  await Promise.all(
+    symbols.map(async (sym) => {
+      results[sym] = await getPrice(sym);
+    })
+  );
+  return results;
 }
 
 export interface TickerData {

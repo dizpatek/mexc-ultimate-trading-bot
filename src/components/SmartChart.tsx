@@ -390,9 +390,30 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     isBuyEditable,
   ]);
 
-  // Track market price for buy line when trailingBuy is OFF
-  // REMOVED: This was causing infinite loops as both SmartTrade and SmartChart 
-  // were fighting over the same state update. SmartTrade.tsx now handles this.
+
+  // When trailing buy is OFF, keep TBuy line in sync with the real-time market price.
+  // Visual-only update: directly moves the chart price line and updates the label overlay
+  // without calling onPricesChange (SmartTrade's own priceSync handles the state).
+  const lastReportedBuyRef = useRef<number>(0);
+  useEffect(() => {
+    if (trailingBuy || draggingLine || !currentPrice || currentPrice <= 0 || !isBuyEditable) return;
+
+    // Avoid redundant updates
+    if (lastReportedBuyRef.current === currentPrice) return;
+    lastReportedBuyRef.current = currentPrice;
+
+    // Move the chart price line visually (instant, no React render needed)
+    if (buyPriceLineRef.current) {
+      buyPriceLineRef.current.applyOptions({ price: currentPrice });
+    }
+
+    // Update localPrices so the label badge shows the correct price and % distance
+    setLocalPrices((prev) => {
+      if (prev.buy === currentPrice) return prev;
+      return { ...prev, buy: currentPrice };
+    });
+  }, [currentPrice, trailingBuy, draggingLine, isBuyEditable]);
+
   // Unified Chart Update Function (Zones + Coords)
   const refreshChartOverlays = useCallback(() => {
     if (

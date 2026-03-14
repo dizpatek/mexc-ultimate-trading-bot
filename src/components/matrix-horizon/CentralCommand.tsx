@@ -189,7 +189,12 @@ export const CentralCommand: React.FC<CentralCommandProps> = ({
             <span className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">
               TAHMİN:
             </span>
-            <span className="text-xl font-mono font-black text-white tracking-tighter glow-text-white">
+            <span className={cn(
+              "text-xl font-mono font-black tracking-tighter glow-text-white transition-colors duration-500",
+              prediction.includes("YUKARI") || prediction.includes("📈") ? "text-emerald-400" :
+              prediction.includes("AŞAĞI") || prediction.includes("📉") ? "text-rose-400" :
+              "text-white"
+            )}>
               {prediction}
             </span>
           </div>

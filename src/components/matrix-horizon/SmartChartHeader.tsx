@@ -54,11 +54,11 @@ export const SmartChartHeader: React.FC<SmartChartHeaderProps> = ({
   if (compact) return null;
 
   return (
-    <div className="flex items-center gap-3 w-full px-1 py-0">
+    <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3 w-full px-2 py-1.5 sm:py-0">
       {/* Current Price Indicator & Assets List */}
-      <div className="flex-1 flex items-center gap-4 min-w-0">
+      <div className="w-full sm:flex-1 flex items-center gap-3 sm:gap-4 min-w-0">
         {currentPrice > 0 ? (
-          <div className="flex items-center gap-2 pr-4 border-r border-slate-800/50">
+          <div className="flex items-center gap-2 pr-3 sm:pr-4 border-r border-slate-800/50 flex-shrink-0">
             <AssetIcon
               symbol={symbol}
               size={24}
@@ -87,7 +87,7 @@ export const SmartChartHeader: React.FC<SmartChartHeaderProps> = ({
           </div>
         )}
 
-        {/* Active Assets Horizontal Scroll */}
+        {/* Active Assets Horizontal Scroll - Hidden on very small screens, visible on sm and up or when space permits */}
         <div className="flex-1 flex items-center gap-1 relative group/scroll-container overflow-hidden min-w-0">
           <div
             onMouseEnter={() => startScroll("left")}
@@ -144,14 +144,14 @@ export const SmartChartHeader: React.FC<SmartChartHeaderProps> = ({
       </div>
 
       {/* Timeframe Selector & Focus */}
-      <div className="flex flex-row items-center flex-shrink-0 gap-3">
-        <div className="flex gap-0.5 p-0.5 bg-slate-900/40 backdrop-blur-md border border-slate-800/50 rounded-lg">
+      <div className="flex flex-row items-center justify-between sm:justify-end w-full sm:w-auto flex-shrink-0 gap-2 sm:gap-3 pt-1.5 sm:pt-0 border-t sm:border-t-0 border-slate-800/50">
+        <div className="flex gap-0.5 p-0.5 bg-slate-900/40 backdrop-blur-md border border-slate-800/50 rounded-lg overflow-x-auto no-scrollbar">
           {TIMEFRAMES.map((tf) => (
             <button
               key={tf.value}
               onClick={() => setTimeframe(tf.value)}
               className={cn(
-                "px-2 py-1 rounded text-[9px] font-black uppercase tracking-wider transition-all",
+                "px-2 py-1 rounded text-[9px] font-black uppercase tracking-wider transition-all min-w-[28px]",
                 timeframe === tf.value
                   ? "bg-cyan-500 text-white"
                   : "text-slate-500 hover:text-white hover:bg-slate-800",

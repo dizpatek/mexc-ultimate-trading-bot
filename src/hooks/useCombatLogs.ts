@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { api } from "@/services/api";
 import { AxiosError } from "axios";
 import { normalizeSymbol, extractBaseAsset } from "@/lib/symbol-utils";
@@ -194,7 +194,8 @@ export function parseLogEntry(sig: any, isTestMode: boolean = true): LogEntry {
   };
 }
 
-let globalLastScanTime = 0;
+const SCAN_COOLDOWN_MS = 32000; // Slightly higher than server 30s to be safe
+let globalLastScanTime = Number(typeof window !== 'undefined' ? localStorage.getItem('last_signal_scan') : 0) || 0;
 
 export function useCombatLogs(timeframe: string = "4h") {
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -204,6 +205,7 @@ export function useCombatLogs(timeframe: string = "4h") {
   const [lastScanTime, setLastScanTime] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isScanningRef = useRef(false);
 
   const fetchLogs = useCallback(async () => {
     try {
@@ -225,22 +227,30 @@ export function useCombatLogs(timeframe: string = "4h") {
 
   const triggerScan = useCallback(async () => {
     const now = Date.now();
-    if (now - globalLastScanTime < 30000) return;
+    if (isScanningRef.current) return;
+    if (now - globalLastScanTime < SCAN_COOLDOWN_MS) {
+      console.log(`[CombatLogs] Throttling scan. Next available in ${Math.ceil((SCAN_COOLDOWN_MS - (now - globalLastScanTime)) / 1000)}s`);
+      return;
+    }
 
     try {
+      isScanningRef.current = true;
       setScanStatus("scanning");
       await api.get(`/signals/scan?timeframe=${timeframe}`);
+      
       globalLastScanTime = Date.now();
+      localStorage.setItem('last_signal_scan', globalLastScanTime.toString());
       setLastScanTime(globalLastScanTime);
       setScanStatus("done");
       await fetchLogs();
     } catch (err: unknown) {
       if (err instanceof AxiosError) {
         if (err.response?.status === 429) {
-          // Ignore rate limit 429 errors silently
+          // Sync client time with server's rejection if provided
+          globalLastScanTime = Date.now();
+          localStorage.setItem('last_signal_scan', globalLastScanTime.toString());
           setScanStatus("idle");
         } else if (err.response?.status === 400) {
-          // User errors (like missing keys) should be shown
           const msg = err.response.data?.error || "Geçersiz İstek";
           setError(msg);
           setScanStatus("idle");
@@ -252,6 +262,8 @@ export function useCombatLogs(timeframe: string = "4h") {
         console.error("Signal Scan Error:", err);
         setScanStatus("idle");
       }
+    } finally {
+      isScanningRef.current = false;
     }
   }, [fetchLogs, timeframe]);
 

@@ -112,7 +112,8 @@ export const debugLog = async (
       if (ctx.error) msg += ` | Error: ${ctx.error}`;
     }
     const debugMsg = encodeURIComponent(msg);
-    fetch(`/api/portfolio/summary?debug=${debugMsg}`).catch(() => {});
+    // Use api instance to ensure Authorization headers are included (Fixes 401)
+    api.get(`/portfolio/summary?debug=${debugMsg}`).catch(() => {});
   } catch {
     // Silently fail
   }

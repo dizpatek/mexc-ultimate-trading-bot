@@ -194,8 +194,8 @@ export function parseLogEntry(sig: any, isTestMode: boolean = true): LogEntry {
   };
 }
 
-const SCAN_COOLDOWN_MS = 32000; // Slightly higher than server 30s to be safe
-let globalLastScanTime = Number(typeof window !== 'undefined' ? localStorage.getItem('last_signal_scan') : 0) || 0;
+const SCAN_COOLDOWN_MS = 45000; // Safe margin (server is 30s)
+let isScanningGlobal = false; // Shared lock for all hook instances in the SAME tab
 
 export function useCombatLogs(timeframe: string = "4h") {
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -205,7 +205,6 @@ export function useCombatLogs(timeframe: string = "4h") {
   const [lastScanTime, setLastScanTime] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const isScanningRef = useRef(false);
 
   const fetchLogs = useCallback(async () => {
     try {
@@ -225,23 +224,27 @@ export function useCombatLogs(timeframe: string = "4h") {
     }
   }, [timeframe]);
 
-  const triggerScan = useCallback(async () => {
+  const triggerScan = useCallback(async (isManual: boolean = false) => {
     const now = Date.now();
-    if (isScanningRef.current) return;
     
-    // P4.2 Fix: Always read from localStorage to sync across tabs
+    // 1. Same-tab shared lock
+    if (isScanningGlobal) return;
+    
+    // 2. Cross-tab localStorage check
     const lastScanStored = Number(localStorage.getItem('last_signal_scan') || 0);
     const timeSinceLast = now - lastScanStored;
 
     if (timeSinceLast < SCAN_COOLDOWN_MS) {
-      console.log(`[CombatLogs] Throttling scan (Multi-tab aware). Retry in ${Math.ceil((SCAN_COOLDOWN_MS - timeSinceLast) / 1000)}s`);
+      if (isManual) {
+        console.log(`[P4.3-ULTRA-SAFE] Manual Throttle: Retry in ${Math.ceil((SCAN_COOLDOWN_MS - timeSinceLast) / 1000)}s`);
+      }
       return;
     }
 
     try {
-      isScanningRef.current = true;
+      isScanningGlobal = true;
       setScanStatus("scanning");
-      await api.get(`/signals/scan?timeframe=${timeframe}`);
+      const response = await api.get(`/signals/scan?timeframe=${timeframe}`);
       
       const finishTime = Date.now();
       localStorage.setItem('last_signal_scan', finishTime.toString());
@@ -251,8 +254,10 @@ export function useCombatLogs(timeframe: string = "4h") {
     } catch (err: unknown) {
       if (err instanceof AxiosError) {
         if (err.response?.status === 429) {
-          // Force sync client time with rejection
-          localStorage.setItem('last_signal_scan', Date.now().toString());
+          const serverRetryMs = err.response.data?.retryAfterMs || SCAN_COOLDOWN_MS;
+          // Sync exactly with server requirement + 2s padding
+          localStorage.setItem('last_signal_scan', (Date.now() - (SCAN_COOLDOWN_MS - serverRetryMs) + 2000).toString());
+          console.warn(`[P4.3-ULTRA-SAFE] Server 429. Syncing lock for ${Math.ceil(serverRetryMs/1000)}s`);
           setScanStatus("idle");
         } else if (err.response?.status === 400) {
           const msg = err.response.data?.error || "Geçersiz İstek";
@@ -267,23 +272,24 @@ export function useCombatLogs(timeframe: string = "4h") {
         setScanStatus("idle");
       }
     } finally {
-      isScanningRef.current = false;
+      isScanningGlobal = false;
     }
   }, [fetchLogs, timeframe]);
 
   useEffect(() => {
     fetchLogs();
-    const interval = setInterval(fetchLogs, 3000);
+    const interval = setInterval(fetchLogs, 5000);
     return () => clearInterval(interval);
   }, [fetchLogs]);
 
   useEffect(() => {
-    // Initial delay to let other tabs/initial loads finish
+    // P4.3 Fix: Staggered start with jitter to prevent cross-tab race on initial load
+    const jitter = Math.random() * 5000;
     const timer = setTimeout(() => {
-      triggerScan();
-    }, 2000);
+      triggerScan(false);
+    }, jitter);
 
-    const scanInterval = setInterval(triggerScan, 60000);
+    const scanInterval = setInterval(() => triggerScan(false), 60000);
     return () => {
       clearTimeout(timer);
       clearInterval(scanInterval);

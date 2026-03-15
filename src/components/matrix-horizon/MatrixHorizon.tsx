@@ -1723,9 +1723,21 @@ const TIMEFRAME_PRESETS = {
   "1MO": { tp: 35.0, sl: 15.0, ttp: 3.0, tsl: 7.0 },
 };
 
+const TIMEFRAME_PRESETS_COVER = {
+  "1M": { tp: 1.0, sl: 0.6, ttp: 0.1, tsl: 0.2 },
+  "15M": { tp: 3.5, sl: 1.8, ttp: 0.3, tsl: 0.6 },
+  "1H": { tp: 3.5, sl: 1.8, ttp: 0.3, tsl: 0.6 },
+  "4H": { tp: 15.0, sl: 6.5, ttp: 1.0, tsl: 2.5 },
+  "1D": { tp: 15.0, sl: 6.5, ttp: 1.0, tsl: 2.5 },
+  "1W": { tp: 45.0, sl: 20.0, ttp: 3.5, tsl: 8.0 },
+  "1MO": { tp: 45.0, sl: 20.0, ttp: 3.5, tsl: 8.0 },
+};
+
 const SettingsPanel = ({ config, saveConfig, isAdmin, lastSync, riskMode, setRiskMode }: SettingsPanelProps) => {
   const applyPreset = (tf: keyof typeof TIMEFRAME_PRESETS) => {
     const p = TIMEFRAME_PRESETS[tf];
+    const pc = TIMEFRAME_PRESETS_COVER[tf];
+    
     saveConfig({
       pilot_timeframe: tf.toLowerCase(),
       pilot_tp_deviation: p.ttp,
@@ -1733,19 +1745,22 @@ const SettingsPanel = ({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
       pilot_tp_trailing: true,
       timeframe_settings: {
         ...(config.timeframe_settings || {}),
+        // Trade (Long) Settings
         pilot_tp_percent: p.tp,
         pilot_sl_percent: p.sl,
         pilot_sl_trailing: true,
         pilot_sl_deviation: p.tsl,
-        cover_tp_percent: p.tp,
-        cover_sl_percent: p.sl,
+        
+        // Cover (Short) Settings
+        cover_tp_percent: pc.tp,
+        cover_sl_percent: pc.sl,
         cover_tp_trailing: true,
-        cover_tp_deviation: p.ttp,
+        cover_tp_deviation: pc.ttp,
         cover_sl_trailing: true,
-        cover_sl_deviation: p.tsl,
+        cover_sl_deviation: pc.tsl,
       }
     });
-    logger.success(`🚀 ${tf} PRESET UYGULANDI`, `Zaman dilimine göre tüm parametreler oransal olarak güncellendi.`);
+    logger.success(`🚀 ${tf} PRESET UYGULANDI`, `Zaman dilimine göre tüm parametreler (Long & Short) güncellendi.`);
   };
 
   return (

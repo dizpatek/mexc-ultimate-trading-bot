@@ -228,8 +228,13 @@ export function useCombatLogs(timeframe: string = "4h") {
   const triggerScan = useCallback(async () => {
     const now = Date.now();
     if (isScanningRef.current) return;
-    if (now - globalLastScanTime < SCAN_COOLDOWN_MS) {
-      console.log(`[CombatLogs] Throttling scan. Next available in ${Math.ceil((SCAN_COOLDOWN_MS - (now - globalLastScanTime)) / 1000)}s`);
+    
+    // P4.2 Fix: Always read from localStorage to sync across tabs
+    const lastScanStored = Number(localStorage.getItem('last_signal_scan') || 0);
+    const timeSinceLast = now - lastScanStored;
+
+    if (timeSinceLast < SCAN_COOLDOWN_MS) {
+      console.log(`[CombatLogs] Throttling scan (Multi-tab aware). Retry in ${Math.ceil((SCAN_COOLDOWN_MS - timeSinceLast) / 1000)}s`);
       return;
     }
 
@@ -238,17 +243,16 @@ export function useCombatLogs(timeframe: string = "4h") {
       setScanStatus("scanning");
       await api.get(`/signals/scan?timeframe=${timeframe}`);
       
-      globalLastScanTime = Date.now();
-      localStorage.setItem('last_signal_scan', globalLastScanTime.toString());
-      setLastScanTime(globalLastScanTime);
+      const finishTime = Date.now();
+      localStorage.setItem('last_signal_scan', finishTime.toString());
+      setLastScanTime(finishTime);
       setScanStatus("done");
       await fetchLogs();
     } catch (err: unknown) {
       if (err instanceof AxiosError) {
         if (err.response?.status === 429) {
-          // Sync client time with server's rejection if provided
-          globalLastScanTime = Date.now();
-          localStorage.setItem('last_signal_scan', globalLastScanTime.toString());
+          // Force sync client time with rejection
+          localStorage.setItem('last_signal_scan', Date.now().toString());
           setScanStatus("idle");
         } else if (err.response?.status === 400) {
           const msg = err.response.data?.error || "Geçersiz İstek";
@@ -274,9 +278,16 @@ export function useCombatLogs(timeframe: string = "4h") {
   }, [fetchLogs]);
 
   useEffect(() => {
-    triggerScan();
+    // Initial delay to let other tabs/initial loads finish
+    const timer = setTimeout(() => {
+      triggerScan();
+    }, 2000);
+
     const scanInterval = setInterval(triggerScan, 60000);
-    return () => clearInterval(scanInterval);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(scanInterval);
+    };
   }, [triggerScan]);
 
   return {

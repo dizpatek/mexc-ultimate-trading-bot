@@ -143,54 +143,78 @@ export function useWhaleRadar(symbols?: string | string[]) {
       return `${norm}@aggTrade`;
     });
 
-    const combinedStreamUrl = `wss://stream.binance.com:9443/stream?streams=${streams.join("/")}`;
+    try {
+      const combinedStreamUrl = `wss://stream.binance.com:9443/stream?streams=${streams.join("/")}`;
+      const ws = new WebSocket(combinedStreamUrl);
 
-    const ws = new WebSocket(combinedStreamUrl);
+      ws.onopen = () => {
+        if (wsRef.current === ws) setStatus("connected");
+      };
 
-    ws.onopen = () => setStatus("connected");
+      ws.onmessage = (event) => {
+        if (wsRef.current !== ws) return;
+        try {
+          const msg = JSON.parse(event.data);
+          const data = msg.data;
+          if (!data) return;
 
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        const data = msg.data;
-        const price = parseFloat(data.p);
-        const quantity = parseFloat(data.q);
-        const valueUsd = price * quantity;
-        
-        // threshold lowered to $50k to make radar more active
-        if (valueUsd >= 50000) {
-          const rawSymbol = data.s; // e.g., 'BTCUSDT'
-          dispatch({
-            type: "ADD",
-            payload: {
-              id: String(data.a),
-              symbol: rawSymbol.replace("USDT", ""),
-              amount: quantity,
-              valueUsd,
-              side: (data.m as boolean) ? "SELL" : "BUY",
-              time: data.T as number,
-            },
-          });
+          const price = parseFloat(data.p);
+          const quantity = parseFloat(data.q);
+          const valueUsd = price * quantity;
+          
+          if (valueUsd >= 50000) {
+            const rawSymbol = data.s;
+            dispatch({
+              type: "ADD",
+              payload: {
+                id: String(data.a),
+                symbol: rawSymbol.replace("USDT", ""),
+                amount: quantity,
+                valueUsd,
+                side: (data.m as boolean) ? "SELL" : "BUY",
+                time: data.T as number,
+              },
+            });
+          }
+        } catch (e) {
+          /* ignore parse */
         }
-      } catch (e) {
-        // Ignore parse errors
-      }
-    };
+      };
 
-    ws.onerror = () => {
+      ws.onerror = () => {
+        if (wsRef.current === ws) {
+          setStatus("error");
+          ws.close();
+        }
+      };
+
+      ws.onclose = () => {
+        if (wsRef.current === ws) setStatus("disconnected");
+      };
+
+      wsRef.current = ws;
+    } catch (e) {
+      console.error("[WhaleRadar] Connection failed:", e);
       setStatus("error");
-      ws.close();
-    };
-
-    ws.onclose = () => setStatus("disconnected");
-
-    wsRef.current = ws;
+    }
   }, [symbols]);
 
   const disconnect = useCallback(() => {
     if (wsRef.current) {
-      wsRef.current.onclose = null;
-      wsRef.current.close();
+      const ws = wsRef.current;
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
+      
+      // Fix: Only close if open or connecting
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        try {
+          ws.close();
+        } catch (e) {
+          console.warn("[WhaleRadar] Close failed:", e);
+        }
+      }
       wsRef.current = null;
       setStatus("disconnected");
     }

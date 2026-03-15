@@ -1714,13 +1714,13 @@ interface SettingsPanelProps {
 }
 
 const TIMEFRAME_PRESETS = {
-  "1M": { tp: 0.5, sl: 0.3, ttp: 0.1, tsl: 0.2 },
-  "15M": { tp: 2.0, sl: 1.0, ttp: 0.3, tsl: 1.0 },
-  "1H": { tp: 4.0, sl: 2.0, ttp: 0.5, tsl: 1.5 },
-  "4H": { tp: 8.0, sl: 4.0, ttp: 1.0, tsl: 3.0 },
-  "1D": { tp: 15.0, sl: 7.0, ttp: 2.0, tsl: 5.0 },
-  "1W": { tp: 30.0, sl: 15.0, ttp: 3.0, tsl: 7.0 },
-  "1MO": { tp: 60.0, sl: 30.0, ttp: 5.0, tsl: 10.0 },
+  "1M": { tp: 1.0, sl: 0.6, ttp: 0.1, tsl: 0.2 },
+  "15M": { tp: 3.0, sl: 1.5, ttp: 0.3, tsl: 0.5 },
+  "1H": { tp: 3.0, sl: 1.5, ttp: 0.3, tsl: 0.5 },
+  "4H": { tp: 12.0, sl: 5.0, ttp: 1.0, tsl: 2.5 },
+  "1D": { tp: 12.0, sl: 5.0, ttp: 1.0, tsl: 2.5 },
+  "1W": { tp: 35.0, sl: 15.0, ttp: 3.0, tsl: 7.0 },
+  "1MO": { tp: 35.0, sl: 15.0, ttp: 3.0, tsl: 7.0 },
 };
 
 const SettingsPanel = ({ config, saveConfig, isAdmin, lastSync, riskMode, setRiskMode }: SettingsPanelProps) => {

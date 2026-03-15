@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Target, ChevronLeft, ChevronRight } from "lucide-react";
+import { Target, ChevronLeft, ChevronRight, Eye, EyeOff } from "lucide-react";
 import { AssetIcon } from "@/components/AssetIcon";
 import { cn } from "@/lib/utils";
 import type { Holding } from "@/services/api";
@@ -18,6 +18,10 @@ interface SmartChartHeaderProps {
   startScroll: (dir: "left" | "right") => void;
   stopScroll: () => void;
   assetScrollRef: React.RefObject<HTMLDivElement | null>;
+  isLoading?: boolean;
+  historyLoading?: boolean;
+  showChart?: boolean;
+  onToggleChart?: () => void;
 }
 
 export const TIMEFRAMES = [
@@ -42,6 +46,10 @@ export const SmartChartHeader: React.FC<SmartChartHeaderProps> = ({
   startScroll,
   stopScroll,
   assetScrollRef,
+  isLoading,
+  historyLoading,
+  showChart,
+  onToggleChart,
 }) => {
   if (compact) return null;
 
@@ -160,6 +168,31 @@ export const SmartChartHeader: React.FC<SmartChartHeaderProps> = ({
           <Target className="w-2.5 h-2.5" />
           ODAKLA
         </button>
+
+        {onToggleChart && (
+          <button
+            onClick={onToggleChart}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-900/40 border border-slate-800/50 text-[8px] font-black text-violet-400 hover:bg-violet-400/10 transition-all"
+            title={showChart ? "Grafiği Gizle" : "Grafiği Göster"}
+          >
+            {showChart ? <EyeOff size={10} /> : <Eye size={10} />}
+            {showChart ? "GİZLE" : "GÖSTER"}
+          </button>
+        )}
+
+        {/* Sync/Loading Indicators */}
+        {isLoading && (
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-[9px] font-black text-cyan-400 capitalize tracking-tight pointer-events-none">
+            <div className="w-2.5 h-2.5 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+            Senkronizasyon
+          </div>
+        )}
+        {historyLoading && !isLoading && (
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-[9px] font-black text-cyan-400 capitalize tracking-tight pointer-events-none">
+            <div className="w-2.5 h-2.5 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+            Geçmiş...
+          </div>
+        )}
       </div>
     </div>
   );

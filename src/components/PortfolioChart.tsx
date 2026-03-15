@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, memo, useCallback, useRef } from "react";
+import { useEffect, useState, memo, useCallback, useRef, forwardRef, useImperativeHandle } from "react";
 import {
   Activity,
   Globe,
@@ -110,32 +110,49 @@ interface PortfolioChartProps {
   compact?: boolean;
   isEditingExisting?: boolean;
   isBuyEditable?: boolean;
+  showChart?: boolean;
+  setShowChart?: (s: boolean) => void;
 }
 
-function TradingViewWidget({
-  symbol = "BTCUSDT",
-  buyPrice = 0,
-  tpPrice = 0,
-  slPrice = 0,
-  onPricesChange = () => {},
-  tpEnabled = false,
-  slEnabled = false,
-  trailingBuy = false,
-  onTrailingBuyChange = () => {},
-  trailingSl = false,
-  onTrailingSlChange = () => {},
-  trailingTp = false,
-  onTrailingTpChange = () => {},
-  currentMarketPrice,
-  onMarketPriceUpdate,
-  mode = "TRADE",
-  assets = [],
-  onAssetChange,
-  potentialEntry,
-  compact = false,
-  isEditingExisting = false,
-  isBuyEditable = true,
-}: PortfolioChartProps) {
+export const PortfolioChart = forwardRef<{ focusOnPrices: () => void }, PortfolioChartProps>((props, ref) => {
+  const {
+    symbol = "BTCUSDT",
+    buyPrice = 0,
+    tpPrice = 0,
+    slPrice = 0,
+    onPricesChange = () => {},
+    tpEnabled = false,
+    slEnabled = false,
+    trailingBuy = false,
+    onTrailingBuyChange = () => {},
+    trailingSl = false,
+    onTrailingSlChange = () => {},
+    trailingTp = false,
+    onTrailingTpChange = () => {},
+    currentMarketPrice,
+    onMarketPriceUpdate,
+    mode = "TRADE",
+    assets = [],
+    onAssetChange,
+    potentialEntry,
+    compact = false,
+    isEditingExisting = false,
+    isBuyEditable = true,
+    showChart,
+    setShowChart,
+  } = props;
+
+  const smartChartRef = useRef<{ focusOnPrices: () => void } | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    focusOnPrices: () => {
+      if (smartChartRef.current) {
+        smartChartRef.current.focusOnPrices();
+      }
+    },
+  }));
+
+  PortfolioChart.displayName = "PortfolioChart";
   const containerId = "tv-widget-portfolio-chart";
   const { timeframe } = useTimeframe();
   const tvInterval = TF_TO_TV[timeframe] || "60";
@@ -690,6 +707,9 @@ function TradingViewWidget({
               compact={compact}
               isEditingExisting={isEditingExisting}
               isBuyEditable={isBuyEditable}
+              showChart={showChart}
+              setShowChart={setShowChart}
+              ref={smartChartRef}
             />
           </div>
         ) : (
@@ -870,6 +890,4 @@ function TradingViewWidget({
       )}
     </div>
   );
-}
-
-export const PortfolioChart = memo(TradingViewWidget);
+});

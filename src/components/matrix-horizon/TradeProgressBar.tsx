@@ -448,11 +448,13 @@ const ActiveTradeBar: React.FC<ActiveBarProps> = ({
     // ── Dynamic SL (Trailing Stop Loss) ──
     let dynSl = sl;
     if (isTslActive && trailingSlDev !== undefined && trailingSlDev > 0) {
+      // Prioritize setting deviation, fallback to initial SL distance
+      const distPercent = trailingSlDev > 0 ? trailingSlDev : (Math.abs(entry - sl) / entry) * 100;
+      
       if (side === "BUY") {
-        // TSL follows highest price downward by deviation%
-        dynSl = Math.max(sl, highestPrice * (1 - trailingSlDev / 100));
+        dynSl = Math.max(sl, highestPrice * (1 - distPercent / 100));
       } else {
-        dynSl = Math.min(sl, lowestPrice * (1 + trailingSlDev / 100));
+        dynSl = Math.min(sl, lowestPrice * (1 + distPercent / 100));
       }
     }
 

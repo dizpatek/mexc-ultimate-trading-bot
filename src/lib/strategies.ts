@@ -250,6 +250,12 @@ export class MatrixV5Strategy extends BaseStrategy {
       f4Length: this.parameters.f4Length ? Number(this.parameters.f4Length) : undefined,
       whaleVolumeMultiplier: this.parameters.whaleVolumeMultiplier ? Number(this.parameters.whaleVolumeMultiplier) : undefined,
       mtfThreshold: this.parameters.mtfThreshold ? Number(this.parameters.mtfThreshold) : 80,
+      f4SlopeThreshold: 0.01,
+      f4PowerLossThreshold: 90,
+      f4LookbackBars: 30,
+      longSqueezeThreshold: 20,
+      shortSqueezeThreshold: 20,
+      minPowerLoss: 90,
     });
   }
 
@@ -544,6 +550,8 @@ export const AVAILABLE_STRATEGIES: Record<
         max: 5.0,
       },
       mtfThreshold: { type: "number", default: 80, min: 0, max: 100 },
+      f4Alpha: { type: "number", default: 0.95, min: 0.1, max: 0.99 },
+      f4SlopeThreshold: { type: "number", default: 0.01, min: 0.001, max: 1.0 },
     },
   },
 };

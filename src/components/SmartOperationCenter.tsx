@@ -33,6 +33,7 @@ export const SmartOperationCenter = () => {
     setMode,
     setIsTradeFormOpen,
     scrollToTrade,
+    tradeAnchorRef,
   } = useTrade();
 
   useEffect(() => {
@@ -73,8 +74,8 @@ export const SmartOperationCenter = () => {
     setBuyPrice(p.buyPrice?.toString() || "0");
     setTpPrice(p.takeProfit?.price?.toString() || "0");
     setSlPrice(p.stopLoss?.price?.toString() || "0");
-    setTpEnabled(!!p.takeProfit);
-    setSlEnabled(!!p.stopLoss);
+    setTpEnabled(!!p.takeProfit || !!trade.meta.activeTakeProfit);
+    setSlEnabled(!!p.stopLoss || !!trade.meta.activeStopLoss);
     setMode(trade.meta.mode as "TRADE" | "COVER");
     setIsTradeFormOpen(true);
     setTimeout(() => {
@@ -97,8 +98,10 @@ export const SmartOperationCenter = () => {
     <div className="space-y-1">
       {/* Unified Terminal Module (Chart + Trade) - Chart is always visible, controls are collapsible */}
       <div
-        ref={terminalRef}
-        className="animate-in fade-in slide-in-from-top-4 duration-500"
+        ref={(el) => {
+          if (tradeAnchorRef) tradeAnchorRef.current = el;
+        }}
+        className="animate-in fade-in slide-in-from-top-4 duration-700"
       >
         <SmartTrade
           controlledSymbol={symbol}

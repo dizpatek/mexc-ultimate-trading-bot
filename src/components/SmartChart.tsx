@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useCallback } from "react";
-import { createPortal } from "react-dom";
+import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
 import {
   createChart,
   ColorType,
@@ -24,7 +23,6 @@ import { core } from "@/services/ApiCore";
 import { cn } from "@/lib/utils";
 import type { Holding } from "@/services/api";
 import { useModuleTimeframe } from "@/context/TimeframeContext";
-import { SmartChartHeader } from "./matrix-horizon/SmartChartHeader";
 
 interface SmartChartProps {
   symbol: string;
@@ -49,6 +47,8 @@ interface SmartChartProps {
   compact?: boolean;
   isEditingExisting?: boolean;
   isBuyEditable?: boolean;
+  showChart?: boolean;
+  setShowChart?: (s: boolean) => void;
 }
 
 interface CandleData {
@@ -103,8 +103,36 @@ const sanitizeChartData = <T extends { time: Time }>(data: T[]): T[] =>
 
 const hasSignificantCandleChange = (a: CandleData, b: CandleData) =>
   Math.abs(a.close - b.close) > 0.00000001 ||
-  Math.abs(a.high  - b.high)  > 0.00000001 ||
-  Math.abs(a.low   - b.low)   > 0.00000001;
+  Math.abs(a.high - b.high) > 0.00000001 ||
+  Math.abs(a.low - b.low) > 0.00000001;
+
+/** Applies Heikin-Ashi transformation to a sequence of candles. */
+const calculateHeikinAshi = (data: CandleData[]): CandleData[] => {
+  if (data.length === 0) return [];
+  const haData: CandleData[] = [];
+  let prevOpen = data[0].open;
+  let prevClose = data[0].close;
+
+  for (let i = 0; i < data.length; i++) {
+    const curr = data[i];
+    const haClose = (curr.open + curr.high + curr.low + curr.close) / 4;
+    const haOpen = i === 0 ? (curr.open + curr.close) / 2 : (prevOpen + prevClose) / 2;
+    const haHigh = Math.max(curr.high, haOpen, haClose);
+    const haLow = Math.min(curr.low, haOpen, haClose);
+
+    const haCandle = {
+      time: curr.time,
+      open: haOpen,
+      high: haHigh,
+      low: haLow,
+      close: haClose,
+    };
+    haData.push(haCandle);
+    prevOpen = haOpen;
+    prevClose = haClose;
+  }
+  return haData;
+};
 
 type VolumeBar = { time: Time; value: number; color: string };
 
@@ -184,30 +212,37 @@ const tipDiffScan = (
 };
 // ──────────────────────────────────────────────────────────────────────────────
 
-export const SmartChart: React.FC<SmartChartProps> = ({
-  symbol,
-  buyPrice,
-  tpPrice,
-  slPrice,
-  onPricesChange,
-  tpEnabled,
-  slEnabled,
-  trailingBuy,
-  onTrailingBuyChange,
-  trailingSl,
-  onTrailingSlChange,
-  trailingTp,
-  onTrailingTpChange,
-  currentMarketPrice: externalMarketPrice,
-  onMarketPriceUpdate,
-  mode = "TRADE",
-  assets = [],
-  onAssetChange,
-  potentialEntry,
-  compact = false,
-  isEditingExisting = false,
-  isBuyEditable = true,
-}) => {
+export const SmartChart = forwardRef<{ focusOnPrices: () => void }, SmartChartProps>((props, ref) => {
+  const {
+    symbol,
+    buyPrice,
+    tpPrice,
+    slPrice,
+    onPricesChange,
+    tpEnabled,
+    slEnabled,
+    trailingBuy,
+    onTrailingBuyChange,
+    trailingSl,
+    onTrailingSlChange,
+    trailingTp,
+    onTrailingTpChange,
+    currentMarketPrice: externalMarketPrice,
+    onMarketPriceUpdate,
+    mode = "TRADE",
+    assets = [],
+    onAssetChange,
+    potentialEntry,
+    compact = false,
+    isEditingExisting = false,
+    isBuyEditable = true,
+    showChart,
+    setShowChart,
+  } = props;
+
+  useImperativeHandle(ref, () => ({
+    focusOnPrices,
+  }));
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const assetScrollRef = useRef<HTMLDivElement>(null);
@@ -216,6 +251,9 @@ export const SmartChart: React.FC<SmartChartProps> = ({
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const ghostSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const isMountedRef = useRef(true);
+  const focusTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const resizeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -231,6 +269,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
   const lastCloseRef = useRef(0);
   const lastFullScanRef = useRef<number>(0); // timestamp of last O(n) full diff scan
   const [timeframe, setTimeframe] = useModuleTimeframe("1h");
+
   const isUpdatingOverlaysRef = useRef(false);
 
   const startScroll = (direction: "left" | "right") => {
@@ -256,19 +295,25 @@ export const SmartChart: React.FC<SmartChartProps> = ({
   // Forces the chart to include all trade levels in the visible area
   const focusOnPrices = useCallback(() => {
     if (
+      !isMountedRef.current ||
       !chartRef.current ||
       !seriesRef.current ||
       !ghostSeriesRef.current ||
       !isChartReady
     )
       return;
-    if (allKlinesRef.current.length === 0) return; // FIX: Don't set ghost series if no real data
 
-    const b = propsRef.current.buyPrice;
-    const t = propsRef.current.tpPrice;
-    const s = propsRef.current.slPrice;
-    const te = propsRef.current.tpEnabled;
-    const se = propsRef.current.slEnabled;
+    // We can try to focus even if we don't have all klines yet
+    // but lightweight-charts needs a time range to scale prices.
+    // If we have at least TWO trade levels, we can ghost-scale even without klines
+    const activeLevels = [buyPrice, tpPrice, slPrice].filter(p => p > 0);
+    if (allKlinesRef.current.length === 0 && activeLevels.length < 2) return;
+
+    const b = buyPrice;
+    const t = tpPrice;
+    const s = slPrice;
+    const te = tpEnabled;
+    const se = slEnabled;
 
     const klines = allKlinesRef.current;
     const tFirst = klines[0]?.time as number;
@@ -286,23 +331,26 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     if (timestamp3 <= timestamp2) timestamp3 = timestamp2 + 1;
 
     const safeB = isNaN(b) ? 0 : b;
+    const safeT = te && !isNaN(t) && t > 0 ? t : 0;
+    const safeS = se && !isNaN(s) && s > 0 ? s : 0;
+
     const minV =
       Math.min(
-        safeB,
-        te && !isNaN(t) ? t : safeB,
-        se && !isNaN(s) ? s : safeB,
-      ) * 0.999;
+        safeB > 0 ? safeB : Infinity,
+        safeT > 0 ? safeT : Infinity,
+        safeS > 0 ? safeS : Infinity,
+      );
     const maxV =
       Math.max(
         safeB,
-        te && !isNaN(t) ? t : safeB,
-        se && !isNaN(s) ? s : safeB,
-      ) * 1.001;
+        safeT,
+        safeS
+      );
 
-    if (!isNaN(minV) && !isNaN(maxV) && minV > 0) {
+    if (minV !== Infinity && maxV > 0 && minV > 0) {
       ghostSeriesRef.current.setData([
-        { time: timestamp1 as Time, value: minV },
-        { time: timestamp2 as Time, value: maxV },
+        { time: timestamp1 as Time, value: minV * 0.998 },
+        { time: timestamp2 as Time, value: maxV * 1.002 },
         { time: timestamp3 as Time, value: safeB },
       ]);
     }
@@ -310,7 +358,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     if (chartRef.current) {
       chartRef.current.priceScale("right").applyOptions({ autoScale: true });
     }
-  }, [isChartReady]);
+  }, [isChartReady, buyPrice, tpPrice, slPrice, tpEnabled, slEnabled]);
 
   // Refs for price lines
   const currentPriceLineRef = useRef<IPriceLine | null>(null);
@@ -402,11 +450,6 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     if (lastReportedBuyRef.current === currentPrice) return;
     lastReportedBuyRef.current = currentPrice;
 
-    // Move the chart price line visually (instant, no React render needed)
-    if (buyPriceLineRef.current) {
-      buyPriceLineRef.current.applyOptions({ price: currentPrice });
-    }
-
     // Update localPrices so the label badge shows the correct price and % distance
     setLocalPrices((prev) => {
       if (prev.buy === currentPrice) return prev;
@@ -417,14 +460,17 @@ export const SmartChart: React.FC<SmartChartProps> = ({
   // Unified Chart Update Function (Zones + Coords)
   const refreshChartOverlays = useCallback(() => {
     if (
+      !isMountedRef.current ||
       !chartRef.current ||
       !seriesRef.current ||
       !isChartReady ||
       isUpdatingOverlaysRef.current
     )
       return;
-    if (allKlinesRef.current.length === 0) return;
 
+    // Allow label sync even if no klines are present, as labels use priceToCoordinate
+    // Coords will return null if no data, which we handle
+    
     isUpdatingOverlaysRef.current = true;
     try {
       const series = seriesRef.current;
@@ -504,12 +550,16 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     } finally {
       isUpdatingOverlaysRef.current = false;
     }
-  }, [isChartReady, tpEnabled, slEnabled, mode]);
+  }, [isChartReady, tpEnabled, slEnabled, mode, localPrices.buy, localPrices.tp, localPrices.sl]);
 
   const rafIdRef = useRef<number | null>(null);
   const triggerCoordSync = useCallback(() => {
-    if (rafIdRef.current) return;
+    if (!isMountedRef.current || rafIdRef.current) return;
     rafIdRef.current = requestAnimationFrame(() => {
+      if (!isMountedRef.current) {
+        rafIdRef.current = null;
+        return;
+      }
       rafIdRef.current = null;
       refreshChartOverlays();
       // Also update localPrices state for the badges to follow snappy
@@ -517,9 +567,15 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     });
   }, [refreshChartOverlays]);
 
+  // Forces the label coordinates to update whenever the price values change
+  useEffect(() => {
+    triggerCoordSync();
+  }, [localPrices.buy, localPrices.tp, localPrices.sl, triggerCoordSync]);
+
   // Initialize Chart Instance (Once)
   useEffect(() => {
     if (!chartContainerRef.current) return;
+    isMountedRef.current = true;
 
     const container = chartContainerRef.current;
     const chartInstance = createChart(container, {
@@ -561,7 +617,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
       priceFormat: { type: "volume" },
       priceScaleId: "volume",
     });
-    chartInstance.priceScale("volume").applyOptions({
+    chartInstance.priceScale("volume")?.applyOptions({
       scaleMargins: { top: 0.85, bottom: 0 },
     });
 
@@ -578,12 +634,13 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     setIsChartReady(true);
 
     const handleResize = () => {
-      if (chartRef.current && chartContainerRef.current) {
-        const width = chartContainerRef.current.clientWidth;
-        const height = chartContainerRef.current.clientHeight;
-        if (width > 0 && height > 0) {
-          chartRef.current.applyOptions({ width, height: height - 10 });
-        }
+      if (!isMountedRef.current || !chartRef.current || !chartContainerRef.current) return;
+      
+      const width = chartContainerRef.current.clientWidth;
+      const height = chartContainerRef.current.clientHeight;
+      if (width > 0 && height > 0) {
+        chartRef.current.applyOptions({ width, height: height });
+        chartRef.current.timeScale().fitContent();
       }
     };
 
@@ -596,10 +653,17 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     }
 
     window.addEventListener("resize", handleResize);
+    // Initial resize call to ensure it fits the container on mount
+    resizeTimeoutRef.current = setTimeout(handleResize, 100);
 
     return () => {
       window.removeEventListener("resize", handleResize);
       robserver.disconnect();
+      
+      if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
+      if (focusTimeoutRef.current) clearTimeout(focusTimeoutRef.current);
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+
       if (chartRef.current) {
         chartRef.current.remove();
         chartRef.current = null;
@@ -609,7 +673,14 @@ export const SmartChart: React.FC<SmartChartProps> = ({
         setIsChartReady(false);
       }
     };
-  }, [compact]);
+  }, [compact, showChart]);
+
+  // Real unmount cleanup
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Reset data refs and state when symbol or timeframe changes to prevent data "ghosting"
   useEffect(() => {
@@ -637,7 +708,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
       cleanVolume.sort((a, b) => toSeconds(a.time) - toSeconds(b.time));
       allKlinesRef.current = cleanKlines;
       allVolumeRef.current = cleanVolume;
-      seriesRef.current.setData(cleanKlines);
+      seriesRef.current.setData(calculateHeikinAshi(cleanKlines));
       volumeSeriesRef.current.setData(cleanVolume);
     };
 
@@ -653,7 +724,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
       if (olderKlines.length > 0) {
         allKlinesRef.current = [...olderKlines, ...allKlinesRef.current];
         allVolumeRef.current = [...olderVolume, ...allVolumeRef.current];
-        seriesRef.current.setData(allKlinesRef.current);
+        seriesRef.current.setData(calculateHeikinAshi(allKlinesRef.current));
         volumeSeriesRef.current.setData(allVolumeRef.current);
       }
     };
@@ -695,23 +766,9 @@ export const SmartChart: React.FC<SmartChartProps> = ({
         ));
       }
 
-      if (hasHistoricalChange) {
-        seriesRef.current.setData(allKlinesRef.current);
+      if (hasHistoricalChange || changedKlines.length > 0 || changedVolume.length > 0) {
+        seriesRef.current.setData(calculateHeikinAshi(allKlinesRef.current));
         volumeSeriesRef.current.setData(allVolumeRef.current);
-      } else if (changedKlines.length > 0 || changedVolume.length > 0) {
-        changedKlines
-          .sort((a, b) => toSeconds(a.time) - toSeconds(b.time))
-          .forEach((k) => {
-            seriesRef.current?.update(k);
-            const idx = allKlinesRef.current.findIndex(
-              (c) => toSeconds(c.time) === toSeconds(k.time),
-            );
-            if (idx >= 0) allKlinesRef.current[idx] = k;
-            else allKlinesRef.current.push(k);
-          });
-        changedVolume
-          .sort((a, b) => toSeconds(a.time) - toSeconds(b.time))
-          .forEach((v) => volumeSeriesRef.current?.update(v));
       }
       // else: no changes → skip all chart API calls
     };
@@ -736,6 +793,13 @@ export const SmartChart: React.FC<SmartChartProps> = ({
 
       if (allKlinesRef.current.length > 0) {
         lastCandleRef.current = allKlinesRef.current[allKlinesRef.current.length - 1];
+        // If we are editing and this is the first data load, ensure we focus
+        if (isEditingExisting) {
+          if (focusTimeoutRef.current) clearTimeout(focusTimeoutRef.current);
+          focusTimeoutRef.current = setTimeout(() => {
+            if (isMountedRef.current) focusOnPrices();
+          }, 100);
+        }
       }
     };
 
@@ -771,13 +835,15 @@ export const SmartChart: React.FC<SmartChartProps> = ({
             d && (typeof d.time === "number" || typeof d.time === "string"),
         );
 
-        const validData: CandleData[] = validRaw.map((d) => ({
-          time: d.time as Time,
-          open: Number(d.open) || 0,
-          high: Number(d.high) || 0,
-          low: Number(d.low) || 0,
-          close: Number(d.close) || 0,
-        }));
+        const validData: CandleData[] = calculateHeikinAshi(
+          validRaw.map((d) => ({
+            time: d.time as Time,
+            open: Number(d.open) || 0,
+            high: Number(d.high) || 0,
+            low: Number(d.low) || 0,
+            close: Number(d.close) || 0,
+          })),
+        );
 
         const volumeData = validRaw
           .filter((d) => d.volume !== undefined)
@@ -792,7 +858,13 @@ export const SmartChart: React.FC<SmartChartProps> = ({
 
         // Use 'reset' for initial load/focus, 'update' for background polling
         updateSeriesData(
-          validData,
+          validRaw.map((d) => ({
+            time: d.time as Time,
+            open: Number(d.open) || 0,
+            high: Number(d.high) || 0,
+            low: Number(d.low) || 0,
+            close: Number(d.close) || 0,
+          })),
           volumeData,
           shouldFocus ? "reset" : "update",
         );
@@ -947,7 +1019,6 @@ export const SmartChart: React.FC<SmartChartProps> = ({
               high: Math.max(lastCandle.high, price),
               low: Math.min(lastCandle.low, price),
             };
-            seriesRef.current.update(updatedCandle);
             lastCandleRef.current = updatedCandle;
             if (
               allKlinesRef.current.length > 0 &&
@@ -966,7 +1037,6 @@ export const SmartChart: React.FC<SmartChartProps> = ({
               low: price,
               close: price,
             };
-            seriesRef.current.update(newBar);
             lastCandleRef.current = newBar;
             allKlinesRef.current = [
               ...allKlinesRef.current.filter(
@@ -975,6 +1045,8 @@ export const SmartChart: React.FC<SmartChartProps> = ({
               newBar,
             ];
           }
+          // HA Refresh
+          seriesRef.current.setData(calculateHeikinAshi(allKlinesRef.current));
         }
       }
     });
@@ -1007,20 +1079,27 @@ export const SmartChart: React.FC<SmartChartProps> = ({
 
     const handleScaleChange = () => {
       // Only sync labels on scale change, DO NOT modify series data (prevents Max Call Stack Size Exceeded)
-      if (allKlinesRef.current.length === 0) return;
+      if (!isMountedRef.current || !chartRef.current || !seriesRef.current || allKlinesRef.current.length === 0) return;
+      const chart = chartRef.current;
+      const series = seriesRef.current;
       const buy = Number(localPricesRef.current.buy);
       const tp = Number(localPricesRef.current.tp);
       const sl = Number(localPricesRef.current.sl);
 
       const buyCoord = buy > 0 ? series.priceToCoordinate(buy) : null;
+      // Allow dragging even if not yet enabled so user can visually set them
       const tpCoord =
-        propsRef.current.tpEnabled && !isNaN(tp) && tp > 0
+        propsRef.current.isBuyEditable && !propsRef.current.tpEnabled && tp > 0
           ? series.priceToCoordinate(tp)
-          : null;
+          : propsRef.current.tpEnabled && !isNaN(tp) && tp > 0
+            ? series.priceToCoordinate(tp)
+            : null;
       const slCoord =
-        propsRef.current.slEnabled && !isNaN(sl) && sl > 0
+        propsRef.current.isBuyEditable && !propsRef.current.slEnabled && sl > 0
           ? series.priceToCoordinate(sl)
-          : null;
+          : propsRef.current.slEnabled && !isNaN(sl) && sl > 0
+            ? series.priceToCoordinate(sl)
+            : null;
 
       setLineCoords((prev) => {
         if (prev.buy === buyCoord && prev.tp === tpCoord && prev.sl === slCoord)
@@ -1040,7 +1119,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
 
   // Update markers and trigger overlay refresh on price changes
   useEffect(() => {
-    if (!seriesRef.current || !isChartReady) return;
+    if (!isMountedRef.current || !chartRef.current || !seriesRef.current || !isChartReady) return;
     const series = seriesRef.current;
 
     const updateMarkerLine = (
@@ -1090,24 +1169,29 @@ export const SmartChart: React.FC<SmartChartProps> = ({
       false,
     );
 
+    // Use localPrices for everything to ensure labels and lines are 100% synced at 60fps
+    const displayBuy = localPrices.buy;
+    const displayTp = localPrices.tp;
+    const displaySl = localPrices.sl;
+
     const isCover = mode === "COVER";
     updateMarkerLine(
       buyPriceLineRef,
-      localPrices.buy,
+      displayBuy,
       isCover ? "#10b981" : "#06b6d2",
       isCover ? "ENTRY-S" : "ENTRY-L",
       true,
     );
     updateMarkerLine(
       tpPriceLineRef,
-      localPrices.tp,
+      displayTp,
       "#10b981",
       "TAKE PROFIT",
       tpEnabled,
     );
     updateMarkerLine(
       slPriceLineRef,
-      localPrices.sl,
+      displaySl,
       "#f43f5e",
       "STOP LOSS",
       slEnabled,
@@ -1125,7 +1209,9 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     );
 
     // Manage Profit/Risk Area Series Lifecycle
-    const chart = chartRef.current!;
+    const chart = chartRef.current;
+    if (!chart) return;
+
     const isTpProfit = isCover
       ? localPrices.tp < localPrices.buy
       : localPrices.tp > localPrices.buy;
@@ -1191,6 +1277,9 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     trailingTp,
     trailingSl,
     isEditingExisting,
+    buyPrice, // Added props for extra reactivity
+    tpPrice,
+    slPrice
   ]);
 
   // Optimize Dragging
@@ -1200,7 +1289,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
     const series = seriesRef.current;
 
     const onMouseDown = (param: MouseEventParams) => {
-      if (!param.point) return;
+      if (!isMountedRef.current || !chartRef.current || !param.point) return;
       const {
         buyPrice: b,
         tpPrice: t,
@@ -1220,13 +1309,14 @@ export const SmartChart: React.FC<SmartChartProps> = ({
           };
         }
       }
-      else if (te && dist(t) < 30) setDraggingLine("tp");
-      else if (se && dist(s) < 30) setDraggingLine("sl");
+      else if ((te || ibe) && dist(t) < 30) setDraggingLine("tp");
+      else if ((se || ibe) && dist(s) < 30) setDraggingLine("sl");
     };
 
     const isProcessing = { current: false };
     const onMouseMove = (param: MouseEventParams) => {
       if (
+        !isMountedRef.current ||
         !chartRef.current ||
         !seriesRef.current ||
         allKlinesRef.current.length === 0
@@ -1286,10 +1376,10 @@ export const SmartChart: React.FC<SmartChartProps> = ({
           const series = seriesRef.current;
           // Use current local drag positions for cursor feedback, not stale props
           const buyY = series.priceToCoordinate(localPricesRef.current.buy) || -100;
-          const tpY = propsRef.current.tpEnabled 
+          const tpY = (propsRef.current.tpEnabled || propsRef.current.isBuyEditable)
             ? series.priceToCoordinate(localPricesRef.current.tp) || -100 
             : -100;
-          const slY = propsRef.current.slEnabled 
+          const slY = (propsRef.current.slEnabled || propsRef.current.isBuyEditable)
             ? series.priceToCoordinate(localPricesRef.current.sl) || -100 
             : -100;
 
@@ -1335,51 +1425,18 @@ export const SmartChart: React.FC<SmartChartProps> = ({
   return (
     <div
       className={cn(
-        "w-full select-none flex flex-col h-full",
+        "w-full select-none flex flex-col h-full relative group/chart flex-1 pb-0",
+        !showChart ? "invisible h-0 opacity-0 overflow-hidden" : "visible"
       )}
     >
-      {!compact && typeof document !== "undefined" && document.getElementById("smart-chart-header-portal") ? (
-        createPortal(
-          <SmartChartHeader
-            compact={compact}
-            symbol={symbol}
-            currentPrice={currentPrice}
-            assets={assets}
-            onAssetChange={onAssetChange}
-            timeframe={timeframe}
-            setTimeframe={setTimeframe}
-            focusOnPrices={focusOnPrices}
-            startScroll={startScroll}
-            stopScroll={stopScroll}
-            assetScrollRef={assetScrollRef}
-          />,
-          document.getElementById("smart-chart-header-portal")!
-        )
-      ) : (
-        <SmartChartHeader
-          compact={compact}
-          symbol={symbol}
-          currentPrice={currentPrice}
-          assets={assets}
-          onAssetChange={onAssetChange}
-          timeframe={timeframe}
-          setTimeframe={setTimeframe}
-          focusOnPrices={focusOnPrices}
-          startScroll={startScroll}
-          stopScroll={stopScroll}
-          assetScrollRef={assetScrollRef}
-        />
-      )}
-
-      <div className="relative group/chart flex-1 flex flex-col pb-8">
-        <div
-          ref={chartContainerRef}
-          className={cn(
-            "w-full bg-slate-950/20 border border-slate-800 rounded-lg transition-all flex-1",
-            !compact && "min-h-[560px]",
-          )}
-        />
-        {syncError && allKlinesRef.current.length > 0 && (
+      <div
+        ref={chartContainerRef}
+        className={cn(
+          "w-full bg-slate-950/20 transition-all flex-1",
+          !compact && "min-h-[560px]",
+        )}
+      />
+      {syncError && allKlinesRef.current.length > 0 && (
           <div className="absolute top-4 right-4 z-30 px-3 py-1 bg-rose-500/20 border border-rose-500/40 backdrop-blur-md rounded-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
             <div className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
             <span className="text-[10px] font-black text-rose-400 uppercase tracking-widest">
@@ -1387,30 +1444,9 @@ export const SmartChart: React.FC<SmartChartProps> = ({
             </span>
           </div>
         )}
-
-        {isLoading && !error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-950/50 backdrop-blur-sm z-20">
-            <div className="flex flex-col items-center gap-3">
-              <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-[10px] font-black text-cyan-500 uppercase tracking-widest italic">
-                Matrix Senkronizasyon...
-              </span>
-            </div>
-          </div>
-        )}
-
         {error && !isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm z-20 text-rose-400 font-bold uppercase tracking-widest text-[10px]">
             ⚠️ {error}
-          </div>
-        )}
-
-        {historyLoading && (
-          <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 px-3 py-1 bg-cyan-500/20 border border-cyan-500/40 backdrop-blur-md rounded-full flex items-center gap-2">
-            <div className="w-2 h-2 border border-cyan-400 border-t-transparent rounded-full animate-spin" />
-            <span className="text-[9px] font-black text-cyan-400 uppercase tracking-tighter">
-              Geçmiş Yükleniyor...
-            </span>
           </div>
         )}
 
@@ -1420,7 +1456,7 @@ export const SmartChart: React.FC<SmartChartProps> = ({
             if (coord === undefined) return null;
 
             let label = "";
-            if (key === "buy") label = mode === "COVER" ? "Sell" : "TBuy";
+            if (key === "buy") label = mode === "COVER" ? "Sell" : "Buy";
             else if (key === "tp")
               label = mode === "COVER" ? "Buy (Cover)" : "Take Profit";
             else if (key === "sl")
@@ -1554,18 +1590,9 @@ export const SmartChart: React.FC<SmartChartProps> = ({
               </div>
             );
           })}
-        </div>
       </div>
-
-      {/* Chart Footer: Engine Version Only */}
-      {!compact && (
-        <div className="flex items-center justify-end px-1 mt-1">
-          <div className="text-[8px] font-bold text-slate-700 uppercase tracking-widest flex items-center gap-1 pr-1">
-            <div className="w-1 h-1 rounded-full bg-slate-800" />
-            Matrix Engine v3.0
-          </div>
-        </div>
-      )}
     </div>
   );
-};
+});
+
+SmartChart.displayName = "SmartChart";

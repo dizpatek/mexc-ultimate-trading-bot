@@ -1,0 +1,198 @@
+CONFIG: {
+  "id": 1,
+  "f4_length": 10,
+  "whale_multiplier": "1.8",
+  "ai_threshold": 65,
+  "auto_trade": true,
+  "defense_mode": false,
+  "updated_at": "1773567885140",
+  "pilot_trailing_buy": false,
+  "pilot_trailing_buy_dev": "0.3",
+  "pilot_tp_trailing": true,
+  "pilot_tp_deviation": "0.1",
+  "pilot_sl_trailing": true,
+  "pilot_sl_deviation": "1.1",
+  "pilot_timeframe": "1m",
+  "fibo_length": 20,
+  "timeframe_settings": {
+    "cover_sl_percent": 1,
+    "cover_tp_percent": 0.5,
+    "pilot_sl_percent": 1,
+    "pilot_tp_percent": 0.5,
+    "cover_sl_trailing": true,
+    "cover_tp_trailing": true,
+    "pilot_sl_trailing": true,
+    "cover_sl_deviation": 1.1,
+    "cover_tp_deviation": 0.1,
+    "pilot_trade_allocation": 100
+  },
+  "pilot_mtf_veto": true,
+  "pilot_mtf_threshold": "60",
+  "pilot_only_holdings": false,
+  "f4_power_loss_threshold": "90",
+  "f4_lookback_bars": 30,
+  "f4_squeeze_threshold": "20",
+  "min_power_loss": "90"
+}
+SIGNALS: [
+  {
+    "symbol": "SOLUSDT",
+    "signal_type": "WHALE",
+    "executed": false,
+    "execution_result": "{\"aiScore\":100,\"confluence\":69.23333333333333,\"regime\":\"RANGE\",\"prediction\":\"YATAY\",\"whaleDetected\":true,\"whaleStatus\":\"SELL_ACTIVE\",\"mtfWeightedScore\":80,\"mtfVerdict\":\"4/5 TF Sinyal\",\"fundingRate\":-0.00002324,\"fundingImpact\":-0.002,\"f4PowerLoss\":57.78387262616285,\"f4Power\":90.04408859930739,\"f4EarlyBuy\":false,\"f4EarlySell\":true,\"f4ConfirmedBuy\":false,\"f4ConfirmedSell\":false,\"reason\":\"[MatrixV5] BALİNA BOŞALTIYOR 🐋 | AI: 100 | ⚡ F4: 90% | 🛑 MTF Veto: Trend (4/5 TF Sinyal) zayıf (Threshold: 80%).\",\"targets\":{\"t1\":88.45979060440202,\"t2\":88.39958120880402,\"sl\":88.56816751647838,\"buyDev\":0.0240837582391943}}",
+    "veto_reason": "MTF Veto: Trend (4/5 TF Sinyal) zayıf (Threshold: 80%).",
+    "timestamp": "1773568931269"
+  },
+  {
+    "symbol": "ADAUSDT",
+    "signal_type": "INFO",
+    "executed": false,
+    "execution_result": "{\"aiScore\":100,\"confluence\":99.30833333333334,\"regime\":\"EARLY_REVERSAL_DOWN\",\"prediction\":\"YUKARI 📈\",\"whaleDetected\":false,\"whaleStatus\":\"NEUTRAL\",\"mtfWeightedScore\":40,\"mtfVerdict\":\"2/5 TF Sinyal\",\"fundingRate\":0.00008167,\"fundingImpact\":0.008,\"f4PowerLoss\":91.68945017332473,\"f4Power\":-40.160538135517,\"f4EarlyBuy\":true,\"f4EarlySell\":false,\"f4ConfirmedBuy\":false,\"f4ConfirmedSell\":false,\"reason\":\"[MatrixV5] AI: 100 | ⚡ F4: -40% | 🛑 MTF Veto: Trend (2/5 TF Sinyal) zayıf (Threshold: 80%).\",\"targets\":{\"t1\":0.26512473242355894,\"t2\":0.2653494648471179,\"sl\":0.26472021406115287,\"buyDev\":0.00008989296942357409}}",
+    "veto_reason": "MTF Veto: Trend (2/5 TF Sinyal) zayıf (Threshold: 80%).",
+    "timestamp": "1773568929959"
+  },
+  {
+    "symbol": "DOGEUSDT",
+    "signal_type": "BUY",
+    "executed": false,
+    "execution_result": "{\"aiScore\":100,\"confluence\":100,\"regime\":\"EARLY_REVERSAL_DOWN\",\"prediction\":\"YUKARI 📈\",\"whaleDetected\":false,\"whaleStatus\":\"NEUTRAL\",\"mtfWeightedScore\":100,\"mtfVerdict\":\"5/5 TF Sinyal\",\"fundingRate\":-0.00007123,\"fundingImpact\":-0.007,\"f4PowerLoss\":70.96239031838897,\"f4Power\":-81.86443965299061,\"f4EarlyBuy\":true,\"f4EarlySell\":false,\"f4ConfirmedBuy\":false,\"f4ConfirmedSell\":false,\"reason\":\"[MatrixV5] AI: 100 | ⚡ F4: -82%\",\"targets\":{\"t1\":0.096268856870732,\"t2\":0.096357713741464,\"sl\":0.0961089145034144,\"buyDev\":0.000035542748292800254}}",
+    "veto_reason": null,
+    "timestamp": "1773568927743"
+  },
+  {
+    "symbol": "DOGEUSDT",
+    "signal_type": "BUY",
+    "executed": true,
+    "execution_result": "{\"success\":true,\"orderId\":\"SIM1001\",\"dbId\":1127,\"mode\":\"TRADE\",\"symbol\":\"DOGEUSDT\",\"avgPrice\":0.09630625812906453,\"type\":\"SMART_TRADE\",\"source\":\"pilot_auto\",\"confidence\":100,\"is_whale\":false,\"meta\":{\"rawSignal\":{\"symbol\":\"DOGEUSDT\",\"strategy\":\"matrix_v5\",\"signal\":\"BUY\",\"price\":0.09618,\"reason\":\"[MatrixV5] AI: 100 | ⚡ F4: -83%\",\"indicators\":{\"aiScore\":100,\"confluence\":100,\"regime\":\"EARLY_REVERSAL_DOWN\",\"prediction\":\"YUKARI 📈\",\"whaleDetected\":false,\"whaleStatus\":\"NEUTRAL\",\"mtfWeightedScore\":100,\"mtfVerdict\":\"5/5 TF Sinyal\",\"fundingRate\":-0.00007123,\"fundingImpact\":-0.007,\"f4PowerLoss\":71.63582458151019,\"f4Power\":-82.71337677953294,\"f4EarlyBuy\":true,\"f4EarlySell\":false,\"f4ConfirmedBuy\":false,\"f4ConfirmedSell\":false},\"targets\":{\"t1\":0.09626671401358915,\"t2\":0.09635342802717829,\"sl\":0.09611062878912868,\"buyDev\":0.00003468560543565773},\"timestamp\":1773568924059},\"mode\":\"test\"}}",
+    "veto_reason": null,
+    "timestamp": "1773568924060"
+  },
+  {
+    "symbol": "XRPUSDT",
+    "signal_type": "INFO",
+    "executed": false,
+    "execution_result": "{\"aiScore\":100,\"confluence\":85.55833333333334,\"regime\":\"EARLY_REVERSAL_UP\",\"prediction\":\"YUKARI 📈\",\"whaleDetected\":false,\"whaleStatus\":\"NEUTRAL\",\"mtfWeightedScore\":80,\"mtfVerdict\":\"4/5 TF Sinyal\",\"fundingRate\":0.00005294,\"fundingImpact\":0.005,\"f4PowerLoss\":86.42850182024034,\"f4Power\":4.8715261673695,\"f4EarlyBuy\":false,\"f4EarlySell\":true,\"f4ConfirmedBuy\":false,\"f4ConfirmedSell\":false,\"reason\":\"[MatrixV5] AI: 100 | ⚡ F4: 5% | 🛑 MTF Veto: Trend (4/5 TF Sinyal) zayıf (Threshold: 80%).\",\"targets\":{\"t1\":1.4154359143595598,\"t2\":1.4159718287191196,\"sl\":1.4144712685123522,\"buyDev\":0.00021436574382392517}}",
+    "veto_reason": "MTF Veto: Trend (4/5 TF Sinyal) zayıf (Threshold: 80%).",
+    "timestamp": "1773568811276"
+  },
+  {
+    "symbol": "ETHUSDT",
+    "signal_type": "INFO",
+    "executed": false,
+    "execution_result": "{\"aiScore\":100,\"confluence\":92.64166666666667,\"regime\":\"EARLY_REVERSAL_UP\",\"prediction\":\"YUKARI 📈\",\"whaleDetected\":false,\"whaleStatus\":\"NEUTRAL\",\"mtfWeightedScore\":80,\"mtfVerdict\":\"4/5 TF Sinyal\",\"fundingRate\":0.00003111,\"fundingImpact\":0.003,\"f4PowerLoss\":57.50170094482634,\"f4Power\":100,\"f4EarlyBuy\":false,\"f4EarlySell\":true,\"f4ConfirmedBuy\":false,\"f4ConfirmedSell\":false,\"reason\":\"[MatrixV5] AI: 100 | ⚡ F4: 100% | 🛑 MTF Veto: Trend (4/5 TF Sinyal) zayıf (Threshold: 80%).\",\"targets\":{\"t1\":2118.429009840493,\"t2\":2119.3980196809857,\"sl\":2116.6847921276058,\"buyDev\":0.38760393619715094}}",
+    "veto_reason": "MTF Veto: Trend (4/5 TF Sinyal) zayıf (Threshold: 80%).",
+    "timestamp": "1773568810410"
+  },
+  {
+    "symbol": "SOLUSDT",
+    "signal_type": "INFO",
+    "executed": false,
+    "execution_result": "{\"aiScore\":100,\"confluence\":88.1,\"regime\":\"BOTTOM_FINDING\",\"prediction\":\"YUKARI 📈\",\"whaleDetected\":false,\"whaleStatus\":\"NEUTRAL\",\"mtfWeightedScore\":100,\"mtfVerdict\":\"5/5 TF Sinyal\",\"fundingRate\":-0.00002365,\"fundingImpact\":-0.002,\"f4PowerLoss\":56.86878962172728,\"f4Power\":77.60727224702228,\"f4EarlyBuy\":false,\"f4EarlySell\":true,\"f4ConfirmedBuy\":false,\"f4ConfirmedSell\":false,\"reason\":\"[MatrixV5] AI: 100 | ⚡ F4: 78% | 🛑 MTF Veto: Trend (5/5 TF Sinyal) zayıf (Threshold: 80%).\",\"targets\":{\"t1\":88.60378082416942,\"t2\":88.65756164833883,\"sl\":88.50697534066447,\"buyDev\":0.021512329667766852}}",
+    "veto_reason": "MTF Veto: Trend (5/5 TF Sinyal) zayıf (Threshold: 80%).",
+    "timestamp": "1773568810014"
+  },
+  {
+    "symbol": "LINKUSDT",
+    "signal_type": "INFO",
+    "executed": false,
+    "execution_result": "{\"aiScore\":100,\"confluence\":81.43333333333334,\"regime\":\"RANGE\",\"prediction\":\"YUKARI 📈\",\"whaleDetected\":false,\"whaleStatus\":\"NEUTRAL\",\"mtfWeightedScore\":80,\"mtfVerdict\":\"4/5 TF Sinyal\",\"fundingRate\":0.0001,\"fundingImpact\":0.01,\"f4PowerLoss\":86.31342271260192,\"f4Power\":33.92250317592278,\"f4EarlyBuy\":false,\"f4EarlySell\":true,\"f4ConfirmedBuy\":false,\"f4ConfirmedSell\":false,\"reason\":\"[MatrixV5] AI: 100 | ⚡ F4: 34% | 🛑 MTF Veto: Trend (4/5 TF Sinyal) zayıf (Threshold: 80%).\",\"targets\":{\"t1\":9.269384869042478,\"t2\":9.275769738084957,\"sl\":9.257892104766016,\"buyDev\":0.0025539476169913855}}",
+    "veto_reason": "MTF Veto: Trend (4/5 TF Sinyal) zayıf (Threshold: 80%).",
+    "timestamp": "1773568751879"
+  },
+  {
+    "symbol": "AVAXUSDT",
+    "signal_type": "BUY",
+    "executed": false,
+    "execution_result": "{\"aiScore\":100,\"confluence\":94.76666666666667,\"regime\":\"RANGE\",\"prediction\":\"YUKARI 📈\",\"whaleDetected\":false,\"whaleStatus\":\"NEUTRAL\",\"mtfWeightedScore\":100,\"mtfVerdict\":\"5/5 TF Sinyal\",\"fundingRate\":0.00003198,\"fundingImpact\":0.003,\"f4PowerLoss\":28.564116644523057,\"f4Power\":-100,\"f4EarlyBuy\":true,\"f4EarlySell\":false,\"f4ConfirmedBuy\":false,\"f4ConfirmedSell\":false,\"reason\":\"[MatrixV5] AI: 100 | ⚡ F4: -100%\",\"targets\":{\"t1\":9.799121517443432,\"t2\":9.812243034886864,\"sl\":9.775502786045255,\"buyDev\":0.005248606977372714}}",
+    "veto_reason": null,
+    "timestamp": "1773568750199"
+  },
+  {
+    "symbol": "BNBUSDT",
+    "signal_type": "INFO",
+    "executed": false,
+    "execution_result": "{\"aiScore\":100,\"confluence\":92.26666666666667,\"regime\":\"DECELERATING_TREND\",\"prediction\":\"YUKARI 📈\",\"whaleDetected\":false,\"whaleStatus\":\"NEUTRAL\",\"mtfWeightedScore\":100,\"mtfVerdict\":\"5/5 TF Sinyal\",\"fundingRate\":0,\"fundingImpact\":0,\"f4PowerLoss\":70.0691476040189,\"f4Power\":76.74507857077593,\"f4EarlyBuy\":false,\"f4EarlySell\":true,\"f4ConfirmedBuy\":false,\"f4ConfirmedSell\":false,\"reason\":\"[MatrixV5] AI: 100 | ⚡ F4: 77% | 🛑 MTF Veto: Trend (5/5 TF Sinyal) zayıf (Threshold: 80%).\",\"targets\":{\"t1\":663.8542464607327,\"t2\":664.0984929214654,\"sl\":663.4146028314138,\"buyDev\":0.09769858429308116}}",
+    "veto_reason": "MTF Veto: Trend (5/5 TF Sinyal) zayıf (Threshold: 80%).",
+    "timestamp": "1773568749799"
+  },
+  {
+    "symbol": "XRPUSDT",
+    "signal_type": "BUY",
+    "executed": false,
+    "execution_result": "{\"aiScore\":100,\"confluence\":96.01666666666667,\"regime\":\"DECELERATING_TREND\",\"prediction\":\"YUKARI 📈\",\"whaleDetected\":false,\"whaleStatus\":\"NEUTRAL\",\"mtfWeightedScore\":100,\"mtfVerdict\":\"5/5 TF Sinyal\",\"fundingRate\":0.00005308,\"fundingImpact\":0.005,\"f4PowerLoss\":98.51250443442349,\"f4Power\":-51.64970253598943,\"f4EarlyBuy\":true,\"f4EarlySell\":false,\"f4ConfirmedBuy\":false,\"f4ConfirmedSell\":false,\"reason\":\"[MatrixV5] AI: 100 | ⚡ F4: -52%\",\"targets\":{\"t1\":1.4156702572119142,\"t2\":1.4164405144238283,\"sl\":1.4142837942304687,\"buyDev\":0.0003081028847656407}}",
+    "veto_reason": null,
+    "timestamp": "1773568629779"
+  },
+  {
+    "symbol": "BTCUSDT",
+    "signal_type": "BUY",
+    "executed": false,
+    "execution_result": "{\"aiScore\":100,\"confluence\":90.14166666666667,\"regime\":\"EARLY_REVERSAL_DOWN\",\"prediction\":\"YUKARI 📈\",\"whaleDetected\":false,\"whaleStatus\":\"NEUTRAL\",\"mtfWeightedScore\":100,\"mtfVerdict\":\"5/5 TF Sinyal\",\"fundingRate\":-0.00006497,\"fundingImpact\":-0.006,\"f4PowerLoss\":92.20808618191111,\"f4Power\":-71.05611932521482,\"f4EarlyBuy\":true,\"f4EarlySell\":false,\"f4ConfirmedBuy\":false,\"f4ConfirmedSell\":false,\"reason\":\"[MatrixV5] AI: 100 | ⚡ F4: -71%\",\"targets\":{\"t1\":71824.27830932263,\"t2\":71867.15661864528,\"sl\":71747.09735254188,\"buyDev\":17.151323729057495}}",
+    "veto_reason": null,
+    "timestamp": "1773568449784"
+  },
+  {
+    "symbol": "LINKUSDT",
+    "signal_type": "BUY",
+    "executed": false,
+    "execution_result": "{\"aiScore\":100,\"confluence\":93.68333333333332,\"regime\":\"EARLY_REVERSAL_DOWN\",\"prediction\":\"YUKARI 📈\",\"whaleDetected\":false,\"whaleStatus\":\"NEUTRAL\",\"mtfWeightedScore\":100,\"mtfVerdict\":\"5/5 TF Sinyal\",\"fundingRate\":0.0001,\"fundingImpact\":0.01,\"f4PowerLoss\":90.49712690176163,\"f4Power\":-75.15772989979698,\"f4EarlyBuy\":true,\"f4EarlySell\":false,\"f4ConfirmedBuy\":false,\"f4ConfirmedSell\":false,\"reason\":\"[MatrixV5] AI: 100 | ⚡ F4: -75%\",\"targets\":{\"t1\":9.283703830720208,\"t2\":9.297407661440417,\"sl\":9.259036935423833,\"buyDev\":0.005481532288083356}}",
+    "veto_reason": null,
+    "timestamp": "1773568390707"
+  },
+  {
+    "symbol": "BNBUSDT",
+    "signal_type": "BUY",
+    "executed": false,
+    "execution_result": "{\"aiScore\":100,\"confluence\":100,\"regime\":\"EARLY_REVERSAL_DOWN\",\"prediction\":\"YUKARI 📈\",\"whaleDetected\":false,\"whaleStatus\":\"NEUTRAL\",\"mtfWeightedScore\":100,\"mtfVerdict\":\"5/5 TF Sinyal\",\"fundingRate\":0,\"fundingImpact\":0,\"f4PowerLoss\":93.89315207632814,\"f4Power\":-58.86638816426445,\"f4EarlyBuy\":true,\"f4EarlySell\":false,\"f4ConfirmedBuy\":false,\"f4ConfirmedSell\":false,\"reason\":\"[MatrixV5] AI: 100 | ⚡ F4: -59%\",\"targets\":{\"t1\":663.7561140272237,\"t2\":664.3122280544475,\"sl\":662.7551087782211,\"buyDev\":0.22244561088947581}}",
+    "veto_reason": null,
+    "timestamp": "1773568389213"
+  },
+  {
+    "symbol": "SOLUSDT",
+    "signal_type": "BUY",
+    "executed": false,
+    "execution_result": "{\"aiScore\":100,\"confluence\":96.80833333333334,\"regime\":\"EARLY_REVERSAL_DOWN\",\"prediction\":\"YUKARI 📈\",\"whaleDetected\":false,\"whaleStatus\":\"NEUTRAL\",\"mtfWeightedScore\":100,\"mtfVerdict\":\"5/5 TF Sinyal\",\"fundingRate\":-0.00002436,\"fundingImpact\":-0.002,\"f4PowerLoss\":91.90297238219996,\"f4Power\":-51.3126269345625,\"f4EarlyBuy\":true,\"f4EarlySell\":false,\"f4ConfirmedBuy\":false,\"f4ConfirmedSell\":false,\"reason\":\"[MatrixV5] AI: 100 | ⚡ F4: -51%\",\"targets\":{\"t1\":88.65766833485239,\"t2\":88.77533666970477,\"sl\":88.4458653321181,\"buyDev\":0.04706733394095295}}",
+    "veto_reason": null,
+    "timestamp": "1773568388787"
+  },
+  {
+    "symbol": "DOTUSDT",
+    "signal_type": "INFO",
+    "executed": false,
+    "execution_result": "{\"aiScore\":100,\"confluence\":100,\"regime\":\"RANGE\",\"prediction\":\"YUKARI 📈\",\"whaleDetected\":false,\"whaleStatus\":\"BUY_ACTIVE\",\"mtfWeightedScore\":60,\"mtfVerdict\":\"3/5 TF Sinyal\",\"fundingRate\":-0.00128503,\"fundingImpact\":-0.129,\"f4PowerLoss\":88.54089474973699,\"f4Power\":-4.692507923222292,\"f4EarlyBuy\":false,\"f4EarlySell\":false,\"f4ConfirmedBuy\":true,\"f4ConfirmedSell\":false,\"reason\":\"[MatrixV5] Z-DAĞILIM ALIMI 🐋 | AI: 100 | ⚡ F4: -5% | 🛑 MTF Veto: Trend (3/5 TF Sinyal) zayıf (Threshold: 80%).\",\"targets\":{\"t1\":1.4288668144981487,\"t2\":1.4327336289962973,\"sl\":1.4219065484014812,\"buyDev\":0.0015467257992594393}}",
+    "veto_reason": "MTF Veto: Trend (3/5 TF Sinyal) zayıf (Threshold: 80%).",
+    "timestamp": "1773568335649"
+  },
+  {
+    "symbol": "ETHUSDT",
+    "signal_type": "BUY",
+    "executed": false,
+    "execution_result": "{\"aiScore\":100,\"confluence\":100,\"regime\":\"RANGE\",\"prediction\":\"YUKARI 📈\",\"whaleDetected\":false,\"whaleStatus\":\"NEUTRAL\",\"mtfWeightedScore\":100,\"mtfVerdict\":\"5/5 TF Sinyal\",\"fundingRate\":0.00003084,\"fundingImpact\":0.003,\"f4PowerLoss\":99.49770480984836,\"f4Power\":-28.77589321370847,\"f4EarlyBuy\":false,\"f4EarlySell\":true,\"f4ConfirmedBuy\":true,\"f4ConfirmedSell\":false,\"reason\":\"[MatrixV5] AI: 100 | ⚡ F4: -29%\",\"targets\":{\"t1\":2120.1889553866663,\"t2\":2122.5579107733324,\"sl\":2115.9248356906674,\"buyDev\":0.9475821546664389}}",
+    "veto_reason": null,
+    "timestamp": "1773568328239"
+  },
+  {
+    "symbol": "DOTUSDT",
+    "signal_type": "WHALE",
+    "executed": false,
+    "execution_result": "{\"aiScore\":100,\"confluence\":74.16666666666666,\"regime\":\"STOPPING_VOLUME\",\"prediction\":\"YATAY\",\"whaleDetected\":true,\"whaleStatus\":\"TRAP\",\"mtfWeightedScore\":40,\"mtfVerdict\":\"2/5 TF Sinyal\",\"fundingRate\":-0.00128827,\"fundingImpact\":-0.129,\"f4PowerLoss\":91.34668433482632,\"f4Power\":13.13736479444622,\"f4EarlyBuy\":true,\"f4EarlySell\":false,\"f4ConfirmedBuy\":false,\"f4ConfirmedSell\":true,\"reason\":\"[MatrixV5] FAKE HAREKET ⚠️ | AI: 100 | ⚡ F4: 13% | 🛑 MTF Veto: Trend (2/5 TF Sinyal) zayıf (Threshold: 80%).\",\"targets\":{\"t1\":1.4233146770003304,\"t2\":1.4256293540006608,\"sl\":1.4191482583997357,\"buyDev\":0.0009258708001321431}}",
+    "veto_reason": "MTF Veto: Trend (2/5 TF Sinyal) zayıf (Threshold: 80%).",
+    "timestamp": "1773568183995"
+  },
+  {
+    "symbol": "DOTUSDT",
+    "signal_type": "SELL",
+    "executed": true,
+    "execution_result": "{\"success\":true,\"orderId\":\"SIM1000\",\"dbId\":1126,\"mode\":\"COVER\",\"symbol\":\"DOTUSDT\",\"avgPrice\":1.4202895000000002,\"type\":\"SMART_TRADE\",\"source\":\"pilot_auto\",\"confidence\":100,\"is_whale\":false,\"meta\":{\"rawSignal\":{\"symbol\":\"DOTUSDT\",\"strategy\":\"matrix_v5\",\"signal\":\"SELL\",\"price\":1.421,\"reason\":\"[MatrixV5] AI: 100 | ⚡ F4: 21%\",\"indicators\":{\"aiScore\":100,\"confluence\":81.43333333333334,\"regime\":\"RANGE\",\"prediction\":\"YUKARI 📈\",\"whaleDetected\":false,\"whaleStatus\":\"NEUTRAL\",\"mtfWeightedScore\":40,\"mtfVerdict\":\"2/5 TF Sinyal\",\"fundingRate\":-0.00128827,\"fundingImpact\":-0.129,\"f4PowerLoss\":93.13441763784822,\"f4Power\":21.493096200024254,\"f4EarlyBuy\":false,\"f4EarlySell\":true,\"f4ConfirmedBuy\":false,\"f4ConfirmedSell\":false},\"targets\":{\"t1\":1.4231526255148157,\"t2\":1.4253052510296311,\"sl\":1.4192778995881477,\"buyDev\":0.0008610502059262234},\"timestamp\":1773568081670},\"mode\":\"test\"}}",
+    "veto_reason": null,
+    "timestamp": "1773568081717"
+  },
+  {
+    "symbol": "AVAXUSDT",
+    "signal_type": "INFO",
+    "executed": false,
+    "execution_result": "{\"aiScore\":100,\"confluence\":88.68333333333334,\"regime\":\"EARLY_REVERSAL_UP\",\"prediction\":\"YUKARI 📈\",\"whaleDetected\":false,\"whaleStatus\":\"NEUTRAL\",\"mtfWeightedScore\":80,\"mtfVerdict\":\"4/5 TF Sinyal\",\"fundingRate\":0.00002589,\"fundingImpact\":0.003,\"f4PowerLoss\":81.82451383426552,\"f4Power\":72.10625498288785,\"f4EarlyBuy\":false,\"f4EarlySell\":false,\"f4ConfirmedBuy\":false,\"f4ConfirmedSell\":true,\"reason\":\"[MatrixV5] AI: 100 | ⚡ F4: 72% | 🛑 MTF Veto: Trend (4/5 TF Sinyal) zayıf (Threshold: 80%).\",\"targets\":{\"t1\":9.864819453098956,\"t2\":9.885638906197913,\"sl\":9.827344437520834,\"buyDev\":0.008327781239582877}}",
+    "veto_reason": "MTF Veto: Trend (4/5 TF Sinyal) zayıf (Threshold: 80%).",
+    "timestamp": "1773567896520"
+  }
+]

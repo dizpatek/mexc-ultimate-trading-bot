@@ -450,6 +450,60 @@ export const IntelligenceHub = () => {
         </div>
       </div>
 
+      {/* Whale Watch — History Feed Moved to Top */}
+      <div className="p-2.5 bg-gradient-to-r from-slate-950 to-slate-900 border-b border-blue-500/30 relative overflow-hidden group/whale z-10 shrink-0">
+        <div className="absolute top-0 bottom-0 left-[-100%] w-1/2 bg-gradient-to-r from-transparent via-cyan-500/10 to-transparent group-hover/whale:animate-[sweep_2s_ease-in-out_infinite]" />
+        <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-[0.25em] mb-1.5 relative z-10">
+          <span className="flex items-center gap-1.5 text-blue-400 drop-shadow-[0_0_3px_rgba(96,165,250,0.6)]">
+            <Activity className="w-3.5 h-3.5" /> BALİNA RADARI
+          </span>
+          <span
+            className={cn(
+              "tracking-widest text-[9px]",
+              status === "connected"
+                ? "text-emerald-400"
+                : status === "connecting"
+                  ? "text-cyan-500 animate-pulse"
+                  : "text-slate-600",
+            )}
+          >
+            {status === "connected"
+              ? "AKTİF"
+              : status === "connecting"
+                ? "TARANIYOR..."
+                : status === "error"
+                  ? "BAĞLANTI HATASI"
+                  : "BEKLEMEDE"}
+          </span>
+        </div>
+
+        {/* Scrollable oval bubble history */}
+        {whaleHistory.length > 0 ? (
+          <div
+            ref={whaleScrollRef}
+            className="flex gap-2 overflow-x-auto pb-1 relative z-10 scrollbar-hide"
+            style={{ scrollbarWidth: "none" }}
+          >
+            {whaleHistory.map((w, idx) => (
+              <WhaleBubble
+                key={w.id}
+                whale={w}
+                isLatest={idx === 0}
+                isDeemphasized={idx >= 3}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 text-[10px] relative z-10 bg-[#020617]/70 rounded-lg p-1.5 border border-blue-500/20">
+            <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.9)] animate-pulse" />
+            <span className="font-black text-slate-500">AĞ</span>
+            <span className="text-slate-600 font-mono text-[9px]">
+              Sıradışı işlem bekleniyor...
+            </span>
+          </div>
+        )}
+      </div>
+
       <NewsTicker items={intel} />
 
       {/* Sentiment Overview Bar */}
@@ -508,60 +562,6 @@ export const IntelligenceHub = () => {
               handleNewsTrade={handleNewsTrade}
             />
           ))
-        )}
-      </div>
-
-      {/* Whale Watch — History Feed */}
-      <div className="p-2.5 bg-gradient-to-r from-slate-950 to-slate-900 border-t border-blue-500/30 relative overflow-hidden group/whale z-10 shrink-0">
-        <div className="absolute top-0 bottom-0 left-[-100%] w-1/2 bg-gradient-to-r from-transparent via-cyan-500/10 to-transparent group-hover/whale:animate-[sweep_2s_ease-in-out_infinite]" />
-        <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-[0.25em] mb-1.5 relative z-10">
-          <span className="flex items-center gap-1.5 text-blue-400 drop-shadow-[0_0_3px_rgba(96,165,250,0.6)]">
-            <Activity className="w-3.5 h-3.5" /> BALİNA RADARI
-          </span>
-          <span
-            className={cn(
-              "tracking-widest text-[9px]",
-              status === "connected"
-                ? "text-emerald-400"
-                : status === "connecting"
-                  ? "text-cyan-500 animate-pulse"
-                  : "text-slate-600",
-            )}
-          >
-            {status === "connected"
-              ? "AKTİF"
-              : status === "connecting"
-                ? "TARANIYOR..."
-                : status === "error"
-                  ? "BAĞLANTI HATASI"
-                  : "BEKLEMEDE"}
-          </span>
-        </div>
-
-        {/* Scrollable oval bubble history */}
-        {whaleHistory.length > 0 ? (
-          <div
-            ref={whaleScrollRef}
-            className="flex gap-2 overflow-x-auto pb-1 relative z-10 scrollbar-hide"
-            style={{ scrollbarWidth: "none" }}
-          >
-            {whaleHistory.map((w, idx) => (
-              <WhaleBubble
-                key={w.id}
-                whale={w}
-                isLatest={idx === 0}
-                isDeemphasized={idx >= 3}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="flex items-center gap-1.5 text-[10px] relative z-10 bg-[#020617]/70 rounded-lg p-1.5 border border-blue-500/20">
-            <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.9)] animate-pulse" />
-            <span className="font-black text-slate-500">AĞ</span>
-            <span className="text-slate-600 font-mono text-[9px]">
-              Sıradışı işlem bekleniyor...
-            </span>
-          </div>
         )}
       </div>
     </div>

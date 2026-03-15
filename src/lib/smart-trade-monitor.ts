@@ -517,8 +517,12 @@ function evaluateStopLoss(
     const sl = payload.stopLoss!;
     const isCover = payload.mode === "COVER";
 
-    // Calculate inherent TSL Deviation percentage based on Entry Price and SL Price
-    const distRatio = Math.abs((entryPrice - slPrice) / entryPrice);
+    // Calculate inherent TSL Deviation percentage. 
+    // Prioritize explicit TSL deviation from settings, fallback to initial SL distance.
+    const tslDevSetting = payload.stopLoss?.deviation;
+    const distRatio = (typeof tslDevSetting === 'number' && tslDevSetting > 0)
+      ? (tslDevSetting / 100)
+      : Math.abs((entryPrice - slPrice) / entryPrice);
 
     const prevSl = (meta.activeStopLoss as number) || slPrice;
 
@@ -534,9 +538,9 @@ function evaluateStopLoss(
       finalSL = prevSl > 0 ? Math.max(trailSL, prevSl) : trailSL;
     }
 
-    // MINIMUM DISTANCE GUARD: SL must be at least 0.8% from entry price
-    // This prevents TSL from being too close to entry during normal market noise
-    const minDistPct = 0.008; // 0.8%
+    // MINIMUM DISTANCE GUARD: SL must be at least 0.1% from entry price
+    // Reduced from 0.8% to 0.1% to allow tight scalping stops.
+    const minDistPct = 0.001; // 0.1%
     if (isLong) {
       const minSL = entryPrice * (1 - minDistPct);
       if (finalSL > minSL) finalSL = minSL;

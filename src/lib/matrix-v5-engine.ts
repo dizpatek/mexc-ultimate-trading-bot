@@ -19,9 +19,7 @@ import { evaluateSAE, SAEInput } from "./engine/signal-arbitration";
 
 export interface MatrixV5Config {
   f4Length: number;
-  f4Alpha: number;
   fiboLength: number;
-  fiboAlpha: number;
   f4SlopeThreshold: number;
   whaleVolumeMultiplier: number;
   minAiScore: number;
@@ -61,6 +59,9 @@ export interface MatrixV5Config {
   mtfThreshold: number;
   useHeikinAshi: boolean;
   minPowerLoss: number;
+  // Squeeze logic separation
+  longSqueezeThreshold: number;
+  shortSqueezeThreshold: number;
 }
 
 export type MarketRegime = "RISK_ON" | "RISK_OFF" | "NEUTRAL";
@@ -275,11 +276,9 @@ export class MatrixV5Engine {
     };
 
     this.config = {
-      f4Length: d(config.f4Length, 8, "f4Length"),
-      f4Alpha: d(config.f4Alpha, 0.7, "f4Alpha"),
-      fiboLength: d(config.fiboLength, 8, "fiboLength"),
-      fiboAlpha: d(config.fiboAlpha, 0.618, "fiboAlpha"),
-      f4SlopeThreshold: d(config.f4SlopeThreshold, 0.5, "f4SlopeThreshold"),
+      f4Length: d(config.f4Length, 10, "f4Length"),
+      fiboLength: d(config.fiboLength, 20, "fiboLength"),
+      f4SlopeThreshold: d(config.f4SlopeThreshold, 0.01, "f4SlopeThreshold"), // Mapping "Slope Multiplier 0.01"
       whaleVolumeMultiplier: d(config.whaleVolumeMultiplier, 1.8, "whaleVolumeMultiplier"),
       minAiScore: d(config.minAiScore, 65, "minAiScore"),
       minConfluenceScore: d(config.minConfluenceScore, 60, "minConfluenceScore"),
@@ -310,11 +309,13 @@ export class MatrixV5Engine {
       adxPeriod: d(config.adxPeriod, 14, "adxPeriod"),
       adxThreshold: d(config.adxThreshold, 20, "adxThreshold"),
       f4PowerLossThreshold: d(config.f4PowerLossThreshold, 90, "f4PowerLossThreshold"),
-      f4LookbackBars: d(config.f4LookbackBars, 10, "f4LookbackBars"),
-      f4SqueezeThreshold: d(config.f4SqueezeThreshold, 40, "f4SqueezeThreshold"),
+      f4LookbackBars: d(config.f4LookbackBars, 30, "f4LookbackBars"),
+      f4SqueezeThreshold: d(config.f4SqueezeThreshold, 20, "f4SqueezeThreshold"),
       mtfThreshold: d(config.mtfThreshold, 80, "mtfThreshold"),
       useHeikinAshi: config.useHeikinAshi ?? true,
       minPowerLoss: d(config.minPowerLoss, 90, "minPowerLoss"),
+      longSqueezeThreshold: d(config.longSqueezeThreshold, 20, "longSqueezeThreshold"),
+      shortSqueezeThreshold: d(config.shortSqueezeThreshold, 20, "shortSqueezeThreshold"),
     };
   }
 
@@ -335,28 +336,24 @@ export class MatrixV5Engine {
 
     if (isScalp) {
       return {
-        f4Length: getVal(Math.round(8 * volAdjustment), "f4Length"),
-        fiboLength: getVal(Math.round(13 * volAdjustment), "fiboLength"),
-        whaleVolumeMultiplier: getVal(1.5 * volAdjustment, "whaleVolumeMultiplier"),
-        minAiScore: getVal(60, "minAiScore"), // Restored to 60 for quality
-        minConfluenceScore: getVal(55, "minConfluenceScore"), // Restored to 55 for quality
-        f4SlopeThreshold: getVal(0.2, "f4SlopeThreshold"), // Adjusted for Scalp
-        lookback: 12,
-        f4Alpha: getVal(Math.max(0.1, Math.min(0.99, 0.7 * volAdjustment)), "f4Alpha"),
-        fiboAlpha: getVal(Math.max(0.1, Math.min(0.99, 0.618 * volAdjustment)), "fiboAlpha")
+        f4Length: getVal(11, "f4Length"), // Mapping "Scalp Length 11"
+        fiboLength: getVal(Math.round(11 * volAdjustment), "fiboLength"),
+        whaleVolumeMultiplier: getVal(3.0, "whaleVolumeMultiplier"), // Mapping "Scalp Volume Factor 3"
+        minAiScore: getVal(60, "minAiScore"), 
+        minConfluenceScore: getVal(55, "minConfluenceScore"), 
+        f4SlopeThreshold: getVal(0.01, "f4SlopeThreshold"), 
+        lookback: 30,
       };
     } else {
       // Swing Mode
       return {
-        f4Length: getVal(Math.round(21 * volAdjustment), "f4Length"),
-        fiboLength: getVal(Math.round(34 * volAdjustment), "fiboLength"),
-        whaleVolumeMultiplier: getVal(2.2 * volAdjustment, "whaleVolumeMultiplier"),
-        minAiScore: getVal(70, "minAiScore"), // Restored to 70 for swing quality
-        minConfluenceScore: getVal(65, "minConfluenceScore"), // Restored to 65 for swing quality
-        f4SlopeThreshold: getVal(0.5, "f4SlopeThreshold"), // Adjusted for Swing
-        lookback: 48,
-        f4Alpha: getVal(Math.max(0.1, Math.min(0.99, 0.7 * volAdjustment)), "f4Alpha"),
-        fiboAlpha: getVal(Math.max(0.1, Math.min(0.99, 0.618 * volAdjustment)), "fiboAlpha")
+        f4Length: getVal(10, "f4Length"), // Mapping "Swing Length 10"
+        fiboLength: getVal(Math.round(10 * volAdjustment), "fiboLength"),
+        whaleVolumeMultiplier: getVal(1.2, "whaleVolumeMultiplier"), // Mapping "Swing Volume Factor 1.2"
+        minAiScore: getVal(70, "minAiScore"), 
+        minConfluenceScore: getVal(65, "minConfluenceScore"), 
+        f4SlopeThreshold: getVal(0.01, "f4SlopeThreshold"), 
+        lookback: 30,
       };
     }
   }
@@ -1402,10 +1399,9 @@ export class MatrixV5Engine {
 
     // 1. F4 TREND ENGINE (Dynamic per tradeMode)
     const f4Len = autoParams.f4Length;
-    const f4Alpha = activeConfig.f4Alpha;
-    const f4WholeSeries = this.calculateF4Series(finalCloses, finalHighs, finalLows, f4Len, f4Alpha);
+    const f4WholeSeries = this.calculateF4Series(finalCloses, finalHighs, finalLows, f4Len, 0.95); // Using constant UI alpha
     const f4Value = f4WholeSeries[f4WholeSeries.length - 1];
-    const fiboWholeSeries = this.calculateF4Series(finalCloses, finalHighs, finalLows, autoParams.fiboLength, activeConfig.fiboAlpha);
+    const fiboWholeSeries = this.calculateF4Series(finalCloses, finalHighs, finalLows, autoParams.fiboLength, 0.95); // Using constant UI alpha
     const f4FiboValue = fiboWholeSeries[fiboWholeSeries.length - 1];
 
     const tfAdapt = this.getTfAdaptFactor(interval);
@@ -1773,18 +1769,27 @@ export class MatrixV5Engine {
     }
     const f4SlopeMax = slopeHistory.length > 0 ? Math.max(...slopeHistory, f4SlopeStrength) : f4SlopeStrength;
     const f4PowerLoss = f4SlopeMax > 0.00001 ? ((f4SlopeMax - f4SlopeStrength) / f4SlopeMax) * 100 : 0;
-    const dynPowerLossThreshold = volatilityRegime === "SQUEEZE" ? activeConfig.f4SqueezeThreshold : activeConfig.f4PowerLossThreshold;
-
+    
     const minLoss = activeConfig.minPowerLoss ?? 90;
-    const f4AnticipatoryBuy = f4Slope < 0 && (buyLeadConfluence >= 1 || f4PowerLoss >= 90.0) && f4PowerLoss >= minLoss;
-    const f4AnticipatorySell = f4Slope > 0 && (sellLeadConfluence >= 1 || f4PowerLoss >= 90.0) && f4PowerLoss >= minLoss;
+    
+    // Directional Squeeze Logic - Respecting absolute user mandate of 90+ Power Loss
+    const longSqueezeThr = Math.max(minLoss, activeConfig.longSqueezeThreshold ?? 20);
+    const shortSqueezeThr = Math.max(minLoss, activeConfig.shortSqueezeThreshold ?? 20);
+    
+    const buySqueezeThreshold = volatilityRegime === "SQUEEZE" ? shortSqueezeThr : Math.max(minLoss, activeConfig.f4PowerLossThreshold);
+    const sellSqueezeThreshold = volatilityRegime === "SQUEEZE" ? longSqueezeThr : Math.max(minLoss, activeConfig.f4PowerLossThreshold);
 
-    const f4EarlyBuy = (f4Slope < 0 && f4PowerLoss >= dynPowerLossThreshold) || f4AnticipatoryBuy;
-    const f4EarlySell = (f4Slope > 0 && f4PowerLoss >= dynPowerLossThreshold) || f4AnticipatorySell;
-    const f4ConfirmedBuy = f4Value > prevF4Value && prevF4Value <= (f4WholeSeries[f4WholeSeries.length - 3] || prevF4Value);
-    const f4ConfirmedSell = f4Value < prevF4Value && prevF4Value >= (f4WholeSeries[f4WholeSeries.length - 3] || prevF4Value);
+    const f4AnticipatoryBuy = f4Slope < 0 && (buyLeadConfluence >= 1 || f4PowerLoss >= 99.0) && f4PowerLoss >= minLoss;
+    const f4AnticipatorySell = f4Slope > 0 && (sellLeadConfluence >= 1 || f4PowerLoss >= 99.0) && f4PowerLoss >= minLoss;
 
-    return { f4PowerLoss, dynPowerLossThreshold, hasEarlyBuyLead: f4EarlyBuy, hasEarlySellLead: f4EarlySell, hasConfirmedBuyLead: f4ConfirmedBuy, hasConfirmedSellLead: f4ConfirmedSell };
+    const f4EarlyBuy = (f4Slope < 0 && f4PowerLoss >= buySqueezeThreshold) || f4AnticipatoryBuy;
+    const f4EarlySell = (f4Slope > 0 && f4PowerLoss >= sellSqueezeThreshold) || f4AnticipatorySell;
+    
+    // P4.1: Confirmed signals MUST also satisfy the Power Loss threshold as per user mandate
+    const f4ConfirmedBuy = f4Value > prevF4Value && prevF4Value <= (f4WholeSeries[f4WholeSeries.length - 3] || prevF4Value) && f4PowerLoss >= minLoss;
+    const f4ConfirmedSell = f4Value < prevF4Value && prevF4Value >= (f4WholeSeries[f4WholeSeries.length - 3] || prevF4Value) && f4PowerLoss >= minLoss;
+
+    return { f4PowerLoss, buySqueezeThreshold, sellSqueezeThreshold, hasEarlyBuyLead: f4EarlyBuy, hasEarlySellLead: f4EarlySell, hasConfirmedBuyLead: f4ConfirmedBuy, hasConfirmedSellLead: f4ConfirmedSell };
   }
 
   private performSignalArbitration(confluenceScore: number, predictionUpProb: number, predictionDownProb: number, saeThreshold: number, autoParams: any, riskMode: string, smc: any, whaleStatus: string, zScore: number, vpa: any, f4Power: number, ribbonState: string, volatilityRegime: VolatilityRegime, hasEarlyBuyLead: boolean, hasConfirmedBuyLead: boolean, hasEarlySellLead: boolean, hasConfirmedSellLead: boolean, barIndex: number) {

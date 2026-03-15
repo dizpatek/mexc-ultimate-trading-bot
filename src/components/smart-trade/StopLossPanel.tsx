@@ -20,6 +20,7 @@ interface StopLossPanelProps {
   setMoveToBreakeven: (v: boolean) => void;
   slTimeout: boolean;
   setSlTimeout: (v: boolean) => void;
+  timeframe?: string;
 }
 
 export const StopLossPanel: React.FC<StopLossPanelProps> = ({
@@ -38,6 +39,7 @@ export const StopLossPanel: React.FC<StopLossPanelProps> = ({
   setMoveToBreakeven,
   slTimeout,
   setSlTimeout,
+  timeframe = "1h",
 }) => {
   return (
     <div
@@ -140,7 +142,9 @@ export const StopLossPanel: React.FC<StopLossPanelProps> = ({
         <div className={cn("pt-1.5 border-t border-white/5 space-y-2", compact ? "px-0.5" : "")}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Takip Eden</span>
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                Takip Eden <span className="text-cyan-400/80">({timeframe})</span>
+              </span>
               <button
                 onClick={() => setTrailingSl(!trailingSl)}
                 className={cn("w-6 h-3 rounded-full transition-all relative px-0.5", trailingSl ? "bg-rose-500" : "bg-slate-800")}

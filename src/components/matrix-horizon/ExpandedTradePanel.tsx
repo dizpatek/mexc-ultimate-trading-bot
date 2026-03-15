@@ -28,6 +28,7 @@ import {
   LayoutGrid,
   ScrollText,
   Gamepad2,
+  Archive,
 } from "lucide-react";
 
 import { useNotification } from "@/context/NotificationContext";
@@ -89,6 +90,9 @@ export const ExpandedTradePanel: React.FC<ExpandedTradePanelProps> = ({
   const [liveDuration, setLiveDuration] = useState("");
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [activityLogs, setActivityLogs] = useState<ActivityLogEntry[]>([]);
+  const [isEditingSl, setIsEditingSl] = useState(false);
+  const [newSlValue, setNewSlValue] = useState(sl.toString());
+
   const mode = meta.mode || "TRADE";
   const isTradeMode = mode === "TRADE";
 
@@ -164,7 +168,7 @@ export const ExpandedTradePanel: React.FC<ExpandedTradePanelProps> = ({
       doAction(
         "tp",
         "TP TETİKLE",
-        `TP tetikle? ($${currentPrice.toLocaleString()})`,
+        `TP Zorla Tetiklensin mi? (İşlem anlık fiyattan Kar Al ile kapatılacaktır)`,
         async () => {
           await api.put(`/trade/smart?id=${trade.id}`, { forceTp: true });
           fetchTrades();
@@ -174,27 +178,27 @@ export const ExpandedTradePanel: React.FC<ExpandedTradePanelProps> = ({
     [trade, currentPrice, doAction, fetchTrades],
   );
 
-  const onSlUpdate = useCallback(
-    (e: React.MouseEvent) => {
+  const onSlSave = useCallback(
+    async (e: React.MouseEvent) => {
       e.stopPropagation();
-      const v = prompt(`Yeni SL ($${sl.toFixed(2)}):`);
-      if (!v) return;
-      const n = parseFloat(v);
+      const n = parseFloat(newSlValue);
       if (isNaN(n) || n <= 0) {
-        notify("Geçersiz!", "warning");
+        notify("Geçersiz SL değeri!", "warning");
         return;
       }
-      doAction(
+      
+      await doAction(
         "sl",
-        "SL",
-        "SL: $" + sl.toFixed(2) + " → $" + n.toFixed(2) + "?",
+        "SL GÜNCELLE",
+        `Stop Loss $${sl.toFixed(2)} → $${n.toFixed(2)} olarak güncellensin mi?`,
         async () => {
           await api.put(`/trade/smart?id=${trade.id}`, { updateSl: n });
+          setIsEditingSl(false);
           fetchTrades();
         },
       );
     },
-    [trade, sl, doAction, fetchTrades],
+    [trade, sl, newSlValue, doAction, fetchTrades, notify],
   );
 
   return (
@@ -238,7 +242,15 @@ export const ExpandedTradePanel: React.FC<ExpandedTradePanelProps> = ({
             payload={payload}
             onEdit={onEdit}
             onTpTrigger={onTpTrigger}
-            onSlUpdate={onSlUpdate}
+            onSlUpdate={() => {
+              setNewSlValue(sl.toFixed(2));
+              setIsEditingSl(true);
+            }}
+            isEditingSl={isEditingSl}
+            newSlValue={newSlValue}
+            setNewSlValue={setNewSlValue}
+            onSlSave={onSlSave}
+            onSlCancel={() => setIsEditingSl(false)}
             handlePanicClose={handlePanicClose}
             handleSilentClose={handleSilentClose}
             handleFlashOpen={handleFlashOpen}
@@ -642,7 +654,12 @@ interface ActionSegmentProps {
   payload: SmartTradeOrder["meta"]["payload"];
   onEdit?: (trade: SmartTradeOrder) => void;
   onTpTrigger: (e: React.MouseEvent) => void;
-  onSlUpdate: (e: React.MouseEvent) => void;
+  onSlUpdate: () => void;
+  isEditingSl: boolean;
+  newSlValue: string;
+  setNewSlValue: (v: string) => void;
+  onSlSave: (e: React.MouseEvent) => void;
+  onSlCancel: () => void;
   handlePanicClose: (e: React.MouseEvent, trade: SmartTradeOrder) => void;
   handleSilentClose: (e: React.MouseEvent, trade: SmartTradeOrder) => void;
   handleFlashOpen: (e: React.MouseEvent, trade: SmartTradeOrder) => void;
@@ -658,6 +675,11 @@ const ActionSegment: React.FC<ActionSegmentProps> = ({
   onEdit,
   onTpTrigger,
   onSlUpdate,
+  isEditingSl,
+  newSlValue,
+  setNewSlValue,
+  onSlSave,
+  onSlCancel,
   handlePanicClose,
   handleSilentClose,
   handleFlashOpen,
@@ -676,17 +698,17 @@ const ActionSegment: React.FC<ActionSegmentProps> = ({
         <A
           icon={<ExternalLink className="w-5 h-5" />}
           label="MEXC"
-          href={`https://www.mexc.com/exchange/${trade.symbol.replace("/", "_")}`}
+          href={`https://www.mexc.com/exchange/${trade.symbol.toUpperCase().replace("/", "").replace("USDT", "_USDT")}`}
           bg="bg-slate-900/40 hover:bg-slate-800"
         />
         <A
           icon={<TrendingUp className="w-5 h-5" />}
-          label="EDİT"
+          label="DÜZENLE"
           onClick={(e) => {
             e.stopPropagation();
             onEdit?.(trade);
           }}
-          bg="bg-emerald-500/5 hover:bg-emerald-500/15 text-emerald-400"
+          bg="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 py-4"
         />
         {trade.status === "PENDING" && payload.trailingBuy && (
           <A
@@ -727,37 +749,69 @@ const ActionSegment: React.FC<ActionSegmentProps> = ({
               <Target className="w-5 h-5" />
             )
           }
-          label="TP FIX"
+          label="TP TETİKLE"
           onClick={onTpTrigger}
           bg="bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-300"
         />
-        <A
-          icon={
-            loadingAction === "sl" ? (
-              <Loader2 className="animate-spin w-5 h-5" />
-            ) : (
-              <Shield className="w-5 h-5" />
-            )
-          }
-          label="SL FIX"
-          onClick={onSlUpdate}
-          bg="bg-rose-500/5 hover:bg-rose-500/10 text-rose-300"
-        />
+        {isEditingSl ? (
+          <div className="flex flex-col items-center justify-center p-1 bg-rose-500/10 border border-rose-500/30">
+            <span className="text-[7px] font-black text-rose-400 uppercase tracking-tighter mb-1">YENİ SL</span>
+            <input 
+              type="text" 
+              value={newSlValue}
+              onChange={(e) => setNewSlValue(e.target.value)}
+              className="w-[80%] bg-black/60 border border-rose-500/20 rounded px-1.5 py-0.5 text-[10px] font-mono text-white text-center focus:border-rose-500/50 outline-none"
+              autoFocus
+            />
+            <div className="flex items-center gap-1.5 mt-1.5">
+              <button 
+                onClick={onSlSave}
+                className="p-1 rounded bg-emerald-500/20 hover:bg-emerald-500/40 text-emerald-400 transition-colors"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+              </button>
+              <button 
+                onClick={onSlCancel}
+                className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 transition-colors"
+              >
+                <ZapOff className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <A
+            icon={
+              loadingAction === "sl" ? (
+                <Loader2 className="animate-spin w-5 h-5" />
+              ) : (
+                <Shield className="w-5 h-5" />
+              )
+            }
+            label="SL FIX"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSlUpdate();
+            }}
+            bg="bg-rose-500/5 hover:bg-rose-500/10 text-rose-300"
+          />
+        )}
         <div className="col-span-2 flex flex-col divide-y divide-white/5 mt-auto bg-slate-950/20">
           <button
             onClick={(e) => handlePanicClose(e, trade)}
-            className="flex items-center justify-center gap-1.5 py-3 bg-rose-500/5 hover:bg-rose-500/15 text-rose-500/60 hover:text-rose-500 transition-all border-t border-rose-500/10 border-dashed"
+            className="flex items-center justify-center gap-2 py-5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 hover:text-rose-400 transition-all border-t border-rose-500/20 shadow-[inset_0_0_20px_rgba(244,63,94,0.05)] group/panic"
           >
-            <ZapOff className="w-5 h-5" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em]">
-              PANİK {isTradeMode ? "SAT" : "AL"}
+            <ZapOff className="w-5 h-5 group-hover/panic:animate-pulse" />
+            <span className="text-xs font-black uppercase tracking-[0.2em] cyber-glow-text-rose">
+              PANİK {isTradeMode ? "SAT" : "AL"} (EXIT)
             </span>
           </button>
+          
           <button
             onClick={(e) => handleSilentClose(e, trade)}
-            className="flex items-center justify-center gap-1.5 py-2.5 bg-slate-900/60 hover:bg-white/5 text-slate-700 hover:text-slate-400 transition-all"
+            className="flex items-center justify-center gap-2 py-4 bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-white transition-all group/archive"
           >
-            <span className="text-[9px] font-black uppercase tracking-widest leading-none">
+            <Archive className="w-4 h-4 group-hover/archive:bounce" />
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">
               SESSİZ ARŞİV
             </span>
           </button>

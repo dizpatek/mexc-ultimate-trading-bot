@@ -82,6 +82,10 @@ export interface BotTimeframeSettings {
   cover_tp_deviation?: number;
   cover_sl_trailing?: boolean;
   cover_sl_deviation?: number;
+  pilot_tp_trailing?: boolean;
+  pilot_tp_deviation?: number;
+  pilot_sl_trailing?: boolean;
+  pilot_sl_deviation?: number;
   [key: string]: unknown;
 }
 
@@ -103,7 +107,10 @@ export interface BotConfig {
   pilot_mtf_threshold: number;
   pilot_only_holdings: boolean;
   fibo_length: number;
-  f4_power_loss_threshold: number; // F4 Güç Kaybı Eşiği
+  f4_power_loss_threshold: number;
+  long_squeeze_threshold: number;
+  short_squeeze_threshold: number;
+  min_power_loss: number;
   updated_at: number;
   timeframe_settings: BotTimeframeSettings;
 }
@@ -156,7 +163,7 @@ export async function insertOrder(obj: Partial<Order>) {
     const now = Date.now();
     const result = await sql`
             INSERT INTO orders (user_id, mexc_order_id, symbol, side, type, qty, quote, price, status, created_at, updated_at, meta, trading_mode) 
-            VALUES (${obj.user_id || DEFAULT_UID}, ${obj.mexc_order_id || null}, ${obj.symbol}, ${obj.side}, ${obj.type}, ${obj.qty || null}, ${obj.quote || null}, ${obj.price || null}, ${obj.status || "NEW"}, ${now}, ${now}, ${JSON.stringify(obj.meta || {})}, ${obj.trading_mode || "test"}) 
+            VALUES (${obj.user_id || DEFAULT_UID}, ${obj.mexc_order_id || null}, ${obj.symbol}, ${obj.side}, ${obj.type}, ${obj.qty !== undefined ? obj.qty : null}, ${obj.quote !== undefined ? obj.quote : null}, ${obj.price !== undefined ? obj.price : null}, ${obj.status || "NEW"}, ${now}, ${now}, ${JSON.stringify(obj.meta || {})}, ${obj.trading_mode || "test"}) 
             RETURNING id
         `;
     return result.rows[0].id;
@@ -563,7 +570,19 @@ export async function getBotConfig(): Promise<BotConfig> {
       updated_at: Date.now()
     } as BotConfig;
   }
-  return rows[0] as unknown as BotConfig;
+  return {
+    ...rows[0],
+    whale_multiplier: parseFloat(String(rows[0].whale_multiplier || 1.8)),
+    ai_threshold: parseInt(String(rows[0].ai_threshold || 65)),
+    auto_trade: !!rows[0].auto_trade,
+    defense_mode: !!rows[0].defense_mode,
+    pilot_trailing_buy: !!rows[0].pilot_trailing_buy,
+    pilot_tp_trailing: !!rows[0].pilot_tp_trailing,
+    pilot_sl_trailing: !!rows[0].pilot_sl_trailing,
+    f4_power_loss_threshold: parseFloat(String(rows[0].f4_power_loss_threshold || 90)),
+    long_squeeze_threshold: parseFloat(String(rows[0].long_squeeze_threshold || 20)),
+    short_squeeze_threshold: parseFloat(String(rows[0].short_squeeze_threshold || 20)),
+  } as unknown as BotConfig;
 }
 
 // --- System Logging ---
@@ -642,7 +661,7 @@ export async function logSystemEvent(
   if (sysLogBuffer.length >= MAX_BUFFER_SIZE) {
     sysLogBuffer.shift();
   }
-  sysLogBuffer.push({ userId, level, message, details: details || null });
+  sysLogBuffer.push({ userId: userId || 1, level, message, details: details || null });
 
   // Auto trigger flush if buffer starts getting full
   if (sysLogBuffer.length >= 20 && !isFlushingSysLogs) {

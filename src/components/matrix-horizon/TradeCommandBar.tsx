@@ -31,7 +31,10 @@ export const TradeCommandBar: React.FC<TradeCommandBarProps> = ({
   setIsSectionExpanded,
 }) => {
   return (
-    <div className="relative z-20 flex flex-wrap items-center justify-center sm:justify-between py-2 px-2 gap-3 border-b border-slate-800/40 bg-slate-950/20 backdrop-blur-sm rounded-t-xl mb-2 font-mono">
+    <div 
+      className="relative z-20 flex flex-wrap items-center justify-center sm:justify-between py-2 px-2 gap-3 border-b border-slate-800/40 bg-slate-950/20 hover:bg-slate-900/40 transition-colors backdrop-blur-sm rounded-t-xl mb-2 font-mono cursor-pointer"
+      onClick={() => setIsSectionExpanded(!isSectionExpanded)}
+    >
       {/* GROUP 1: SECTION TITLE */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/60 border border-slate-800/80 rounded-xl shadow-lg">
@@ -53,7 +56,10 @@ export const TradeCommandBar: React.FC<TradeCommandBarProps> = ({
       <div className="flex items-center gap-2">
         <div className="flex items-center p-1 bg-slate-950/60 border border-slate-800/80 rounded-xl">
           <button
-            onClick={() => setActiveTab("AKTIF")}
+            onClick={(e) => {
+              e.stopPropagation();
+              setActiveTab("AKTIF");
+            }}
             className={cn(
               "px-3 py-1 text-[9px] font-black tracking-widest uppercase rounded-lg transition-all",
               activeTab === "AKTIF" ? "bg-cyan-500 text-slate-950 shadow-lg" : "text-slate-500 hover:text-white"
@@ -62,7 +68,10 @@ export const TradeCommandBar: React.FC<TradeCommandBarProps> = ({
             Takiptekiler
           </button>
           <button
-            onClick={() => setActiveTab("PASIF")}
+            onClick={(e) => {
+              e.stopPropagation();
+              setActiveTab("PASIF");
+            }}
             className={cn(
               "px-3 py-1 text-[9px] font-black tracking-widest uppercase rounded-lg transition-all",
               activeTab === "PASIF" ? "bg-slate-700 text-white shadow-lg" : "text-slate-500 hover:text-white"
@@ -77,14 +86,20 @@ export const TradeCommandBar: React.FC<TradeCommandBarProps> = ({
       <div className="flex items-center gap-2">
         <div className="flex items-center p-1 bg-slate-950/60 border border-slate-800/80 rounded-xl gap-1">
           <button
-            onClick={onNewTrade}
+            onClick={(e) => {
+              e.stopPropagation();
+              onNewTrade?.();
+            }}
             className="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all bg-emerald-500 text-slate-950 flex items-center gap-1"
           >
             <Zap className="w-3 h-3" /> YENİ İŞLEM
           </button>
 
           <button
-            onClick={() => handleClearAll(activeTab === "AKTIF" ? "active" : "passive")}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleClearAll(activeTab === "AKTIF" ? "active" : "passive");
+            }}
             className="p-1.5 rounded-lg border border-rose-500/20 text-rose-500 hover:bg-rose-500/10"
             title="Tümünü Temizle (Satış Yapar)"
           >
@@ -93,7 +108,10 @@ export const TradeCommandBar: React.FC<TradeCommandBarProps> = ({
 
           {activeTab === "AKTIF" && (
             <button
-              onClick={() => handleClearAll("archive")}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleClearAll("archive");
+              }}
               className="p-1.5 rounded-lg border border-amber-500/20 text-amber-500 hover:bg-amber-500/10"
               title="Tümünü Arşivle (Satış Yapmaz)"
             >
@@ -104,7 +122,10 @@ export const TradeCommandBar: React.FC<TradeCommandBarProps> = ({
           <div className="w-[1px] h-4 bg-slate-800 mx-1" />
 
           <button
-            onClick={() => setIsSectionExpanded(!isSectionExpanded)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsSectionExpanded(!isSectionExpanded);
+            }}
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all",
               isSectionExpanded ? "bg-cyan-500 text-slate-950 shadow-md" : "text-slate-500 hover:text-white"

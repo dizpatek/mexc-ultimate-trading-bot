@@ -58,7 +58,7 @@ async function createCoreTables() {
   await sql`
         CREATE TABLE IF NOT EXISTS system_logs (
             id SERIAL PRIMARY KEY,
-            user_id INTEGER REFERENCES users(id),
+            user_id INTEGER,
             level TEXT NOT NULL,
             message TEXT NOT NULL,
             details TEXT,
@@ -389,9 +389,11 @@ async function createDefaultConfigs() {
     if (rowCount === 0) {
       await sql`
         INSERT INTO bot_configs (id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, updated_at, 
-                                 pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation, pilot_timeframe, fibo_length, timeframe_settings)
-        VALUES (1, 10, 1.8, 65, false, false, ${Date.now()}, 
-                true, 0.3, true, 1.0, true, 0.5, '4h', 20, '{"pilot_tp_percent": 1.5, "pilot_sl_percent": 0.5, "cover_tp_percent": 1.5, "cover_sl_percent": 0.5, "cover_tp_trailing": true, "cover_tp_deviation": 0.3, "cover_sl_trailing": false, "cover_sl_deviation": 1.0}')
+                                 pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation, pilot_timeframe, fibo_length, timeframe_settings,
+                                 f4_power_loss_threshold, long_squeeze_threshold, short_squeeze_threshold)
+        VALUES (1, 11, 3.0, 65, false, false, ${Date.now()}, 
+                true, 0.3, true, 0.3, true, 1.0, '4h', 20, '{"pilot_tp_percent": 2.0, "pilot_sl_percent": 1.0, "cover_tp_percent": 1.0, "cover_sl_percent": 1.0, "cover_tp_trailing": true, "cover_tp_deviation": 0.3, "cover_sl_trailing": true, "cover_sl_deviation": 1.0}',
+                90, 20, 20)
             `;
       console.log("[DB-Init] Default bot config inserted.");
     }

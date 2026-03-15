@@ -250,8 +250,8 @@ export async function handleSmartTrade(
       symbol: pair,
       side: entryResult?.side || (mode === "TRADE" ? "BUY" : "SELL"),
       type: entryResult?.type || "MARKET",
-      qty: isNaN(qtyToRecord) ? 0 : qtyToRecord,
-      quote: isNaN(quoteToRecord) ? 0 : quoteToRecord,
+      qty: qtyToRecord,
+      quote: quoteToRecord,
       price: avgPrice,
       status: entryResult?.status || "NEW",
         meta: {

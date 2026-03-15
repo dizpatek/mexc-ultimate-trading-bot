@@ -536,6 +536,12 @@ export async function PUT(req: Request) {
       lastEditedAt: Date.now(),
     };
 
+    // Reset monitor tracking variables so the updated TP/SL take effect cleanly
+    delete newMeta.activeTakeProfit;
+    delete newMeta.activeStopLoss;
+    delete newMeta.tpTriggered;
+    delete newMeta.tslActivated;
+
     await sql`
             UPDATE orders 
             SET meta = ${JSON.stringify(newMeta)}, updated_at = ${Date.now()}

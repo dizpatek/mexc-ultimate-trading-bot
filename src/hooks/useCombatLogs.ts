@@ -184,7 +184,13 @@ export function parseLogEntry(sig: any, isTestMode: boolean = true): LogEntry {
       ? "POSITIVE"
       : ["SELL", "F4_CONFIRMED_SELL", "F4_EARLY_SELL"].includes(sig.type)
         ? "NEGATIVE"
-        : "NEUTRAL",
+        : isSystem 
+          ? (
+            /yetersiz|atlandı|hata|error|failed|veto|loss|düşüş|ayı/i.test(displayMessage) ? "NEGATIVE" :
+            /aktif|onaylandı|başarılı|success|long|boğa|📈|🎯|on/i.test(displayMessage) ? "POSITIVE" : 
+            "NEUTRAL"
+          )
+          : "NEUTRAL",
   };
 }
 
@@ -277,22 +283,22 @@ export function useCombatLogs(timeframe: string = "4h") {
 const FILTERED_SYSTEM_PREFIXES = [
   "Matrix Engine Online:",
   "STRATEGY_CYCLE_START",
+  "Sistem PİLOT çalışma durumunu değiştirdi.",
+  "Kullanıcı oturumu başlatıldı",
 ];
 
 export function deduplicateSystemLogs(
   logs: LogEntry[],
-  defaults: LogEntry[],
 ): LogEntry[] {
   const seen = new Set<string>();
-  const rawSystemLogs = logs.filter((l) => {
+  return logs.filter((l) => {
     if (l.type !== "SYSTEM") return false;
     if (FILTERED_SYSTEM_PREFIXES.some((p) => l.message.startsWith(p)))
       return false;
     if (seen.has(l.message)) return false;
     seen.add(l.message);
     return true;
-  });
-  return [...rawSystemLogs, ...defaults].sort(
+  }).sort(
     (a, b) => b.timestamp - a.timestamp,
   );
 }

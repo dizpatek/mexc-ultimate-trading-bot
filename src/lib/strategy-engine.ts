@@ -60,7 +60,13 @@ export async function runActiveStrategies(isImmediate = false, executionUserId: 
 
     // MANDATORY PORTFOLIO FILTERING (Strict User Rule: ONLY scan portfolio)
     const holdings = (await getHoldings(userId, mode)) as Array<{ asset?: string; symbol?: string; }>;
-    const holdingPairs = holdings.map((h) => h.asset ? `${h.asset}USDT` : String(h.symbol || "").replace("/", ""));
+    const holdingPairs = holdings.map((h) => {
+      const asset = h.asset || (h.symbol?.includes("/") ? h.symbol.split("/")[0] : h.symbol);
+      if (!asset) return "";
+      let s = `${asset}USDT`.toUpperCase().replace(/\//g, "");
+      if (s.endsWith("USDTUSDT")) s = s.replace("USDTUSDT", "USDT");
+      return s;
+    }).filter(s => s && s !== "USDT");
 
     // 3. Run Master Pilot (Global scanning) if enabled
     if (botConfig.auto_trade) {
@@ -143,7 +149,8 @@ async function processStrategy(
     const signal = await strategyInstance.analyze();
 
     if (!signal || !signal.signal) {
-      // No signal, do nothing
+      // No signal, but we want to log that it was analyzed
+      await logSystemEvent(userId, "SYSTEM", "SIGNAL_ANALYSIS", `${symbol} analiz edildi: Uygun sinyal yok.`);
       return;
     }
 
@@ -157,9 +164,9 @@ async function processStrategy(
 
     // Check Otomatik Pilot
     if (!botConfig.auto_trade) {
-      console.log(
-        `[StrategyEngine] ⏸ Auto-Pilot is OFF. Signal for ${strategy.name} logged but NOT executed.`,
-      );
+      const msg = "Otomatik Pilot Kapalı (Pilot OFF)";
+      console.log(`[StrategyEngine] ⏸ ${msg}. Signal for ${strategy.name} logged but NOT executed.`);
+      await logSystemEvent(userId, "SYSTEM", "NEGATIVE", `⏸ OTOMATİK PİLOT DEVRE DIŞI: ${strategy.name} sinyali engellendi.`);
       await createStrategySignal({
         strategy_id: strategy.id,
         symbol: signal.symbol,
@@ -167,16 +174,16 @@ async function processStrategy(
         price: signal.price || 0,
         timestamp: Date.now(),
         executed: false,
-        execution_result: { message: "Otomatik Pilot Kapalı (Pilot OFF)", f4Slope: signal.indicators.f4Slope },
+        execution_result: { message: msg, f4Slope: signal.indicators.f4Slope },
       });
       return;
     }
 
     // Check Savunma Modu for BUY signals
     if (signal.signal === "BUY" && botConfig.defense_mode) {
-      console.log(
-        `[StrategyEngine] 🛡 Defense Mode is ON. BUY signal for ${strategy.name} blocked.`,
-      );
+      const msg = "Savunma Modu Aktif (Defense ON)";
+      console.log(`[StrategyEngine] 🛡 ${msg}. BUY signal for ${strategy.name} blocked.`);
+      await logSystemEvent(userId, "SYSTEM", "NEGATIVE", `🛡 SAVUNMA MODU AKTİF: ${strategy.name} BUY sinyali engellendi.`);
       await createStrategySignal({
         strategy_id: strategy.id,
         symbol: signal.symbol,
@@ -184,7 +191,7 @@ async function processStrategy(
         price: signal.price || 0,
         timestamp: Date.now(),
         executed: false,
-        execution_result: { message: "Savunma Modu Aktif (Defense ON)", f4Slope: signal.indicators.f4Slope },
+        execution_result: { message: msg, f4Slope: signal.indicators.f4Slope },
       });
       return;
     }
@@ -262,9 +269,16 @@ async function runPilotCycle(
 
     const activeOrderSymbols = await getActiveOrderSymbols(userId, mode);
     
-    // STRICT ASSET ENFORCEMENT: Only scan what the user actually owns.
-    // Removes topAssets / random market fetching entirely.
-    const finalCoins = holdingPairs.filter((s) => 
+    // SCAN RANGE: If pilot_only_holdings is ON, only scan owned assets. 
+    // If OFF, fetch top assets from exchange to scan the whole market.
+    let assetsToScan = [...holdingPairs];
+    if (botConfig.pilot_only_holdings === false) {
+      const topAssets = await getTopAssets(50);
+      assetsToScan = Array.from(new Set([...assetsToScan, ...topAssets.map(a => a.symbol.replace("/", ""))]));
+      console.log(`[PilotEngine] 🌐 Full market scan enabled. Monitoring top 50 assets + holdings.`);
+    }
+
+    const finalCoins = assetsToScan.filter((s) => 
       s !== "USDTUSDT" && 
       s !== "USDT" && 
       s !== "undefinedUSDT" && 
@@ -272,7 +286,7 @@ async function runPilotCycle(
       !activeOrderSymbols.includes(s)
     );
 
-    console.log(`[PilotEngine] 🔍 STRICT Portfolio filtering active. Monitoring ${finalCoins.length} assets.`);
+    console.log(`[PilotEngine] 🔍 Monitoring ${finalCoins.length} assets.`);
 
     // Fetch recent signals to prevent duplicate rapid-fire trades (Race Condition Fix)
     const recentSignals = await getRecentSignalsBulk(finalCoins, DEDUP_WINDOW_MS, mode);
@@ -299,10 +313,16 @@ async function runPilotCycle(
       if (h.symbol) holdingsMap.set(h.symbol.replace("/", ""), h);
     }
 
+    let noSignalCount = 0;
     const CHUNK_SIZE = Math.max(5, Math.ceil(finalCoins.length / 5));
     for (let i = 0; i < finalCoins.length; i += CHUNK_SIZE) {
       const chunk = finalCoins.slice(i, i + CHUNK_SIZE);
-      await processPilotChunk(chunk, scanTimeframe, botConfig, userId, isImmediate, mode, holdingsMap, recentSignals);
+      const chunkNoSignal = await processPilotChunk(chunk, scanTimeframe, botConfig, userId, isImmediate, mode, holdingsMap, recentSignals);
+      noSignalCount += chunkNoSignal;
+    }
+
+    if (noSignalCount > 0) {
+      await logSystemEvent(userId, "SYSTEM", "SIGNAL_ANALYSIS", `SIGNAL_ANALYSIS: ${noSignalCount} varlık analiz edildi: Uygun sinyal yok.`);
     }
 
   } catch (error) {
@@ -319,7 +339,8 @@ async function processPilotChunk(
   mode: TradingMode = "test",
   holdingsMap: Map<string, any> = new Map(),
   recentSignals: any[] = []
-) {
+): Promise<number> {
+  let noSignalCount = 0;
   // P4.2: Optimized for performance - Analyze in parallel, but process execution sequentially
   // This restores the speed of concurrent network requests while maintaining thread-safe deduplication.
   const analysisResults = await Promise.allSettled(
@@ -365,11 +386,20 @@ async function processPilotChunk(
     if (res.status === 'rejected' || !res.value) continue;
     const { symbol, signal, skipped, lockInfo, error } = res.value;
     
-    try {
-      if (skipped === "LOCKED") continue;
-      if (skipped === "COOLDOWN") continue;
-      if (error || !signal) continue;
+      if (error || !signal) {
+        if (!error) noSignalCount++;
+        continue;
+      }
 
+      // Log structural analysis only if it's significiant
+      if (signal.indicators?.structure) {
+        const s = signal.indicators.structure as any;
+        if (s.bos || s.choch) {
+          await logSystemEvent(userId, "SYSTEM", "NEUTRAL", `📐 Yapısal Analiz: ${symbol}: BOS: ${!!s.bos} | CHoCH: ${!!s.choch} | Trend: ${s.trend || 'NEUTRAL'}`);
+        }
+      }
+
+    try {
       await PilotExecutor.handleSignal({
         symbol,
         signal,
@@ -389,6 +419,7 @@ async function processPilotChunk(
       }
     }
   }
+  return noSignalCount;
 }
 
 /**

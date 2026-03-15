@@ -27,10 +27,13 @@ import { TradeProgressBar } from "./matrix-horizon/TradeProgressBar";
 import { TradeCommandBar } from "./matrix-horizon/TradeCommandBar";
 import { useNotification } from "@/context/NotificationContext";
 import { 
-  SmartTradeOrder, 
+  SmartTradeOrder,
   calculateTradePnl, 
   calculateMtfVerdict 
 } from "@/lib/trade-utils";
+
+export type { SmartTradeOrder };
+export { calculateTradePnl, calculateMtfVerdict };
 
 // --- Pure Helper Functions (Extracted to reduce Component God-Object antipattern) ---
 

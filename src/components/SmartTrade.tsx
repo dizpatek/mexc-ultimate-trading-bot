@@ -23,6 +23,8 @@ import { useTrade } from "@/context/TradeContext";
 import { TakeProfitPanel } from "./smart-trade/TakeProfitPanel";
 import { StopLossPanel } from "./smart-trade/StopLossPanel";
 import { useBotConfig } from "@/hooks/useBotConfig";
+import { SmartChartHeader } from "./matrix-horizon/SmartChartHeader";
+import { useModuleTimeframe } from "@/context/TimeframeContext";
 
 type OrderType = "LIMIT" | "MARKET" | "CONDITIONAL";
 type TPType = "LIMIT" | "MARKET";
@@ -160,6 +162,9 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
         // Focus on input WITHOUT browser auto-scroll
         buyPriceInputRef.current?.focus({ preventScroll: true });
         buyPriceInputRef.current?.select();
+
+        // Ensure chart focuses on the price levels of the trade being edited
+        chartRef.current?.focusOnPrices();
 
         // USER requested no auto-scroll when editing starts
       }, 400);
@@ -306,11 +311,14 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     [onSlPriceChange],
   );
 
-  const [trailingSl, setTrailingSl] = useState(false);
+  const [trailingSl, setTrailingSl] = useState(true);
 
   const [moveToBreakeven, setMoveToBreakeven] = useState(false);
   const [slTimeout, setSlTimeout] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showChart, setShowChart] = useState(true);
+  const [timeframe, setTimeframe] = useModuleTimeframe();
+  const chartRef = useRef<{ focusOnPrices: () => void } | null>(null);
 
   // Handle Asset Selection
   const handleAssetSelect = useCallback(
@@ -391,6 +399,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
 
   useEffect(() => {
     // When priceSync is active, not using existing assets, AND trailingBuy is OFF, always sync with market price
+    // DO NOT overwrite if we are currently editing a trade because we want to preserve the original entry price for modifications
     if (
       marketPrice !== null &&
       marketPrice > 0 &&
@@ -459,13 +468,13 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
       if (p.trailingBuyDev) setTrailingBuyDev(Number(p.trailingBuyDev) || 0.1);
 
       // TP
-      if (p.takeProfit) {
+      if (p.takeProfit || editingTrade.meta.activeTakeProfit) {
         setTpEnabled(true);
-        setTpPrice(p.takeProfit.price);
-        setTrailingTp(!!p.takeProfit.trailing);
-        setTpDeviation(p.takeProfit.deviation || -1.0);
-        setIsSplitTp(!!p.takeProfit.isSplit);
-        if (p.takeProfit.targets) {
+        setTpPrice(p.takeProfit?.price || editingTrade.meta.activeTakeProfit?.toString() || "0");
+        setTrailingTp(!!p.takeProfit?.trailing);
+        setTpDeviation(p.takeProfit?.deviation || -1.0);
+        setIsSplitTp(!!p.takeProfit?.isSplit);
+        if (p.takeProfit?.targets) {
           setTpTargets(
             p.takeProfit.targets.map(
               (t: { price: string; volume: string }, i: number) => ({
@@ -481,12 +490,12 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
       }
 
       // SL
-      if (p.stopLoss) {
+      if (p.stopLoss || editingTrade.meta.activeStopLoss) {
         setSlEnabled(true);
-        setSlPrice(p.stopLoss.price);
-        setTrailingSl(!!p.stopLoss.trailing);
+        setSlPrice(p.stopLoss?.price || editingTrade.meta.activeStopLoss?.toString() || "0");
+        setTrailingSl(!!p.stopLoss?.trailing);
 
-        setMoveToBreakeven(!!p.stopLoss.breakeven);
+        setMoveToBreakeven(!!p.stopLoss?.breakeven);
       } else {
         setSlEnabled(false);
       }
@@ -1024,12 +1033,30 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
   // Removed active simulation block that caused TP, SL, and Potential Entry lines to jitter/snap towards market price when trailing was active.
 
   return (
-    <div
-      id="trade-top-anchor"
-      ref={(el) => {
-        if (tradeAnchorRef) tradeAnchorRef.current = el;
-      }}
-    >
+    <div id="trade-top-anchor">
+      {/* Smart Chart Header - Independence (Out of the table prison) */}
+      {!compact && (
+        <div className="mb-2 px-1 relative z-[70] animate-in fade-in slide-in-from-top-2 duration-700">
+          <SmartChartHeader
+            compact={compact}
+            symbol={symbol}
+            currentPrice={marketPrice || selectedHolding?.price || 0}
+            assets={holdings}
+            onAssetChange={handleAssetSelect}
+            timeframe={timeframe}
+            setTimeframe={setTimeframe}
+            focusOnPrices={() => chartRef.current?.focusOnPrices()}
+            startScroll={() => {}}
+            stopScroll={() => {}}
+            assetScrollRef={{ current: null }}
+            isLoading={false}
+            historyLoading={false}
+            showChart={showChart}
+            onToggleChart={() => setShowChart(!showChart)}
+          />
+        </div>
+      )}
+
       <HorizonCard
         className={cn(
           "bg-[#020617]/40 backdrop-blur-xl border-slate-800/50 shadow-2xl overflow-hidden group/smart",
@@ -1042,7 +1069,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
           <div
             className={cn(
               "mb-1 transition-all duration-500 overflow-hidden",
-              compact ? "h-[280px] opacity-100" : "h-[630px] opacity-100",
+              !showChart ? "h-0 opacity-0 mb-0" : compact ? "h-[280px] opacity-100" : "h-[630px] opacity-100",
             )}
           >
             <PortfolioChart
@@ -1068,6 +1095,9 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
               potentialEntry={trailingEntryViz}
               isEditingExisting={!!editingTrade}
               isBuyEditable={!editingTrade || editingTrade.status === "PENDING"}
+              showChart={showChart}
+              setShowChart={setShowChart}
+              ref={chartRef}
             />
           </div>
         )}
@@ -2086,6 +2116,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                     setMoveToBreakeven={setMoveToBreakeven}
                     slTimeout={slTimeout}
                     setSlTimeout={setSlTimeout}
+                    timeframe={timeframe}
                   />
                 )}
               </div>

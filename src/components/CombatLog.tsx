@@ -16,6 +16,7 @@ import { extractBaseAsset } from "@/lib/symbol-utils";
 import { useTrade } from "@/context/TradeContext";
 import { useTimeframe } from "@/context/TimeframeContext";
 import { useHoldings } from "../hooks/usePortfolio";
+import { useBotConfig } from "../hooks/useBotConfig";
 import {
   useCombatLogs,
   LogEntry,
@@ -23,50 +24,6 @@ import {
   filterSignalsByHoldings,
 } from "../hooks/useCombatLogs";
 
-const DEFAULT_SYSTEM_LOGS: LogEntry[] = [
-  {
-    id: "def-1",
-    timestamp: Date.now() - 5000,
-    type: "SYSTEM",
-    message: "Veri akışı optimize edildi, ağ senkronizasyonu tamamlandı.",
-  },
-  {
-    id: "def-2",
-    timestamp: Date.now() - 15000,
-    type: "SYSTEM",
-    message: "Yedek sunucular bekleme konumuna alındı.",
-  },
-  {
-    id: "def-3",
-    timestamp: Date.now() - 25000,
-    type: "SYSTEM",
-    message: "API hız sınırları kontrol edildi: Optimal.",
-  },
-  {
-    id: "def-4",
-    timestamp: Date.now() - 35000,
-    type: "SYSTEM",
-    message: "Güvenlik duvarı güncellendi, yeni protokoller devrede.",
-  },
-  {
-    id: "def-5",
-    timestamp: Date.now() - 45000,
-    type: "SYSTEM",
-    message: "Piyasa dalgalanma analizi arka planda algılandı.",
-  },
-  {
-    id: "def-6",
-    timestamp: Date.now() - 55000,
-    type: "SYSTEM",
-    message: "Veritabanı bağlantısı kuruldu, gecikme < 5ms.",
-  },
-  {
-    id: "def-7",
-    timestamp: Date.now() - 65000,
-    type: "SYSTEM",
-    message: "Matrix Engine v5.3.4 ALPHA sistem başlangıcı yapıldı.",
-  },
-];
 
 export const CombatLog = () => {
   const { timeframe } = useTimeframe();
@@ -83,8 +40,7 @@ export const CombatLog = () => {
   const systemScrollRef = useRef<HTMLDivElement>(null);
   const trade = useTrade();
   const { data: holdings, isLoading: isLoadingHoldings } = useHoldings();
-  // Filter mode: 'ALL' or 'ASSETS' (only signals related to held assets)
-  const [signalFilter, setSignalFilter] = useState<"ALL" | "ASSETS">("ASSETS");
+  const { config } = useBotConfig();
 
   const tradeLogs = useMemo(
     () => logs.filter((l: LogEntry) => l.type === "EXECUTION"),
@@ -92,14 +48,32 @@ export const CombatLog = () => {
   );
 
   const filteredTradeLogs = useMemo(() => {
-    if (signalFilter === "ALL") return tradeLogs;
+    // Determine filter mode based on bot config (pilot_only_holdings)
+    // If setting is ON, we only show held assets. Otherwise, show ALL.
+    const effectiveFilter = config?.pilot_only_holdings ? "ASSETS" : "ALL";
+    
+    if (effectiveFilter === "ALL") return tradeLogs;
     return filterSignalsByHoldings(tradeLogs, holdings ?? undefined);
-  }, [tradeLogs, signalFilter, holdings]);
+  }, [tradeLogs, config?.pilot_only_holdings, holdings]);
 
-  const systemLogs = useMemo(
-    () => deduplicateSystemLogs(logs.filter(l => l.type !== "EXECUTION"), DEFAULT_SYSTEM_LOGS),
-    [logs],
-  );
+  const systemLogs = useMemo(() => {
+    const sortedLogs = deduplicateSystemLogs(logs.filter((l) => l.type !== "EXECUTION"));
+    
+    // Group identical consecutive logs
+    const groups: (LogEntry & { count?: number })[] = [];
+    sortedLogs.forEach((log) => {
+      const lastGroup = groups[groups.length - 1];
+      if (lastGroup && lastGroup.message === log.message && lastGroup.sentiment === log.sentiment) {
+        lastGroup.count = (lastGroup.count || 1) + 1;
+        // Keep the latest timestamp for the group
+        lastGroup.timestamp = Math.max(lastGroup.timestamp, log.timestamp);
+      } else {
+        groups.push({ ...log, count: 1 });
+      }
+    });
+
+    return groups;
+  }, [logs]);
 
   const tradeLogsLength = tradeLogs.length;
   const systemLogsLength = systemLogs.length;
@@ -137,25 +111,28 @@ export const CombatLog = () => {
     switch (sentiment) {
       case "POSITIVE":
         return {
-          text: "text-emerald-400",
+          text: "text-emerald-400 font-bold",
           bg: "bg-emerald-500/10",
-          border: "border-emerald-500/20",
-          icon: "text-emerald-500 glow-text-emerald",
+          border: "border-emerald-500/30",
+          icon: "text-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)]",
+          glow: "shadow-[inset_0_0_12px_rgba(16,185,129,0.05)]",
         };
       case "NEGATIVE":
         return {
-          text: "text-rose-400",
+          text: "text-rose-400 font-bold",
           bg: "bg-rose-500/10",
-          border: "border-rose-500/20",
-          icon: "text-rose-500",
+          border: "border-rose-500/30",
+          icon: "text-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.3)]",
+          glow: "shadow-[inset_0_0_12px_rgba(244,63,94,0.05)]",
         };
       case "NEUTRAL":
       default:
         return {
-          text: "text-cyan-400",
-          bg: "bg-transparent",
-          border: "border-transparent",
-          icon: "text-cyan-500",
+          text: "text-slate-300",
+          bg: "bg-slate-800/20",
+          border: "border-slate-700/30",
+          icon: "text-slate-500",
+          glow: "",
         };
     }
   };
@@ -225,39 +202,13 @@ export const CombatLog = () => {
                   })}
                 </span>
               )}
-              {/* Filter Toggle */}
-              <span className="text-[8px] text-slate-700 font-black ml-1">
-                link:
-              </span>
-              <button
-                onClick={() => setSignalFilter("ASSETS")}
-                className={cn(
-                  "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider transition-all border",
-                  signalFilter === "ASSETS"
-                    ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-400"
-                    : "bg-slate-900 border-slate-700 text-slate-500 hover:border-slate-600",
-                )}
-              >
-                Assets
-              </button>
-              <button
-                onClick={() => setSignalFilter("ALL")}
-                className={cn(
-                  "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider transition-all border",
-                  signalFilter === "ALL"
-                    ? "bg-slate-700 border-slate-500 text-slate-300"
-                    : "bg-slate-900 border-slate-700 text-slate-500 hover:border-slate-600",
-                )}
-              >
-                All
-              </button>
             </div>
           </div>
           <div
             ref={tradeScrollRef}
             className="flex-1 overflow-y-auto p-3 space-y-2.5 font-mono text-[11px] cyber-scrollbar"
           >
-            {isLoadingHoldings && signalFilter === "ASSETS" ? (
+            {isLoadingHoldings && config?.pilot_only_holdings ? (
               <div className="flex flex-col items-center justify-center h-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2">
                 <Activity size={12} className="opacity-20 animate-spin" />
                 <div>VARLIKLAR SENKRONİZE EDİLİYOR...</div>
@@ -276,7 +227,7 @@ export const CombatLog = () => {
                 <div>
                   {scanStatus === "scanning"
                     ? "SİNYALLER TARANIYOR..."
-                    : signalFilter === "ASSETS"
+                    : config?.pilot_only_holdings
                       ? "VARLIKLARINIZLA EŞLEŞMEDİ"
                       : "SİNYAL HATTI ANALİZ EDİLİYOR..."}
                 </div>
@@ -343,16 +294,18 @@ export const CombatLog = () => {
             ) : (
               systemLogs.map((log) => {
                 const style = getSystemLogStyle(log.sentiment);
+                const isGroup = (log as any).count > 1;
                 return (
                   <div
                     key={log.id}
                     className={cn(
-                      "flex gap-2 group p-1.5 rounded transition-colors border",
+                      "flex gap-2 group p-2 rounded transition-all border animate-in fade-in slide-in-from-right-1 duration-200",
                       style.bg,
                       style.border,
+                      style.glow
                     )}
                   >
-                    <span className="text-slate-600 shrink-0 select-none opacity-70">
+                    <span className="text-slate-600 shrink-0 select-none opacity-60 text-[9px] min-w-[55px]">
                       [
                       {new Date(log.timestamp).toLocaleTimeString([], {
                         hour12: false,
@@ -364,7 +317,7 @@ export const CombatLog = () => {
                     </span>
                     <span
                       className={cn(
-                        "shrink-0 select-none font-bold",
+                        "shrink-0 select-none font-bold opacity-80",
                         style.icon,
                       )}
                     >
@@ -372,11 +325,16 @@ export const CombatLog = () => {
                     </span>
                     <span
                       className={cn(
-                        "flex-1 break-word drop-shadow-sm",
+                        "flex-1 break-word",
                         style.text,
                       )}
                     >
                       {log.message}
+                      {isGroup && (
+                        <span className="ml-2 px-1 rounded bg-white/10 text-[9px] font-black tracking-tighter align-middle">
+                          x{(log as any).count}
+                        </span>
+                      )}
                     </span>
                   </div>
                 );

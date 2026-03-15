@@ -79,7 +79,7 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
           ? unitsAnchorRef.current
           : tradeAnchorRef.current;
       if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
       } else {
         // Ref not attached yet — set flag for panel to consume on mount
         setPendingScroll(targetSelection === "UNITS" ? "UNITS" : true);
@@ -96,18 +96,22 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
       setTimeout(() => {
         const el =
           target === "UNITS" ? unitsAnchorRef.current : tradeAnchorRef.current;
-        el?.scrollIntoView({ behavior: "smooth", block: "center" });
+        el?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 100);
     }
   }, [pendingScroll]);
 
-  // Atomic reset of all trade parameters when the symbol changes
-  // This prevents stale BTC prices (e.g. 60k) from appearing on an ETH chart (2k)
+  // Atomic reset of all trade parameters when the symbol changes or edit mode closes
   useEffect(() => {
     if (!editingTrade) {
       setBuyPrice("0");
       setTpPrice("0");
       setSlPrice("0");
+      setTpEnabled(false);
+      setSlEnabled(false);
+      setAmount("0");
+      setAllocationPercent(0);
+      setMode("TRADE");
     }
   }, [symbol, editingTrade]);
 

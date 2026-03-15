@@ -554,18 +554,29 @@ export const SmartChart = forwardRef<{ focusOnPrices: () => void }, SmartChartPr
 
   const rafIdRef = useRef<number | null>(null);
   const triggerCoordSync = useCallback(() => {
-    if (!isMountedRef.current || rafIdRef.current) return;
-    rafIdRef.current = requestAnimationFrame(() => {
-      if (!isMountedRef.current) {
+    if (!isMountedRef.current || !chartRef.current || !isChartReady) {
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = null;
-        return;
       }
+      return;
+    }
+    
+    if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+    
+    rafIdRef.current = requestAnimationFrame(() => {
       rafIdRef.current = null;
-      refreshChartOverlays();
-      // Also update localPrices state for the badges to follow snappy
-      setLocalPrices({ ...localPricesRef.current });
+      if (!isMountedRef.current || !chartRef.current || !isChartReady) return;
+      
+      try {
+        refreshChartOverlays();
+        // Also update localPrices state for the badges to follow snappy
+        setLocalPrices({ ...localPricesRef.current });
+      } catch (e) {
+        console.warn("[SmartChart] rAF Sync Failed (disposed?):", e);
+      }
     });
-  }, [refreshChartOverlays]);
+  }, [refreshChartOverlays, isChartReady]);
 
   // Forces the label coordinates to update whenever the price values change
   useEffect(() => {
@@ -636,16 +647,22 @@ export const SmartChart = forwardRef<{ focusOnPrices: () => void }, SmartChartPr
     const handleResize = () => {
       if (!isMountedRef.current || !chartRef.current || !chartContainerRef.current) return;
       
-      const width = chartContainerRef.current.clientWidth;
-      const height = chartContainerRef.current.clientHeight;
-      if (width > 0 && height > 0) {
-        chartRef.current.applyOptions({ width, height: height });
-        chartRef.current.timeScale().fitContent();
+      try {
+        const width = chartContainerRef.current.clientWidth;
+        const height = chartContainerRef.current.clientHeight;
+        if (width > 0 && height > 0 && chartRef.current) {
+          chartRef.current.applyOptions({ width, height });
+          chartRef.current.timeScale().fitContent();
+        }
+      } catch (e) {
+        console.warn("[SmartChart] Resize Error (likely disposed):", e);
       }
     };
 
     const robserver = new ResizeObserver(() => {
-      handleResize();
+      if (isMountedRef.current && chartRef.current) {
+        handleResize();
+      }
     });
 
     if (chartContainerRef.current) {
@@ -657,23 +674,39 @@ export const SmartChart = forwardRef<{ focusOnPrices: () => void }, SmartChartPr
     resizeTimeoutRef.current = setTimeout(handleResize, 100);
 
     return () => {
+      isMountedRef.current = false;
       window.removeEventListener("resize", handleResize);
       robserver.disconnect();
       
       if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
       if (focusTimeoutRef.current) clearTimeout(focusTimeoutRef.current);
-      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
 
       if (chartRef.current) {
-        chartRef.current.remove();
-        chartRef.current = null;
-        seriesRef.current = null;
-        ghostSeriesRef.current = null;
-        volumeSeriesRef.current = null;
-        setIsChartReady(false);
+        try {
+          // Exhaustive internal cleanup
+          if (tpFillRef.current) { chartRef.current.removeSeries(tpFillRef.current); tpFillRef.current = null; }
+          if (slFillRef.current) { chartRef.current.removeSeries(slFillRef.current); slFillRef.current = null; }
+          if (seriesRef.current) { chartRef.current.removeSeries(seriesRef.current); seriesRef.current = null; }
+          if (ghostSeriesRef.current) { chartRef.current.removeSeries(ghostSeriesRef.current); ghostSeriesRef.current = null; }
+          if (volumeSeriesRef.current) { chartRef.current.removeSeries(volumeSeriesRef.current); volumeSeriesRef.current = null; }
+          
+          chartRef.current.remove();
+        } catch (e) {
+          console.warn("[SmartChart] Cleanup Error:", e);
+        } finally {
+          chartRef.current = null;
+          seriesRef.current = null;
+          ghostSeriesRef.current = null;
+          volumeSeriesRef.current = null;
+          setIsChartReady(false);
+        }
       }
     };
-  }, [compact, showChart]);
+  }, [compact, showChart, timeframe]);
 
   // Real unmount cleanup
   useEffect(() => {
@@ -972,81 +1005,87 @@ export const SmartChart = forwardRef<{ focusOnPrices: () => void }, SmartChartPr
     const formattedSym = symbol.replace("/", "");
     core.market.setSymbols([formattedSym]);
     const unsubscribeMarket = core.market.subscribe((updates) => {
+      if (!isMounted || !isMountedRef.current || !chartRef.current || !seriesRef.current) return;
+      
       const update = updates[formattedSym];
-      if (update && seriesRef.current && isMounted) {
-        const price = Number(update.price);
-        if (price > 0) {
-          const prevPrice = lastCloseRef.current;
-          setLastClose(price);
-          lastCloseRef.current = price;
-          if (onMarketPriceUpdate) onMarketPriceUpdate(price);
-          
-          // Only trigger coordinate sync if price moved >0.01% to reduce layout thrashing
-          if (prevPrice === 0 || Math.abs(price - prevPrice) / price > 0.0001) {
-            triggerCoordSync();
-          }
-        }
-
-        // Update candlestick logic...
-        const candlestickSeconds = TIMEFRAME_SECONDS[timeframe] || 3600;
-        const nowTotalSeconds = Math.floor(Date.now() / 1000);
-        const lastKnownTime =
-          allKlinesRef.current.length > 0
-            ? Number(allKlinesRef.current[allKlinesRef.current.length - 1].time)
-            : 0;
-
-        let currentBarTime: number;
-        if (lastKnownTime > 0) {
-          const offset = lastKnownTime % candlestickSeconds;
-          const ideal =
-            Math.floor((nowTotalSeconds - offset) / candlestickSeconds) *
-              candlestickSeconds +
-            offset;
-          currentBarTime = Math.max(ideal, lastKnownTime);
-        } else {
-          currentBarTime =
-            Math.floor(nowTotalSeconds / candlestickSeconds) *
-            candlestickSeconds;
-        }
-
-        const lastCandle = lastCandleRef.current;
-
-        if (isMounted && seriesRef.current) {
-          if (lastCandle && Number(lastCandle.time) === currentBarTime) {
-            const updatedCandle = {
-              ...lastCandle,
-              close: price,
-              high: Math.max(lastCandle.high, price),
-              low: Math.min(lastCandle.low, price),
-            };
-            lastCandleRef.current = updatedCandle;
-            if (
-              allKlinesRef.current.length > 0 &&
-              Number(
-                allKlinesRef.current[allKlinesRef.current.length - 1].time,
-              ) === currentBarTime
-            ) {
-              allKlinesRef.current[allKlinesRef.current.length - 1] =
-                updatedCandle;
+      if (update) {
+        try {
+          const price = Number(update.price);
+          if (price > 0) {
+            const prevPrice = lastCloseRef.current;
+            setLastClose(price);
+            lastCloseRef.current = price;
+            if (onMarketPriceUpdate) onMarketPriceUpdate(price);
+            
+            // Only trigger coordinate sync if price moved >0.01% to reduce layout thrashing
+            if (prevPrice === 0 || Math.abs(price - prevPrice) / price > 0.0001) {
+              triggerCoordSync();
             }
-          } else if (!lastCandle || currentBarTime > Number(lastCandle.time)) {
-            const newBar = {
-              time: currentBarTime as Time,
-              open: price,
-              high: price,
-              low: price,
-              close: price,
-            };
-            lastCandleRef.current = newBar;
-            allKlinesRef.current = [
-              ...allKlinesRef.current.filter(
-                (k) => Number(k.time) < currentBarTime,
-              ),
-              newBar,
-            ];
           }
-          // HA Refresh
-          seriesRef.current.setData(calculateHeikinAshi(allKlinesRef.current));
+
+          // Update candlestick logic...
+          const candlestickSeconds = TIMEFRAME_SECONDS[timeframe] || 3600;
+          const nowTotalSeconds = Math.floor(Date.now() / 1000);
+          const lastKnownTime =
+            allKlinesRef.current.length > 0
+              ? Number(allKlinesRef.current[allKlinesRef.current.length - 1].time)
+              : 0;
+
+          let currentBarTime: number;
+          if (lastKnownTime > 0) {
+            const offset = lastKnownTime % candlestickSeconds;
+            const ideal =
+              Math.floor((nowTotalSeconds - offset) / candlestickSeconds) *
+                candlestickSeconds +
+              offset;
+            currentBarTime = Math.max(ideal, lastKnownTime);
+          } else {
+            currentBarTime =
+              Math.floor(nowTotalSeconds / candlestickSeconds) *
+              candlestickSeconds;
+          }
+
+          const lastCandle = lastCandleRef.current;
+
+          if (seriesRef.current) {
+            if (lastCandle && Number(lastCandle.time) === currentBarTime) {
+              const updatedCandle = {
+                ...lastCandle,
+                close: price,
+                high: Math.max(lastCandle.high, price),
+                low: Math.min(lastCandle.low, price),
+              };
+              lastCandleRef.current = updatedCandle;
+              if (
+                allKlinesRef.current.length > 0 &&
+                Number(
+                  allKlinesRef.current[allKlinesRef.current.length - 1].time,
+                ) === currentBarTime
+              ) {
+                allKlinesRef.current[allKlinesRef.current.length - 1] =
+                  updatedCandle;
+              }
+            } else if (!lastCandle || currentBarTime > Number(lastCandle.time)) {
+              const newBar = {
+                time: currentBarTime as Time,
+                open: price,
+                high: price,
+                low: price,
+                close: price,
+              };
+              lastCandleRef.current = newBar;
+              allKlinesRef.current = [
+                ...allKlinesRef.current.filter(
+                  (k) => Number(k.time) < currentBarTime,
+                ),
+                newBar,
+              ];
+            }
+            // HA Refresh
+            seriesRef.current.setData(calculateHeikinAshi(allKlinesRef.current));
+          }
+        } catch (e) {
+          console.warn("[SmartChart] Market Pulse Error (likely disposed):", e);
         }
       }
     });

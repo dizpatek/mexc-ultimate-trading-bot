@@ -149,11 +149,28 @@ export interface SMCResult {
   choch: boolean;
   orderBlocks: OrderBlock[];
   fvgs: FairValueGap[];
+  // === MATRIX HORIZON FAZ 2: Ek SMC Alanlar ===
+  bosStrength: "STRONG" | "WEAK" | "NONE";    // BOS guc seviyesi
+  chochConfirmed: boolean;                      // CHoCH volum ile onaylandi mi
+  sweepUp: boolean;                             // Yukari stop hunt tespit
+  sweepDown: boolean;                           // Asagi stop hunt tespit
+  structureScore: number;                       // 0-100 yapı skoru
 }
 
 export interface LiquidityResult {
   eqHighs: boolean;
   eqLows: boolean;
+  // === MATRIX HORIZON FAZ 2: SMC Genisletilmis Likidite ===
+  eqlCount: number;          // Esit tepe (Equal High) sayisi
+  eqhCount: number;          // Esit dip (Equal Low) sayisi
+  inPremium: boolean;        // Fiyat premium bolgede mi (>%61.8 EQ)
+  inDiscount: boolean;       // Fiyat discount bolgede mi (<%.38.2 EQ)
+  equilibrium: number;       // EQ orta nokta
+  liquidityHuntUp: boolean;  // Yukari likidite avlanmasi ihtimali
+  liquidityHuntDown: boolean; // Asagi likidite avlanmasi ihtimali
+  nearestOBHigh: number;     // En yakin Bullish OB tepesi
+  nearestOBLow: number;      // En yakin Bullish OB dibi
+  smcBias: "BULLISH" | "BEARISH" | "NEUTRAL"; // SMC genel yanlilik
 }
 
 // Legacy V3 compat
@@ -227,6 +244,12 @@ export interface MatrixV5Result {
   inDiscount: boolean;
   swingTrend: string; // duplicate for ease
   targets: { t1: number; t2: number; sl: number };
+
+  // === MATRIX HORIZON FAZ 3: Projeksiyon ve AI NLP ===
+  aiSummary: string;           // Turkce AI karar ozeti
+  projectionBias: "BULLISH" | "BEARISH" | "NEUTRAL"; // Projeksiyon yonu
+  projectionConfidence: number;  // 0-100 projeksiyon guven skoru
+  kellyFraction: number;         // Kelly Kriteri pozisyon orani (0-1)
 
   // V5.3/V5.4 New Fields
   f4Power: number; // ATR Normalized F4 Momentum [-100, 100]
@@ -1023,7 +1046,12 @@ export class MatrixV5Engine {
     trendUp: boolean,
     liquidityBonus: number,
     dynamicWeights: any,
-    saeThreshold: number
+    saeThreshold: number,
+    // === MATRIX HORIZON FAZ 1: Makro & Sentiment Carpanlari ===
+    sentimentScore: number = 0,
+    btcDominance: number = 50,
+    usdtDominance: number = 5,
+    fundingRate: number = 0
   ): ConfluenceBreakdown {
     // Tech Score
     const techF4Dir = slope > 0 ? 10 : 0; // Simplified for extraction
@@ -1210,97 +1238,229 @@ export class MatrixV5Engine {
     intervalSec: number = 3600
   ): SMCResult {
     const len = closes.length;
-    if (len < 50)
-      return {
-        swingTrend: "NEUTRAL",
-        internalTrend: "NEUTRAL",
-        bos: false,
-        choch: false,
-        orderBlocks: [],
-        fvgs: [],
-      };
+    const empty: SMCResult = {
+      swingTrend: "NEUTRAL", internalTrend: "NEUTRAL",
+      bos: false, choch: false, orderBlocks: [], fvgs: [],
+      bosStrength: "NONE", chochConfirmed: false,
+      sweepUp: false, sweepDown: false, structureScore: 0,
+    };
+    if (len < 50) return empty;
 
-    const swingLen = Math.max(5, Math.round(20 * tfAdaptFactor));
-    const currentHigh = highs[len - 1];
-    const currentLow = lows[len - 1];
-    const currentClose = closes[len - 1];
+    // === MATRIX HORIZON FAZ 2: Gercek SMC Algoritmasi ===
 
-    // Basic Pivot High/Low for structure
-    const lastHigh = Math.max(...highs.slice(len - swingLen - 1, len - 1));
-    const lastLow = Math.min(...lows.slice(len - swingLen - 1, len - 1));
+    // --- 1. Swing High/Low Tespiti (Zigzag benzeri) ---
+    const swingLen = Math.max(3, Math.round(10 * tfAdaptFactor));
+    const swingHighs: { idx: number; price: number }[] = [];
+    const swingLows:  { idx: number; price: number }[] = [];
 
-    // EMAs for Trend Persistence (V5.4 Enhancement)
-    const ema8 = this.calculateEMA(closes, this.adaptPeriod(8, tfAdaptFactor));
-    const ema21 = this.calculateEMA(closes, this.adaptPeriod(21, tfAdaptFactor));
-    const ema55 = this.calculateEMA(closes, this.adaptPeriod(55, tfAdaptFactor));
-    const emaAlignmentBull = ema8 > ema21 && ema21 > ema55;
-    const emaAlignmentBear = ema8 < ema21 && ema21 < ema55;
+    const lookback = Math.min(len - 1, 100);
+    const startIdx = len - lookback;
 
-    let bos = false;
-    let choch = false;
-    let swingTrend: "BULLISH" | "BEARISH" | "NEUTRAL" = "NEUTRAL";
-
-    if (currentClose > lastHigh) {
-      if (emaAlignmentBull) bos = true;
-      else choch = true;
-      swingTrend = "BULLISH";
-    } else if (currentClose < lastLow) {
-      if (emaAlignmentBear) bos = true;
-      else choch = true;
-      swingTrend = "BEARISH";
-    } else {
-      // P4.1: Persist trend based on EMA alignment if no fresh breakout
-      if (emaAlignmentBull) swingTrend = "BULLISH";
-      else if (emaAlignmentBear) swingTrend = "BEARISH";
+    for (let i = startIdx + swingLen; i < len - swingLen; i++) {
+      let isHigh = true, isLow = true;
+      for (let j = i - swingLen; j <= i + swingLen; j++) {
+        if (j === i) continue;
+        if (highs[j] >= highs[i]) isHigh = false;
+        if (lows[j]  <= lows[i])  isLow  = false;
+      }
+      if (isHigh) swingHighs.push({ idx: i, price: highs[i] });
+      if (isLow)  swingLows.push({ idx: i, price: lows[i] });
     }
 
-    // FVG Detection (3 bar pattern)
+    const lastSH = swingHighs[swingHighs.length - 1];
+    const prevSH = swingHighs[swingHighs.length - 2];
+    const lastSL = swingLows[swingLows.length - 1];
+    const prevSL = swingLows[swingLows.length - 2];
+
+    const currentClose = closes[len - 1];
+    const currentHigh  = highs[len - 1];
+    const currentLow   = lows[len - 1];
+
+    // --- 2. BOS / CHoCH Tespiti ---
+    // BOS: Fiyat, onceki Swing High/Low'u kiriyor VE EMA hizalama mevcut
+    // CHoCH: Fiyat, onceki Swing High/Low'u kiriyor ANCAK EMA'ya karsi
+    const ema8  = this.calculateEMA(closes, this.adaptPeriod(8, tfAdaptFactor));
+    const ema21 = this.calculateEMA(closes, this.adaptPeriod(21, tfAdaptFactor));
+    const ema55 = this.calculateEMA(closes, this.adaptPeriod(55, tfAdaptFactor));
+    const emaAlignBull = ema8 > ema21 && ema21 > ema55;
+    const emaAlignBear = ema8 < ema21 && ema21 < ema55;
+
+    let bos = false, choch = false;
+    let bosStrength: "STRONG" | "WEAK" | "NONE" = "NONE";
+    let swingTrend: "BULLISH" | "BEARISH" | "NEUTRAL" = "NEUTRAL";
+
+    if (lastSH && currentClose > lastSH.price) {
+      swingTrend = "BULLISH";
+      if (emaAlignBull) {
+        bos = true;
+        // BOS guc: onceki iki swing high da kirildiysa STRONG
+        bosStrength = (prevSH && currentClose > prevSH.price) ? "STRONG" : "WEAK";
+      } else {
+        choch = true; // Karsi trend kirilimi = CHoCH
+      }
+    } else if (lastSL && currentClose < lastSL.price) {
+      swingTrend = "BEARISH";
+      if (emaAlignBear) {
+        bos = true;
+        bosStrength = (prevSL && currentClose < prevSL.price) ? "STRONG" : "WEAK";
+      } else {
+        choch = true;
+      }
+    } else {
+      if (emaAlignBull)      swingTrend = "BULLISH";
+      else if (emaAlignBear) swingTrend = "BEARISH";
+    }
+
+    // --- 3. Internal Trend (Kisa Vadeli Yapi) ---
+    const shortSwingLen = Math.max(2, Math.round(5 * tfAdaptFactor));
+    const recentHigh = Math.max(...highs.slice(len - shortSwingLen - 1, len - 1));
+    const recentLow  = Math.min(...lows.slice(len - shortSwingLen - 1, len - 1));
+    let internalTrend: "BULLISH" | "BEARISH" | "NEUTRAL" = "NEUTRAL";
+    if (currentClose > recentHigh)      internalTrend = "BULLISH";
+    else if (currentClose < recentLow)  internalTrend = "BEARISH";
+
+    // --- 4. Stop Hunt / Sweep Tespiti ---
+    // Sweep: Mum önce Swing H/L'yi geçiyor ama inside kapatıyor
+    const sweepUp   = lastSH ? (currentHigh > lastSH.price && currentClose < lastSH.price) : false;
+    const sweepDown = lastSL ? (currentLow  < lastSL.price && currentClose > lastSL.price) : false;
+
+    // --- 5. Order Block Tespiti (Gelismis: Son imbalance oncesi mum) ---
+    const orderBlocks: OrderBlock[] = [];
+    const obLookback = Math.min(30, len - 3);
+    for (let i = len - obLookback; i < len - 2; i++) {
+      if (i < 1) continue;
+      const c0 = closes[i - 1], c1 = closes[i];
+      const bodySize = Math.abs(c1 - c0);
+      const rangeSize = highs[i] - lows[i];
+      if (rangeSize === 0) continue;
+      // Guclu mum (vucudu>=%60 range) + ardindan zit yon hareketi
+      const isStrong = bodySize / rangeSize >= 0.6;
+      if (!isStrong) continue;
+
+      const isBullOB  = c1 > c0 && highs[i + 1] < highs[i]; // Yukari mum + sonraki daha dusuk
+      const isBearOB  = c1 < c0 && lows[i + 1]  > lows[i];  // Asagi mum + sonraki daha yuksek
+
+      if (isBullOB) orderBlocks.push({ high: highs[i], low: lows[i], time: Date.now(), index: i, type: "BULLISH" });
+      if (isBearOB) orderBlocks.push({ high: highs[i], low: lows[i], time: Date.now(), index: i, type: "BEARISH" });
+    }
+
+    // --- 6. FVG Tespiti (3 mum bosluk) ---
     const fvgs: FairValueGap[] = [];
-    for (let i = len - 10; i < len - 1; i++) {
-      if (highs[i] > lows[i - 2] && lows[i] < highs[i - 2]) continue; // Not a gap
-      if (lows[i] > highs[i - 2]) {
-        fvgs.push({ top: lows[i], bottom: highs[i - 2], type: "BULLISH" });
-      } else if (highs[i] < lows[i - 2]) {
-        fvgs.push({ top: lows[i - 2], bottom: highs[i], type: "BEARISH" });
+    const fvgLookback = Math.min(20, len - 3);
+    for (let i = len - fvgLookback; i < len - 1; i++) {
+      if (i < 2) continue;
+      const gap1 = highs[i - 2]; // 1. mum high
+      const gap2 = lows[i];      // 3. mum low
+      const gap3 = lows[i - 2];  // 1. mum low
+      const gap4 = highs[i];     // 3. mum high
+      if (gap2 > gap1) {  // Bullish FVG: [i-2].high < [i].low
+        fvgs.push({ top: gap2, bottom: gap1, type: "BULLISH" });
+      } else if (gap4 < gap3) {  // Bearish FVG: [i].high < [i-2].low
+        fvgs.push({ top: gap3, bottom: gap4, type: "BEARISH" });
       }
     }
 
-    // Order Block Detection (Simplified)
-    const orderBlocks: OrderBlock[] = [];
-    if (bos || swingTrend !== "NEUTRAL") {
-      orderBlocks.push({
-        high: currentHigh,
-        low: currentLow,
-        time: Date.now(), // Fixed to original Date.now() to preserve historical behavior
-        index: len - 1,
-        type: swingTrend === "BULLISH" ? "BULLISH" : "BEARISH",
-      });
-    }
+    // --- 7. CHoCH Hacim Dogrulama ---
+    // Hacim verisi olmadigi icin yapisal dogrulama kullan:
+    // CHoCH, BOS'un karsisi + iki ardisik mum ayni yone dogru kapatiliyorsa "confirmed"
+    const chochConfirmed = choch && closes[len - 1] > closes[len - 2]
+      ? swingTrend === "BULLISH"
+      : choch && closes[len - 1] < closes[len - 2]
+        ? swingTrend === "BEARISH"
+        : false;
+
+    // --- 8. Yapisal Skor (0-100) ---
+    let structureScore = 0;
+    if (bos)            structureScore += bosStrength === "STRONG" ? 40 : 25;
+    if (chochConfirmed) structureScore += 20;
+    if (sweepUp || sweepDown) structureScore += 15;
+    if (swingTrend === internalTrend && swingTrend !== "NEUTRAL") structureScore += 25;
+    structureScore = Math.min(100, structureScore);
 
     return {
       swingTrend,
-      internalTrend: swingTrend,
+      internalTrend,
       bos,
       choch,
-      orderBlocks: orderBlocks.slice(-5),
-      fvgs: fvgs.slice(-5),
+      orderBlocks: orderBlocks.slice(-8),
+      fvgs: fvgs.slice(-8),
+      bosStrength,
+      chochConfirmed,
+      sweepUp,
+      sweepDown,
+      structureScore,
     };
   }
 
   private calculateLiquidity(highs: number[], lows: number[]): LiquidityResult {
     const len = highs.length;
-    if (len < 20) return { eqHighs: false, eqLows: false };
+    const empty: LiquidityResult = {
+      eqHighs: false, eqLows: false,
+      eqlCount: 0, eqhCount: 0,
+      inPremium: false, inDiscount: false, equilibrium: 0,
+      liquidityHuntUp: false, liquidityHuntDown: false,
+      nearestOBHigh: 0, nearestOBLow: 0,
+      smcBias: "NEUTRAL",
+    };
+    if (len < 20) return empty;
 
-    const threshold = 0.001; // 0.1% for equality
-    const h1 = highs[len - 1],
-      h2 = highs[len - 2];
-    const l1 = lows[len - 1],
-      l2 = lows[len - 2];
+    // === MATRIX HORIZON FAZ 2: Gercek Likidite Analizi ===
 
-    const eqHighs = Math.abs(h1 - h2) / ((h1 + h2) / 2) < threshold;
-    const eqLows = Math.abs(l1 - l2) / ((l1 + l2) / 2) < threshold;
+    // --- 1. EQL (Equal Lows) / EQH (Equal Highs) Tespiti ---
+    const threshold = 0.0015; // %0.15 esitlik esigi
+    const lookback = Math.min(50, len - 1);
+    let eqlCount = 0; // Equal Lows sayisi (likidite havuzu asagida)
+    let eqhCount = 0; // Equal Highs sayisi (likidite havuzu yukarda)
 
-    return { eqHighs, eqLows };
+    for (let i = len - lookback; i < len - 1; i++) {
+      const h1 = highs[i], h2 = highs[i + 1];
+      const l1 = lows[i],  l2 = lows[i + 1];
+      if (h1 > 0 && Math.abs(h1 - h2) / ((h1 + h2) / 2) < threshold) eqhCount++;
+      if (l1 > 0 && Math.abs(l1 - l2) / ((l1 + l2) / 2) < threshold) eqlCount++;
+    }
+
+    const eqHighs = eqhCount >= 2;
+    const eqLows  = eqlCount >= 2;
+
+    // --- 2. Premium / Discount / Equilibrium ---
+    // Bakis penceresi: son [lookback] mumlarin yuksek ve dusugu
+    const windowHighs = highs.slice(len - lookback);
+    const windowLows  = lows.slice(len - lookback);
+    const rangeHigh = Math.max(...windowHighs);
+    const rangeLow  = Math.min(...windowLows);
+    const equilibrium = (rangeHigh + rangeLow) / 2;
+    const currentPrice = lows[len - 1]; // Kapanisin alt kismi
+    const rangeSize = rangeHigh - rangeLow;
+
+    // Fibonacci 61.8% / 38.2% seviyeleri
+    const fib618 = rangeLow + rangeSize * 0.618;
+    const fib382 = rangeLow + rangeSize * 0.382;
+
+    const inPremium  = currentPrice >= fib618;
+    const inDiscount = currentPrice <= fib382;
+
+    // --- 3. Likidite Avlanma Tehlikesi ---
+    // EQH mevcut + fiyat yaklasiyorsa: yukari stop hunt riski
+    // EQL mevcut + fiyat yaklasiyorsa: asagi stop hunt riski
+    const nearEQH = eqHighs && Math.abs(highs[len - 1] - rangeHigh) / Math.max(rangeHigh, 1) < 0.005;
+    const nearEQL = eqLows  && Math.abs(lows[len - 1]  - rangeLow)  / Math.max(rangeLow,  1) < 0.005;
+
+    // --- 4. SMC Genel Yanlilik ---
+    let smcBias: "BULLISH" | "BEARISH" | "NEUTRAL" = "NEUTRAL";
+    if      (inDiscount && eqLows)   smcBias = "BULLISH"; // Discount + EQL = potansiyel alim bolgesi
+    else if (inPremium  && eqHighs)  smcBias = "BEARISH"; // Premium + EQH = potansiyel satim bolgesi
+    else if (inDiscount)             smcBias = "BULLISH";
+    else if (inPremium)              smcBias = "BEARISH";
+
+    return {
+      eqHighs, eqLows, eqlCount, eqhCount,
+      inPremium, inDiscount, equilibrium,
+      liquidityHuntUp:   nearEQH,
+      liquidityHuntDown: nearEQL,
+      nearestOBHigh: rangeHigh,
+      nearestOBLow:  rangeLow,
+      smcBias,
+    };
   }
 
   // ===========================
@@ -1367,6 +1527,10 @@ export class MatrixV5Engine {
     fundingRate: number = 0,
     configOverrides: Partial<MatrixV5Config> = {},
     opens: number[] = [],
+    // === MATRIX HORIZON FAZ 0: Makro & Sentiment Entegrasyonu ===
+    sentimentScore: number = 0,  // -100 (Asiri Korku) -> +100 (Asiri Acgozluluk)
+    btcDominance: number = 50,   // % BTC Dominance
+    usdtDominance: number = 5,   // % USDT.D
   ): MatrixV5Result {
     // Determine the configuration for this specific analysis run (Thread-safe)
     // Always branch from the base engine config to avoid side effects
@@ -1547,7 +1711,11 @@ export class MatrixV5Engine {
       trendUp,
       liquidityBonus,
       { tech: 25, momentum: 25, market: 25, trend: 25 },
-      saeThreshold
+      saeThreshold,
+      sentimentScore,
+      btcDominance,
+      usdtDominance,
+      fundingRate
     );
 
     const predictionData = this.evaluatePredictions(confluenceBreakdown.totalScore, isGreen);
@@ -1684,6 +1852,11 @@ export class MatrixV5Engine {
       dynamicWeights: { tech: 25, momentum: 25, market: 25, trend: 25 },
       mtfBullCount: bullIndicators,
       indicatorBullCount: bullIndicators,
+      // === MATRIX HORIZON FAZ 3: Projeksiyon ve AI NLP alanlari ===
+      aiSummary: "",
+      projectionBias: "NEUTRAL" as const,
+      projectionConfidence: 50,
+      kellyFraction: 0.05,
     };
     return payload;
   }
@@ -1691,18 +1864,37 @@ export class MatrixV5Engine {
   private evaluateLiquidity(currentPrice: number, smc: any) {
     let inBullishOB = false, inBearishOB = false;
     let inBullishFVG = false, inBearishFVG = false;
+    let nearOBDist = Infinity;
 
-    for (const ob of smc.orderBlocks.slice(0, 5)) {
+    // === MATRIX HORIZON FAZ 2: Gelismis Likidite Degerlendirmesi ===
+    for (const ob of smc.orderBlocks.slice(0, 8)) {
       if (ob.type === "BULLISH" && currentPrice >= ob.low && currentPrice <= ob.high) inBullishOB = true;
       if (ob.type === "BEARISH" && currentPrice >= ob.low && currentPrice <= ob.high) inBearishOB = true;
+      const obMid = (ob.high + ob.low) / 2;
+      const dist  = Math.abs(currentPrice - obMid) / Math.max(currentPrice, 1);
+      if (dist < nearOBDist) nearOBDist = dist;
     }
-    for (const fvg of smc.fvgs.slice(0, 5)) {
+    for (const fvg of smc.fvgs.slice(0, 8)) {
       if (fvg.type === "BULLISH" && currentPrice >= fvg.bottom && currentPrice <= fvg.top) inBullishFVG = true;
       if (fvg.type === "BEARISH" && currentPrice >= fvg.bottom && currentPrice <= fvg.top) inBearishFVG = true;
     }
 
-    const liquidityBonus = inBullishOB || inBullishFVG || inBearishOB || inBearishFVG ? 10 : 0;
-    const liquidityZone = inBullishOB ? "OB BOĞA" : inBearishOB ? "OB AYI" : inBullishFVG ? "FVG BOĞA" : inBearishFVG ? "FVG AYI" : "YOK";
+    let liquidityBonus = 0;
+    if (inBullishOB || inBearishOB) liquidityBonus += 15;
+    if (inBullishFVG || inBearishFVG) liquidityBonus += 10;
+    if (smc.sweepUp || smc.sweepDown) liquidityBonus += 5;
+    if (nearOBDist < 0.01) liquidityBonus += 5;
+    liquidityBonus = Math.min(25, liquidityBonus);
+    if (smc.bos && smc.bosStrength === "STRONG") liquidityBonus = Math.min(25, liquidityBonus + 5);
+
+    const liquidityZone = inBullishOB ? "OB BOGA (" + (smc.bosStrength || "-") + ")"
+      : inBearishOB  ? "OB AYI (" + (smc.bosStrength || "-") + ")"
+      : inBullishFVG ? "FVG BOGA"
+      : inBearishFVG ? "FVG AYI"
+      : smc.sweepUp  ? "SWEEP YUKARI"
+      : smc.sweepDown ? "SWEEP ASAGI"
+      : "YOK";
+
     return { liquidityBonus, liquidityZone };
   }
 
@@ -1760,15 +1952,25 @@ export class MatrixV5Engine {
     const buyLeadConfluence = (earlyReversal === "UP" ? 1 : 0) + (wtCrossUp ? 1 : 0) + (isVixBottom ? 1 : 0) + (stochRsi.k < 30 ? 1 : 0);
     const sellLeadConfluence = (earlyReversal === "DOWN" ? 1 : 0) + (wtCrossDn ? 1 : 0) + (stochRsi.k > 70 ? 1 : 0);
 
-    const f4SlopeStrength = Math.abs(f4Slope);
+    // === MATRIX HORIZON FAZ 0: Yonsel F4 Power Loss ===
+    // Eski mutlak deger mantigi V-Turn'lerde gec tetikleniyordu.
+    // Yeni: Sadece mevcut trend yonundeki slope zayiflamasini olcer.
     const slopeHistory: number[] = [];
     const lb = Math.min(autoParams.lookback, f4WholeSeries.length - 2);
     for (let i = 0; i < lb; i++) {
         const idx = f4WholeSeries.length - 1 - i;
-        slopeHistory.push(Math.abs(f4WholeSeries[idx] - (f4WholeSeries[idx - 1] || f4WholeSeries[idx])));
+        slopeHistory.push(f4WholeSeries[idx] - (f4WholeSeries[idx - 1] || f4WholeSeries[idx]));
     }
-    const f4SlopeMax = slopeHistory.length > 0 ? Math.max(...slopeHistory, f4SlopeStrength) : f4SlopeStrength;
-    const f4PowerLoss = f4SlopeMax > 0.00001 ? ((f4SlopeMax - f4SlopeStrength) / f4SlopeMax) * 100 : 0;
+    let f4PowerLoss: number;
+    if (f4Slope >= 0) {
+        const peakSlope = slopeHistory.length > 0 ? Math.max(...slopeHistory, f4Slope) : f4Slope;
+        f4PowerLoss = peakSlope > 0.00001 ? ((peakSlope - f4Slope) / peakSlope) * 100 : 0;
+    } else {
+        const troughSlope = slopeHistory.length > 0 ? Math.min(...slopeHistory, f4Slope) : f4Slope;
+        f4PowerLoss = troughSlope < -0.00001 ? ((f4Slope - troughSlope) / Math.abs(troughSlope)) * 100 : 0;
+    }
+    f4PowerLoss = Math.max(0, Math.min(100, f4PowerLoss));
+    const f4SlopeStrength = Math.abs(f4Slope);
     
     const minLoss = activeConfig.minPowerLoss ?? 90;
     
@@ -1905,10 +2107,137 @@ export class MatrixV5Engine {
   }
 
   private calculateTargets(highs: number[], lows: number[], closes: number[], adaptedAtrLen: number, currentPrice: number, systemDecision: string, predictionUpProb: number, predictionDownProb: number) {
+    // === MATRIX HORIZON FAZ 3: ATR + LinReg Gelismis Projeksiyon ===
     const atrTarget = this.calculateATR(highs, lows, closes, adaptedAtrLen);
     const direction = systemDecision === "GO_LONG" ? 1 : systemDecision === "GO_SHORT" ? -1 : predictionUpProb > predictionDownProb ? 1 : -1;
-    const targets = { t1: currentPrice + direction * atrTarget * 1.5, t2: currentPrice + direction * atrTarget * 3.0, sl: currentPrice - direction * atrTarget * 1.2, buyDev: atrTarget * 0.6 };
-    return { targets };
+
+    // LinReg egim projeksiyon destegi: Mevcut egim 5 bar icin tahmin
+    const lr0 = this.calculateLinReg(closes, 20, 0);
+    const lr1 = this.calculateLinReg(closes, 20, 1);
+    const lrSlope = lr0 - lr1; // Per-bar egim
+    const lrProjection5 = currentPrice + lrSlope * 5; // 5 bar ilerisi linreg tahmini
+    const lrProjection10 = currentPrice + lrSlope * 10;
+
+    // Fibonacci ATR carpanlari ile hedefler
+    const t1Fib   = currentPrice + direction * atrTarget * 1.618; // Fib 1.618
+    const t2Fib   = currentPrice + direction * atrTarget * 2.618; // Fib 2.618
+    const slFib   = currentPrice - direction * atrTarget * 1.0;   // 1x ATR stop
+    const buyDev  = atrTarget * 0.5;
+
+    // Projeksiyon guven skoru: LinReg yonu ile systemDecision uyumlu mu?
+    const lrBull = lrSlope > 0;
+    const decBull = direction > 0;
+    const projectionConfidence = lrBull === decBull
+      ? Math.min(100, 60 + Math.abs(lrSlope / Math.max(atrTarget, 0.0001)) * 20)
+      : Math.max(20, 40 - Math.abs(lrSlope / Math.max(atrTarget, 0.0001)) * 10);
+
+    const projectionBias: "BULLISH" | "BEARISH" | "NEUTRAL" = lrSlope > atrTarget * 0.05
+      ? "BULLISH" : lrSlope < -atrTarget * 0.05 ? "BEARISH" : "NEUTRAL";
+
+    const targets = { t1: t1Fib, t2: t2Fib, sl: slFib, buyDev, lrProjection5, lrProjection10 };
+    return { targets, projectionConfidence, projectionBias };
+  }
+
+  // === MATRIX HORIZON FAZ 3: AI NLP Karar Ozeti Uretimi ===
+  private generateAiSummary(
+    trend: string,
+    slope: number,
+    confluenceScore: number,
+    mtfConsensus: string,
+    whaleStatus: string,
+    systemDecision: string,
+    f4PowerLoss: number,
+    volatilityRegime: string,
+    marketRegime: string,
+    smcBias: string,
+    sentimentScore: number,
+    sweepUp: boolean,
+    sweepDown: boolean,
+    projectionBias: string,
+    projectionConfidence: number
+  ): string {
+    const parts: string[] = [];
+
+    // 1. Genel trend degerlendirmesi
+    if (trend === "BULLISH" && slope > 0.05)
+      parts.push("F4 guclu yukari trendi destekliyor");
+    else if (trend === "BEARISH" && slope < -0.05)
+      parts.push("F4 guclu asagi baski altinda");
+    else if (trend === "BULLISH")
+      parts.push("Zayif yukari egim mevcut");
+    else if (trend === "BEARISH")
+      parts.push("Zayif asagi egim mevcut");
+    else
+      parts.push("Yatay / kararsiz piyasa");
+
+    // 2. Guc kaybi uyarisi
+    if (f4PowerLoss > 70)
+      parts.push("F4 guc kaybi kritik seviyede (" + f4PowerLoss.toFixed(0) + "%) — dikkat");
+    else if (f4PowerLoss > 45)
+      parts.push("F4 guc kaybediyor (" + f4PowerLoss.toFixed(0) + "%)");
+
+    // 3. Konfluens degerlendirmesi
+    if (confluenceScore >= 75)
+      parts.push("Mukemmel konfluens (" + confluenceScore.toFixed(0) + ")");
+    else if (confluenceScore >= 60)
+      parts.push("Guclu konfluens (" + confluenceScore.toFixed(0) + ")");
+    else if (confluenceScore < 45)
+      parts.push("Zayif konfluens — islem onerilmez");
+
+    // 4. Balina & Hacim
+    if (whaleStatus === "BUY_ACTIVE") parts.push("Balina alim baskisi aktif");
+    else if (whaleStatus === "SELL_ACTIVE") parts.push("Balina satim baskisi aktif");
+    else if (whaleStatus === "DISTRIBUTION") parts.push("Dagitim fazindayiz — dikkat");
+
+    // 5. SMC yapisi
+    if (sweepUp) parts.push("Yukari stop-hunt tespit edildi — dikkatli al");
+    else if (sweepDown) parts.push("Asagi stop-hunt tespit edildi — dikkatli sat");
+    if (smcBias === "BULLISH") parts.push("SMC: Discount bolgesi / potansiyel alim noktasi");
+    else if (smcBias === "BEARISH") parts.push("SMC: Premium bolgesi / potansiyel satim noktasi");
+
+    // 6. Volatilite
+    if (volatilityRegime === "SQUEEZE")
+      parts.push("Bollinger Squeeze aktif — patlama bekleniyor");
+    else if (volatilityRegime === "EXPLOSION")
+      parts.push("Yuksek volatilite — risk yonetimi kritik");
+
+    // 7. Makro / Sentiment
+    if (sentimentScore < -50) parts.push("Piyasa asiri korkuda — kontrarian firsat olabilir");
+    else if (sentimentScore > 70) parts.push("Asiri acgozluluk — tepe riski mevcut");
+
+    // 8. Nihai karar
+    const decisionText = systemDecision === "GO_LONG"
+      ? "AL sinyali aktif"
+      : systemDecision === "GO_SHORT"
+        ? "SAT sinyali aktif"
+        : "Bekleme modu onerilen";
+
+    parts.push(decisionText + " | Projeksiyon: " + projectionBias + " (" + projectionConfidence.toFixed(0) + "% guven)");
+
+    return parts.join(" • ");
+  }
+
+  // === MATRIX HORIZON FAZ 4: Kelly Kriteri Pozisyon Boyutlandirma ===
+  private calculateKellyFraction(
+    currentWinRate: number,
+    confluenceScore: number,
+    f4PowerLoss: number,
+    volatilityRegime: string
+  ): number {
+    // Temel Kelly: f = (bp - q) / b, b = risk/reward = 1.5
+    const b = 1.5; // Ortalama R:R
+    const p = Math.min(0.85, Math.max(0.30, currentWinRate));
+    const q = 1 - p;
+    const rawKelly = (b * p - q) / b;
+
+    // Confluence ve F4 Power Loss ile dinamik ayarlama
+    const confMult = confluenceScore >= 75 ? 1.0 : confluenceScore >= 60 ? 0.75 : 0.5;
+    const plMult   = f4PowerLoss > 70 ? 0.3 : f4PowerLoss > 45 ? 0.6 : 1.0;
+    const volMult  = volatilityRegime === "EXPLOSION" ? 0.5 : volatilityRegime === "HIGH_VOL" ? 0.7 : 1.0;
+
+    // Yarisik Kelly (Half-Kelly) — risk azaltma standardi
+    const kelly = (rawKelly * confMult * plMult * volMult) / 2;
+    return Math.max(0.01, Math.min(0.25, kelly)); // Max %25 pozisyon
   }
 
   private calculateWhaleTrust(zScore: number, whaleStatus: string): number {

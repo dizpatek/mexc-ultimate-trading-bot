@@ -229,7 +229,9 @@ export const UnifiedControlStrip = ({
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
           "fixed top-1/2 -translate-y-1/2 w-8 h-20 bg-slate-950 border border-r-0 border-white/10 rounded-l-xl flex flex-col items-center justify-center gap-1 transition-all duration-500 hover:bg-slate-900 group shadow-2xl z-[61]",
-          isOpen ? "right-[380px]" : "right-0",
+          isOpen 
+            ? "right-[min(380px,90vw)] translate-x-1" 
+            : "right-0",
         )}
       >
         <div

@@ -236,7 +236,7 @@ export const SmartChart = forwardRef<{ focusOnPrices: () => void }, SmartChartPr
     compact = false,
     isEditingExisting = false,
     isBuyEditable = true,
-    showChart,
+    showChart = true,
     setShowChart,
   } = props;
 
@@ -269,6 +269,8 @@ export const SmartChart = forwardRef<{ focusOnPrices: () => void }, SmartChartPr
   const lastCloseRef = useRef(0);
   const lastFullScanRef = useRef<number>(0); // timestamp of last O(n) full diff scan
   const [timeframe, setTimeframe] = useModuleTimeframe("1h");
+  const hasUserInteractedRef = useRef(false);
+  const initialFocusDoneRef = useRef(false);
 
   const isUpdatingOverlaysRef = useRef(false);
 
@@ -293,7 +295,7 @@ export const SmartChart = forwardRef<{ focusOnPrices: () => void }, SmartChartPr
 
 
   // Forces the chart to include all trade levels in the visible area
-  const focusOnPrices = useCallback(() => {
+  const focusOnPrices = useCallback((force = false) => {
     if (
       !isMountedRef.current ||
       !chartRef.current ||
@@ -303,11 +305,17 @@ export const SmartChart = forwardRef<{ focusOnPrices: () => void }, SmartChartPr
     )
       return;
 
+    // Don't auto-focus if user is manually controlling (unless forced)
+    if (hasUserInteractedRef.current && !force) return;
+
     // We can try to focus even if we don't have all klines yet
     // but lightweight-charts needs a time range to scale prices.
     // If we have at least TWO trade levels, we can ghost-scale even without klines
     const activeLevels = [buyPrice, tpPrice, slPrice].filter(p => p > 0);
-    if (allKlinesRef.current.length === 0 && activeLevels.length < 2) return;
+    
+    // Check if we have enough data to scale
+    const hasData = allKlinesRef.current.length > 0;
+    if (!hasData && activeLevels.length < 2) return;
 
     const b = buyPrice;
     const t = tpPrice;
@@ -356,7 +364,17 @@ export const SmartChart = forwardRef<{ focusOnPrices: () => void }, SmartChartPr
     }
 
     if (chartRef.current) {
-      chartRef.current.priceScale("right").applyOptions({ autoScale: true });
+      chartRef.current.priceScale("right").applyOptions({ 
+        autoScale: true,
+        scaleMargins: {
+          top: 0.1,
+          bottom: 0.2,
+        }
+      });
+      // Ensure the visible range is wide enough to avoid "too close" feeling
+      if (hasData) {
+        chartRef.current.timeScale().fitContent();
+      }
     }
   }, [isChartReady, buyPrice, tpPrice, slPrice, tpEnabled, slEnabled]);
 
@@ -604,6 +622,16 @@ export const SmartChart = forwardRef<{ focusOnPrices: () => void }, SmartChartPr
         : container.clientHeight || 800,
       timeScale: { borderColor: "#1e293b", timeVisible: true },
       rightPriceScale: { borderColor: "#1e293b", autoScale: true },
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: true,
+      },
+      handleScale: {
+        mouseWheel: true,
+        axisPressedMouseMove: true,
+      },
       crosshair: {
         horzLine: {
           color: "rgba(6, 182, 212, 0.3)",
@@ -643,6 +671,17 @@ export const SmartChart = forwardRef<{ focusOnPrices: () => void }, SmartChartPr
     ghostSeriesRef.current = ghostSeries;
     volumeSeriesRef.current = volumeSeries;
     setIsChartReady(true);
+
+    // Track user interaction to prevent auto-reset
+    chartInstance.timeScale().subscribeVisibleLogicalRangeChange(() => {
+      if (isMountedRef.current) {
+        // If the logical range changes, we assume user is interacting
+        // We only set this AFTER the initial load to avoid blocking first auto-focus
+        if (initialFocusDoneRef.current) {
+          hasUserInteractedRef.current = true;
+        }
+      }
+    });
 
     const handleResize = () => {
       if (!isMountedRef.current || !chartRef.current || !chartContainerRef.current) return;
@@ -723,6 +762,8 @@ export const SmartChart = forwardRef<{ focusOnPrices: () => void }, SmartChartPr
     setLastClose(0);
     if (seriesRef.current) seriesRef.current.setData([]);
     if (volumeSeriesRef.current) volumeSeriesRef.current.setData([]);
+    initialFocusDoneRef.current = false;
+    hasUserInteractedRef.current = false;
   }, [symbol, timeframe]);
 
   // Data Fetching & Sync (on symbol/timeframe change or interval)
@@ -908,7 +949,12 @@ export const SmartChart = forwardRef<{ focusOnPrices: () => void }, SmartChartPr
           if (price > 0 && !isNaN(price)) {
             setLastClose(price);
             if (onMarketPriceUpdate) onMarketPriceUpdate(price);
-            if (shouldFocus) focusOnPrices();
+            
+            // Only auto-focus once per symbol/timeframe load
+            if (shouldFocus && !initialFocusDoneRef.current) {
+              focusOnPrices();
+              initialFocusDoneRef.current = true;
+            }
           }
         }
       } catch (err) {

@@ -112,6 +112,7 @@ interface PortfolioChartProps {
   isBuyEditable?: boolean;
   showChart?: boolean;
   setShowChart?: (s: boolean) => void;
+  isTradeFormOpen?: boolean;
 }
 
 export const PortfolioChart = forwardRef<{ focusOnPrices: () => void }, PortfolioChartProps>((props, ref) => {
@@ -140,6 +141,7 @@ export const PortfolioChart = forwardRef<{ focusOnPrices: () => void }, Portfoli
     isBuyEditable = true,
     showChart,
     setShowChart,
+    isTradeFormOpen = false,
   } = props;
 
   const smartChartRef = useRef<{ focusOnPrices: () => void } | null>(null);
@@ -161,7 +163,8 @@ export const PortfolioChart = forwardRef<{ focusOnPrices: () => void }, Portfoli
   const cleanSymbol = symbol.replace(/\//g, "");
 
   // TAB STATE: 'TV' or 'SMART'
-  const [activeTab, setActiveTab] = useState<"TV" | "SMART">("SMART");
+  const [activeTab, setActiveTab] = useState<"TV" | "SMART">("TV");
+  const [lastNonEditTab, setLastNonEditTab] = useState<"TV" | "SMART">("TV");
 
   // Load initial states from localStorage
   const [isWebMode, setIsWebMode] = useState(() => {
@@ -210,6 +213,21 @@ export const PortfolioChart = forwardRef<{ focusOnPrices: () => void }, Portfoli
   useEffect(() => {
     localStorage.setItem(WEB_MODE_STORAGE_KEY, String(isWebMode));
   }, [isWebMode]);
+
+  // Handle automatic tab switching when editing an existing trade or opening new trade form
+  useEffect(() => {
+    if (isEditingExisting || isTradeFormOpen) {
+      if (activeTab !== "SMART") {
+        setLastNonEditTab(activeTab);
+        setActiveTab("SMART");
+      }
+    } else {
+      // When finishing edit or closing form, return to previous tab if it was different
+      if (activeTab === "SMART" && lastNonEditTab === "TV") {
+        setActiveTab("TV");
+      }
+    }
+  }, [isEditingExisting, isTradeFormOpen]);
 
   // Check login status via extension
   const checkLoginStatus = useCallback(() => {
@@ -534,17 +552,6 @@ export const PortfolioChart = forwardRef<{ focusOnPrices: () => void }, Portfoli
               {/* Tab Switcher */}
               <div className="flex bg-slate-800/50 p-0.5 rounded-lg ml-2 border border-slate-700/50">
                 <button
-                  onClick={() => setActiveTab("SMART")}
-                  className={cn(
-                    "px-3 py-1 rounded text-[9px] font-black tracking-widest uppercase transition-all",
-                    activeTab === "SMART"
-                      ? "bg-cyan-500 text-slate-950 shadow-[0_0_10px_rgba(6,182,212,0.4)]"
-                      : "text-slate-500 hover:text-slate-300",
-                  )}
-                >
-                  Matrix Smart
-                </button>
-                <button
                   onClick={() => setActiveTab("TV")}
                   className={cn(
                     "px-3 py-1 rounded text-[9px] font-black tracking-widest uppercase transition-all",
@@ -554,6 +561,17 @@ export const PortfolioChart = forwardRef<{ focusOnPrices: () => void }, Portfoli
                   )}
                 >
                   TradingView
+                </button>
+                <button
+                  onClick={() => setActiveTab("SMART")}
+                  className={cn(
+                    "px-3 py-1 rounded text-[9px] font-black tracking-widest uppercase transition-all",
+                    activeTab === "SMART"
+                      ? "bg-cyan-500 text-slate-950 shadow-[0_0_10px_rgba(6,182,212,0.4)]"
+                      : "text-slate-500 hover:text-slate-300",
+                  )}
+                >
+                  Matrix Smart
                 </button>
               </div>
 

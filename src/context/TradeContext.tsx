@@ -107,8 +107,8 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
       setBuyPrice("0");
       setTpPrice("0");
       setSlPrice("0");
-      setTpEnabled(false);
-      setSlEnabled(false);
+      setTpEnabled(true);
+      setSlEnabled(true);
       setAmount("0");
       setAllocationPercent(0);
       setMode("TRADE");

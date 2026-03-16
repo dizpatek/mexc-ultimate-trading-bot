@@ -16,6 +16,7 @@ import { HorizonCard } from "./matrix-horizon/HorizonCard";
 import { useHoldings } from "@/hooks/usePortfolio";
 import { AssetIcon } from "./AssetIcon";
 import { PortfolioChart } from "./PortfolioChart";
+import { SmartChart } from "./SmartChart";
 import { createSmartTrade, api } from "@/services/api";
 import { core } from "@/services/ApiCore";
 import { SmartTradeOrder } from "./ActiveSmartTrades";
@@ -140,6 +141,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
   const setTrailingBuyDev = mode === "TRADE" ? setTradeTrailingDev : setCoverTrailingDev;
 
   const [assetDropdownOpen, setAssetDropdownOpen] = useState(false);
+  const [assetSearchQuery, setAssetSearchQuery] = useState("");
   const buyPriceInputRef = React.useRef<HTMLInputElement>(null);
   const unitsSectionRef = React.useRef<HTMLDivElement>(null);
 
@@ -213,7 +215,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
   const usdtBalance = usdtHolding?.holding || 0;
 
   // 2. Take Profit State
-  const [internalTpEnabled, setInternalTpEnabled] = useState(false);
+  const [internalTpEnabled, setInternalTpEnabled] = useState(true);
   const tpEnabled = controlledTpEnabled ?? internalTpEnabled;
   const setTpEnabled = onTpEnabledChange ?? setInternalTpEnabled;
 
@@ -290,7 +292,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
   const [marketPrice, setMarketPrice] = useState<number | null>(null);
 
   // 3. Stop Loss State
-  const [internalSlEnabled, setInternalSlEnabled] = useState(false);
+  const [internalSlEnabled, setInternalSlEnabled] = useState(true);
   const slEnabled = controlledSlEnabled ?? internalSlEnabled;
   const setSlEnabled = onSlEnabledChange ?? setInternalSlEnabled;
 
@@ -1097,6 +1099,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
               isBuyEditable={!editingTrade || editingTrade.status === "PENDING"}
               showChart={showChart}
               setShowChart={setShowChart}
+              isTradeFormOpen={isTradeFormOpen}
               ref={chartRef}
             />
           </div>
@@ -1204,20 +1207,28 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                 <>
                   <div
                     className="fixed inset-0 z-40"
-                    onClick={() => setAssetDropdownOpen(false)}
+                    onClick={() => {
+                      setAssetDropdownOpen(false);
+                      setAssetSearchQuery("");
+                    }}
                   />
                   <div className="absolute top-[calc(100%+2px)] left-0 w-full bg-[#020617] border border-white/10 rounded-lg shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 focus:outline-none ring-1 ring-cyan-500/20">
+                    <div className="p-1.5 border-b border-white/5">
+                      <input
+                        type="text"
+                        placeholder="Varlık ara (örn: BTC, SOL)..."
+                        value={assetSearchQuery}
+                        onChange={(e) => setAssetSearchQuery(e.target.value)}
+                        autoFocus
+                        className="w-full bg-slate-900/60 border border-slate-800 rounded px-2 py-1 text-[10px] text-white outline-none focus:border-cyan-500/50"
+                      />
+                    </div>
                     <div className="max-h-40 overflow-y-auto custom-scrollbar py-0.5">
-                      {filteredAssets.filter(
-                        (h) => h.symbol !== "USDT" && h.symbol !== "USDC",
-                      ).length === 0 && (
-                        <div className="px-3 py-3 text-center text-[10px] text-slate-500">
-                          Kullanılabilir varlık bulunamadı.
-                        </div>
-                      )}
-                      {filteredAssets
-                        .filter(
-                          (h) => h.symbol !== "USDT" && h.symbol !== "USDC",
+                      {holdings
+                        .filter((h) => h.symbol !== "USDT" && h.symbol !== "USDC")
+                        .filter((h) => 
+                          h.symbol.toLowerCase().includes(assetSearchQuery.toLowerCase()) ||
+                          h.name?.toLowerCase().includes(assetSearchQuery.toLowerCase())
                         )
                         .map((asset) => (
                           <button
@@ -1226,6 +1237,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                             onClick={() => {
                               handleAssetSelect(asset);
                               setAssetDropdownOpen(false);
+                              setAssetSearchQuery("");
                             }}
                             className={cn(
                               "w-full flex items-center justify-between px-2.5 py-2 hover:bg-white/5 transition-colors text-left",
@@ -1252,6 +1264,46 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                             </span>
                           </button>
                         ))}
+                      
+                      {assetSearchQuery.length >= 2 && !holdings.some(h => h.symbol.toLowerCase() === assetSearchQuery.toLowerCase() + "usdt" || h.symbol.toLowerCase() === assetSearchQuery.toLowerCase()) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const sym = assetSearchQuery.toUpperCase();
+                            const formattedSym = sym.endsWith("USDT") ? sym : `${sym}/USDT`;
+                            setSymbol(formattedSym);
+                            setAssetDropdownOpen(false);
+                            setAssetSearchQuery("");
+                            setUseExisting(false); // New asset, cannot use existing
+                            // We don't have the price yet, but marketPrice useEffect will fetch it
+                            setBuyPrice("0"); 
+                            setPriceSync(true);
+                          }}
+                          className="w-full flex items-center gap-2 px-3 py-2 hover:bg-cyan-500/10 transition-colors text-left border-t border-white/5"
+                        >
+                          <div className="w-4 h-4 rounded-full bg-cyan-500/20 flex items-center justify-center">
+                            <Zap className="w-2.5 h-2.5 text-cyan-400" />
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[10px] font-black text-cyan-400 uppercase">
+                              {assetSearchQuery.toUpperCase()}/USDT Ekle
+                            </span>
+                            <span className="text-[8px] text-slate-500 uppercase font-bold">
+                              MEXC üzerinden ara ve yükle
+                            </span>
+                          </div>
+                        </button>
+                      )}
+
+                      {holdings.filter((h) => 
+                        h.symbol !== "USDT" && h.symbol !== "USDC" &&
+                        (h.symbol.toLowerCase().includes(assetSearchQuery.toLowerCase()) ||
+                         h.name?.toLowerCase().includes(assetSearchQuery.toLowerCase()))
+                      ).length === 0 && assetSearchQuery.length < 2 && (
+                        <div className="px-3 py-3 text-center text-[10px] text-slate-500">
+                          {assetSearchQuery ? "Sonuç bulunamadı." : "Kullanılabilir varlık bulunamadı."}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </>
@@ -2047,7 +2099,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                     className="animate-in fade-in slide-in-from-top-2 duration-500 overflow-hidden border border-white/5 rounded-xl mb-1 mt-0.5 z-[40] relative w-full h-[280px]"
                     // USER requested no auto-scroll when SmartChart is opened
                   >
-                    <PortfolioChart
+                    <SmartChart
                       compact={true}
                       symbol={symbol}
                       buyPrice={buyP}
@@ -2068,6 +2120,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                       assets={filteredAssets}
                       onAssetChange={handleAssetSelect}
                       potentialEntry={trailingEntryViz}
+                      ref={chartRef}
                     />
                   </div>
                 )}

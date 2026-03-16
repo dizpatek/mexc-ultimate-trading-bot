@@ -10,6 +10,12 @@ const createMockSMC = (trend: "BULLISH" | "BEARISH", bos: boolean, choch: boolea
   choch,
   orderBlocks: [],
   fvgs: [],
+  // === MATRIX HORIZON FAZ 2: Yeni SMCResult alanları ===
+  bosStrength: bos ? "WEAK" as const : "NONE" as const,
+  chochConfirmed: false,
+  sweepUp: false,
+  sweepDown: false,
+  structureScore: bos ? 25 : 0,
 });
 
 const defaultInput: SAEInput = {
@@ -41,6 +47,6 @@ const test3Input = { ...defaultInput, currentWinRate: 0.35 };
 const res3 = evaluateSAE(test3Input);
 console.log("Test 3 (Death Risk / Penalty):", res3.deathRiskActive && res3.aiPenalty === -15 ? "PASSED ✅" : "FAILED ❌");
 
-console.log("\\n=== Z-SCORE MAPPING VE F4 POWER TESTİ ===");
+console.log("\n=== Z-SCORE MAPPING VE F4 POWER TESTİ ===");
 console.log("Note: Z-score ve F4 Power, matrix-v5-engine içerisinde hesaplanıyor.");
 console.log("Fonksiyonların entegrasyonu incelendi, kodlar doğrulanmıştır. ✅");

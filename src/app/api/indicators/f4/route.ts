@@ -20,6 +20,10 @@ export async function GET(request: NextRequest) {
   const riskMode =
     (searchParams.get("riskMode") as "safe" | "normal" | "aggressive") ||
     "normal";
+  // === MATRIX HORIZON: Makro & Sentiment Parametreleri ===
+  const sentimentScore = parseFloat(searchParams.get("sentiment") || "0");
+  const btcDominance = parseFloat(searchParams.get("btcDom") || "50");
+  const usdtDominance = parseFloat(searchParams.get("usdtDom") || "5");
   const symbolUpper = symbol.toUpperCase();
 
   // Trigger 500 failure for TC006
@@ -103,7 +107,12 @@ export async function GET(request: NextRequest) {
       fundingRate || 0,
       {
         tradeMode: resolveTradeMode(botConfig),
-      }
+      },
+      [], // opens (Heikin Ashi opsiyonel)
+      // === MATRIX HORIZON: Makro & Sentiment koprüsü ===
+      isNaN(sentimentScore) ? 0 : sentimentScore,
+      isNaN(btcDominance) ? 50 : btcDominance,
+      isNaN(usdtDominance) ? 5 : usdtDominance
     );
 
     // Step 3.5: Log significant findings to DB buffer (Fire and Forget)

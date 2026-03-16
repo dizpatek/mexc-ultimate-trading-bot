@@ -497,7 +497,7 @@ export const MatrixHorizon = () => {
       try {
         const [res, mkt] = await Promise.all([
           api.get(
-            `/indicators/f4?symbol=${activeSymbol}&interval=${interval}&riskMode=${riskMode}`,
+            `/indicators/f4?symbol=${activeSymbol}&interval=${interval}&riskMode=${riskMode}${sentiment ? `&sentiment=${sentiment.score}` : ""}&btcDom=${btcDom}&usdtDom=${usdtDom}`,
           ),
           fetchGlobalMarketData().catch(() => null),
         ]);
@@ -525,7 +525,8 @@ export const MatrixHorizon = () => {
         if (isManual) setIsActionLoading(false);
       }
     },
-    [interval, riskMode, activeSymbol],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [interval, riskMode, activeSymbol, sentiment?.score, btcDom, usdtDom],
   );
 
   // Periodical background refresh (Market analysis & Cron trigger)

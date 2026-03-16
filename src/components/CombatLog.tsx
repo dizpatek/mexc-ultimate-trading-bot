@@ -43,8 +43,21 @@ export const CombatLog = () => {
   const { config } = useBotConfig();
 
   const tradeLogs = useMemo(
-    () => logs.filter((l: LogEntry) => l.type === "EXECUTION"),
-    [logs],
+    () =>
+      logs.filter((l: LogEntry) => {
+        if (l.type === "SYSTEM") return false;
+        // Filter by specific timeframe if available, otherwise consider it Global
+        if (
+          l.timeframe &&
+          l.timeframe.toLowerCase() !== "global" &&
+          l.timeframe.toLowerCase() !== "system" &&
+          l.timeframe.toLowerCase() !== timeframe.toLowerCase()
+        ) {
+          return false;
+        }
+        return true;
+      }),
+    [logs, timeframe],
   );
 
   const filteredTradeLogs = useMemo(() => {
@@ -57,7 +70,7 @@ export const CombatLog = () => {
   }, [tradeLogs, config?.pilot_only_holdings, holdings]);
 
   const systemLogs = useMemo(() => {
-    const sortedLogs = deduplicateSystemLogs(logs.filter((l) => l.type !== "EXECUTION"));
+    const sortedLogs = deduplicateSystemLogs(logs.filter((l) => l.type === "SYSTEM"));
     
     // Group identical consecutive logs
     const groups: (LogEntry & { count?: number })[] = [];

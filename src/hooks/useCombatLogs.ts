@@ -166,7 +166,10 @@ export function parseLogEntry(sig: any, isTestMode: boolean = true): LogEntry {
 
   const { timeframe: parsedTf, suffix: tfSuffix } = extractTimeframe(finalDetail || "");
   const displayMessage = formatLogMessage(sig, tfSuffix);
-  const finalTimeframe = parsedTf || sig.timeframe || "";
+  let finalTimeframe = parsedTf || sig.timeframe || "";
+  
+  // Normalize 1M (Month) to 1Mo to distinguish from 1m (Minute)
+  if (finalTimeframe === "1M") finalTimeframe = "1Mo";
 
   return {
     id: sig.id,
@@ -214,13 +217,15 @@ export function useCombatLogs(timeframe: string = "4h") {
     }
 
     try {
-      const response = await api.get(`/logs/signals?timeframe=${timeframe}`);
+      // P3.2 Fix: Fetch ALL signals regardless of current UI timeframe 
+      // This ensures we keep history when switching views
+      const response = await api.get(`/logs/signals?timeframe=all`);
       const data = response.data;
       setError(null);
 
       if (Array.isArray(data)) {
         const formattedLogs: LogEntry[] = data.map((sig: any) => parseLogEntry(sig, true));
-        setLogs(formattedLogs.slice(0, 200)); // cap to keep filtering cost bounded
+        setLogs(formattedLogs.slice(0, 1000)); // cap to keep filtering cost bounded
       }
     } catch (err) {
       console.error("Fetch Logs Error:", err);

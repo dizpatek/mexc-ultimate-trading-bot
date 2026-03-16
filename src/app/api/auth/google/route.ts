@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { sql } from "@/lib/db";
+import { sql } from "@/lib/postgres";
+import { User } from "@/lib/db";
 import { generateToken } from "@/lib/auth-utils";
 
 /**
@@ -11,7 +12,7 @@ import { generateToken } from "@/lib/auth-utils";
  */
 export async function POST(request: Request) {
   try {
-    const { googleId, email, name, picture } = await request.json();
+    const { email, name } = await request.json();
 
     if (!email) {
       return NextResponse.json({ success: false, message: "Email required" }, { status: 400 });
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
 
     // 1. Check if user already exists in DB
     const { rows } = await sql`SELECT * FROM users WHERE email = ${email}`;
-    let user = rows[0];
+    let user = rows[0] as unknown as User | undefined;
 
     if (!user) {
       // 2. Create new user for Google login
@@ -32,7 +33,11 @@ export async function POST(request: Request) {
         VALUES (${username}, ${email}, 'GOOGLE_OAUTH_LOGIN', ${now}, ${now}, false)
         RETURNING *
       `;
-      user = insertResult.rows[0];
+      user = insertResult.rows[0] as unknown as User;
+    }
+
+    if (!user) {
+        throw new Error("Failed to retrieve or create user");
     }
 
     // 3. Generate Matrix System Token

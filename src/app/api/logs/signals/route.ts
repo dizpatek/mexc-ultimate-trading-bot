@@ -22,6 +22,8 @@ export async function GET(request: Request) {
     const fortyEightHoursAgo = Date.now() - 48 * 60 * 60 * 1000;
 
     // Fetch both trade signals and system logs for a complete CombatLog feel
+    // P3.2 Fix: Use separate limits for each to ensure high-frequency system logs
+    // don't push out trade signals from the result set.
     const { rows } = await sql`
             (
                 SELECT 
@@ -37,8 +39,14 @@ export async function GET(request: Request) {
                 FROM strategy_signals s
                 LEFT JOIN strategies st ON s.strategy_id = st.id
                 WHERE (s.strategy_id IS NULL OR st.user_id = ${user.id})
-                AND (s.timeframe = ${timeframe} OR s.timeframe IS NULL)
+                AND (
+                    ${timeframe} = 'all' OR 
+                    s.timeframe = ${timeframe} OR 
+                    s.timeframe IS NULL
+                )
                 AND s.timestamp > ${fortyEightHoursAgo}
+                ORDER BY s.timestamp DESC
+                LIMIT 2000
             )
             UNION ALL
             (
@@ -55,9 +63,10 @@ export async function GET(request: Request) {
                 FROM system_logs
                 WHERE (user_id = ${user.id} OR user_id IS NULL)
                 AND timestamp > ${fortyEightHoursAgo}
+                ORDER BY timestamp DESC
+                LIMIT 500
             )
             ORDER BY timestamp DESC
-            LIMIT 500
         `;
 
     return NextResponse.json(rows);

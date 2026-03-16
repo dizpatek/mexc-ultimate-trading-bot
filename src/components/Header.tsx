@@ -30,7 +30,7 @@ const TF_ITEMS: { id: Timeframe; short: string }[] = [
   { id: "4h", short: "4h" },
   { id: "1d", short: "1d" },
   { id: "1w", short: "1w" },
-  { id: "1M", short: "1M" },
+  { id: "1Mo", short: "1Mo" },
 ];
 
 const TimeframeBar = () => {

@@ -363,6 +363,14 @@ async function runSchemaMigrations() {
   } catch {
     /* ignore */
   }
+
+  // Portfolio snapshots & Performance metrics migrations
+  try {
+    await sql`ALTER TABLE portfolio_snapshots ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)`;
+    await sql`ALTER TABLE performance_metrics ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)`;
+  } catch {
+    /* ignore */
+  }
 }
 
 async function createDefaultConfigs() {

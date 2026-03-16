@@ -10,7 +10,7 @@ import React, {
   type ReactNode,
 } from "react";
 
-export type Timeframe = "1m" | "15m" | "1h" | "4h" | "1d" | "1w" | "1M";
+export type Timeframe = "1m" | "15m" | "1h" | "4h" | "1d" | "1w" | "1Mo";
 
 interface TimeframeContextValue {
   /** The global timeframe selected in the sidebar */
@@ -32,7 +32,7 @@ const TIMEFRAME_LABELS: Record<Timeframe, string> = {
   "4h": "4 Hours",
   "1d": "1 Day",
   "1w": "1 Week",
-  "1M": "1 Month",
+  "1Mo": "1 Month",
 };
 
 const TimeframeContext = createContext<TimeframeContextValue | undefined>(

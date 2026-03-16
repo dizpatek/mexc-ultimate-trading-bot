@@ -41,10 +41,12 @@ export async function DELETE(request: Request) {
       `[Admin] Purging data for User ${targetId} via individual queries in transaction...`,
     );
 
-    await client.query("BEGIN");
-
-    // Execute deletions sequentially within the same transaction to satisfy driver compatibility
+    // Execute deletions sequentially
     const queries = [
+      {
+        sql: "DELETE FROM system_logs WHERE user_id = $1 OR user_id = $2",
+        params: [userIdNum, userIdStr],
+      },
       {
         sql: "DELETE FROM alarm_logs WHERE alarm_id IN (SELECT id FROM alarms WHERE user_id = $1 OR user_id = $2)",
         params: [userIdNum, userIdStr],
@@ -93,10 +95,6 @@ export async function DELETE(request: Request) {
         sql: "DELETE FROM portfolio_snapshots WHERE user_id = $1 OR user_id = $2",
         params: [userIdNum, userIdStr],
       },
-      {
-        sql: "DELETE FROM trailing_stops WHERE user_id = $1 OR user_id = $2",
-        params: [userIdNum, userIdStr],
-      },
       { sql: "DELETE FROM users WHERE id = $1", params: [userIdNum] },
     ];
 
@@ -105,15 +103,13 @@ export async function DELETE(request: Request) {
         await client.query(q.sql, q.params);
       } catch (err: unknown) {
         console.warn(
-          `[Admin] Purge Step Fail: ${err instanceof Error ? err.message : String(err)}`,
+          `[Admin] Purge Step Fail on query: ${q.sql}. Error: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
 
-    await client.query("COMMIT");
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
-    await client.query("ROLLBACK").catch(() => {});
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   } finally {

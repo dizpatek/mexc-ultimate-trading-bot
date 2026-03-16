@@ -15,8 +15,8 @@ import {
   EyeOff,
   Activity,
   Zap,
-  Cpu,
 } from "lucide-react";
+import { MatrixLogo } from "./MatrixLogo";
 
 // ============================================================
 // MATRIX HORIZON — AUTHENTIC "ENTER THE MATRIX" LOGIN
@@ -109,7 +109,7 @@ const MatrixRainCanvas: React.FC = () => {
 
 const StatusPanel: React.FC = () => {
   return (
-    <div className="mt-8 bg-black/80 border-t border-emerald-500/30 pt-4 backdrop-blur-md">
+    <div className="mt-8 bg-transparent border-t border-emerald-500/30 pt-4 backdrop-blur-md">
       <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-[10px] font-mono uppercase tracking-[0.2em] text-emerald-500/80">
         <div className="flex justify-between items-center">
           <span>System Status</span>
@@ -265,37 +265,57 @@ const LoginForm: React.FC = () => {
         style={{ rotateX: springX, rotateY: springY, transformStyle: "preserve-3d" }}
         animate={{ y: [0, -10, 0] }}
         transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-        className={`max-w-[420px] w-full relative z-20 group transition-transform ${glitch ? 'translate-x-[4px] skew-y-1' : ''}`}
+        className={`max-w-[380px] w-full relative z-20 group transition-transform ${glitch ? 'translate-x-[4px] skew-y-1' : ''}`}
       >
-        <div className="absolute -inset-[3px] rounded-lg opacity-60 blur-md animate-rgb-border pointer-events-none" />
-        <div className="absolute -inset-[2px] rounded-sm bg-black z-0 pointer-events-none" />
-
-        <div className="relative bg-black/90 border border-white/10 p-8 sm:p-10 shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden backdrop-blur-xl">
+        <div className="relative bg-black/20 border border-emerald-500/30 p-6 sm:p-8 shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden backdrop-blur-2xl">
           <div className="absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 border-emerald-500/50" />
           <div className="absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 border-red-500/50" />
           <div className="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-blue-500/50" />
           <div className="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-white/20" />
 
-          <div className="flex flex-col items-center mb-10" style={{ transform: "translateZ(50px)" }}>
-            <div className="relative mb-6">
-              <div className="absolute inset-0 bg-emerald-500 blur-2xl opacity-30 scale-150 animate-pulse" />
-              <div className="relative bg-black border-2 border-emerald-500 p-4 shadow-[0_0_20px_#0F0]">
-                <Cpu className="w-8 h-8 text-emerald-400" />
-              </div>
+          <div className="flex flex-col items-center mb-6" style={{ transform: "translateZ(60px)" }}>
+            <div className="relative mb-4 group/logo" style={{ transformStyle: "preserve-3d" }}>
+              {/* 3D Base Reflection / Shadow */}
+              <div 
+                className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-8 h-1 bg-emerald-500/20 blur-md rounded-full" 
+                style={{ transform: "translateZ(-20px) rotateX(90deg)" }}
+              />
+              
+              <div className="absolute -inset-4 bg-emerald-500 blur-3xl opacity-10 group-hover/logo:opacity-20 transition-opacity animate-pulse" />
+              
+              {/* Primary 3D Container */}
+              <motion.div 
+                className="relative bg-slate-900/80 border border-slate-700/50 p-3 rounded-2xl group-hover:border-emerald-500/50 transition-colors shadow-[0_0_30px_rgba(16,185,129,0.1)] backdrop-blur-md"
+                style={{ transform: "translateZ(30px)" }}
+                animate={{ 
+                  y: [0, -4, 0],
+                  rotateY: [0, 5, 0, -5, 0],
+                  rotateX: [0, -5, 0, 5, 0]
+                }}
+                transition={{ 
+                  duration: 6, 
+                  repeat: Infinity, 
+                  ease: "easeInOut" 
+                }}
+              >
+                <div style={{ transform: "translateZ(20px)" }}>
+                  <MatrixLogo size={36} />
+                </div>
+              </motion.div>
             </div>
             <div className="text-center">
-              <h1 className="text-3xl sm:text-4xl matrix-font tracking-[0.1em] text-white uppercase leading-tight">
+              <h1 className="text-2xl sm:text-3xl matrix-font tracking-[0.1em] text-white uppercase leading-tight">
                 ENTER THE<br/>MATRIX
               </h1>
-              <div className="h-[2px] w-full bg-gradient-to-r from-red-500 via-emerald-500 to-blue-500 mt-4 shadow-[0_0_10px_#0F0]" />
+              <div className="h-[2px] w-full bg-gradient-to-r from-red-500 via-emerald-500 to-blue-500 mt-2 shadow-[0_0_10px_#0F0]" />
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6" style={{ transform: "translateZ(30px)" }}>
+          <form onSubmit={handleSubmit} className="space-y-4" style={{ transform: "translateZ(30px)" }}>
             {loading ? (
               <div className="py-10 flex flex-col items-center justify-center space-y-6">
                 <div className="w-16 h-16 border-4 border-emerald-500/10 border-t-emerald-400 rounded-full animate-spin shadow-[0_0_20px_#0F0]" />
-                <div className="w-full bg-black border border-emerald-500/20 p-4 font-mono h-32 overflow-hidden flex flex-col-reverse text-[11px] leading-relaxed text-emerald-600">
+                <div className="w-full bg-black/40 border border-emerald-500/20 p-4 font-mono h-32 overflow-hidden flex flex-col-reverse text-[11px] leading-relaxed text-emerald-600">
                   {logs.slice().reverse().map((log, i) => (
                     <div key={i} className={i === 0 ? "text-white animate-pulse" : ""}>{log}</div>
                   ))}
@@ -310,7 +330,7 @@ const LoginForm: React.FC = () => {
                       <input
                         type="text"
                         required
-                        className="w-full px-4 py-3 bg-black border-2 border-white/5 text-white font-mono text-sm focus:outline-none focus:border-red-500/50 transition-all"
+                        className="w-full px-4 py-3 bg-black/30 border-2 border-white/5 text-white font-mono text-sm focus:outline-none focus:border-red-500/50 transition-all"
                         placeholder="NEO"
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
@@ -369,7 +389,7 @@ const LoginForm: React.FC = () => {
 
                 <button
                   type="submit"
-                  className="w-full py-4 bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase tracking-[0.4em] relative overflow-hidden group/btn disabled:opacity-50 transition-all shadow-[0_0_30px_#F00]"
+                  className="w-full py-3 bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase tracking-[0.4em] relative overflow-hidden group/btn disabled:opacity-50 transition-all shadow-[0_0_30px_#F00]"
                 >
                   <div className="absolute inset-0 bg-white/10 translate-x-full group-hover/btn:translate-x-0 transition-transform duration-500" />
                   <div className="relative flex items-center justify-center gap-3">
@@ -382,7 +402,7 @@ const LoginForm: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => triggerGoogleLogin()}
-                    className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs uppercase tracking-[0.4em] relative overflow-hidden group/google transition-all shadow-[0_0_30px_#00F]"
+                    className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs uppercase tracking-[0.4em] relative overflow-hidden group/google transition-all shadow-[0_0_30px_#00F]"
                   >
                     <div className="absolute inset-0 bg-white/10 translate-x-full group-hover/google:translate-x-0 transition-transform duration-500" />
                     <div className="relative flex items-center justify-center gap-3">

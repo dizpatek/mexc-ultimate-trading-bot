@@ -24,6 +24,22 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Add global error handler for 401 Unauthorized
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      if (typeof window !== "undefined") {
+        console.warn("[API] 401 Unauthorized detected. Clearing session.");
+        localStorage.removeItem("token");
+        // Dispatch custom event to notify components/contexts
+        window.dispatchEvent(new Event("api-auth-logout"));
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 export { api };
 
 export interface PortfolioData {

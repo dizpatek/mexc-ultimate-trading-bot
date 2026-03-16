@@ -26,6 +26,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         })
         .catch(() => {
           localStorage.removeItem("token");
+          setUser(null);
         })
         .finally(() => {
           // Use setTimeout to avoid synchronous setState in effect
@@ -35,6 +36,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Use setTimeout to avoid synchronous setState in effect
       setTimeout(() => setLoading(false), 0);
     }
+
+    // Global 401 Handler Listener
+    const handleAuthLogout = () => {
+      console.log("[AuthContext] Global logout triggered via api-auth-logout event");
+      setUser(null);
+      // Optional: Add redirect logic or notification here
+    };
+
+    window.addEventListener("api-auth-logout", handleAuthLogout);
+    return () => window.removeEventListener("api-auth-logout", handleAuthLogout);
   }, []);
 
   const login = async (email: string, password: string): Promise<boolean> => {

@@ -299,42 +299,43 @@ export const CombatLog = () => {
                   <div
                     key={log.id}
                     className={cn(
-                      "flex gap-2 group p-2 rounded transition-all border animate-in fade-in slide-in-from-right-1 duration-200",
+                      "flex items-start justify-between gap-3 group p-2 rounded transition-all border animate-in fade-in slide-in-from-right-1 duration-200",
                       style.bg,
                       style.border,
                       style.glow
                     )}
                   >
-                    <span className="text-slate-600 shrink-0 select-none opacity-60 text-[9px] min-w-[55px]">
-                      [
+                    <div className="flex gap-2 min-w-0">
+                      <span
+                        className={cn(
+                          "shrink-0 select-none font-bold opacity-80 mt-0.5",
+                          style.icon,
+                        )}
+                      >
+                        {">"}_{" "}
+                      </span>
+                      <span
+                        className={cn(
+                          "flex-1 break-word",
+                          style.text,
+                        )}
+                      >
+                        {log.message}
+                        {isGroup && (
+                          <span className="ml-2 px-1 rounded bg-white/10 text-[9px] font-black tracking-tighter align-middle">
+                            x{(log as any).count}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+
+                    <span className="text-slate-600 shrink-0 select-none opacity-40 text-[8px] font-mono mt-0.5 bg-black/20 px-1.5 py-0.5 rounded border border-white/5">
                       {new Date(log.timestamp).toLocaleTimeString([], {
                         hour12: false,
                         hour: "2-digit",
                         minute: "2-digit",
                         second: "2-digit",
                       })}
-                      ]
-                    </span>
-                    <span
-                      className={cn(
-                        "shrink-0 select-none font-bold opacity-80",
-                        style.icon,
-                      )}
-                    >
-                      {">"}_{" "}
-                    </span>
-                    <span
-                      className={cn(
-                        "flex-1 break-word",
-                        style.text,
-                      )}
-                    >
-                      {log.message}
-                      {isGroup && (
-                        <span className="ml-2 px-1 rounded bg-white/10 text-[9px] font-black tracking-tighter align-middle">
-                          x{(log as any).count}
-                        </span>
-                      )}
                     </span>
                   </div>
                 );

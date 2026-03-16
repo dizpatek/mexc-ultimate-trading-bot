@@ -314,16 +314,26 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
         missingMtfTrades.forEach((t) => fetchMtfAnalysis(t.id, t.symbol));
       }
     }
-  }, [trades, timeframe, fetchMultipleMtfAnalysis, fetchMtfAnalysis]); // Removed mtfData dependencies
+  }, [trades, fetchMultipleMtfAnalysis, fetchMtfAnalysis]); // Removed timeframe and mtfData dependencies
+
   useEffect(() => {
-    // Sadece aktif işlemleri al
+    // Sadece aktif işlemleri al ve hem anlık sinyalleri hem de MTF verilerini tazele
     const syncLiveOnly = () => {
       const activeTrades = trades.filter((t) => t.status !== "CLOSED");
       if (activeTrades.length === 0) return;
+      
       const activeSymbols = [
         ...new Set(activeTrades.map((t) => t.symbol.replace("/", ""))),
       ];
+      
+      // Küresel timeframe için anlık sinyalleri çek (Diğer UI bileşenleri için)
       if (fetchLiveSignals) fetchLiveSignals(activeSymbols, timeframe);
+
+      // Aktif işlemlerin kendi timeframeleri için MTF verilerini tazele
+      if (fetchMultipleMtfAnalysis) {
+        const mtfList = activeTrades.map(t => ({ id: t.id, symbol: t.symbol.replace("/", "") }));
+        fetchMultipleMtfAnalysis(mtfList);
+      }
     };
 
     syncLiveOnly();
@@ -415,7 +425,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
       >
         <div className="bg-[#0f172a]/20 backdrop-blur-xl border border-slate-800/60 rounded-2xl overflow-x-auto custom-scrollbar shadow-[0_0_50px_-12px_rgba(0,0,0,0.5)]">
           {/* HEADERS */}
-          <div className="flex items-center gap-1.5 pl-8 pr-3 py-2.5 border-b border-white/5 bg-slate-950/60 text-[9px] font-black text-slate-500 uppercase tracking-widest text-center min-w-[1240px] w-full">
+          <div className="flex items-center gap-1.5 pl-8 pr-3 py-2.5 border-b border-white/5 bg-slate-950/60 text-[9px] font-black text-slate-500 uppercase tracking-widest text-center min-w-[1400px] w-full">
             <div className="w-[120px] shrink-0 flex items-center justify-center gap-1">PARİTE</div>
             <div className="w-[150px] shrink-0 flex items-center justify-center gap-1">
               GİRİŞ / PİYASA
@@ -427,7 +437,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
             <div className="flex-1 min-w-[240px] flex items-center justify-center gap-1">
               AKILLI HEDEFLER
             </div>
-            <div className="w-[280px] shrink-0 flex items-center justify-center gap-1">
+            <div className="w-[280px] shrink-0 hidden xl:flex items-center justify-center gap-1">
               MTF ANALİZİ
             </div>
             <div className="w-[150px] shrink-0 flex items-center justify-center gap-1">
@@ -456,7 +466,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
             <div className="w-[28px] shrink-0"></div>
           </div>
 
-          <div className="divide-y divide-white/5 max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent min-w-[1240px] w-full">
+          <div className="divide-y divide-white/5 max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent min-w-[1400px] w-full">
             {trades.filter((t) =>
               activeTab === "AKTIF"
                 ? t.status === "FILLED" || t.status === "PENDING"
@@ -543,9 +553,11 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                     !isClosed &&
                     !!(meta as any).tslActivated;
 
-                  // CANLI sinyal verisinden AI Score ve STATUS — Shared Lib kullanılıyor
+                  // CANLI sinyal verisinden AI Score ve STATUS — Trade'in kendi timeframe'ini kullan
                   const symNorm = trade.symbol.replace("/", "");
-                  const liveData = liveSignals[symNorm] || null;
+                  const orderTf = (meta.payload?.timeframe as string) || timeframe;
+                  const mtfResults = mtfData[trade.id] || {};
+                  const liveData = mtfResults[orderTf] || liveSignals[symNorm] || null;
 
                   const {
                     statusText,
@@ -574,7 +586,6 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                   const isSellExit = trade.side === "SELL" && isClosed;
 
                   // MTF Verdict Calculation
-                  const mtfResults = mtfData[trade.id] || {};
                   const allTfs = MTF_INTERVALS.map(
                     (tf) => mtfResults[tf],
                   ).filter(Boolean);
@@ -602,7 +613,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                       )}
                     >
                       <div
-                        className="flex items-center gap-1.5 pl-8 pr-3 py-2 cursor-pointer min-w-[1240px] w-full"
+                        className="flex items-center gap-1.5 pl-8 pr-3 py-2 cursor-pointer min-w-[1400px] w-full"
                         onClick={() => {
                           const next = isExpanded ? null : trade.id;
                           setExpandedTrade(next);
@@ -733,7 +744,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                             </span>
                             {liveData && (
                               <span className="text-[8px] text-slate-600 font-bold px-1 bg-slate-800/50 rounded">
-                                {timeframe.toUpperCase()}
+                                {orderTf.toUpperCase()}
                               </span>
                             )}
                           </div>
@@ -775,7 +786,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                             meta={meta}
                             side={trade.side}
                             isClosed={isClosed}
-                            timeframe={timeframe}
+                            timeframe={orderTf}
                             liveData={liveData}
                             statusText={statusText}
                             statusColor={statusColor}
@@ -845,7 +856,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
 
                         {/* YENİ SÜTUN 1: MTF ANALYSIS (COMPACT) */}
                         <div
-                          className="flex items-center justify-center gap-1 overflow-hidden w-[280px] shrink-0"
+                          className="hidden xl:flex items-center justify-center gap-1 overflow-hidden w-[280px] shrink-0"
                           onClick={(e) => {
                             e.stopPropagation();
                             fetchMtfAnalysis(

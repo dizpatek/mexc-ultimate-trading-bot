@@ -37,7 +37,7 @@ export const HorizonLayout = ({
       </div>
 
       {/* CONTENT WRAPPER */}
-      <div className="relative z-10 flex flex-row h-screen">{children}</div>
+      <div className="relative z-10 flex flex-col lg:flex-row h-screen pb-16 lg:pb-0">{children}</div>
     </div>
   );
 };

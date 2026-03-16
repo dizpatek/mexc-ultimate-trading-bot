@@ -87,6 +87,10 @@ export interface F4Data {
   f4ConfirmedBuy?: boolean;
   f4ConfirmedSell?: boolean;
 
+  // Funding & Sentiment
+  fundingRate?: number;
+  fundingImpact?: string;
+
   error?: string;
 }
 

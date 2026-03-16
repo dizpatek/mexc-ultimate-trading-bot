@@ -1541,7 +1541,7 @@ export const MatrixHorizon = () => {
                           {h.time}
                         </span>
                         <span className="text-[9px] font-black text-slate-400">
-                          {h.symbol}/{h.tf}
+                          {h.symbol.replace('/USDT', '').replace('USDT', '')}/{h.tf}
                         </span>
                         <div className="flex items-center gap-1.5">
                           <span className="text-xs">{hv.icon}</span>

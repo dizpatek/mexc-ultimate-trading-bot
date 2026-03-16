@@ -22,6 +22,8 @@ export interface F4Live {
   tfAdaptFactor?: number;
   whaleDetected?: boolean;
   whaleStatus?: string;
+  fundingRate?: number;
+  fundingImpact?: string;
 }
 
 // --- Activity Log Event Types ---

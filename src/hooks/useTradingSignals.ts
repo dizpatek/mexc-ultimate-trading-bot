@@ -117,6 +117,8 @@ export function useTradingSignals() {
         f4EarlySell: d.f4EarlySell ?? false,
         f4ConfirmedBuy: d.f4ConfirmedBuy ?? false,
         f4ConfirmedSell: d.f4ConfirmedSell ?? false,
+        fundingRate: d.fundingRate,
+        fundingImpact: d.fundingImpact,
       };
     },
     [],

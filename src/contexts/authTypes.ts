@@ -15,6 +15,12 @@ export interface AuthContextType {
     email: string,
     password: string,
   ) => Promise<boolean>;
+  googleLogin: (googleData: {
+    googleId: string;
+    email: string;
+    name: string;
+    picture?: string;
+  }) => Promise<boolean>;
   logout: () => void;
   loading: boolean;
 }

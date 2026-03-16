@@ -4,9 +4,9 @@ import { sql, pool } from "@/lib/postgres";
 import {
   invalidateSimulator,
   INITIAL_PORTFOLIO,
-  DEFAULT_TIMEFRAME_SETTINGS,
-  resetSimulatorDatabase
+  resetSimulatorDatabase,
 } from "@/lib/trading-simulator";
+import { DEFAULT_TIMEFRAME_SETTINGS } from "@/lib/constants/bot-defaults";
 import { setSetting } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
@@ -59,7 +59,10 @@ export async function POST(request: Request) {
       `[Reset] Wipe complete. User ${user.id} has ~$110k portfolio reset.`,
     );
 
-    const assetList = INITIAL_PORTFOLIO.map((a) => `${a.s}`).join(", ");
+    const assetList = INITIAL_PORTFOLIO.map((a: { s: string }) => `${a.s}`).join(", ");
+
+    // DEFAULT_TIMEFRAME_SETTINGS kullanılabilir: örn. log veya response için
+    void DEFAULT_TIMEFRAME_SETTINGS;
 
     return NextResponse.json({
       success: true,

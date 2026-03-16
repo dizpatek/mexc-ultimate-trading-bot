@@ -13,6 +13,7 @@
     "telegram:dev": "python telegram_signal_listener.py"
   },
   "dependencies": {
+    "@react-oauth/google": "^0.13.4",
     "@tanstack/react-query": "^5.90.16",
     "@vercel/functions": "^3.4.3",
     "@vercel/postgres": "^0.10.0",

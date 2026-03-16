@@ -238,15 +238,43 @@ class ApiCore {
     this.portfolio = new PortfolioKernel();
 
     if (typeof window !== "undefined") {
-      console.log("[ApiCore] Client environment detected, starting kernels...");
-      this.market.start();
-      this.portfolio.start();
+      console.log("[ApiCore] Client environment detected. Checking auth state...");
+      
+      const checkAndStart = () => {
+        const token = localStorage.getItem("token");
+        if (token) {
+           console.log("[ApiCore] Token found, starting kernels...");
+           this.market.start();
+           this.portfolio.start();
+        } else {
+           console.log("[ApiCore] No token found, keeping kernels idle.");
+           this.market.stop();
+           this.portfolio.stop();
+        }
+      };
 
-      // Listen for mode changes to force immediate data refresh
+      checkAndStart();
+
+      // Listen for mode changes
       window.addEventListener("tradingModeChanged", () => {
-        console.log("[ApiCore] Trading mode changed, refreshing kernels...");
-        this.portfolio.refresh();
-        this.market.refresh();
+        const token = localStorage.getItem("token");
+        if (token) {
+          this.portfolio.refresh();
+          this.market.refresh();
+        }
+      });
+
+      // Listen for auth events from api.ts
+      window.addEventListener("api-auth-logout", () => {
+        console.log("[ApiCore] Logout event received, stopping kernels.");
+        this.market.stop();
+        this.portfolio.stop();
+      });
+
+      // Allow manual start (e.g. after login)
+      window.addEventListener("api-auth-login", () => {
+        console.log("[ApiCore] Login event received, starting kernels.");
+        checkAndStart();
       });
     } else {
       console.log("[ApiCore] SSR environment detected, kernels in idle mode.");
@@ -256,10 +284,6 @@ class ApiCore {
   public static getInstance(): ApiCore {
     if (!ApiCore.instance) {
       ApiCore.instance = new ApiCore();
-    } else if (typeof window !== "undefined") {
-      // Ensure running if instance existed but was idle
-      ApiCore.instance.market.start();
-      ApiCore.instance.portfolio.start();
     }
     return ApiCore.instance;
   }

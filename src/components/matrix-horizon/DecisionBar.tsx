@@ -1,6 +1,6 @@
 import React from "react";
 import { cn } from "@/lib/utils";
-import { Shield, Sparkles, Play, Pause, Activity, Zap, X } from "lucide-react";
+import { Shield, Sparkles, Play, Pause, Activity, Zap, X, ArrowUp, ArrowDown, Brain } from "lucide-react";
 
 interface DecisionBarProps {
   decision: "İŞLEM AÇ ✅" | "BEKLE ❌" | "SATIŞ YAP 📉";
@@ -10,6 +10,11 @@ interface DecisionBarProps {
   riskMode: "safe" | "normal" | "aggressive";
   pilotStatus?: "IDLE" | "SCANNING" | "EXECUTING";
   onRiskModeChange: (mode: "safe" | "normal" | "aggressive") => void;
+  // === MATRIX HORIZON FAZ 4: Yeni bileşen prop'ları ===
+  aiSummary?: string;
+  kellyFraction?: number;
+  projectionBias?: "BULLISH" | "BEARISH" | "NEUTRAL";
+  projectionConfidence?: number;
 }
 
 export const DecisionBar: React.FC<DecisionBarProps> = ({
@@ -20,6 +25,10 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
   riskMode,
   pilotStatus = "IDLE",
   onRiskModeChange,
+  aiSummary,
+  kellyFraction = 0,
+  projectionBias = "NEUTRAL",
+  projectionConfidence = 50,
 }) => {
   const isLong = decision === "İŞLEM AÇ ✅";
   const isShort = decision === "SATIŞ YAP 📉";
@@ -153,7 +162,66 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
 
       </div>
 
-      {/* ROW 2: RISK SWITCHES - Aligned with the above */}
+      {/* ROW 2: MATRIX HORIZON FAZ 4 — AI Summary + Kelly + Projeksiyon */}
+      {aiSummary && (
+        <div className="w-full relative z-10 px-1">
+          <div className="flex flex-col gap-1.5 bg-slate-950/90 border border-slate-800/60 rounded-xl p-2 shadow-inner">
+            {/* AI Summary */}
+            <div className="flex items-start gap-2">
+              <Brain className="w-3 h-3 text-violet-400 mt-0.5 flex-shrink-0 animate-pulse" />
+              <p className="text-[8px] sm:text-[9px] text-slate-300 font-medium leading-relaxed line-clamp-2">
+                {aiSummary}
+              </p>
+            </div>
+
+            {/* Kelly + Projeksiyon Satiri */}
+            <div className="flex items-center gap-2">
+              {/* Kelly Orani */}
+              <div className="flex items-center gap-1 bg-slate-900/80 border border-slate-700/60 rounded-lg px-2 py-1 flex-shrink-0">
+                <span className="text-[7px] uppercase font-black tracking-wider text-slate-500">KELLY</span>
+                <span className={cn(
+                  "text-[9px] font-black font-mono",
+                  kellyFraction >= 0.15 ? "text-rose-400" : kellyFraction >= 0.08 ? "text-amber-400" : "text-emerald-400"
+                )}>
+                  %{(kellyFraction * 100).toFixed(0)}
+                </span>
+              </div>
+
+              {/* Projeksiyon Guven */}
+              <div className="flex items-center gap-1 bg-slate-900/80 border border-slate-700/60 rounded-lg px-2 py-1 flex-shrink-0">
+                {projectionBias === "BULLISH" ? (
+                  <ArrowUp className="w-3 h-3 text-emerald-400" />
+                ) : projectionBias === "BEARISH" ? (
+                  <ArrowDown className="w-3 h-3 text-rose-400" />
+                ) : (
+                  <Activity className="w-3 h-3 text-slate-400" />
+                )}
+                <span className={cn(
+                  "text-[8px] font-black font-mono",
+                  projectionBias === "BULLISH" ? "text-emerald-400" :
+                  projectionBias === "BEARISH" ? "text-rose-400" : "text-slate-400"
+                )}>
+                  {projectionBias} {projectionConfidence.toFixed(0)}%
+                </span>
+              </div>
+
+              {/* Kelly Goster Cubugu */}
+              <div className="flex-1 h-1.5 bg-slate-800/80 rounded-full overflow-hidden">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all duration-700",
+                    kellyFraction >= 0.15 ? "bg-rose-500" :
+                    kellyFraction >= 0.08 ? "bg-amber-500" : "bg-emerald-500"
+                  )}
+                  style={{ width: `${Math.min(100, kellyFraction * 400)}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ROW 3: RISK SWITCHES */}
       <div className="w-full flex justify-center z-10 px-0 sm:px-4">
         <div className="flex items-center justify-between w-full gap-1 bg-slate-950/90 backdrop-blur-3xl border border-slate-800/80 rounded-xl p-1 shadow-2xl">
           {[

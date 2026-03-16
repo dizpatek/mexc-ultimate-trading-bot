@@ -82,7 +82,7 @@ export default function Dashboard() {
     <HorizonLayout>
       <Header />
 
-      <main className="flex-1 min-w-0 px-2 md:px-4 lg:px-6 py-0.5 md:py-1 lg:py-1.5 space-y-1 overflow-y-auto max-w-full mx-auto w-full pb-24 no-scrollbar">
+      <main className="flex-1 min-w-0 px-2 md:px-4 lg:px-6 py-0.5 md:py-1 lg:py-1.5 space-y-1 overflow-y-auto max-w-full mx-auto w-full pb-4 no-scrollbar">
         {/* MATRIX MISSION CONTROL (Full Width) */}
         <div className="w-full min-h-[400px]">
           <HorizonCard

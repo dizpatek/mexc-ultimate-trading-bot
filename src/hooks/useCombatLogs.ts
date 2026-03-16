@@ -207,6 +207,12 @@ export function useCombatLogs(timeframe: string = "4h") {
   const [error, setError] = useState<string | null>(null);
 
   const fetchLogs = useCallback(async () => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (!token) {
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const response = await api.get(`/logs/signals?timeframe=${timeframe}`);
       const data = response.data;
@@ -218,13 +224,19 @@ export function useCombatLogs(timeframe: string = "4h") {
       }
     } catch (err) {
       console.error("Fetch Logs Error:", err);
-      setError("Veri Çekilemedi");
+      // Don't set error message for 401 as it's handled globally
+      if (!(err instanceof AxiosError && err.response?.status === 401)) {
+        setError("Veri Çekilemedi");
+      }
     } finally {
       setIsLoading(false);
     }
   }, [timeframe]);
 
   const triggerScan = useCallback(async (isManual: boolean = false) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (!token) return;
+
     const now = Date.now();
     
     // 1. Same-tab shared lock
@@ -262,6 +274,8 @@ export function useCombatLogs(timeframe: string = "4h") {
         } else if (err.response?.status === 400) {
           const msg = err.response.data?.error || "Geçersiz İstek";
           setError(msg);
+          setScanStatus("idle");
+        } else if (err.response?.status === 401) {
           setScanStatus("idle");
         } else {
           console.error("Signal Scan Error:", err);

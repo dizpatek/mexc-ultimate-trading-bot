@@ -41,7 +41,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const handleAuthLogout = () => {
       console.log("[AuthContext] Global logout triggered via api-auth-logout event");
       setUser(null);
-      // Optional: Add redirect logic or notification here
     };
 
     window.addEventListener("api-auth-logout", handleAuthLogout);
@@ -54,6 +53,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const { token, user: userData } = response.data;
       localStorage.setItem("token", token);
       setUser(userData);
+      window.dispatchEvent(new Event("api-auth-login"));
       return true;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Login failed";
@@ -75,6 +75,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const { token, user: userData } = response.data;
       localStorage.setItem("token", token);
       setUser(userData);
+      window.dispatchEvent(new Event("api-auth-login"));
       return true;
     } catch (error: unknown) {
       const message =
@@ -83,9 +84,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  const googleLogin = async (googleData: {
+    googleId: string;
+    email: string;
+    name: string;
+    picture?: string;
+  }): Promise<boolean> => {
+    try {
+      const response = await api.post("/auth/google", googleData);
+      const { token, user: userData } = response.data;
+      localStorage.setItem("token", token);
+      setUser(userData);
+      window.dispatchEvent(new Event("api-auth-login"));
+      return true;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Google Auth failed";
+      throw new Error(message);
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem("token");
     setUser(null);
+    window.dispatchEvent(new Event("api-auth-logout"));
 
     // Matrix Bridge Integration: Clear TV Session
     localStorage.removeItem("tv_login_status");
@@ -105,6 +126,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     user,
     login,
     register,
+    googleLogin,
     logout,
     loading,
   };

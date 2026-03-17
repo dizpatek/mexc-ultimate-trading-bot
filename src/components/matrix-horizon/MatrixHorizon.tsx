@@ -1702,6 +1702,8 @@ const CommandBar = ({
           <button onClick={() => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), tradeMode: "Scalp" } })} className={cn("px-2 py-1 rounded text-[8px] font-black tracking-widest uppercase transition-all", resolveTradeMode(config) === "Scalp" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40" : "text-slate-500 hover:text-white")}>SCALP</button>
           <button onClick={() => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), tradeMode: "Swing" } })} className={cn("px-2 py-1 rounded text-[8px] font-black tracking-widest uppercase transition-all", resolveTradeMode(config) === "Swing" ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/40" : "text-slate-500 hover:text-white")}>SWING</button>
         </div>
+        <div className="w-[1px] h-4 bg-slate-800 mx-1" />
+        <button onClick={() => setShowSettings(!showSettings)} className={cn("p-1.5 rounded-lg border transition-all", showSettings ? "bg-cyan-500/10 border-cyan-500/50 text-cyan-400" : "border-slate-800 text-slate-500 hover:text-white")}><Settings className="w-3.5 h-3.5" /></button>
       </div>
     </div>
     <div className="flex flex-wrap items-center gap-2">
@@ -1733,8 +1735,6 @@ const CommandBar = ({
           {aiLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
           <span className="hidden xl:inline">{aiLoading ? "HESAPLANIYOR" : "ŞEF"}</span>
         </button>
-        <div className="w-[1px] h-4 bg-slate-800 mx-1" />
-        <button onClick={() => setShowSettings(!showSettings)} className={cn("p-1.5 rounded-lg border transition-all", showSettings ? "bg-cyan-500/10 border-cyan-500/50 text-cyan-400" : "border-slate-800 text-slate-500 hover:text-white")}><Settings className="w-3.5 h-3.5" /></button>
       </div>
     </div>
   </div>
@@ -1815,6 +1815,30 @@ const SettingsPanel = ({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
         <div className="space-y-4">
           <div className="flex items-center justify-between bg-slate-900/50 p-2.5 rounded-lg border border-white/5"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gecikmeli Alım</span><button onClick={() => saveConfig({ pilot_trailing_buy: !config.pilot_trailing_buy })} className={cn("px-2.5 py-1 rounded text-[9px] font-black uppercase transition-all shadow-sm", config.pilot_trailing_buy ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-slate-950 text-slate-600 border border-slate-800")}>{config.pilot_trailing_buy ? "AKTİF" : "PASİF"}</button></div>
           <div className="flex items-center justify-between bg-slate-900/50 p-2.5 rounded-lg border border-white/5"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Portföyü Tara</span><button onClick={() => saveConfig({ pilot_only_holdings: !(config.pilot_only_holdings ?? DEFAULT_BOT_CONFIG.pilot_only_holdings) })} className={cn("px-2.5 py-1 rounded text-[9px] font-black uppercase transition-all shadow-sm", (config.pilot_only_holdings ?? DEFAULT_BOT_CONFIG.pilot_only_holdings) ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30" : "bg-slate-950 text-slate-600 border border-slate-800")}>{(config.pilot_only_holdings ?? DEFAULT_BOT_CONFIG.pilot_only_holdings) ? "AKTİF" : "PASİF"}</button></div>
+          <div className="flex items-center justify-between bg-slate-900/50 p-2.5 rounded-lg border border-white/5">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">MTF Veto (Çapraz Zaman)</span>
+            <button 
+              onClick={() => saveConfig({ pilot_mtf_veto: !((config.pilot_mtf_veto ?? DEFAULT_BOT_CONFIG.pilot_mtf_veto)) })} 
+              className={cn("px-2.5 py-1 rounded text-[9px] font-black uppercase transition-all shadow-sm", (config.pilot_mtf_veto ?? DEFAULT_BOT_CONFIG.pilot_mtf_veto) ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : "bg-slate-950 text-slate-600 border border-slate-800")}
+            >
+              {(config.pilot_mtf_veto ?? DEFAULT_BOT_CONFIG.pilot_mtf_veto) ? "AKTİF" : "PASİF"}
+            </button>
+          </div>
+          {(config.pilot_mtf_veto ?? DEFAULT_BOT_CONFIG.pilot_mtf_veto) && (
+            <div className="bg-slate-900/50 p-3 rounded-lg border border-white/5 animate-in fade-in slide-in-from-right-2">
+              <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
+                <span>Eşik (Threshold)</span>
+                <span className="text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">{(config.pilot_mtf_threshold ?? DEFAULT_BOT_CONFIG.pilot_mtf_threshold)}%</span>
+              </div>
+              <input 
+                type="range" min="10" max="100" step="5" 
+                value={(config.pilot_mtf_threshold ?? DEFAULT_BOT_CONFIG.pilot_mtf_threshold)} 
+                onChange={(e) => saveConfig({ pilot_mtf_threshold: parseInt(e.target.value) })} 
+                className="w-full h-1.5 accent-amber-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-amber-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" 
+              />
+              <div className="mt-1 text-[8px] text-slate-500 italic">4 TF taramasında 3/4 onayı için %70 önerilir.</div>
+            </div>
+          )}
           <div className="bg-slate-900/50 p-3 rounded-lg border border-white/5"><div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2"><span>İşlem Büyüklüğü</span><span className="text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded">{((config.timeframe_settings as any)?.pilot_trade_allocation || 10)}%</span></div><input type="range" min="5" max="100" step="5" value={(config.timeframe_settings as any)?.pilot_trade_allocation || 10} onChange={(e) => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), pilot_trade_allocation: parseInt(e.target.value) } })} className="w-full h-1.5 accent-cyan-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" /></div>
         </div>
 

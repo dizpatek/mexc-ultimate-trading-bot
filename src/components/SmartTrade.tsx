@@ -313,7 +313,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     [onSlPriceChange],
   );
 
-  const [trailingSl, setTrailingSl] = useState(true);
+  const [trailingSl, setTrailingSl] = useState(false);
 
   const [moveToBreakeven, setMoveToBreakeven] = useState(false);
   const [slTimeout, setSlTimeout] = useState(false);

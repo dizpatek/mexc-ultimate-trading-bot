@@ -752,9 +752,9 @@ function evaluateTakeProfit(
         return {
           shouldExit: false,
           reason: "",
-          tpTriggered,
+          tpTriggered: true, // Hitting any target activates TSL
           newQty,
-          metaUpdates,
+          metaUpdates: { ...metaUpdates, tpTriggered: true },
           partialExecution: { qty: sellQty, targetIndex: i },
         };
       } else {

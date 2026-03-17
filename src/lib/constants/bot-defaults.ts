@@ -10,10 +10,10 @@ export const DEFAULT_TIMEFRAME_SETTINGS = {
   cover_sl_percent: 1.0, // Image: Aşım (SL) 1%
   cover_tp_trailing: true, // Image: TTP Açık
   cover_tp_deviation: 0.3, // Image: TTP Sapma 0.3%
-  cover_sl_trailing: true, // Image: TSL Açık
+  cover_sl_trailing: false, // Image: TSL Kapalı (TP sonrası otomatik devreye girer)
   cover_sl_deviation: 1.0,  // Image: TSL Sapma 1%
   pilot_tp_trailing: true,
-  pilot_sl_trailing: true
+  pilot_sl_trailing: false
 };
 
 export const DEFAULT_BOT_CONFIG = {
@@ -33,11 +33,11 @@ export const DEFAULT_BOT_CONFIG = {
   pilot_trailing_buy_dev: 0.3,
   pilot_tp_trailing: true,
   pilot_tp_deviation: 0.3,
-  pilot_sl_trailing: true,
+  pilot_sl_trailing: false,
   pilot_sl_deviation: 1.0,
   pilot_timeframe: '4h',
   pilot_mtf_veto: true,
-  pilot_mtf_threshold: 80,
+  pilot_mtf_threshold: 70,
   pilot_only_holdings: true,
   long_squeeze_threshold: 20,
   short_squeeze_threshold: 20,

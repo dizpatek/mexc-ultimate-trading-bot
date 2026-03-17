@@ -579,6 +579,8 @@ export async function getBotConfig(): Promise<BotConfig> {
     pilot_trailing_buy: !!rows[0].pilot_trailing_buy,
     pilot_tp_trailing: !!rows[0].pilot_tp_trailing,
     pilot_sl_trailing: !!rows[0].pilot_sl_trailing,
+    pilot_mtf_veto: !!rows[0].pilot_mtf_veto,
+    pilot_mtf_threshold: parseInt(String(rows[0].pilot_mtf_threshold || 70)),
     f4_power_loss_threshold: parseFloat(String(rows[0].f4_power_loss_threshold || 90)),
     long_squeeze_threshold: parseFloat(String(rows[0].long_squeeze_threshold || 20)),
     short_squeeze_threshold: parseFloat(String(rows[0].short_squeeze_threshold || 20)),
@@ -750,6 +752,18 @@ export async function updateBotConfig(updates: Partial<BotConfig>) {
       ? updates.pilot_only_holdings
       : (current.pilot_only_holdings ?? false));
 
+    const p_veto = !!(updates.pilot_mtf_veto !== undefined
+      ? updates.pilot_mtf_veto
+      : (current.pilot_mtf_veto ?? true));
+    
+    const p_thresh = parseInt(
+      String(
+        updates.pilot_mtf_threshold !== undefined
+          ? updates.pilot_mtf_threshold
+          : (current.pilot_mtf_threshold ?? 70),
+      ),
+    );
+
     const now = Date.now();
 
     console.log(`[DB] Updating bot config ID=1 with:`, updates);
@@ -757,11 +771,13 @@ export async function updateBotConfig(updates: Partial<BotConfig>) {
     await sql`
             INSERT INTO bot_configs (
                 id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, updated_at,
-                pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation, pilot_timeframe, fibo_length, timeframe_settings, pilot_only_holdings, f4_power_loss_threshold
+                pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation, pilot_timeframe, fibo_length, timeframe_settings, pilot_only_holdings, f4_power_loss_threshold,
+                pilot_mtf_veto, pilot_mtf_threshold
             )
             VALUES (
                 1, ${f4}, ${whale}, ${ai}, ${auto}, ${defense}, ${now},
-                ${pt_buy}, ${pt_buy_dev}, ${pt_tp}, ${pt_tp_dev}, ${pt_sl}, ${pt_sl_dev}, ${ptf}, ${fibo}, ${JSON.stringify(updates.timeframe_settings || current.timeframe_settings || {})}, ${p_only}, ${updates.f4_power_loss_threshold ?? current.f4_power_loss_threshold ?? 90}
+                ${pt_buy}, ${pt_buy_dev}, ${pt_tp}, ${pt_tp_dev}, ${pt_sl}, ${pt_sl_dev}, ${ptf}, ${fibo}, ${JSON.stringify(updates.timeframe_settings || current.timeframe_settings || {})}, ${p_only}, ${updates.f4_power_loss_threshold ?? current.f4_power_loss_threshold ?? 90},
+                ${p_veto}, ${p_thresh}
             )
             ON CONFLICT (id) DO UPDATE SET
                 f4_length = EXCLUDED.f4_length,
@@ -780,7 +796,9 @@ export async function updateBotConfig(updates: Partial<BotConfig>) {
                 updated_at = EXCLUDED.updated_at,
                 timeframe_settings = EXCLUDED.timeframe_settings,
                 pilot_only_holdings = EXCLUDED.pilot_only_holdings,
-                f4_power_loss_threshold = EXCLUDED.f4_power_loss_threshold
+                f4_power_loss_threshold = EXCLUDED.f4_power_loss_threshold,
+                pilot_mtf_veto = EXCLUDED.pilot_mtf_veto,
+                pilot_mtf_threshold = EXCLUDED.pilot_mtf_threshold
         `;
     console.log(
       `[DB] Bot config updated successfully at ${new Date(now).toISOString()}`,

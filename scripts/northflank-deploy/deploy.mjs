@@ -84,7 +84,9 @@ const [,, command, arg1, arg2] = process.argv;
       const envVars = {
         GROQ_API_KEY: process.env.GROQ_API_KEY,
         GROQ_MODEL: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
-        CRYPTOCOMPARE_API_KEY: process.env.CRYPTOCOMPARE_API_KEY
+        CRYPTOCOMPARE_API_KEY: process.env.CRYPTOCOMPARE_API_KEY,
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
+        GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET
       };
 
       if (!envVars.GROQ_API_KEY) {

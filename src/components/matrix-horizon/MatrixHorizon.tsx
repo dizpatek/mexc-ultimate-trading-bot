@@ -316,7 +316,9 @@ export const MatrixHorizon = () => {
   }, [isAdmin]);
 
   const runAiAnalysis = async () => {
+    console.log("[MatrixHorizon] runAiAnalysis triggered", { activeSymbol, interval, isAdmin, aiCooldown });
     if (!isAdmin && aiCooldown > 0) {
+      console.warn("[MatrixHorizon] AI Analysis rate limited locally", { aiCooldown });
       setAiErr(`Rate limit aktif! ${aiCooldown}s bekleyin.`);
       return;
     }
@@ -529,6 +531,13 @@ export const MatrixHorizon = () => {
     [interval, riskMode, activeSymbol, sentiment?.score, btcDom, usdtDom],
   );
 
+  // Expose fetchSignal to window so CommandBar can trigger full refresh
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      (window as any)._mx_fetchSignal = fetchSignal;
+    }
+  }, [fetchSignal]);
+
   // Periodical background refresh (Market analysis & Cron trigger)
   useEffect(() => {
     // P4.4: Reduced background polling frequency to 30 seconds to optimize server load
@@ -726,6 +735,7 @@ export const MatrixHorizon = () => {
         aiResult={aiResult}
         showSettings={showSettings}
         setShowSettings={setShowSettings}
+        authUser={authUser}
       />
 
       {/* SETTINGS PANEL */}
@@ -1593,13 +1603,14 @@ interface CommandBarProps {
   aiResult: any;
   showSettings: boolean;
   setShowSettings: (s: boolean) => void;
+  authUser: any;
 }
 
 const CommandBar = ({
   aiSource, setAiSource, selectedAsset, socketOnline, interval,
   liveBtcPrice, prevLivePrice, microDigits, config, saveConfig,
   pilotStatus, isPanicActive, isActionLoading, handlePanicSell, handlePanicBuy,
-  runAiAnalysis, aiLoading, isAdmin, aiCooldown, aiResult, showSettings, setShowSettings
+  runAiAnalysis, aiLoading, isAdmin, aiCooldown, aiResult, showSettings, setShowSettings, authUser
 }: CommandBarProps) => (
   <div className="relative z-20 flex flex-wrap items-center justify-center sm:justify-between py-2 px-2 gap-3 border-b border-slate-800/40 bg-slate-950/20 backdrop-blur-sm rounded-t-xl mb-2 font-mono">
     <div className="flex flex-wrap items-center gap-2">
@@ -1697,7 +1708,31 @@ const CommandBar = ({
       <div className="flex items-center p-1 bg-slate-950/60 border border-slate-800/80 rounded-xl gap-1">
         <button onClick={() => saveConfig({ defense_mode: !config.defense_mode })} className={cn("px-2 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all flex items-center gap-1.5", config.defense_mode ? "bg-cyan-500 text-slate-950" : "text-slate-500 hover:text-white")} title="Savunma Modu"><ShieldCheck className="w-3 h-3" /><span className="hidden xl:inline">SAVUNMA</span></button>
         <button disabled={isActionLoading} onClick={isPanicActive ? handlePanicBuy : handlePanicSell} className={cn("px-2 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all flex items-center gap-1.5", isPanicActive ? "text-emerald-500 hover:bg-emerald-500/10" : "text-rose-500 hover:bg-rose-500/10")} title={isPanicActive ? "Piyasaya Dön" : "Panik Satış"}>{isPanicActive ? <RefreshCw className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}<span className="hidden xl:inline">{isPanicActive ? "GERİ AL" : "PANİK SAT"}</span></button>
-        <button onClick={runAiAnalysis} disabled={aiLoading || (!isAdmin && aiCooldown > 0)} className={cn("px-2 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all flex items-center gap-1.5", aiResult ? "bg-violet-500 text-white" : "text-violet-400 hover:bg-violet-500/10")} title="AI Analizi Çalıştır"><Brain className="w-3 h-3" /><span className="hidden xl:inline">ŞEF</span></button>
+        <button 
+          onClick={async () => {
+            console.log("[MatrixHorizon] Chef button clicked - Holistic Refresh");
+            // Standard action loading for indicators
+            window.dispatchEvent(new CustomEvent("manual-refresh-triggered"));
+            
+            // Parallel execution: Refresh Indicators + Deep AI
+            await Promise.all([
+               runAiAnalysis(),
+               // We need to bridge fetchSignal from the parent scope or use a simpler approach
+               // Since runAiAnalysis is inside MatrixHorizon, but CommandBar is a subcomponent, 
+               // we should pass fetchSignal as a prop.
+               (window as any)._mx_fetchSignal?.(true) || Promise.resolve()
+            ]);
+          }} 
+          disabled={aiLoading || (authUser && !isAdmin && aiCooldown > 0)} 
+          className={cn(
+            "px-2 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all flex items-center gap-1.5", 
+            aiLoading ? "bg-violet-500/50 animate-pulse text-white/50" : (aiResult ? "bg-violet-500 text-white" : "text-violet-400 hover:bg-violet-500/10")
+          )} 
+          title="Tam Sistem Analizi & AI Şef"
+        >
+          {aiLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
+          <span className="hidden xl:inline">{aiLoading ? "HESAPLANIYOR" : "ŞEF"}</span>
+        </button>
         <div className="w-[1px] h-4 bg-slate-800 mx-1" />
         <button onClick={() => setShowSettings(!showSettings)} className={cn("p-1.5 rounded-lg border transition-all", showSettings ? "bg-cyan-500/10 border-cyan-500/50 text-cyan-400" : "border-slate-800 text-slate-500 hover:text-white")}><Settings className="w-3.5 h-3.5" /></button>
       </div>

@@ -201,9 +201,11 @@ export function parseLogEntry(sig: any, isTestMode: boolean = true): LogEntry {
   // Combine meta data, prioritizing the structured execution_result
   const metaData = metaDataFromExec || metaDataFromDetail || {};
 
-  if (sig.veto_reason) {
+  if (sig.executed) {
+    metaData.veto = "✅ İŞLEME GİRİLDİ (Order Pipeline Sync)";
+  } else if (sig.veto_reason) {
     metaData.veto = sig.veto_reason;
-  } else if (!sig.executed && execMessage) {
+  } else if (execMessage) {
     metaData.veto = execMessage;
   }
 

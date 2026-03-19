@@ -89,7 +89,7 @@ async function fetchRawNews(): Promise<CryptoCompareArticle[]> {
   const authHeaders = apiKey ? { authorization: `Apikey ${apiKey}` } : {};
   
   const response = await axios.get(
-    "https://min-api.cryptocompare.com/data/v2/news/?lang=EN",
+    "https://min-api.cryptocompare.com/data/v2/news/?lang=EN&limit=100",
     {
       httpsAgent,
       timeout: 10000,
@@ -112,11 +112,12 @@ async function fetchRawNews(): Promise<CryptoCompareArticle[]> {
   }
 
   const now = Math.floor(Date.now() / 1000);
-  const cutoff = now - 86400; // 24 hours ago
+  const cutoff = now - (24 * 60 * 60); // Exact 24 hours ago
 
+  // Increase display limit to 50 for better overview while keeping processing latency reasonable
   return response.data.Data.filter(
     (a: CryptoCompareArticle) => a.published_on > cutoff,
-  ).slice(0, 25);
+  ).slice(0, 50);
 }
 
 /**

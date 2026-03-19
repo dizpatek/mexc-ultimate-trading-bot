@@ -793,10 +793,10 @@ export const MatrixHorizon = ({
 
   return (
     <div className={cn(
-      "w-full transition-all duration-500 relative",
+      "w-full px-2 py-0 transition-all duration-500 relative",
       isSectionExpanded 
-        ? "bg-transparent px-4 py-2 min-h-[600px] flex flex-col gap-0 overflow-hidden" 
-        : "bg-transparent px-2 py-0 min-h-0"
+        ? "bg-transparent min-h-[600px] flex flex-col gap-0 overflow-hidden" 
+        : "bg-transparent min-h-0"
     )}>
       {/* GRID BACKGROUND */}
       <div

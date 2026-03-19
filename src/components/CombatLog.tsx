@@ -637,10 +637,16 @@ const LogLine = ({
             </span>
           )}
 
-          {/* VETO REASON */}
+          {/* STATUS / VETO REASON */}
           {log.meta?.veto && (
-            <span className="text-[9px] bg-amber-900/20 border border-amber-500/30 text-amber-500/90 italic px-1.5 py-0.5 rounded flex items-center gap-1 border-dashed">
-              <AlertTriangle size={9} /> {log.meta.veto}
+            <span className={cn(
+              "text-[9px] italic px-1.5 py-0.5 rounded flex items-center gap-1 border-dashed border",
+              log.meta.veto.includes("✅") 
+                ? "bg-emerald-900/20 border-emerald-500/30 text-emerald-400/90" 
+                : "bg-amber-900/20 border-amber-500/30 text-amber-500/90"
+            )}>
+              {log.meta.veto.includes("✅") ? <Zap size={9} /> : <AlertTriangle size={9} />} 
+              {log.meta.veto}
             </span>
           )}
 

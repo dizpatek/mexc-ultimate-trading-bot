@@ -142,7 +142,14 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
 
   const [assetDropdownOpen, setAssetDropdownOpen] = useState(false);
   const [assetSearchQuery, setAssetSearchQuery] = useState("");
-  const [isSectionExpanded, setIsSectionExpanded] = useState(false);
+  const [isSectionExpanded, setIsSectionExpanded] = useState(compact || !!editingTrade || isTradeFormOpen);
+
+  // Auto-expand section when form is opened (New Trade or Edit)
+  useEffect(() => {
+    if (isTradeFormOpen || editingTrade) {
+      setIsSectionExpanded(true);
+    }
+  }, [isTradeFormOpen, editingTrade]);
   const buyPriceInputRef = React.useRef<HTMLInputElement>(null);
   const unitsSectionRef = React.useRef<HTMLDivElement>(null);
 

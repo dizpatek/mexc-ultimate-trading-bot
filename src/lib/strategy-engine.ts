@@ -290,13 +290,16 @@ async function runPilotCycle(
     // SCAN RANGE: Even if pilot_only_holdings is ON, we include a minimal set of Top Assets 
     // to ensure the bot can discover new entry opportunities as requested by the user.
     let assetsToScan = [...holdingPairs];
-    const topAssetsCount = botConfig.pilot_only_holdings ? 20 : 60; // Discovery vs Full Market
+    const topAssetsCount = botConfig.pilot_only_holdings ? 0 : 60; // P4.2: Strict isolation if true
     
-    const topAssets = await getTopAssets(topAssetsCount);
-    const topSymbols = topAssets.map(a => a.symbol.replace("/", ""));
-    
-    assetsToScan = Array.from(new Set([...assetsToScan, ...topSymbols]));
-    console.log(`[PilotEngine] 🌐 Scan set prepared: ${assetsToScan.length} assets (Holdings + Top ${topAssetsCount}).`);
+    if (topAssetsCount > 0) {
+      const topAssets = await getTopAssets(topAssetsCount);
+      const topSymbols = topAssets.map(a => a.symbol.replace("/", ""));
+      assetsToScan = Array.from(new Set([...assetsToScan, ...topSymbols]));
+      console.log(`[PilotEngine] 🌐 Scan set prepared with Discovery: ${assetsToScan.length} assets.`);
+    } else {
+      console.log(`[PilotEngine] 🛡 Portfolio Mode Active: Scanning ${assetsToScan.length} held assets only.`);
+    }
 
     const finalCoins = assetsToScan.filter((s) => 
       s !== "USDTUSDT" && 

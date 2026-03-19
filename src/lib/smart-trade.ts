@@ -48,9 +48,10 @@ export async function handleSmartTrade(
   const { mode, symbol, amount, takeProfit, stopLoss, useExisting, user_id } =
     payload;
   const pair = symbol.replace("/", "");
-  let qty = parseFloat(amount);
+  let qty = parseFloat(amount || "0");
 
   if (isNaN(qty) || qty <= 0) {
+    console.error(`[SmartTrade] ❌ Invalid amount detected! Symbol: ${symbol}, User: ${user_id}, Amount: ${amount}, Mode: ${mode}`);
     throw new Error(`Invalid amount: ${amount}`);
   }
 

@@ -201,9 +201,10 @@ export class PilotExecutor {
     // TARGET QTY logic for Adding to positions (Ek Alım): 
     // If we have holding, we should still use USDT balance for the new buy part.
     if (hasHolding && signalType === "BUY") {
-       // Recalculate targetQty based on USDT allocation instead of 10% of existing
-       // This ensures USDT is actually spent correctly.
-       targetQty = 0; // Will be handled in handleSignal for duplicate skip
+       // P4.2: If we already have the asset, we don't necessarily want to set quantity to 0 here because 
+       // it causes "Invalid amount" if the pilot tries to "take over" the position at line 616.
+       // We keep the targetQty as the current holding to allow Management mode.
+       targetQty = totalQty; 
     }
 
     return { hasHolding, targetQty, isNewBuy, isReEntry, reEntryUsdt };
@@ -628,10 +629,16 @@ export class PilotExecutor {
           const slPerc = botConfig.timeframe_settings?.pilot_sl_percent ?? DEFAULT_TIMEFRAME_SETTINGS.pilot_sl_percent;
           const { finalTpPrice, finalSlPrice } = this.validatePilotTargets(currentPrice, signal.targets || {}, tpPerc, slPerc, true);
 
+          const finalAmount = alloc.targetQty > 0 ? alloc.targetQty.toString() : "0";
+          if (finalAmount === "0") {
+            console.warn(`[Pilot] ⚠️ ${symbol} için miktar 0 olarak hesaplandı, işlem atlanıyor.`);
+            return;
+          }
+
           const res = await handleSmartTrade({
             mode: "TRADE",
             symbol,
-            amount: alloc.targetQty.toString(), // hasHolding true olduğu için calculateAllocation'dan gelen miktar (veya cüzdan miktarı)
+            amount: finalAmount, // hasHolding true olduğu için calculateAllocation'dan gelen miktar (veya cüzdan miktarı)
             buyPrice: currentPrice.toString(),
             buyType: "MARKET",
             useExisting: true, // KRİTİK: Mevcut varlığı kullan, USDT harcama

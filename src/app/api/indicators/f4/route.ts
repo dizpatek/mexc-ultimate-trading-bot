@@ -80,20 +80,9 @@ export async function GET(request: NextRequest) {
     const lows = klines.map((k) => k.low);
     const volumes = klines.map((k) => k.volume);
 
-    // Step 2.5: Fetch and Apply User Config for Analysis (with 10s local cache)
-    const CACHE_KEY = "bot_config_cache";
-    const CACHE_TTL = 10000; // 10 seconds
-    
-    let botConfig;
-    const now = Date.now();
-    const globalCache = global as any;
-    
-    if (globalCache[CACHE_KEY] && (now - globalCache[CACHE_KEY].timestamp < CACHE_TTL)) {
-      botConfig = globalCache[CACHE_KEY].data;
-    } else {
-      botConfig = await import("@/lib/db").then(m => m.getBotConfig());
-      globalCache[CACHE_KEY] = { data: botConfig, timestamp: now };
-    }
+    // Step 2.5: Fetch User Config for Analysis
+    const { getBotConfig } = await import("@/lib/db");
+    const botConfig = await getBotConfig(sessionUid || 1);
 
     const fundingRate = await fetchFundingRate(fetchSymbol);
 

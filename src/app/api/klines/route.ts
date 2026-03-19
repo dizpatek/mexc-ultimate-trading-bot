@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
+import { getSessionUser } from "@/lib/auth-utils";
 import { getKlines } from "@/lib/mexc-wrapper";
 
 export async function GET(request: Request) {
   try {
+    const user = await getSessionUser(request);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const { searchParams } = new URL(request.url);
     const symbol = searchParams.get("symbol");
     const interval = searchParams.get("interval");

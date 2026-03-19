@@ -42,7 +42,7 @@ export class SignalScanner {
     mode: "test" | "production" = "test",
     botConfig?: BotConfig
   ): Promise<string[]> {
-    const config = botConfig || await getBotConfig();
+    const config = botConfig || (await getBotConfig(userId));
     
     let holdingsSymbols: string[] = [];
     
@@ -108,7 +108,7 @@ export class SignalScanner {
     ).slice(0, 120); // Scaled for better coverage
   }
 
-  static async runScan(symbols: string[], targetTimeframe?: string, mode: "test" | "production" = "test"): Promise<ScanResult[]> {
+  static async runScan(userId: number, symbols: string[], targetTimeframe?: string, mode: "test" | "production" = "test"): Promise<ScanResult[]> {
     const allResults: ScanResult[] = [];
     const allSignalsToInsert: StrategySignalInput[] = [];
     
@@ -118,12 +118,12 @@ export class SignalScanner {
     // P4.3: Pre-fetch botConfig once for the entire scan to reduce DB load
     let botConfig: BotConfig | undefined;
     try {
-      botConfig = await getBotConfig();
+      botConfig = await getBotConfig(userId);
     } catch { /* defaults handled in scanSymbol */ }
 
 
     // P4.1: Fetch all recent signals for the entire set in one go to prevent N+1 queries
-    const recentSignals = await getRecentSignalsBulk(symbols, DEDUP_WINDOW_MS, mode);
+    const recentSignals = await getRecentSignalsBulk(userId, symbols, DEDUP_WINDOW_MS, mode);
 
 
     // Group by symbol_timeframe for O(1) lookup
@@ -152,7 +152,7 @@ export class SignalScanner {
     for (let i = 0; i < scanTasks.length; i += CONCURRENCY) {
       const chunk = scanTasks.slice(i, i + CONCURRENCY);
       const chunkResults = await Promise.allSettled(
-        chunk.map(t => this.scanSymbol(t.symbol, t.existingTypes, t.tf, mode, botConfig))
+        chunk.map(t => this.scanSymbol(userId, t.symbol, t.existingTypes, t.tf, mode, botConfig))
       );
 
       chunkResults.forEach((res, index) => {
@@ -167,7 +167,7 @@ export class SignalScanner {
     }
 
     if (allSignalsToInsert.length > 0) {
-      await createStrategySignalsBulk(allSignalsToInsert);
+      await createStrategySignalsBulk(allSignalsToInsert, userId);
       
       // Log new significant signals for audit
       for (const sig of allSignalsToInsert) {
@@ -177,7 +177,7 @@ export class SignalScanner {
           const execRes = sig.execution_result as any;
           const mtf = execRes?.mtfVerdict || "N/A";
           
-          await logSystemEvent(1, aiScore > 75 ? "SUCCESS" : "INFO", 
+          await logSystemEvent(userId, aiScore > 75 ? "SUCCESS" : "INFO", 
             `📡 YENİ SİNYAL: ${sig.symbol} (${sig.timeframe})`, 
             `Tip: ${sig.signal_type} | AI: %${aiScore} | MTF: ${mtf} | Fiyat: ${sig.price}`
           );
@@ -189,6 +189,7 @@ export class SignalScanner {
   }
 
   private static async scanSymbol(
+    userId: number,
     symbol: string,
     existingTypes: string[],
     interval: string = "4h",
@@ -202,7 +203,7 @@ export class SignalScanner {
     const signalsToInsert: StrategySignalInput[] = [];
 
     try {
-      const config = botConfig || await getBotConfig();
+      const config = botConfig || await getBotConfig(userId);
 
       // P4.1 Optimizer: Pre-fetch klines here and pass to strategy if possible, 
       // but since MatrixV5Strategy expects to fetch its own for analysis consistency,

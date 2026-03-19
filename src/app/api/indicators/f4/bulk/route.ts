@@ -28,7 +28,9 @@ export async function POST(request: NextRequest) {
 
     let tradeMode: "Scalp" | "Swing" = "Scalp";
     try {
-      const botConfig = await getBotConfig();
+      const { getSessionUser } = await import("@/lib/auth-utils");
+      const user = await getSessionUser(request);
+      const botConfig = await getBotConfig(user?.id ? Number(user.id) : 1);
       tradeMode = resolveTradeMode(botConfig);
     } catch { /* use default Scalp */ }
 

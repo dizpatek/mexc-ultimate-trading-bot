@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getSessionUser } from "@/lib/auth-utils";
 import axios from "axios";
 
 export const dynamic = "force-dynamic";
@@ -38,8 +39,10 @@ interface CoinGeckoMarket {
   total_supply: number;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const user = await getSessionUser(request);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const response = await axios.get(
       "https://api.coingecko.com/api/v3/coins/markets",
       {

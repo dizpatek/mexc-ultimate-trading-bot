@@ -11,13 +11,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     console.log(`[ResetAPI] Resetting simulator for user ${user.id}`);
-    const simulator = getSimulator();
+    const simulator = getSimulator(user.id);
     simulator.resetInMemoryState();
+
+    // Also reset database records for this user
+    const { resetSimulatorDatabase } = await import("@/lib/trading-simulator");
+    await resetSimulatorDatabase(user.id);
 
     return NextResponse.json({
       success: true,
       message:
-        "Simulator has been reset and re-initialized with test balances.",
+        "Simulator has been reset and your test balances have been restored.",
     });
   } catch (error) {
     console.error("Reset error:", error);

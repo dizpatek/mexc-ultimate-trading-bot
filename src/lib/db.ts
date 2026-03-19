@@ -157,6 +157,11 @@ export async function getUserByEmail(email: string) {
   return rows[0];
 }
 
+export async function getAllUserIds(): Promise<number[]> {
+  const { rows } = await sql`SELECT id FROM users`;
+  return rows.map(r => Number(r.id));
+}
+
 export async function getUserByUsername(username: string) {
   const { rows } = await sql`SELECT * FROM users WHERE username = ${username}`;
   return rows[0];
@@ -254,30 +259,32 @@ export async function insertTradeHistory(obj: Partial<Trade>) {
   }
 }
 
-export async function getTradeHistory(limit = 100, mode = "test") {
+export async function getTradeHistory(userId: number, limit = 100, mode = "test") {
   const { rows } =
-    await sql`SELECT * FROM trade_history WHERE trading_mode = ${mode} ORDER BY created_at DESC LIMIT ${limit}`;
+    await sql`SELECT * FROM trade_history WHERE user_id = ${userId} AND trading_mode = ${mode} ORDER BY created_at DESC LIMIT ${limit}`;
   return rows;
 }
 
 export async function getTradeHistoryBySymbol(
+  userId: number,
   symbol: string = "",
   limit = 100,
 ) {
   const { rows } =
-    await sql`SELECT * FROM trade_history WHERE symbol = ${symbol} ORDER BY created_at DESC LIMIT ${limit}`;
+    await sql`SELECT * FROM trade_history WHERE user_id = ${userId} AND symbol = ${symbol} ORDER BY created_at DESC LIMIT ${limit}`;
   return rows;
 }
 
 // --- PORTFOLIO ---
 export async function createPortfolioSnapshot(
+  userId: number,
   totalValue: number,
   totalAssets: number,
   balances: unknown[],
 ) {
   try {
     const result =
-      await sql`INSERT INTO portfolio_snapshots (total_value, total_assets, snapshot_date, balances) VALUES (${totalValue}, ${totalAssets}, ${Date.now()}, ${JSON.stringify(balances)}) RETURNING id`;
+      await sql`INSERT INTO portfolio_snapshots (user_id, total_value, total_assets, snapshot_date, balances) VALUES (${userId}, ${totalValue}, ${totalAssets}, ${Date.now()}, ${JSON.stringify(balances)}) RETURNING id`;
     return result.rows[0].id;
   } catch (e: unknown) {
     console.error(
@@ -288,11 +295,11 @@ export async function createPortfolioSnapshot(
   }
 }
 
-export async function getPortfolioSnapshots(days = 30) {
+export async function getPortfolioSnapshots(userId: number, days = 30) {
   try {
     const startDate = Date.now() - days * 24 * 60 * 60 * 1000;
     const { rows } =
-      await sql`SELECT * FROM portfolio_snapshots WHERE snapshot_date >= ${startDate} ORDER BY snapshot_date ASC`;
+      await sql`SELECT * FROM portfolio_snapshots WHERE user_id = ${userId} AND snapshot_date >= ${startDate} ORDER BY snapshot_date ASC`;
     return rows;
   } catch (e: unknown) {
     console.error(
@@ -305,14 +312,15 @@ export async function getPortfolioSnapshots(days = 30) {
 
 // --- PERFORMANCE ---
 export async function updatePerformanceMetrics(
+  userId: number,
   date: string,
   metrics: Partial<PerformanceMetrics>,
 ) {
   try {
     await sql`
-            INSERT INTO performance_metrics (date, total_trades, winning_trades, losing_trades, total_profit_loss, win_rate, avg_profit, avg_loss, best_trade, worst_trade) 
-            VALUES (${date}, ${metrics.total_trades || 0}, ${metrics.winning_trades || 0}, ${metrics.losing_trades || 0}, ${metrics.total_profit_loss || 0}, ${metrics.win_rate || 0}, ${metrics.avg_profit || 0}, ${metrics.avg_loss || 0}, ${metrics.best_trade || 0}, ${metrics.worst_trade || 0}) 
-            ON CONFLICT (date) DO UPDATE SET 
+            INSERT INTO performance_metrics (user_id, date, total_trades, winning_trades, losing_trades, total_profit_loss, win_rate, avg_profit, avg_loss, best_trade, worst_trade) 
+            VALUES (${userId}, ${date}, ${metrics.total_trades || 0}, ${metrics.winning_trades || 0}, ${metrics.losing_trades || 0}, ${metrics.total_profit_loss || 0}, ${metrics.win_rate || 0}, ${metrics.avg_profit || 0}, ${metrics.avg_loss || 0}, ${metrics.best_trade || 0}, ${metrics.worst_trade || 0}) 
+            ON CONFLICT (user_id, date) DO UPDATE SET 
             total_trades = EXCLUDED.total_trades, 
             winning_trades = EXCLUDED.winning_trades, 
             losing_trades = EXCLUDED.losing_trades, 
@@ -332,10 +340,10 @@ export async function updatePerformanceMetrics(
   }
 }
 
-export async function getPerformanceMetrics(days = 30) {
+export async function getPerformanceMetrics(userId: number, days = 30) {
   try {
     const { rows } =
-      await sql`SELECT * FROM performance_metrics ORDER BY date DESC LIMIT ${days}`;
+      await sql`SELECT * FROM performance_metrics WHERE user_id = ${userId} ORDER BY date DESC LIMIT ${days}`;
     return rows;
   } catch (e: unknown) {
     console.error(
@@ -346,12 +354,12 @@ export async function getPerformanceMetrics(days = 30) {
   }
 }
 
-export async function calculateDailyPerformance() {
+export async function calculateDailyPerformance(userId: number) {
   try {
     const today = new Date().toISOString().split("T")[0];
     const todayStart = new Date(today).getTime();
     const { rows: trades } =
-      await sql`SELECT * FROM trade_history WHERE created_at >= ${todayStart}`;
+      await sql`SELECT * FROM trade_history WHERE user_id = ${userId} AND created_at >= ${todayStart}`;
     if (trades.length === 0) return null;
 
     const metrics = {
@@ -397,7 +405,7 @@ export async function calculateDailyPerformance() {
       0,
     );
 
-    await updatePerformanceMetrics(today, metrics);
+    await updatePerformanceMetrics(userId, today, metrics);
     return metrics;
   } catch (e: unknown) {
     console.error(
@@ -474,17 +482,19 @@ export interface StrategySignalInput {
 
 export async function createStrategySignalsBulk(
   signals: StrategySignalInput[],
+  userId: number
 ) {
   if (signals.length === 0) return;
 
   const placeholders = signals
     .map(
       (_, i) =>
-        `($${i * 11 + 1}, $${i * 11 + 2}, $${i * 11 + 3}, $${i * 11 + 4}, $${i * 11 + 5}, $${i * 11 + 6}, $${i * 11 + 7}, $${i * 11 + 8}, $${i * 11 + 9}, $${i * 11 + 10}, $${i * 11 + 11})`,
+        `($${i * 12 + 1}, $${i * 12 + 2}, $${i * 12 + 3}, $${i * 12 + 4}, $${i * 12 + 5}, $${i * 12 + 6}, $${i * 12 + 7}, $${i * 12 + 8}, $${i * 12 + 9}, $${i * 12 + 10}, $${i * 12 + 11}, $${i * 12 + 12})`,
     )
     .join(",");
 
   const values = signals.flatMap((s) => [
+    userId,
     s.strategy_id || null,
     s.symbol || null,
     s.signal_type || "NONE",
@@ -499,7 +509,7 @@ export async function createStrategySignalsBulk(
   ]);
 
   const query = `
-    INSERT INTO strategy_signals (strategy_id, symbol, signal_type, price, volume, timestamp, executed, execution_result, trading_mode, timeframe, veto_reason)
+    INSERT INTO strategy_signals (user_id, strategy_id, symbol, signal_type, price, volume, timestamp, executed, execution_result, trading_mode, timeframe, veto_reason)
     VALUES ${placeholders}
   `;
 
@@ -507,6 +517,7 @@ export async function createStrategySignalsBulk(
 }
 
 export async function createStrategySignal(signalData: {
+  user_id: number;
   strategy_id?: number;
   symbol?: string;
   signal_type: string;
@@ -520,6 +531,7 @@ export async function createStrategySignal(signalData: {
   veto_reason?: string;
 }) {
   const {
+    user_id,
     strategy_id,
     symbol,
     signal_type,
@@ -533,8 +545,8 @@ export async function createStrategySignal(signalData: {
     veto_reason,
   } = signalData;
   const { rows } = await sql`
-        INSERT INTO strategy_signals (strategy_id, symbol, signal_type, price, volume, timestamp, executed, execution_result, trading_mode, timeframe, veto_reason)
-        VALUES (${strategy_id || null}, ${symbol || null}, ${signal_type || 'NONE'}, ${price ?? null}, ${volume ?? null}, ${timestamp}, ${executed || false}, ${JSON.stringify(execution_result || {})}, ${trading_mode || "test"}, ${timeframe || "1m"}, ${veto_reason || null})
+        INSERT INTO strategy_signals (user_id, strategy_id, symbol, signal_type, price, volume, timestamp, executed, execution_result, trading_mode, timeframe, veto_reason)
+        VALUES (${user_id}, ${strategy_id || null}, ${symbol || null}, ${signal_type || 'NONE'}, ${price ?? null}, ${volume ?? null}, ${timestamp}, ${executed || false}, ${JSON.stringify(execution_result || {})}, ${trading_mode || "test"}, ${timeframe || "1m"}, ${veto_reason || null})
         RETURNING id
     `;
   return rows[0].id;
@@ -568,6 +580,7 @@ export async function getStrategySignals(strategyId: number, limit = 100) {
 }
 
 export async function getRecentSignalsBulk(
+  userId: number,
   symbols: string[],
   windowMs: number,
   tradingMode: string = "test",
@@ -577,20 +590,22 @@ export async function getRecentSignalsBulk(
   const { rows } = await (pool as Pool).query(
     `
         SELECT symbol, signal_type, timeframe, executed FROM strategy_signals 
-        WHERE symbol = ANY($1) AND timestamp > $2 AND (trading_mode = $3 OR trading_mode IS NULL)
+        WHERE user_id = $1 AND symbol = ANY($2) AND timestamp > $3 AND (trading_mode = $4 OR trading_mode IS NULL)
     `,
-    [symbols, cutoff, tradingMode],
+    [userId, symbols, cutoff, tradingMode],
   );
   return rows;
 }
 
 // --- BOT CONFIG ---
-export async function getBotConfig(): Promise<BotConfig> {
-  const { rows } = await sql`SELECT * FROM bot_configs WHERE id = 1`;
+export async function getBotConfig(userId: number): Promise<BotConfig> {
+  const { rows } = await sql`SELECT * FROM bot_configs WHERE user_id = ${userId}`;
   if (!rows[0]) {
+    // Return default but DON'T seed yet (let updateBotConfig handle seeding if user changes something)
+    // Or we could seed now if we want.
     return {
       ...DEFAULT_BOT_CONFIG,
-      id: 1,
+      id: 0, // indicates new
       updated_at: Date.now()
     } as BotConfig;
   }
@@ -693,7 +708,7 @@ export async function logSystemEvent(
   if (sysLogBuffer.length >= MAX_BUFFER_SIZE) {
     sysLogBuffer.shift();
   }
-  sysLogBuffer.push({ userId: userId || 1, level, message, details: details || null });
+  sysLogBuffer.push({ userId, level, message, details: details || null });
 
   // Auto trigger flush if buffer starts getting full
   if (sysLogBuffer.length >= 20 && !isFlushingSysLogs) {
@@ -701,9 +716,9 @@ export async function logSystemEvent(
   }
 }
 
-export async function updateBotConfig(updates: Partial<BotConfig>) {
+export async function updateBotConfig(userId: number, updates: Partial<BotConfig>) {
   try {
-    const current = await getBotConfig();
+    const current = await getBotConfig(userId);
 
     // Ensure strictly numbers for numeric fields
     const f4 = parseInt(
@@ -804,24 +819,24 @@ export async function updateBotConfig(updates: Partial<BotConfig>) {
 
     const now = Date.now();
 
-    console.log(`[DB] Updating bot config ID=1 with:`, updates);
+    console.log(`[DB] Updating bot config for User ${userId} with:`, updates);
 
     await sql`
             INSERT INTO bot_configs (
-                id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, updated_at,
+                user_id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, updated_at,
                 pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation, pilot_timeframe, fibo_length, timeframe_settings, pilot_only_holdings, f4_power_loss_threshold,
                 pilot_mtf_veto, pilot_mtf_threshold, f4_lookback_bars, f4_squeeze_threshold, min_power_loss,
                 scalp_length, scalp_volume_multiplier, swing_length, swing_volume_multiplier,
                 pilot_mode, pilot_use_usdt
             )
             VALUES (
-                1, ${f4}, ${whale}, ${ai}, ${auto}, ${defense}, ${now},
+                ${userId}, ${f4}, ${whale}, ${ai}, ${auto}, ${defense}, ${now},
                 ${pt_buy}, ${pt_buy_dev}, ${pt_tp}, ${pt_tp_dev}, ${pt_sl}, ${pt_sl_dev}, ${ptf}, ${fibo}, ${JSON.stringify(updates.timeframe_settings || current.timeframe_settings || {})}, ${p_only}, ${updates.f4_power_loss_threshold ?? current.f4_power_loss_threshold ?? 90},
                 ${p_veto}, ${p_thresh}, ${updates.f4_lookback_bars ?? current.f4_lookback_bars ?? 30}, ${updates.f4_squeeze_threshold ?? current.f4_squeeze_threshold ?? 20}, ${updates.min_power_loss ?? current.min_power_loss ?? 90},
                 ${updates.scalp_length ?? current.scalp_length ?? 11}, ${updates.scalp_volume_multiplier ?? current.scalp_volume_multiplier ?? 3.0}, ${updates.swing_length ?? current.swing_length ?? 10}, ${updates.swing_volume_multiplier ?? current.swing_volume_multiplier ?? 1.2},
                 ${p_mode}, ${p_usdt}
             )
-            ON CONFLICT (id) DO UPDATE SET
+            ON CONFLICT (user_id) DO UPDATE SET
                 f4_length = EXCLUDED.f4_length,
                 whale_multiplier = EXCLUDED.whale_multiplier,
                 ai_threshold = EXCLUDED.ai_threshold,
@@ -894,3 +909,34 @@ export async function acquireLock(
 export async function releaseLock(lockId: string, owner: string): Promise<void> {
   await sql`DELETE FROM system_locks WHERE id = ${lockId} AND owner = ${owner}`;
 }
+
+/**
+ * Initializes default settings and bot configuration for a new user.
+ * Essential for multi-tenant isolation.
+ */
+export async function initializeUserSettings(userId: number): Promise<void> {
+  const now = Date.now();
+  try {
+    // 1. Seed default bot config
+    await sql`
+      INSERT INTO bot_configs (
+        user_id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, timeframe, updated_at
+      ) VALUES (
+        ${userId}, 10, 1.8, 65, false, false, '4h', ${now}
+      ) ON CONFLICT (user_id) DO NOTHING
+    `;
+
+    // 2. Set default trading mode to test
+    await sql`
+      INSERT INTO system_settings (user_id, key, value, updated_at)
+      VALUES (${userId}, 'TRADING_MODE', 'test', ${now})
+      ON CONFLICT (user_id, key) DO NOTHING
+    `;
+
+    console.log(`[DB] Successfully initialized settings for User ${userId}`);
+  } catch (error) {
+    console.error(`[DB] Error initializing settings for User ${userId}:`, error);
+    throw error;
+  }
+}
+

@@ -12,7 +12,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const days = parseInt(searchParams.get("days") || "30");
 
-    const snapshots = await getPortfolioSnapshots(days);
+    const snapshots = await getPortfolioSnapshots(user.id, days);
 
     const history = snapshots.map((snapshot) => ({
       date: new Date(snapshot.snapshot_date as string).toISOString(),

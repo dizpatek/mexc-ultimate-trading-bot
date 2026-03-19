@@ -374,6 +374,20 @@ async function runSchemaMigrations() {
     /* ignore */
   }
 
+  // Ensure bot_configs id is serial (fix 500 errors on PK)
+  try {
+    await sql`
+      CREATE SEQUENCE IF NOT EXISTS bot_configs_id_seq;
+      ALTER TABLE bot_configs ALTER COLUMN id SET DEFAULT nextval('bot_configs_id_seq');
+      SELECT setval('bot_configs_id_seq', COALESCE((SELECT MAX(id) FROM bot_configs), 0) + 1, false);
+    `;
+  } catch (e) {}
+
+  try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)`;
+    await sql`ALTER TABLE bot_configs ADD CONSTRAINT IF NOT EXISTS bot_configs_user_id_key UNIQUE(user_id)`;
+  } catch (e) {}
+
   // Portfolio snapshots & Performance metrics migrations
   try {
     await sql`ALTER TABLE portfolio_snapshots ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)`;

@@ -13,7 +13,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "invalid secret" }, { status: 401 });
     }
 
-    const { signal, pair } = payload;
+    const { signal, pair, userId: payloadUserId } = payload;
+    const userId = Number(payloadUserId || 1);
+
+    // P4.1: Robust Multi-User Webhook Validation
+    const { getSetting } = await import("@/lib/settings");
+    const userSecret = await getSetting("WEBHOOK_SECRET", userId);
+    const systemSecret = process.env.WEBHOOK_SECRET;
+
+    // Validate using user-specific secret or fallback to system secret (only if user 1)
+    const effectiveSecret = userSecret || (userId === 1 ? systemSecret : null);
+
+    if (!effectiveSecret || incomingSecret !== effectiveSecret) {
+      console.warn(`[Webhook] Auth Failed for User ${userId}. Expected secret not matched.`);
+      return NextResponse.json({ error: "invalid secret for this user" }, { status: 401 });
+    }
 
     if (!signal || !pair) {
       return NextResponse.json(
@@ -30,13 +44,13 @@ export async function POST(request: Request) {
       );
     }
 
+    console.log(`[Webhook] Valid signal received for User ${userId}: ${signal} ${pair}`);
+
     if (signal === "buy") {
-      // SECURITY: Explicitly hardcode or derive userId from a trusted source, ignore payload.userId (P3.1 fix)
-      const result = await handleBuySignal({ ...payload, pair, userId: 1 });
+      const result = await handleBuySignal({ ...payload, pair, userId });
       return NextResponse.json({ ok: true, result });
     } else if (signal === "sell") {
-      // SECURITY: Explicitly hardcode or derive userId from a trusted source, ignore payload.userId (P3.1 fix)
-      const result = await handleSellSignal({ ...payload, pair, userId: 1 });
+      const result = await handleSellSignal({ ...payload, pair, userId });
       return NextResponse.json({ ok: true, result });
     } else {
       return NextResponse.json({ error: "unknown signal" }, { status: 400 });

@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
+import { getSessionUser } from "@/lib/auth-utils";
 import axios from "axios";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 60; // Cache for 60 seconds
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const user = await getSessionUser(request);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const response = await axios.get(
       "https://api.coingecko.com/api/v3/global",
       {

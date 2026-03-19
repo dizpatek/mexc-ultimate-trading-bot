@@ -13,7 +13,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const config = await getBotConfig();
+    const config = await getBotConfig(user.id);
     return NextResponse.json(config);
   } catch (error: unknown) {
     console.error("Fetch Bot Config Error:", error);
@@ -33,9 +33,9 @@ export async function POST(request: Request) {
     }
 
     const updates = await request.json();
-    await updateBotConfig(updates);
+    await updateBotConfig(user.id, updates);
 
-    const updatedConfig = await getBotConfig();
+    const updatedConfig = await getBotConfig(user.id);
     return NextResponse.json({ success: true, config: updatedConfig });
   } catch (error: unknown) {
     console.error("Update Bot Config Error:", error);

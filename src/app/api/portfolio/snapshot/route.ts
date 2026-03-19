@@ -25,9 +25,7 @@ export async function POST(request: Request) {
     };
 
     const balances = (accountInfo.balances || [])
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .filter((b: any) => parseFloat(b.free) + parseFloat(b.locked) > 0)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .map((b: any) => {
         const total = parseFloat(b.free) + parseFloat(b.locked);
         const price = prices[b.asset] || 0;
@@ -40,6 +38,7 @@ export async function POST(request: Request) {
       });
 
     const snapshotId = await createPortfolioSnapshot(
+      user.id,
       totalValue,
       assetsCount,
       balances,

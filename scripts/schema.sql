@@ -52,6 +52,7 @@ ALTER TABLE trade_history ADD COLUMN IF NOT EXISTS user_id INTEGER;
 -- Portfolio snapshots table
 CREATE TABLE IF NOT EXISTS portfolio_snapshots (
   id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id),
   total_value NUMERIC,
   total_assets INTEGER,
   snapshot_date BIGINT,
@@ -61,7 +62,8 @@ CREATE TABLE IF NOT EXISTS portfolio_snapshots (
 -- Performance metrics table
 CREATE TABLE IF NOT EXISTS performance_metrics (
   id SERIAL PRIMARY KEY,
-  date TEXT UNIQUE,
+  user_id INTEGER REFERENCES users(id),
+  date TEXT,
   total_trades INTEGER DEFAULT 0,
   winning_trades INTEGER DEFAULT 0,
   losing_trades INTEGER DEFAULT 0,
@@ -70,7 +72,8 @@ CREATE TABLE IF NOT EXISTS performance_metrics (
   avg_profit NUMERIC DEFAULT 0,
   avg_loss NUMERIC DEFAULT 0,
   best_trade NUMERIC DEFAULT 0,
-  worst_trade NUMERIC DEFAULT 0
+  worst_trade NUMERIC DEFAULT 0,
+  UNIQUE(user_id, date)
 );
 
 -- Strategies table
@@ -89,6 +92,7 @@ CREATE TABLE IF NOT EXISTS strategies (
 -- Strategy signals table
 CREATE TABLE IF NOT EXISTS strategy_signals (
   id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id),
   strategy_id INTEGER REFERENCES strategies(id),
   symbol TEXT,
   signal_type TEXT NOT NULL,
@@ -96,7 +100,10 @@ CREATE TABLE IF NOT EXISTS strategy_signals (
   volume NUMERIC,
   timestamp BIGINT NOT NULL,
   executed BOOLEAN DEFAULT FALSE,
-  execution_result TEXT
+  execution_result TEXT,
+  trading_mode TEXT,
+  timeframe TEXT,
+  veto_reason TEXT
 );
 
 -- System settings table (for API keys and configuration, per user)
@@ -109,14 +116,10 @@ CREATE TABLE IF NOT EXISTS system_settings (
   UNIQUE(user_id, key)
 );
 
--- Migrations for existing systems
-ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS user_id INTEGER;
-ALTER TABLE system_settings DROP CONSTRAINT IF EXISTS system_settings_key_key;
-ALTER TABLE system_settings ADD CONSTRAINT user_setting_unique UNIQUE(user_id, key);
-
 -- Bot config table
 CREATE TABLE IF NOT EXISTS bot_configs (
-  id INTEGER PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER UNIQUE NOT NULL REFERENCES users(id),
   f4_length INTEGER DEFAULT 10,
   whale_multiplier NUMERIC DEFAULT 1.8,
   ai_threshold INTEGER DEFAULT 65,
@@ -131,3 +134,25 @@ CREATE TABLE IF NOT EXISTS bot_configs (
   updated_at BIGINT NOT NULL,
   timeframe_settings JSONB DEFAULT '{}'
 );
+
+-- Migrations for existing systems
+ALTER TABLE strategy_signals ADD COLUMN IF NOT EXISTS user_id INTEGER;
+ALTER TABLE strategy_signals ADD COLUMN IF NOT EXISTS trading_mode TEXT;
+ALTER TABLE strategy_signals ADD COLUMN IF NOT EXISTS timeframe TEXT;
+ALTER TABLE strategy_signals ADD COLUMN IF NOT EXISTS veto_reason TEXT;
+
+ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS user_id INTEGER;
+ALTER TABLE bot_configs DROP CONSTRAINT IF EXISTS bot_configs_user_id_key;
+ALTER TABLE bot_configs ADD CONSTRAINT bot_configs_user_id_key UNIQUE(user_id);
+
+ALTER TABLE portfolio_snapshots ADD COLUMN IF NOT EXISTS user_id INTEGER;
+
+ALTER TABLE performance_metrics ADD COLUMN IF NOT EXISTS user_id INTEGER;
+ALTER TABLE performance_metrics DROP CONSTRAINT IF EXISTS performance_metrics_date_key;
+ALTER TABLE performance_metrics DROP CONSTRAINT IF EXISTS performance_metrics_user_date_key;
+ALTER TABLE performance_metrics ADD CONSTRAINT performance_metrics_user_date_key UNIQUE(user_id, date);
+
+ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS user_id INTEGER;
+ALTER TABLE system_settings DROP CONSTRAINT IF EXISTS system_settings_key_key;
+ALTER TABLE system_settings DROP CONSTRAINT IF EXISTS user_setting_unique;
+ALTER TABLE system_settings ADD CONSTRAINT user_setting_unique UNIQUE(user_id, key);

@@ -53,9 +53,9 @@ export async function runActiveStrategies(isImmediate = false, executionUserId: 
     const rawActiveStrategies = strategies.filter((s: Strategy) => s.active);
 
     // 2. Load Global Bot Config (Pilot etc)
-    const botConfig = await getBotConfig();
+    const botConfig = await getBotConfig(userId);
     if (!botConfig) {
-      console.log("[StrategyEngine] Bot config could not be loaded. Aborting cycle.");
+      console.log(`[StrategyEngine] Bot config could not be loaded for user ${userId}. Aborting cycle.`);
       return;
     }
 
@@ -95,7 +95,7 @@ export async function runActiveStrategies(isImmediate = false, executionUserId: 
 
     // Fetch recent signals for custom strategies deduplication
     const customSymbols = activeStrategies.map(s => s.symbol);
-    const customRecentSignals = await getRecentSignalsBulk(customSymbols, DEDUP_WINDOW_MS, mode);
+    const customRecentSignals = await getRecentSignalsBulk(userId, customSymbols, DEDUP_WINDOW_MS, mode);
 
     for (const strategy of activeStrategies) {
       await processStrategy(strategy, botConfig, userId, mode, customRecentSignals);
@@ -182,6 +182,7 @@ async function processStrategy(
       console.log(`[StrategyEngine] ⏸ ${msg}. Signal for ${strategy.name} logged but NOT executed.`);
       await logSystemEvent(userId, "SYSTEM", "NEGATIVE", `⏸ OTOMATİK PİLOT DEVRE DIŞI: ${strategy.name} sinyali engellendi.`);
       await createStrategySignal({
+        user_id: userId,
         strategy_id: strategy.id,
         symbol: signal.symbol,
         signal_type: signal.signal,
@@ -199,6 +200,7 @@ async function processStrategy(
       console.log(`[StrategyEngine] 🛡 ${msg}. BUY signal for ${strategy.name} blocked.`);
       await logSystemEvent(userId, "SYSTEM", "NEGATIVE", `🛡 SAVUNMA MODU AKTİF: ${strategy.name} BUY sinyali engellendi.`);
       await createStrategySignal({
+        user_id: userId,
         strategy_id: strategy.id,
         symbol: signal.symbol,
         signal_type: signal.signal,
@@ -252,6 +254,7 @@ async function processStrategy(
 
     // Record signal in DB
     await createStrategySignal({
+      user_id: userId,
       strategy_id: strategy.id,
       symbol: strategy.symbol,
       signal_type: signal.signal,
@@ -279,7 +282,7 @@ async function runPilotCycle(
 ) {
   try {
     // Load re-entry map from DB ONCE per cycle instead of per-symbol (Performance Fix P4.2)
-    await PilotExecutor.ensureReEntryMapLoaded();
+    await PilotExecutor.ensureReEntryMapLoaded(userId);
 
     const activeSmartTrades = await getActiveSmartTrades(userId, mode);
     const activeOrderSymbols = activeSmartTrades.map(t => t.symbol);
@@ -336,7 +339,7 @@ async function runPilotCycle(
     }
 
     // Fetch recent signals to prevent duplicate rapid-fire trades
-    const recentSignals = await getRecentSignalsBulk(finalCoins, DEDUP_WINDOW_MS, mode);
+    const recentSignals = await getRecentSignalsBulk(userId, finalCoins, DEDUP_WINDOW_MS, mode);
 
     let noSignalCount = 0;
     const CHUNK_SIZE = 100;

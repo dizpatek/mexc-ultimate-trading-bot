@@ -44,7 +44,9 @@ export async function POST(
             : undefined;
 
       await createStrategySignal({
+        user_id: user.id,
         strategy_id: strategyId,
+        symbol: strategy.symbol,
         signal_type: signal.signal,
         price: price,
         timestamp: signal.timestamp,

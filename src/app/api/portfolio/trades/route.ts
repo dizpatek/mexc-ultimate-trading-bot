@@ -16,7 +16,7 @@ export async function GET(request: Request) {
     const cookieStore = await cookies();
     const mode = (cookieStore.get("TRADING_MODE")?.value as "test" | "production") || "test";
 
-    const tradeHistory = await getTradeHistory(limit, mode);
+    const tradeHistory = await getTradeHistory(user.id, limit, mode);
 
     const safeDate = (dateVal: unknown) => {
       const d = new Date(dateVal as string | number | Date);

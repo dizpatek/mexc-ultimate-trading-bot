@@ -9,7 +9,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const todayMetrics = await calculateDailyPerformance();
+    const todayMetrics = await calculateDailyPerformance(user.id);
     return NextResponse.json(todayMetrics || { message: "No trades today" });
   } catch (error: unknown) {
     console.error("Error calculating today's performance:", error);

@@ -139,11 +139,30 @@ export const AIAnalysisSummary = ({
           )}
         </div>
 
-        {/* Narrative Section (Body) */}
-        <div className="flex flex-col gap-3 overflow-auto max-h-[200px] custom-scrollbar pr-1">
-          <NarrativeBlock title="ÖZET" text={metrics.summaryText.ozet} color="text-cyan-400" />
-          <NarrativeBlock title="SENARYO" text={metrics.summaryText.senaryo} color="text-amber-400" />
-          <NarrativeBlock title="RİSK & OYUN PLANI" text={metrics.summaryText.risk} color="text-rose-400" isLast />
+        {/* Narrative Section (Body) - Unified AI Storytelling */}
+        <div className="flex flex-col gap-5 overflow-auto max-h-[220px] cyber-scrollbar pr-3">
+          <div className="flex flex-col gap-4">
+            <div className="border-l-2 border-cyan-500/30 pl-3 py-0.5">
+              <span className="text-[9px] font-black text-cyan-400 uppercase tracking-[0.2em] block mb-1">STRATEJİK ÖZET</span>
+              <p className="text-[11px] font-medium text-slate-200 leading-relaxed italic opacity-90">
+                &ldquo;{metrics.summaryText.ozet}&rdquo;
+              </p>
+            </div>
+
+            <div className="border-l-2 border-amber-500/30 pl-3 py-0.5">
+              <span className="text-[9px] font-black text-amber-400 uppercase tracking-[0.2em] block mb-1">PROJEKSİYON & SENARYO</span>
+              <p className="text-[11px] font-medium text-slate-200 leading-relaxed italic opacity-90">
+                &ldquo;{metrics.summaryText.senaryo}&rdquo;
+              </p>
+            </div>
+
+            <div className="border-l-2 border-rose-500/30 pl-3 py-0.5">
+              <span className="text-[9px] font-black text-rose-400 uppercase tracking-[0.2em] block mb-1">RİSK ANALİZİ & OYUN PLANI</span>
+              <p className="text-[11px] font-medium text-slate-200 leading-relaxed italic opacity-90">
+                &ldquo;{metrics.summaryText.risk}&rdquo;
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>

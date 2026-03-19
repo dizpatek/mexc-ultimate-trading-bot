@@ -18,36 +18,44 @@ interface ReEntryRecord {
   symbol: string;         // The traded symbol
 }
 
-// In-memory cache: symbol -> re-entry record (fast lookup, backed by DB)
-const pilotReEntryMap = new Map<string, ReEntryRecord>();
-let isReEntryMapLoaded = false;
+// In-memory cache: userId -> (symbol -> re-entry record)
+// P4.2: Structured for multi-user compatibility
+const pilotReEntryMap = new Map<number, Map<string, ReEntryRecord>>();
+const initializedUsers = new Set<number>();
 
 /**
  * Load re-entry records from the DB into the in-memory map.
  * Called once on first signal check after restart.
  * Queries closed pilot_auto TRADE orders that haven't been re-entered.
  */
-async function loadReEntryMapFromDB(): Promise<void> {
-  if (isReEntryMapLoaded) return;
+async function loadReEntryMapFromDB(userId: number): Promise<void> {
+  if (initializedUsers.has(userId)) return;
   try {
     // Find closed pilot_auto BUY trades (TRADE mode) with exit data
     // that don't have a newer FILLED/PENDING order for the same symbol
     const { rows } = await sql`
       SELECT o.symbol, o.meta
       FROM orders o
-      WHERE o.status = 'CLOSED'
+      WHERE o.user_id = ${userId}
+        AND o.status = 'CLOSED'
         AND o.side = 'BUY'
         AND o.meta::jsonb->>'source' = 'pilot_auto'
         AND o.meta::jsonb->>'tradeState' = 'TRADE_COMPLETED'
         AND o.meta::jsonb->>'reEntryConsumed' IS NULL
         AND NOT EXISTS (
           SELECT 1 FROM orders o2
-          WHERE o2.symbol = o.symbol 
+          WHERE o2.user_id = o.user_id
+            AND o2.symbol = o.symbol 
             AND o2.status IN ('FILLED', 'PENDING')
             AND o2.meta::jsonb->>'smartTrade' = 'true'
         )
       ORDER BY o.updated_at DESC
     `;
+
+    if (!pilotReEntryMap.has(userId)) {
+      pilotReEntryMap.set(userId, new Map());
+    }
+    const userMap = pilotReEntryMap.get(userId)!;
 
     for (const row of rows) {
       const meta = typeof row.meta === 'string' ? JSON.parse(row.meta) : row.meta;
@@ -55,21 +63,21 @@ async function loadReEntryMapFromDB(): Promise<void> {
       const executedQty = Number(meta.executedQty || 0);
       const usdtProceeds = exitPrice * executedQty;
 
-      if (usdtProceeds >= 5 && !pilotReEntryMap.has(row.symbol as string)) {
-        pilotReEntryMap.set(row.symbol as string, {
+      if (usdtProceeds >= 5 && !userMap.has(row.symbol as string)) {
+        userMap.set(row.symbol as string, {
           lastSaleUsdt: usdtProceeds,
           lastSaleAt: Number(meta.closedAt || Date.now()),
           symbol: row.symbol as string,
         });
-        console.log(`[Pilot] ♻️ RE-ENTRY LOADED FROM DB: ${row.symbol as string} | USDT: $${usdtProceeds.toFixed(2)}`);
+        console.log(`[Pilot] ♻️ RE-ENTRY LOADED FROM DB: ${row.symbol as string} | User: ${userId} | USDT: $${usdtProceeds.toFixed(2)}`);
       }
     }
 
-    isReEntryMapLoaded = true;
-    console.log(`[Pilot] ♻️ Re-entry map loaded: ${pilotReEntryMap.size} symbols ready for re-entry.`);
+    initializedUsers.add(userId);
+    console.log(`[Pilot] ♻️ Re-entry map initialized for User ${userId}: ${userMap.size} symbols ready.`);
   } catch (err) {
-    console.error("[Pilot] Failed to load re-entry map from DB:", err);
-    isReEntryMapLoaded = true; // Mark loaded to avoid infinite retries
+    console.error(`[Pilot] Failed to load re-entry map for user ${userId} from DB:`, err);
+    initializedUsers.add(userId); // Mark as attempt made
   }
 }
 
@@ -78,13 +86,16 @@ async function loadReEntryMapFromDB(): Promise<void> {
  * Called from smart-trade-execution.ts when a pilot_auto TRADE exits.
  * Persists to in-memory map (DB record already exists in orders table).
  */
-export function registerPilotReEntry(symbol: string, usdtProceeds: number) {
-  pilotReEntryMap.set(symbol, {
+export function registerPilotReEntry(userId: number, symbol: string, usdtProceeds: number) {
+  if (!pilotReEntryMap.has(userId)) {
+    pilotReEntryMap.set(userId, new Map());
+  }
+  pilotReEntryMap.get(userId)!.set(symbol, {
     lastSaleUsdt: usdtProceeds,
     lastSaleAt: Date.now(),
     symbol,
   });
-  console.log(`[Pilot] ♻️ RE-ENTRY REGISTERED: ${symbol} | USDT: $${usdtProceeds.toFixed(2)}`);
+  console.log(`[Pilot] ♻️ RE-ENTRY REGISTERED: ${symbol} | User: ${userId} | USDT: $${usdtProceeds.toFixed(2)}`);
 }
 
 /**
@@ -92,17 +103,19 @@ export function registerPilotReEntry(symbol: string, usdtProceeds: number) {
  * Also marks the source order as consumed in DB to prevent double re-entry.
  * Returns null if no re-entry is registered.
  */
-async function consumeReEntry(symbol: string): Promise<ReEntryRecord | null> {
-  const record = pilotReEntryMap.get(symbol);
+async function consumeReEntry(userId: number, symbol: string): Promise<ReEntryRecord | null> {
+  const userMap = pilotReEntryMap.get(userId);
+  const record = userMap?.get(symbol);
   if (record) {
-    pilotReEntryMap.delete(symbol);
+    userMap!.delete(symbol);
     // Mark ONLY the most recent matching order as consumed in DB
     try {
       await sql`
         UPDATE orders SET meta = (meta::jsonb || '{"reEntryConsumed": true}'::jsonb)::text
         WHERE id = (
           SELECT id FROM orders
-          WHERE symbol = ${symbol}
+          WHERE user_id = ${userId}
+            AND symbol = ${symbol}
             AND status = 'CLOSED'
             AND side = 'BUY'
             AND meta::jsonb->>'source' = 'pilot_auto'
@@ -113,7 +126,7 @@ async function consumeReEntry(symbol: string): Promise<ReEntryRecord | null> {
         )
       `;
     } catch (err) {
-      console.warn(`[Pilot] Failed to mark re-entry as consumed for ${symbol}:`, err);
+      console.warn(`[Pilot] Failed to mark re-entry as consumed for ${symbol} (User: ${userId}):`, err);
     }
     return record;
   }
@@ -124,9 +137,9 @@ async function consumeReEntry(symbol: string): Promise<ReEntryRecord | null> {
  * Check if a symbol has a pending re-entry record (without consuming it).
  * Returns false if the DB map hasn't been loaded yet (prevents race conditions).
  */
-function hasReEntry(symbol: string): boolean {
-  if (!isReEntryMapLoaded) return false; // Guard: DB not loaded yet
-  return pilotReEntryMap.has(symbol);
+function hasReEntry(userId: number, symbol: string): boolean {
+  if (!initializedUsers.has(userId)) return false; // Guard: DB not loaded yet
+  return !!pilotReEntryMap.get(userId)?.has(symbol);
 }
 
 /**
@@ -146,20 +159,22 @@ export class PilotExecutor {
    * Ensure the re-entry map is loaded from DB before processing signals.
    * Must be called before calculateAllocation.
    */
-  static async ensureReEntryMapLoaded(): Promise<void> {
-    await loadReEntryMapFromDB();
+  static async ensureReEntryMapLoaded(userId: number): Promise<void> {
+    await loadReEntryMapFromDB(userId);
   }
 
   /**
    * Calculates the target quantity and identifies if the signal is a new buy
    */
   static calculateAllocation(
+    userId: number,
     symbol: string,
     holdingsMap: Map<string, any>,
     botConfig: BotConfig,
     signalType: string
   ): { hasHolding: boolean; targetQty: number; isNewBuy: boolean; isReEntry: boolean; reEntryUsdt: number } {
-    const holding = holdingsMap.get(symbol);
+    const symbolKey = normalizeSymbol(symbol);
+    const holding = holdingsMap.get(symbolKey) || holdingsMap.get(symbol);
     const free = Number(holding?.free || 0);
     const locked = Number(holding?.locked || 0);
     const totalQty = free + locked;
@@ -177,8 +192,8 @@ export class PilotExecutor {
     const hasHolding = targetQty > 0.0001;
     
     // RE-ENTRY CHECK: If we don't hold the asset but have a re-entry record, it's a re-entry buy
-    const isReEntry = !hasHolding && signalType === "BUY" && hasReEntry(symbol);
-    const reEntryUsdt = isReEntry ? (pilotReEntryMap.get(symbol)?.lastSaleUsdt || 0) : 0;
+    const isReEntry = !hasHolding && signalType === "BUY" && hasReEntry(userId, symbolKey);
+    const reEntryUsdt = isReEntry ? (pilotReEntryMap.get(userId)?.get(symbolKey)?.lastSaleUsdt || 0) : 0;
 
     // If we don't hold the asset, but signal is BUY and pilot_only_holdings is false -> New Buy
     const isNewBuy = !hasHolding && !isReEntry && signalType === "BUY" && botConfig.pilot_only_holdings === false;
@@ -317,7 +332,8 @@ export class PilotExecutor {
    */
   static async executeReEntryBuy(symbol: string, botConfig: BotConfig, userId: number, mode: TradingMode, timeframe: string, signal: any, reEntryUsdt: number) {
     try {
-      const record = await consumeReEntry(symbol);
+      const symbolKey = normalizeSymbol(symbol);
+      const record = await consumeReEntry(userId, symbolKey);
       const allocUsdt = record?.lastSaleUsdt || reEntryUsdt;
 
       if (allocUsdt < 5) {
@@ -420,6 +436,7 @@ export class PilotExecutor {
   }
 
   static async recordSignalResult(p: {
+    userId: number,
     symbol: string, 
     signal: any, 
     timestamp: number, 
@@ -431,7 +448,7 @@ export class PilotExecutor {
     recentSignals: any[],
     activeSmartTrades?: any[]
   }) {
-    const { symbol, signal, timestamp, executed, executionResult, mode, scanTimeframe, aiScore } = p;
+    const { userId, symbol, signal, timestamp, executed, executionResult, mode, scanTimeframe, aiScore } = p;
     let vetoReason: string | undefined = undefined;
     if (signal.reason && signal.reason.includes("🛑")) vetoReason = signal.reason.split("🛑")[1].trim();
 
@@ -448,6 +465,7 @@ export class PilotExecutor {
     };
 
     await createStrategySignal({
+      user_id: userId,
       symbol,
       timeframe: scanTimeframe,
       signal_type: signal.signal,
@@ -555,7 +573,7 @@ export class PilotExecutor {
     console.log(`[Pilot] Signal for ${symbol}: ${signal.signal} | Score: ${aiScore}`);
     
     // 3. Calculate Allocation
-    const alloc = this.calculateAllocation(symbol, holdingsMap, botConfig, signal.signal);
+    const alloc = this.calculateAllocation(userId, symbol, holdingsMap, botConfig, signal.signal);
 
     let executed = false;
     let executionResult: Record<string, unknown> = {};
@@ -648,6 +666,7 @@ export class PilotExecutor {
 
     // 5. Record Result
     await this.recordSignalResult({
+      userId,
       symbol,
       signal,
       timestamp,

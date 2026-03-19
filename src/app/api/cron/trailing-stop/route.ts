@@ -29,29 +29,17 @@ export async function GET(request: Request) {
       }
     }
 
-    // P1.1 SAFETY LOCK: Fetch the REAL active mode from database settings
-    const userId = user?.id ? Number(user.id) : 1;
-    const { getSetting } = await import("@/lib/settings");
-    const activeMode = (await getSetting("TRADING_MODE", userId)) || "test";
-
-    // Fallback logic for tradingMode
+    // Determine requested mode
     const envFallback = process.env.DEFAULT_TRADING_MODE as "test" | "production" | undefined;
     const requestedMode = (queryMode as "test" | "production") || envFallback || "test";
 
-    if (requestedMode === "production" && activeMode === "test") {
-      console.log(`[Cron/TrailingStop] 🛑 BLOCKING production request: User is currently in TEST mode.`);
-      return NextResponse.json({ 
-        success: true, 
-        message: "Request ignored: Production execution blocked while app is in TEST mode.",
-        timestamp: Date.now() 
-      });
-    }
+    console.log(`[Cron/TrailingStop] Starting monitoring for ALL users in "${requestedMode}" mode...`);
 
-    // Ensure table exists (Lazy initialization)
+    // 1. Ensure table exists (Lazy initialization)
     await sql`
             CREATE TABLE IF NOT EXISTS trailing_stops (
                 id SERIAL PRIMARY KEY,
-                user_id TEXT NOT NULL,
+                user_id INTEGER NOT NULL REFERENCES users(id),
                 symbol TEXT NOT NULL,
                 quantity DECIMAL NOT NULL,
                 entry_price DECIMAL NOT NULL,
@@ -64,6 +52,7 @@ export async function GET(request: Request) {
             );
         `;
 
+    // 2. Execute monitors - monitorSmartTrades handles all users for the specific mode internally
     await checkTrailingStops();
     await monitorSmartTrades(requestedMode);
 

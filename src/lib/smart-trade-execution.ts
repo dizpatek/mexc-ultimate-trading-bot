@@ -126,7 +126,7 @@ export async function executeExit(
       // Calculate USDT proceeds from the sell
       const usdtProceeds = realExitPrice * executedQty;
       if (usdtProceeds >= 5) {
-        registerPilotReEntry(symbol, usdtProceeds);
+        registerPilotReEntry(user_id, symbol, usdtProceeds);
       }
     }
 
@@ -171,7 +171,7 @@ export async function executeExit(
     } as any);
 
     // Refresh daily performance metrics
-    await calculateDailyPerformance().catch(e => console.error("[Performance] Calc failed:", e));
+    await calculateDailyPerformance(user_id).catch(e => console.error("[Performance] Calc failed:", e));
   } catch (err) {
     console.error(`[Exit Error]`, err);
     throw err;
@@ -239,7 +239,7 @@ export async function executePartialTP(
       created_at: Date.now()
     } as any);
 
-    await calculateDailyPerformance().catch(e => console.error("[Performance] Partial TP Calc fail:", e));
+    await calculateDailyPerformance(trade.user_id).catch(e => console.error("[Performance] Partial TP Calc fail:", e));
 
     const filled =
       (metaUpdates.filledTargets as number[]) ||

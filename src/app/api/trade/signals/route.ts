@@ -48,7 +48,8 @@ export async function GET(request: Request) {
         trading_mode
       FROM strategy_signals
       WHERE
-        timestamp > ${since}
+        user_id = ${user.id}
+        AND timestamp > ${since}
         AND signal_type IN ('BUY', 'SELL')
         AND executed = false
         AND (trading_mode = ${tradingMode} OR trading_mode IS NULL)

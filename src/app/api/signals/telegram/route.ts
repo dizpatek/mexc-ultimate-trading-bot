@@ -1,28 +1,38 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { getSessionUser } from "@/lib/auth-utils";
+import { sql } from "@/lib/postgres";
 
 export const dynamic = "force-dynamic";
 
 interface TelegramSignal {
-  timestamp: string;
+  id?: number;
+  timestamp: string | number;
   symbol: string | null;
   direction: "LONG" | "SHORT";
   entry: number | null;
-  targets: number[];
+  targets: number[] | string;
   stop_loss: number | null;
   exchange: string;
   pair_type: "SPOT" | "FUTURES";
   raw_message: string;
 }
 
-// In-memory storage for signals (in production, use database)
-let signals: TelegramSignal[] = [];
-
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const user = await getSessionUser(request);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const { rows } = await sql`
+      SELECT * FROM telegram_signals 
+      WHERE user_id = ${user.id} 
+      ORDER BY timestamp DESC 
+      LIMIT 100
+    `;
+
     return NextResponse.json({
       success: true,
-      count: signals.length,
-      signals: signals.slice(-50), // Return last 50 signals
+      count: rows.length,
+      signals: rows.map(r => ({ ...r, targets: typeof r.targets === 'string' ? JSON.parse(r.targets) : r.targets })),
     });
   } catch (error) {
     console.error("Error fetching signals:", error);
@@ -35,9 +45,11 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const user = await getSessionUser(request);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const signal: TelegramSignal = await request.json();
 
-    // Validate signal
     if (!signal.symbol || !signal.entry) {
       return NextResponse.json(
         { success: false, error: "Invalid signal data" },
@@ -45,28 +57,23 @@ export async function POST(request: Request) {
       );
     }
 
-    // Add timestamp if not present
-    if (!signal.timestamp) {
-      signal.timestamp = new Date().toISOString();
-    }
+    const timestamp = signal.timestamp ? (typeof signal.timestamp === 'string' ? new Date(signal.timestamp).getTime() : signal.timestamp) : Date.now();
+    const targetsJson = JSON.stringify(signal.targets || []);
 
-    // Store signal
-    signals.push(signal);
+    await sql`
+      INSERT INTO telegram_signals (
+        user_id, symbol, direction, entry, targets, stop_loss, exchange, pair_type, raw_message, timestamp
+      ) VALUES (
+        ${user.id}, ${signal.symbol}, ${signal.direction}, ${signal.entry}, ${targetsJson}, 
+        ${signal.stop_loss}, ${signal.exchange}, ${signal.pair_type}, ${signal.raw_message}, ${timestamp}
+      )
+    `;
 
-    // Keep only last 1000 signals in memory
-    if (signals.length > 1000) {
-      signals = signals.slice(-1000);
-    }
-
-    console.log("New signal received:", {
-      symbol: signal.symbol,
-      entry: signal.entry,
-      targets: signal.targets,
-    });
+    console.log(`[TelegramSignal] New signal for user ${user.id}: ${signal.symbol}`);
 
     return NextResponse.json({
       success: true,
-      signal,
+      signal: { ...signal, timestamp }
     });
   } catch (error) {
     console.error("Error processing signal:", error);
@@ -77,12 +84,16 @@ export async function POST(request: Request) {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
   try {
-    signals = [];
+    const user = await getSessionUser(request);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    await sql`DELETE FROM telegram_signals WHERE user_id = ${user.id}`;
+
     return NextResponse.json({
       success: true,
-      message: "All signals cleared",
+      message: "Senin tüm Telegram sinyallerin temizlendi.",
     });
   } catch (error) {
     console.error("Error clearing signals:", error);

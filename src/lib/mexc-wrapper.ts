@@ -167,14 +167,17 @@ export async function getAccountInfo(
   userId: number,
   mode: TradingMode = "test",
 ) {
-  if (mode === "test") {
+  const finalMode = String(mode).toLowerCase();
+  if (finalMode === "test") {
     const simulator = getSimulator(userId);
     await syncSimulator(userId, simulator);
     return simulator.getAccountInfo();
   }
+  
   const { getAccountInfo: getMexcAccount } = await getMexcModule();
   return getMexcAccount(userId);
 }
+
 
 export async function getHoldings(userId: number, mode: TradingMode = "test") {
   const account = await getAccountInfo(userId, mode);

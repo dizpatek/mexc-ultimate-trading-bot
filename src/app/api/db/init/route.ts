@@ -29,46 +29,17 @@ export async function GET() {
       }
     }
 
-    // Migration: Fix system_settings user_id if needed
+    // Schema statements executed...
+    
+    // Ensure admin (id=1) also has default settings if it's the first run
     try {
-      const { rows: nullUserRows } = await pool.query(
-        "SELECT count(*) FROM system_settings WHERE user_id IS NULL",
-      );
-      if (parseInt(nullUserRows[0].count) > 0) {
-        console.log(
-          `[DB Init] Migrating ${nullUserRows[0].count} system_settings rows to user 1...`,
-        );
-        await pool.query(
-          "UPDATE system_settings SET user_id = 1 WHERE user_id IS NULL",
-        );
-        await pool.query(
-          "ALTER TABLE system_settings ALTER COLUMN user_id SET NOT NULL",
-        );
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(
-        "[DB Init] system_settings migration check skipped (table might be new):",
-        msg,
-      );
-    }
-
-    // Seed default bot config if none exists
-    const { rows: configs } = await pool.query(
-      "SELECT * FROM bot_configs WHERE id = 1",
-    );
-    if (configs.length === 0) {
-      const now = Date.now();
-      await pool.query(
-        "INSERT INTO bot_configs (id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, timeframe, updated_at) VALUES (1, 10, 1.8, 65, false, false, '4h', $1)",
-        [now],
-      );
-      console.log("[DB Init] Default bot config seeded");
-    }
+      const { initializeUserSettings } = await import("@/lib/db");
+      await initializeUserSettings(1); // One-time seed for the initial admin
+    } catch (e) {}
 
     return NextResponse.json({
       success: true,
-      message: "Database initialization and migration completed",
+      message: "Database schema initialized successfully",
     });
   } catch (error: unknown) {
     console.error("[DB Init] Fatal error:", error);

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getKlines } from "@/lib/mexc";
+import { getSessionUser } from "@/lib/auth-utils";
 
 // ──────────────────────────────────────────────────────────────
 // Server-side kline cache.
@@ -68,6 +69,9 @@ async function fetchKlinesDeduped(
 
 export async function GET(req: NextRequest) {
   try {
+    const user = await getSessionUser(req);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const { searchParams } = new URL(req.url);
     const symbol = searchParams.get("symbol");
     const interval = searchParams.get("interval") || "1h";

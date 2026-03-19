@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSessionUser } from "@/lib/auth-utils";
 
 // ──────────────────────────────────────────────────────────────
 // Server-side in-memory cache for ticker prices.
@@ -67,6 +68,9 @@ export const revalidate = 0;
 
 export async function GET(req: NextRequest) {
   try {
+    const user = await getSessionUser(req);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const { searchParams } = new URL(req.url);
     const symbols = searchParams.get("symbols");
     const symbol = searchParams.get("symbol");

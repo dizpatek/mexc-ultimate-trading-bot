@@ -12,7 +12,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const days = parseInt(searchParams.get("days") || "30");
 
-    const metrics = await getPerformanceMetrics(days);
+    const metrics = await getPerformanceMetrics(user.id, days);
     return NextResponse.json(metrics);
   } catch (error: unknown) {
     console.error("Error fetching performance metrics:", error);

@@ -12,7 +12,7 @@ export async function GET(request: Request) {
 
   try {
     await ensureTablesExist();
-    const config = await getBotConfig();
+    const config = await getBotConfig(user.id);
     return NextResponse.json({ success: true, config });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
   try {
     await ensureTablesExist();
     const updates = await request.json();
-    await updateBotConfig(updates);
+    await updateBotConfig(user.id, updates);
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";

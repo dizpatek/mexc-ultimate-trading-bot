@@ -109,7 +109,7 @@ export async function handleBuySignal(options: BuySignalOptions) {
 
     // Check global bot config
     const { getBotConfig } = await import("./db");
-    const botConfig = await getBotConfig();
+    const botConfig = await getBotConfig(userId);
     
     if (!botConfig) {
       console.log("System: Bot config is missing.");
@@ -357,7 +357,7 @@ export async function handleSellSignal({
 
     // Check global bot config
     const { getBotConfig } = await import("./db");
-    const botConfig = await getBotConfig();
+    const botConfig = await getBotConfig(userId);
     
     if (!botConfig) {
       console.log("System: Bot config is missing.");
@@ -477,7 +477,7 @@ export async function handleSellSignal({
       trading_mode: mode,
     })) as number;
 
-    const previousBuys = (await getTradeHistoryBySymbol(pair, 10)) as Array<{
+    const previousBuys = (await getTradeHistoryBySymbol(userId, pair, 10)) as Array<{
       side: string;
       price: number;
     }>;
@@ -515,7 +515,7 @@ export async function handleSellSignal({
       profit_loss_percentage: profitLossPercentage,
     });
 
-    await calculateDailyPerformance();
+    await calculateDailyPerformance(userId);
 
     return { ok: true, dbId, raw: res, profitLoss, profitLossPercentage };
   } catch (error: unknown) {

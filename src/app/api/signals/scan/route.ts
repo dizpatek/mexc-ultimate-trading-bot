@@ -70,10 +70,15 @@ export async function GET(request: Request) {
     const targetTimeframe = searchParams.get("timeframe") || undefined;
 
     const { getBotConfig } = await import("@/lib/db");
-    const botConfig = await getBotConfig();
+    const botConfig = await getBotConfig(userId);
     const scanSymbols = await SignalScanner.resolveScanSymbols(userId, mode, botConfig || undefined);
     const scanStartTime = Date.now();
-    const allResults = await SignalScanner.runScan(scanSymbols, targetTimeframe, mode);
+    const allResults = await SignalScanner.runScan(
+      userId,
+      scanSymbols,
+      targetTimeframe,
+      mode,
+    );
     const scanDuration = Date.now() - scanStartTime;
 
     console.log(

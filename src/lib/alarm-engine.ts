@@ -44,24 +44,8 @@ function mapToArrays(rawKlines: unknown[][]): KlineData {
 export async function checkAlarms() {
   console.log("[AlarmEngine] Starting alarm check cycle...");
 
-  // Fetch bot config for dynamic parameters
-  let botConfig: BotConfig | null = null;
   try {
-    botConfig = await getBotConfig();
-  } catch { /* use defaults */ }
-
-  const tradeMode = resolveTradeMode(botConfig);
-  const scanTimeframe = botConfig?.pilot_timeframe || "1h";
-
-  // Instantiate engine with core mode (Parameters will be autonomous)
-  const engine = new MatrixV5Engine({ tradeMode });
-
-  // 1. Fetch active alarms
-  try {
-    const { rows } = await sql`
-            SELECT * FROM alarms WHERE is_active = true
-        `;
-
+    const { rows } = await sql`SELECT * FROM alarms WHERE is_active = true`;
     const alarms = rows as unknown as Alarm[];
 
     if (alarms.length === 0) {
@@ -71,24 +55,51 @@ export async function checkAlarms() {
 
     console.log(`[AlarmEngine] Checking ${alarms.length} active alarms`);
 
-    // P4.3: O(A) Grouping (Map symbols to alarm lists)
-    const alarmsBySymbol = alarms.reduce((acc: Map<string, Alarm[]>, a: Alarm) => {
-      if (!acc.has(a.symbol)) acc.set(a.symbol, []);
-      acc.get(a.symbol)!.push(a);
+    // Group alarms by user_id to fetch configs efficiently
+    const alarmsByUser = alarms.reduce((acc: Map<number, Alarm[]>, a: Alarm) => {
+      const uid = Number(a.user_id);
+      if (!acc.has(uid)) acc.set(uid, []);
+      acc.get(uid)!.push(a);
       return acc;
-    }, new Map<string, Alarm[]>());
+    }, new Map<number, Alarm[]>());
 
-    // P4.2 PERFORMANCE: Parallel process symbols (concurrency: 5)
-    const entries = Array.from(alarmsBySymbol.entries());
-    const CONCURRENCY = 5;
-    
-    for (let i = 0; i < entries.length; i += CONCURRENCY) {
-      const chunk = entries.slice(i, i + CONCURRENCY);
-      await Promise.allSettled(
-        chunk.map(([symbol, symbolAlarms]) => 
-          processSymbolAlarms(symbol, symbolAlarms, engine, scanTimeframe)
-        )
-      );
+    const userConfigCache = new Map<number, { tradeMode: "Scalp" | "Swing"; scanTimeframe: string }>();
+
+    for (const [userId, userAlarms] of alarmsByUser.entries()) {
+      let config = userConfigCache.get(userId);
+      if (!config) {
+        try {
+          const botConfig = await getBotConfig(userId);
+          config = {
+            tradeMode: resolveTradeMode(botConfig),
+            scanTimeframe: botConfig?.pilot_timeframe || "1h",
+          };
+          userConfigCache.set(userId, config);
+        } catch {
+          config = { tradeMode: "Scalp", scanTimeframe: "1h" };
+        }
+      }
+
+      const engine = new MatrixV5Engine({ tradeMode: config.tradeMode });
+      
+      // Group by symbol for this user
+      const symbolGroups = userAlarms.reduce((acc: Map<string, Alarm[]>, a: Alarm) => {
+        if (!acc.has(a.symbol)) acc.set(a.symbol, []);
+        acc.get(a.symbol)!.push(a);
+        return acc;
+      }, new Map<string, Alarm[]>());
+
+      const symbolEntries = Array.from(symbolGroups.entries());
+      const CONCURRENCY = 3; 
+
+      for (let i = 0; i < symbolEntries.length; i += CONCURRENCY) {
+        const chunk = symbolEntries.slice(i, i + CONCURRENCY);
+        await Promise.allSettled(
+          chunk.map(([symbol, symbolAlarms]) => 
+            processSymbolAlarms(symbol, symbolAlarms, engine, config!.scanTimeframe)
+          )
+        );
+      }
     }
   } catch (error) {
     console.error("[AlarmEngine] Failed to run alarm cycle:", error);

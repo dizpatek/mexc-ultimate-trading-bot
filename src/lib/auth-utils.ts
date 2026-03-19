@@ -78,6 +78,10 @@ export async function registerUser(
     password_hash: passwordHash,
   })) as number;
 
+  // Initialize multi-tenant defaults for the new user
+  const { initializeUserSettings } = await import("./db");
+  await initializeUserSettings(userId);
+
   const user = (await getUserById(userId)) as unknown as User;
   const token = generateToken(user);
 

@@ -465,7 +465,7 @@ export async function resetSimulatorDatabase(userId: number) {
         pilot_mtf_threshold = ${DEFAULT_BOT_CONFIG.pilot_mtf_threshold},
         pilot_only_holdings = ${DEFAULT_BOT_CONFIG.pilot_only_holdings},
         timeframe_settings = ${JSON.stringify(DEFAULT_TIMEFRAME_SETTINGS)}::jsonb
-      WHERE id = 1
+      WHERE user_id = ${userId}
     `;
 
     console.log(

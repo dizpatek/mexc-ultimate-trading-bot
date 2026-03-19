@@ -63,20 +63,6 @@ export async function monitorSmartTrades(tradingMode: "test" | "production" = "t
   try {
     await ensureInitialized();
 
-    // ── Fetch bot config once per cycle (not per trade) ──
-    let pilotEnabled = true;
-    try {
-      const botConfig = await getBotConfig();
-      pilotEnabled = !!botConfig?.auto_trade;
-      // Store tradeMode for engine analyze calls
-      const tradeMode = resolveTradeMode(botConfig);
-      // P4.5: Type-safe context passing instead of untyped Record
-      (cycleCache as { __tradeMode?: string }).__tradeMode = tradeMode;
-    } catch {
-      // If config fetch fails, default to SAFE (no exit)
-      pilotEnabled = false;
-    }
-
     const { rows } = await sql`
             SELECT id, user_id, symbol, side, qty, price, meta, status, trading_mode 
             FROM orders 
@@ -89,17 +75,43 @@ export async function monitorSmartTrades(tradingMode: "test" | "production" = "t
     const trades = rows as unknown as MonitoredTrade[];
 
     // ── HIGH SPEED: Pre-fetch ALL prices in one call ──
-    // Instead of each trade calling getPrice() (even with batching), 
-    // we fetch everything once at start of cycle.
-    const symbolSet = new Set(trades.map(t => t.symbol));
+    const symbolSet = new Set(trades.map((t) => t.symbol));
     const priceMap = await batchFetchPrices(Array.from(symbolSet));
+
+    // Cache for user configs within this cycle to avoid redundant DB calls
+    const userConfigCache = new Map<number, { pilotEnabled: boolean; tradeMode: "Scalp" | "Swing" }>();
 
     for (let i = 0; i < trades.length; i += CONCURRENCY_LIMIT) {
       const chunk = trades.slice(i, i + CONCURRENCY_LIMIT);
       await Promise.allSettled(
-        chunk.map((trade) => {
+        chunk.map(async (trade) => {
           const currentPrice = priceMap[trade.symbol];
-          return processTradeMonitoring(trade, pilotEnabled, cycleCache, currentPrice).catch((err) =>
+          
+          // Get or build user config cache
+          let userConfig = userConfigCache.get(trade.user_id);
+          if (!userConfig) {
+            try {
+              const botConfig = await getBotConfig(trade.user_id);
+              userConfig = {
+                pilotEnabled: !!botConfig?.auto_trade,
+                tradeMode: resolveTradeMode(botConfig),
+              };
+              userConfigCache.set(trade.user_id, userConfig);
+            } catch {
+              userConfig = { pilotEnabled: false, tradeMode: "Scalp" };
+            }
+          }
+
+          // Use trade-specific cache context
+          const tradeCache: KlineCache = { ...cycleCache };
+          (tradeCache as { __tradeMode?: string }).__tradeMode = userConfig.tradeMode;
+
+          return processTradeMonitoring(
+            trade,
+            userConfig.pilotEnabled,
+            tradeCache,
+            currentPrice,
+          ).catch((err) =>
             console.error(`[SmartMonitor] Error for trade ${trade.id}:`, err),
           );
         }),

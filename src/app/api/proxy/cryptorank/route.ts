@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSessionUser } from "@/lib/auth-utils";
 
 const CRYPTORANK_ORIGIN = "https://cryptorank.io";
 
 export async function GET(request: NextRequest) {
+  const user = await getSessionUser(request);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const { searchParams } = new URL(request.url);
   const path = searchParams.get("path") || "";
 

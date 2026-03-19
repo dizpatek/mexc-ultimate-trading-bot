@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
+import { getSessionUser } from "@/lib/auth-utils";
 import { fetchAndProcessNews } from "@/services/newsService";
 
 export const revalidate = 300; // Cache the response for 5 minutes (300 seconds)
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const user = await getSessionUser(request);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const news = await fetchAndProcessNews();
     return NextResponse.json(news);
   } catch (error) {

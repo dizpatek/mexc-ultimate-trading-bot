@@ -6,8 +6,6 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
-    let userId = 1; // Varsayılan sistem kullanıcısı (Admin/Pilot)
-    
     // Güvenlik: Northflank vb. Cron Job servisleri için bypass izni
     const authHeader = request.headers.get("authorization");
     const isDev = process.env.NODE_ENV !== "production";
@@ -21,8 +19,6 @@ export async function GET(request: Request) {
         console.warn("[Cron/Strategies] Unauthorized execution attempt blocked.");
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       }
-    } else {
-      userId = Number(user.id);
     }
 
     const { searchParams } = new URL(request.url);
@@ -40,27 +36,40 @@ export async function GET(request: Request) {
       ? (modeCookie.split("=")[1].trim() as "test" | "production")
       : envFallback || "test");
 
-    // P1.1 SAFETY LOCK: Fetch the REAL active mode from database settings
-    const { getSetting } = await import("@/lib/settings");
-    const activeMode = (await getSetting("TRADING_MODE", userId)) || "test";
+    const { getAllUserIds } = await import("@/lib/db");
+    const userIds = await getAllUserIds();
+    
+    console.log(`[Cron] Triggering PARALLEL strategy execution for ${userIds.length} users... (immediate: ${immediate}, mode: ${requestedMode})`);
 
-    if (requestedMode === "production" && activeMode === "test") {
-      console.log(`[Cron/Strategies] 🛑 BLOCKING production request: User is currently in TEST mode.`);
-      return NextResponse.json({ 
-        success: true, 
-        message: "Request ignored: Production execution blocked while app is in TEST mode.",
-        timestamp: Date.now() 
-      });
-    }
+    // Run all users in parallel using Promise.allSettled to ensure isolation
+    const results = await Promise.allSettled(userIds.map(async (userId) => {
+      try {
+        const { getSetting } = await import("@/lib/settings");
+        const activeMode = (await getSetting("TRADING_MODE", userId)) || "test";
 
-    const tradingMode = requestedMode;
+        if (requestedMode === "production" && activeMode === "test") {
+          console.log(`[Cron/Strategies] 🛑 User ${userId} is in TEST mode. Skipping production request.`);
+          return { userId, status: "SKIPPED", reason: "Mode mismatch" };
+        }
 
-    console.log(`[Cron] Triggering strategy execution... (immediate: ${immediate}, user: ${userId}, mode: ${tradingMode})`);
+        console.log(`[Cron] ⚡ Starting private cycle for user: ${userId}`);
+        await runActiveStrategies(immediate, userId, requestedMode);
+        return { userId, status: "SUCCESS" };
+      } catch (err) {
+        console.error(`[Cron/Strategies] ❌ Private cycle FAILED for user ${userId}:`, err);
+        throw { userId, status: "ERROR", error: String(err) };
+      }
+    }));
 
-    // Run asynchronously to not timeout
-    await runActiveStrategies(immediate, userId, tradingMode);
+    // ProcessSettled results for the response
+    const finalResults = results.map(r => r.status === "fulfilled" ? r.value : r.reason);
 
-    return NextResponse.json({ success: true, timestamp: Date.now() });
+    return NextResponse.json({ 
+      success: true, 
+      processed: userIds.length,
+      results: finalResults,
+      timestamp: Date.now() 
+    });
   } catch (error: unknown) {
     console.error("Strategy cron job failed:", error);
     const message = error instanceof Error ? error.message : "Unknown error";

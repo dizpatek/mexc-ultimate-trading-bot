@@ -689,25 +689,25 @@ export const MatrixHorizon = ({
 
   const saveConfig = useCallback(async (updates: Partial<BotConfig>, onSuccess?: () => void) => {
     // 1. Update LOCAL state immediately for UI responsiveness
-    setConfig((prev) => {
-      const next = { ...prev, ...updates };
-
-      // Log changes only for MANUAL user actions via buttons, 
-      // not for every internal state sync.
-      return next;
-    });
+    setConfig((prev) => ({ ...prev, ...updates }));
 
     // 2. Persist to BACKEND
     try {
-      const res = await api.post("/bot/config", updates);
+      const payload = { ...updates };
+      // Security: Remove ID from updates to let Postgres manage PK via SERIAL
+      if ('id' in payload) delete (payload as any).id;
+
+      const res = await api.post("/bot/config", payload);
       if (res.data?.success) {
         if (onSuccess) onSuccess();
+        // Optional: Sync back the final config from server (including new ID if any)
+        if (res.data.config) setConfig(res.data.config);
       } else {
         console.error("[MatrixHorizon] Config save failed:", res.data?.error);
       }
-    } catch (err) {
-      console.error("[MatrixHorizon] API Error during config save:", err);
-      // Optional: Rollback local state on failure
+    } catch (err: any) {
+      console.error("[MatrixHorizon] API Error during config save:", err.response?.data || err.message);
+      // notify usually handled by caller, but we log it here for audit
     }
   }, []);
 

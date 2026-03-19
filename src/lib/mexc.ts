@@ -16,14 +16,17 @@ const httpsAgent = new https.Agent({
 });
 
 async function getEnv(userId: number) {
-  const { apiKey, apiSecret } = await getMexcCredentials(userId, "production");
-  if (!apiKey || !apiSecret) {
-    throw new Error(
-      "MEXC API credentials not configured for this user. Please set your keys in Settings.",
-    );
+  try {
+    const { apiKey, apiSecret } = await getMexcCredentials(userId, "production");
+    if (!apiKey || !apiSecret) {
+      return null;
+    }
+    return { apiKey, apiSecret };
+  } catch (e) {
+    return null;
   }
-  return { apiKey, apiSecret };
 }
+
 
 function sign(totalParams: string, secret: string): string {
   if (!secret) throw new Error("MEXC_SECRET is not defined");
@@ -144,7 +147,17 @@ async function signedRequest<T>(
     return null;
   }
 
-  const { apiKey, apiSecret } = await getEnv(userId);
+  const credentials = await getEnv(userId);
+  if (!credentials) {
+    const errorMsg = `[Auth Error] MEXC API credentials not configured for User ${userId}. Please set your keys in Settings.`;
+    console.warn(errorMsg);
+    if (endpoint.includes("account")) {
+        return { balances: [] } as unknown as T;
+    }
+    return null;
+  }
+
+  const { apiKey, apiSecret } = credentials;
 
   const execute = async () => {
     await syncTime();

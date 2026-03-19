@@ -32,77 +32,88 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    console.log("[Cron] Starting portfolio snapshot...");
+    console.log("[Cron] Starting portfolio snapshot for all users...");
 
-    // Get account info (cron uses user 1 as default)
-    const accountInfo = await getAccountInfo(1);
-    const activeBalances = (accountInfo.balances || []).filter(
-      (b: { free: string; locked: string }) =>
-        parseFloat(b.free) + parseFloat(b.locked) > 0,
-    );
+    const { getAllUserIds } = await import("@/lib/db");
+    const userIds = await getAllUserIds();
+    
+    console.log(`[Cron] Starting PARALLEL portfolio snapshot for ${userIds.length} users...`);
 
-    let totalValue = 0;
-    let totalAssets = 0;
-    const balancesDetail = [];
+    const results = await Promise.allSettled(userIds.map(async (userId) => {
+      try {
+        console.log(`[Cron] ⚡ Snapshot starting for user: ${userId}`);
+        
+        // Get account info for this specific user
+        const accountInfo = await getAccountInfo(userId);
+        const activeBalances = (accountInfo.balances || []).filter(
+          (b: { free: string; locked: string }) =>
+            parseFloat(b.free) + parseFloat(b.locked) > 0,
+        );
 
-    // Calculate total value
-    for (const balance of activeBalances) {
-      const free = parseFloat(balance.free);
-      const locked = parseFloat(balance.locked);
-      const totalQty = free + locked;
-      const symbol = balance.asset;
+        let totalValue = 0;
+        let totalAssets = 0;
+        const balancesDetail = [];
 
-      let price = 0;
-      const pair = `${symbol}USDT`;
+        // Calculate total value
+        for (const balance of activeBalances) {
+          const free = parseFloat(balance.free);
+          const locked = parseFloat(balance.locked);
+          const totalQty = free + locked;
+          const symbol = balance.asset;
 
-      if (symbol === "USDT" || symbol === "USDC") {
-        price = 1;
-      } else {
-        try {
-          price = await getPrice(pair);
-        } catch {
-          console.warn(`[Cron] Could not get price for ${pair}`);
+          let price = 0;
+          const pair = `${symbol}USDT`;
+
+          if (symbol === "USDT" || symbol === "USDC") {
+            price = 1;
+          } else {
+            try {
+              price = await getPrice(pair);
+            } catch {
+              console.warn(`[Cron] Could not get price for ${pair} (User: ${userId})`);
+            }
+          }
+
+          const value = totalQty * price;
+
+          if (value > 0.01) {
+            totalValue += value;
+            totalAssets++;
+
+            balancesDetail.push({
+              asset: symbol,
+              free,
+              locked,
+              price,
+              value,
+              timestamp: Date.now(),
+            });
+          }
         }
+
+        // Create snapshot for this user
+        const snapshotId = await createPortfolioSnapshot(
+          userId,
+          totalValue,
+          totalAssets,
+          balancesDetail,
+        );
+
+        console.log(`[Cron] ✅ Snapshot for user ${userId} completed: $${totalValue.toFixed(2)}`);
+        return { userId, status: "SUCCESS", snapshotId, value: totalValue };
+      } catch (err) {
+        console.error(`[Cron] ❌ Snapshot FAILED for user ${userId}:`, err);
+        throw { userId, status: "ERROR", error: String(err) };
       }
+    }));
 
-      const value = totalQty * price;
-
-      if (value > 0.01) {
-        // Only count assets worth more than $0.01
-        totalValue += value;
-        totalAssets++;
-
-        balancesDetail.push({
-          asset: symbol,
-          free,
-          locked,
-          price,
-          value,
-          timestamp: Date.now(),
-        });
-      }
-    }
-    // P3.1: TODO: Add a mechanism to identify and handle delisted or untradeable assets gracefully.
-    // P4.1: TODO: Implement a more robust error handling for price fetching, possibly with retries or fallback sources.
-    // P4.2: TODO: Consider adding a cache for price data to reduce API calls and improve performance.
-    // P4.3: TODO: Evaluate the impact of parallelizing price fetching for all active balances.
-
-    // Create snapshot
-    const snapshotId = await createPortfolioSnapshot(
-      totalValue,
-      totalAssets,
-      balancesDetail,
-    );
-
-    console.log(
-      `[Cron] Portfolio snapshot created: ID ${snapshotId}, Value: $${totalValue.toFixed(2)}, Assets: ${totalAssets}`,
-    );
+    // Process result objects for response
+    const finalResults = results.map(r => r.status === "fulfilled" ? r.value : r.reason);
 
     return NextResponse.json({
       success: true,
-      snapshotId,
-      totalValue,
-      totalAssets,
+      processed: userIds.length,
+      results: finalResults,
       timestamp: Date.now(),
     });
   } catch (error: unknown) {

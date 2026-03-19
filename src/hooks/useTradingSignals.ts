@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
-import { F4Data } from "@/lib/trading-logic";
 import { api } from "@/services/api";
+import { F4Data } from "@/lib/trading-logic";
+export type { F4Data };
 
 export const MTF_INTERVALS = ["15m", "1h", "4h", "1d", "1w"];
 
@@ -68,7 +69,7 @@ async function fetchBulkMtfData(trades: { id: number; symbol: string }[], mapApi
   return { updates, newFailures };
 }
 
-export function useTradingSignals() {
+export function useTradingSignals(enabled: boolean = true) {
   const [signalDataMap, setSignalDataMap] = useState<Record<string, F4Data>>(
     {},
   );
@@ -82,53 +83,21 @@ export function useTradingSignals() {
 
   const mapApiResponse = useCallback(
     (data: unknown, symbol: string, interval: string): F4Data => {
-      const d = data as any; // Cast for internal access to fix lint
+      const d = data as any;
       const prediction = d.prediction as Record<string, unknown> | undefined;
       return {
+        ...d,
         symbol: symbol.replace("USDT", ""),
         interval: interval,
-        currentPrice: d.currentPrice,
-        f4Slope: d.f4Slope,
-        f4Acceleration: d.f4Acceleration,
-        whaleDetected: d.whaleDetected ?? false,
-        whaleStatus: d.whaleStatus || d.whaleSignalText || "",
-        trend: d.trend || "NEUTRAL",
-        signal: d.signal || null,
-        aiScore: d.confluenceScore ?? d.aiScore ?? 0,
-        confluenceScore: d.confluenceScore,
-        prediction: d.prediction,
-        v5Indicators: Array.isArray(d.v5Indicators) ? d.v5Indicators : [],
-        adm: d.adm,
-        vpa: d.vpa,
-        marketRegime: d.marketRegime || "NEUTRAL",
-        volatilityRegime: d.volatilityRegime || "",
-        regimePrediction: (prediction?.text as string) || d.regimePrediction || "",
-        systemDecision: d.systemDecision || "",
-        mtfConsensus: d.mtfConsensus || "",
-        zScoreValue: d.zScoreValue || 0,
-        deathRisk: d.deathRisk ?? false,
-        smc: d.smc,
-        liquidity: d.liquidity,
-        whaleTrust: d.whaleTrust,
-        tfAdaptFactor: d.tfAdaptFactor,
-        f4PowerLoss: d.f4PowerLoss,
-        liquidityZone: d.liquidityZone,
-        f4EarlyBuy: d.f4EarlyBuy ?? false,
-        f4EarlySell: d.f4EarlySell ?? false,
-        f4ConfirmedBuy: d.f4ConfirmedBuy ?? false,
-        f4ConfirmedSell: d.f4ConfirmedSell ?? false,
-        fundingRate: d.fundingRate,
-        fundingImpact: d.fundingImpact,
+        signal: (d.signal === "WAIT" || d.signal === "BEKLE") ? null : d.signal,
       };
     },
     [],
   );
 
-  /**
-   * Single signal fetcher
-   */
   const fetchSignal = useCallback(
     async (symbol: string, interval: string): Promise<F4Data | null> => {
+      if (!enabled) return null;
       try {
         const sym = symbol.replace("/", "");
         const res = await api.get(
@@ -146,18 +115,16 @@ export function useTradingSignals() {
         return null;
       }
     },
-    [mapApiResponse],
+    [mapApiResponse, enabled],
   );
 
-  /**
-   * Fetch Multi-Timeframe Analysis for a trade row
-   */
   const fetchMtfAnalysis = useCallback(
     async (tradeId: number, symbol: string) => {
+      if (!enabled) return;
       setLoadingMtf((prev) => ({ ...prev, [tradeId]: true }));
       try {
         const rawResults = await Promise.all(
-          MTF_INTERVALS.map(async (tf) => {
+          MTF_INTERVALS.map(async (tf: string) => {
             const d = await fetchSignal(symbol, tf);
             return { tf, d };
           }),
@@ -180,17 +147,13 @@ export function useTradingSignals() {
         setLoadingMtf((prev) => ({ ...prev, [tradeId]: false }));
       }
     },
-    [fetchSignal],
+    [fetchSignal, enabled],
   );
 
-  /**
-   * Fetch MTF Analysis for multiple trades sequentially to prevent fan-out
-   */
   const fetchMultipleMtfAnalysis = useCallback(
     async (trades: { id: number; symbol: string }[]) => {
-      if (!trades.length) return;
+      if (!enabled || !trades.length) return;
 
-      // Mark all as loading
       setLoadingMtf((prev) => {
         const next = { ...prev };
         trades.forEach((t) => (next[t.id] = true));
@@ -209,12 +172,12 @@ export function useTradingSignals() {
         });
       }
     },
-    [mapApiResponse],
+    [mapApiResponse, enabled],
   );
 
   const fetchLiveSignals = useCallback(
     async (symbols: string[], interval: string = "4h") => {
-      if (!symbols.length) return;
+      if (!enabled || !symbols.length) return;
 
       try {
         const cleanSymbols = symbols.map(s => s.replace("/", ""));
@@ -239,19 +202,16 @@ export function useTradingSignals() {
         console.error("fetchLiveSignals bulk failed:", err);
       }
     },
-    [mapApiResponse],
+    [mapApiResponse, enabled],
   );
 
-  /**
-   * Fetch signals for all symbols at a specific interval (Portfolio View) - CHUNKED for Scale
-   */
   const fetchIntervalForSymbols = useCallback(
     async (symbols: string[], interval: string) => {
-      if (!symbols.length) return;
+      if (!enabled || !symbols.length) return;
       setIsLoadingSignals(true);
       
       try {
-        const CHUNK_SIZE = 25; // Safer than 30-entry limit
+        const CHUNK_SIZE = 100;
         const chunks: string[][] = [];
         for (let i = 0; i < symbols.length; i += CHUNK_SIZE) {
           chunks.push(symbols.slice(i, i + CHUNK_SIZE));
@@ -271,7 +231,7 @@ export function useTradingSignals() {
 
           if (data.results && Array.isArray(data.results)) {
             data.results.forEach((res: unknown) => {
-              const r = res as any; // Cast for property access to fix lint
+              const r = res as any;
               if (r && !r.error) {
                 const sym = r.symbol as string;
                 nextSignals[sym] = mapApiResponse(r, sym, interval);
@@ -287,7 +247,7 @@ export function useTradingSignals() {
         setIsLoadingSignals(false);
       }
     },
-    [mapApiResponse],
+    [mapApiResponse, enabled],
   );
 
   return {

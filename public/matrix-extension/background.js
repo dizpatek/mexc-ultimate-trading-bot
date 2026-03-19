@@ -1,5 +1,5 @@
-// Matrix Pro Bridge V3.0 - Background Service Worker
-// Handles cookie management, Google OAuth, and message passing
+// Matrix Pro Bridge V3.4 - Background Service Worker
+// Handles TradingView cookie management ONLY. Google cookies are NEVER touched.
 
 // Storage keys
 const STORAGE_KEYS = {
@@ -31,7 +31,7 @@ async function getDb() {
         };
         request.onsuccess = (e) => resolve(e.target.result);
         request.onerror = (e) => {
-            dbPromise = null; // Don't cache failed connection
+            dbPromise = null;
             reject(e.target.error);
         };
     });
@@ -62,11 +62,10 @@ async function getOrGenerateKey() {
             console.warn('[Matrix Bridge] Error reading key from IDB', err);
         }
         
-        // No key found, generate new one
         try {
             const newKey = await crypto.subtle.generateKey(
                 { name: 'AES-GCM', length: 256 },
-                false, // non-extractable!
+                false,
                 ['encrypt', 'decrypt']
             );
             
@@ -87,7 +86,6 @@ async function getOrGenerateKey() {
         }
     })();
     
-    // Safety: Reset promise on failure so next caller can retry
     aesKeyPromise.catch(() => {
         aesKeyPromise = null;
     });
@@ -111,27 +109,24 @@ async function encryptData(data) {
         combined.set(iv, 0);
         combined.set(new Uint8Array(encrypted), iv.length);
         
-        // Use Hex encoding to safely represent bytes
         return Array.from(combined).map(b => b.toString(16).padStart(2, '0')).join('');
     } catch (error) {
         console.error('[Matrix Bridge] Encryption failed:', error.message);
-        throw error; // Fail-fast so saveSession knows it failed
+        throw error;
     }
 }
 
 function detectAndDecode(data) {
     if (!data || typeof data !== 'string') return { type: 'raw', value: data };
     
-    // Hex check (from current version)
     if (data.length >= 24 && /^[0-9a-fA-F]+$/.test(data) && data.length % 2 === 0) {
         const bytes = new Uint8Array(data.length / 2);
         for (let i = 0; i < data.length; i += 2) {
             bytes[i / 2] = parseInt(data.substring(i, i + 2), 16);
         }
-        return { type: 'cipher', value: bytes }; // Combined IV + Ciphertext
+        return { type: 'cipher', value: bytes };
     }
     
-    // Strict Base64 check (for legacy btoa encoded data)
     if (data.length >= 16 && data.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(data)) {
         try {
             const binaryStr = atob(data);
@@ -167,7 +162,6 @@ async function decryptData(data) {
             return JSON.parse(new TextDecoder().decode(decrypted));
         }
         
-        // Not a cipher format, attempt direct JSON parse
         return JSON.parse(data);
     } catch (error) {
         console.warn('[Matrix Bridge] Decryption failed:', error.message);
@@ -188,14 +182,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     switch (message.action) {
         case 'getTradingViewCookies':
             getTradingViewCookies().then(sendResponse);
-            return true;
-            
-        case 'getGoogleAccounts':
-            getGoogleAccounts().then(sendResponse);
-            return true;
-            
-        case 'loginWithGoogle':
-            loginWithGoogle(message.accountIndex).then(sendResponse);
             return true;
             
         case 'checkLoginStatus':
@@ -230,7 +216,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function setCookieInternal(cookie) {
     const isHostOnly = cookie.name.startsWith('__Host-');
     const cookieDomain = cookie.domain || 'www.tradingview.com';
-    // Strip leading dot for the URL host part
     const urlHost = cookieDomain.startsWith('.') ? cookieDomain.substring(1) : cookieDomain;
     
     const path = cookie.path || '/';
@@ -264,7 +249,6 @@ async function restoreSession() {
         ]);
         
         if (data[STORAGE_KEYS.TV_COOKIES] && data[STORAGE_KEYS.TV_LOGIN_STATUS]) {
-            // Restore cookies to TradingView
             const cookiesRaw = data[STORAGE_KEYS.TV_COOKIES];
             const userInfoRaw = data[STORAGE_KEYS.TV_USER_INFO];
             
@@ -276,7 +260,6 @@ async function restoreSession() {
                 return { success: true, restored: false };
             }
 
-            // Restore cookies to TradingView in parallel for performance
             await Promise.all(cookies.map(cookie => 
                 setCookieInternal(cookie).catch(e => 
                     console.error('[Matrix Bridge] Error restoring cookie:', cookie.name, e)
@@ -288,6 +271,7 @@ async function restoreSession() {
                 restored: true,
                 isLoggedIn: data[STORAGE_KEYS.TV_LOGIN_STATUS],
                 userInfo: userInfo,
+                cookieCount: cookies.length,
                 cookies: cookies.map(c => ({ name: c.name, value: c.value }))
             };
         }
@@ -302,11 +286,9 @@ async function restoreSession() {
 // Save session to storage
 async function saveSession(cookies, userInfo) {
     try {
-        // Only store minimum necessary authentication tokens to mitigate storage risks
         const essentialCookies = ['sessionid', 'auth_token', 'device_token', 'tv_ecuid', 'sessionid_sign', 'sp'];
         const filteredCookies = cookies ? cookies.filter(c => essentialCookies.includes(c.name)) : [];
 
-        // encryptData will throw if it fails now
         const encryptedCookies = await encryptData(filteredCookies);
         const encryptedUserInfo = await encryptData(userInfo);
 
@@ -327,7 +309,6 @@ async function saveSession(cookies, userInfo) {
 // Get all TradingView cookies
 async function getTradingViewCookies() {
     try {
-        // Query all cookies on tradingview.com and its subdomains
         const cookies = await chrome.cookies.getAll({ domain: 'tradingview.com' });
         const formattedCookies = cookies.map(cookie => ({
             name: cookie.name,
@@ -340,86 +321,18 @@ async function getTradingViewCookies() {
             expirationDate: cookie.expirationDate
         }));
         
-        console.log('[Matrix Bridge] Found', cookies.length, 'TradingView cookies for .tradingview.com');
-        return { success: true, cookies: formattedCookies };
+        console.log('[Matrix Bridge] Found', cookies.length, 'TradingView cookies');
+        return { success: true, cookies: formattedCookies, cookieCount: cookies.length };
     } catch (error) {
         console.error('[Matrix Bridge] Error getting cookies:', error);
         return { success: false, error: error.message };
     }
 }
 
-// Get Google accounts (from cookies)
-async function getGoogleAccounts() {
-    try {
-        const googleCookies = await chrome.cookies.getAll({ domain: '.google.com' });
-        
-        // Look for account indicators in cookies
-        const accountEmails = [];
-        
-        // Check for GAIA IDs and email in cookies
-        for (const cookie of googleCookies) {
-            if (cookie.name === 'ACCOUNT_CHOOSER' || cookie.name.includes('LSOLH')) {
-                try {
-                    const decoded = decodeURIComponent(cookie.value);
-                    // Extract email patterns
-                    const emailMatch = decoded.match(/[\w.-]+@[\w.-]+\.\w+/g);
-                    if (emailMatch) {
-                        emailMatch.forEach(email => {
-                            if (!accountEmails.includes(email)) {
-                                accountEmails.push(email);
-                            }
-                        });
-                    }
-                } catch {
-                    // Ignore decode errors
-                }
-            }
-        }
-        
-        // Also check accounts.google.com cookies
-        await chrome.cookies.getAll({ domain: 'accounts.google.com' });
-        
-        console.log('[Matrix Bridge] Found Google accounts:', accountEmails);
-        return { success: true, accounts: accountEmails, hasGoogleSession: googleCookies.length > 0 };
-    } catch (error) {
-        console.error('[Matrix Bridge] Error getting Google accounts:', error);
-        return { success: false, error: error.message };
-    }
-}
-
-// Login with Google - opens popup for account selection
-async function loginWithGoogle() {
-    try {
-        // Open TradingView login page which redirects to Google
-        const loginUrl = 'https://www.tradingview.com/accounts/signin/?legacy_signup=true#/signin';
-        
-        // Create a new window for login
-        const window = await chrome.windows.create({
-            url: loginUrl,
-            type: 'popup',
-            width: 500,
-            height: 700,
-            focused: true
-        });
-        
-        // Store window ID for later
-        await chrome.storage.local.set({ [STORAGE_KEYS.LOGIN_WINDOW_ID]: window.id });
-        
-        return { success: true, windowId: window.id };
-    } catch (error) {
-        console.error('[Matrix Bridge] Error opening login:', error);
-        return { success: false, error: error.message };
-    }
-}
-
-// Open login popup with Google account chooser
+// Open login popup
 async function openLoginPopup() {
     try {
-        // First, get current Google accounts
-        const googleResult = await getGoogleAccounts();
-        
-        // Open TradingView's Google login directly
-        const tvLoginUrl = 'https://www.tradingview.com/api/v1/sso/google/?legacy_signup=true';
+        const tvLoginUrl = 'https://www.tradingview.com/accounts/signin/?legacy_signup=true#/signin';
         
         const window = await chrome.windows.create({
             url: tvLoginUrl,
@@ -429,10 +342,9 @@ async function openLoginPopup() {
             focused: true
         });
         
-        // Monitor the window for completion
         monitorLoginWindow(window.id);
         
-        return { success: true, windowId: window.id, accounts: googleResult.accounts };
+        return { success: true, windowId: window.id };
     } catch (error) {
         console.error('[Matrix Bridge] Error opening login popup:', error);
         return { success: false, error: error.message };
@@ -442,21 +354,18 @@ async function openLoginPopup() {
 // Monitor login window for completion
 async function monitorLoginWindow(windowId) {
     let attempts = 0;
-    const maxAttempts = 120; // 2 minutes max
+    const maxAttempts = 120;
     
     const checkInterval = setInterval(async () => {
         attempts++;
         
         try {
-            // Check if window still exists
             const window = await chrome.windows.get(windowId).catch(() => null);
             
             if (!window) {
                 clearInterval(checkInterval);
-                // Window closed, check if login was successful
                 const status = await checkTradingViewLoginStatus();
                 if (status.isLoggedIn) {
-                    // Save session
                     const cookies = await getTradingViewCookies();
                     await saveSession(cookies.cookies, status.userInfo);
                 }
@@ -464,16 +373,13 @@ async function monitorLoginWindow(windowId) {
                 return;
             }
             
-            // Check cookies for sessionid (indicates successful login)
             const cookies = await chrome.cookies.getAll({ url: 'https://www.tradingview.com' });
             const sessionCookie = cookies.find(c => c.name === 'sessionid');
             const authToken = cookies.find(c => c.name === 'auth_token');
             
             if (sessionCookie || authToken) {
-                // Login successful!
                 clearInterval(checkInterval);
                 
-                // Save session before closing window
                 const status = await checkTradingViewLoginStatus();
                 const allCookies = await getTradingViewCookies();
                 await saveSession(allCookies.cookies, status.userInfo);
@@ -495,7 +401,6 @@ async function monitorLoginWindow(windowId) {
 // Check TradingView login status
 async function checkTradingViewLoginStatus() {
     try {
-        // Use domain instead of URL to ensure we check both .tradingview.com and www.tradingview.com
         const cookies = await chrome.cookies.getAll({ domain: 'tradingview.com' });
         
         const sessionCookie = cookies.find(c => c.name === 'sessionid');
@@ -506,13 +411,11 @@ async function checkTradingViewLoginStatus() {
         
         console.log('[Matrix Bridge] Login check:', { isLoggedIn, cookieCount: cookies.length });
         
-        // Check stored session first
         const stored = await chrome.storage.local.get([
             STORAGE_KEYS.TV_LOGIN_STATUS,
             STORAGE_KEYS.TV_USER_INFO
         ]);
         
-        // Get user info if logged in
         let userInfoRaw = stored[STORAGE_KEYS.TV_USER_INFO] || null;
         let userInfo = typeof userInfoRaw === 'string' ? await decryptData(userInfoRaw) : userInfoRaw;
         
@@ -523,7 +426,6 @@ async function checkTradingViewLoginStatus() {
                 });
                 if (response.ok) {
                     userInfo = await response.json();
-                    // Save to storage
                     await chrome.storage.local.set({
                         [STORAGE_KEYS.TV_LOGIN_STATUS]: true,
                         [STORAGE_KEYS.TV_USER_INFO]: await encryptData(userInfo)
@@ -534,7 +436,6 @@ async function checkTradingViewLoginStatus() {
             }
         }
         
-        // If logged in, save cookies
         if (isLoggedIn) {
             const allCookies = await getTradingViewCookies();
             await saveSession(allCookies.cookies, userInfo);
@@ -545,6 +446,7 @@ async function checkTradingViewLoginStatus() {
             isLoggedIn,
             hasSession: !!sessionCookie,
             hasDeviceToken: !!deviceToken,
+            cookieCount: cookies.length,
             cookies: cookies.map(c => ({ name: c.name, value: c.value })),
             userInfo
         };
@@ -557,12 +459,8 @@ async function checkTradingViewLoginStatus() {
 // Set TradingView cookies
 async function setTradingViewCookies(cookies) {
     try {
-        // Set cookies in parallel
         await Promise.all(cookies.map(cookie => setCookieInternal(cookie)));
-        
-        // Save to storage
         await saveSession(cookies, null);
-        
         return { success: true };
     } catch (error) {
         console.error('[Matrix Bridge] Error setting cookies:', error);
@@ -570,13 +468,11 @@ async function setTradingViewCookies(cookies) {
     }
 }
 
-// Clear all cookies
+// Clear only TradingView cookies — NEVER touch Google cookies
 async function clearAllCookies() {
     try {
         const tvCookies = await chrome.cookies.getAll({ domain: '.tradingview.com' });
         for (const cookie of tvCookies) {
-            // Strip leading dot from domain to form a valid URL
-            // e.g. ".tradingview.com" -> "tradingview.com"
             const domainName = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
             await chrome.cookies.remove({
                 url: `https://${domainName}${cookie.path}`,
@@ -584,7 +480,6 @@ async function clearAllCookies() {
             });
         }
         
-        // Clear storage
         await chrome.storage.local.remove([
             STORAGE_KEYS.TV_COOKIES,
             STORAGE_KEYS.TV_LOGIN_STATUS,
@@ -598,24 +493,37 @@ async function clearAllCookies() {
     }
 }
 
-// Notify content script of events
+// Notify content script of events — now includes cookieCount for UI
 async function notifyContentScript(action, data) {
     try {
         const tabs = await chrome.tabs.query({});
         
-        // Safely strip sensitive data from the broadcast
+        // Build safe data — keep cookieCount but strip raw cookie values and sensitive info
         const safeData = data ? JSON.parse(JSON.stringify(data)) : data;
         if (safeData) {
-            // Remove cookies and sensitive user identity from broadcasts
-            if (safeData.cookies) delete safeData.cookies;
+            // Keep cookieCount for UI display
+            if (safeData.cookies) {
+                safeData.cookieCount = safeData.cookies.length;
+                delete safeData.cookies;
+            }
             if (safeData.userInfo) {
-                // Keep only non-sensitive UI-related info if needed, or remove entirely
-                delete safeData.userInfo; 
+                // Keep only username for display, strip email and other sensitive data
+                if (safeData.userInfo.username) {
+                    safeData.userInfo = { username: safeData.userInfo.username };
+                } else {
+                    delete safeData.userInfo;
+                }
             }
         }
 
         for (const tab of tabs) {
-            if (tab.url && (tab.url.startsWith('http://localhost') || tab.url.startsWith('http://127.0.0.1') || tab.url.startsWith('chrome-extension://') || tab.url.startsWith('https://www.tradingview.com'))) {
+            if (tab.url && (
+                tab.url.startsWith('http://localhost') || 
+                tab.url.startsWith('http://127.0.0.1') || 
+                tab.url.startsWith('chrome-extension://') || 
+                tab.url.startsWith('https://www.tradingview.com') ||
+                tab.url.includes('.vercel.app')
+            )) {
                 chrome.tabs.sendMessage(tab.id, { action, data: safeData, source: 'matrix-bridge-extension' }).catch(() => {
                     // Tab might not have content script loaded
                 });
@@ -626,7 +534,7 @@ async function notifyContentScript(action, data) {
     }
 }
 
-// Listen for cookie changes
+// Listen for cookie changes — ONLY TradingView cookies, NEVER Google
 chrome.cookies.onChanged.addListener(async (changeInfo) => {
     const { cookie, removed, cause } = changeInfo;
     
@@ -635,33 +543,30 @@ chrome.cookies.onChanged.addListener(async (changeInfo) => {
     
     const domain = cookie.domain;
     const isTV = domain.includes('tradingview.com');
-    const isGoogle = domain.includes('google.com');
     
-    if (isTV || isGoogle) {
-        console.log(`[Matrix Bridge] Cookie detected: ${cookie.name} on ${domain}`);
-        
-        // Check if cookie already has the correct settings
-        if (cookie.sameSite !== 'no_restriction' || !cookie.secure) {
-            console.log(`[Matrix Bridge] Fixing cookie attributes for: ${cookie.name}`);
-            
-            try {
-                await setCookieInternal(cookie);
-            } catch (error) {
-                // Silently ignore failures for non-critical cookies to reduce console noise
-                if (cookie.name === 'sessionid' || cookie.name === 'auth_token' || isGoogle) {
-                    console.error(`[Matrix Bridge] Failed to fix critical cookie ${cookie.name}:`, error.message);
-                }
+    // ISOLATION: Only process TradingView cookies, never Google or other domains
+    if (!isTV) return;
+    
+    console.log(`[Matrix Bridge] TV Cookie detected: ${cookie.name} on ${domain}`);
+    
+    // Fix cookie attributes for cross-origin iframe usage
+    if (cookie.sameSite !== 'no_restriction' || !cookie.secure) {
+        try {
+            await setCookieInternal(cookie);
+        } catch (error) {
+            if (cookie.name === 'sessionid' || cookie.name === 'auth_token') {
+                console.error(`[Matrix Bridge] Failed to fix critical cookie ${cookie.name}:`, error.message);
             }
         }
-        
-        // Specific logic for TradingView sessionid/auth_token
-        if (isTV && (cookie.name === 'sessionid' || cookie.name === 'auth_token')) {
-            const status = await checkTradingViewLoginStatus();
-            if (status.isLoggedIn) {
-                const cookies = await getTradingViewCookies();
-                await saveSession(cookies.cookies, status.userInfo);
-                notifyContentScript('loginComplete', status);
-            }
+    }
+    
+    // Session persistence for auth-related cookies
+    if (cookie.name === 'sessionid' || cookie.name === 'auth_token') {
+        const status = await checkTradingViewLoginStatus();
+        if (status.isLoggedIn) {
+            const cookies = await getTradingViewCookies();
+            await saveSession(cookies.cookies, status.userInfo);
+            notifyContentScript('loginComplete', status);
         }
     }
 });
@@ -670,7 +575,6 @@ chrome.cookies.onChanged.addListener(async (changeInfo) => {
 chrome.windows.onRemoved.addListener(async (windowId) => {
     const data = await chrome.storage.local.get(STORAGE_KEYS.LOGIN_WINDOW_ID);
     if (data[STORAGE_KEYS.LOGIN_WINDOW_ID] === windowId) {
-        // Login window closed, check status
         const status = await checkTradingViewLoginStatus();
         if (status.isLoggedIn) {
             const cookies = await getTradingViewCookies();
@@ -691,12 +595,10 @@ chrome.runtime.onStartup.addListener(async () => {
 chrome.runtime.onInstalled.addListener(async (details) => {
     console.log('[Matrix Bridge] Extension installed:', details.reason);
     if (details.reason === 'install') {
-        // First install
         console.log('[Matrix Bridge] First install, initializing...');
     } else if (details.reason === 'update') {
-        // Update - try to restore session
         await restoreSession();
     }
 });
 
-console.log('[Matrix Bridge] V3.0 Background Service Worker initialized');
+console.log('[Matrix Bridge] V3.4 Background Service Worker initialized');

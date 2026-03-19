@@ -31,7 +31,7 @@ export interface NewsApiResponse {
   publishedOn: number;
 }
 
-export function useNewsData() {
+export function useNewsData(enabled: boolean = true) {
   const [rawNews, setRawNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -75,10 +75,11 @@ export function useNewsData() {
   }, []);
 
   useEffect(() => {
+    if (!enabled) return;
     fetchNews();
     const interval = setInterval(fetchNews, 60000);
     return () => clearInterval(interval);
-  }, [fetchNews]);
+  }, [fetchNews, enabled]);
 
   return { rawNews, loading, error, fetchNews };
 }

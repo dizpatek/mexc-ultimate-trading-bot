@@ -86,6 +86,8 @@ export interface BotTimeframeSettings {
   pilot_tp_deviation?: number;
   pilot_sl_trailing?: boolean;
   pilot_sl_deviation?: number;
+  pilot_mode?: "matrix" | "hedge";
+  pilot_use_usdt?: boolean;
   [key: string]: unknown;
 }
 
@@ -106,11 +108,19 @@ export interface BotConfig {
   pilot_mtf_veto: boolean;
   pilot_mtf_threshold: number;
   pilot_only_holdings: boolean;
+  pilot_mode: "matrix" | "hedge";
+  pilot_use_usdt: boolean;
   fibo_length: number;
   f4_power_loss_threshold: number;
+  f4_lookback_bars: number;
+  f4_squeeze_threshold: number;
   long_squeeze_threshold: number;
   short_squeeze_threshold: number;
   min_power_loss: number;
+  scalp_length?: number;
+  scalp_volume_multiplier?: number;
+  swing_length?: number;
+  swing_volume_multiplier?: number;
   updated_at: number;
   timeframe_settings: BotTimeframeSettings;
 }
@@ -199,6 +209,20 @@ export async function getActiveOrderSymbols(userId: number, tradingMode: string 
         AND (status != 'FILLED' OR meta::jsonb->>'smartTrade' = 'true')
     `;
   return rows.map(r => r.symbol as string);
+}
+
+export async function getActiveSmartTrades(userId: number, tradingMode: string = "test"): Promise<any[]> {
+  const { rows } = await sql`
+        SELECT * FROM orders 
+        WHERE user_id = ${userId} 
+        AND trading_mode = ${tradingMode} 
+        AND status NOT IN ('CLOSED', 'CANCELED', 'REJECTED')
+        AND meta::jsonb->>'smartTrade' = 'true'
+    `;
+  return rows.map(r => ({
+    ...r,
+    meta: r.meta ? JSON.parse(r.meta as string) : {}
+  }));
 }
 
 export async function getAllOrders(limit = 100) {
@@ -547,12 +571,12 @@ export async function getRecentSignalsBulk(
   symbols: string[],
   windowMs: number,
   tradingMode: string = "test",
-): Promise<Array<{ symbol: string; signal_type: string; timeframe: string }>> {
+): Promise<Array<{ symbol: string; signal_type: string; timeframe: string; executed: boolean }>> {
   if (symbols.length === 0) return [];
   const cutoff = Date.now() - windowMs;
   const { rows } = await (pool as Pool).query(
     `
-        SELECT symbol, signal_type, timeframe FROM strategy_signals 
+        SELECT symbol, signal_type, timeframe, executed FROM strategy_signals 
         WHERE symbol = ANY($1) AND timestamp > $2 AND (trading_mode = $3 OR trading_mode IS NULL)
     `,
     [symbols, cutoff, tradingMode],
@@ -581,9 +605,15 @@ export async function getBotConfig(): Promise<BotConfig> {
     pilot_sl_trailing: !!rows[0].pilot_sl_trailing,
     pilot_mtf_veto: !!rows[0].pilot_mtf_veto,
     pilot_mtf_threshold: parseInt(String(rows[0].pilot_mtf_threshold || 70)),
+    pilot_mode: (rows[0].pilot_mode as any) || "matrix",
+    pilot_use_usdt: !!rows[0].pilot_use_usdt,
     f4_power_loss_threshold: parseFloat(String(rows[0].f4_power_loss_threshold || 90)),
     long_squeeze_threshold: parseFloat(String(rows[0].long_squeeze_threshold || 20)),
     short_squeeze_threshold: parseFloat(String(rows[0].short_squeeze_threshold || 20)),
+    scalp_length: parseInt(String(rows[0].scalp_length ?? 11)),
+    scalp_volume_multiplier: parseFloat(String(rows[0].scalp_volume_multiplier ?? 3.0)),
+    swing_length: parseInt(String(rows[0].swing_length ?? 10)),
+    swing_volume_multiplier: parseFloat(String(rows[0].swing_volume_multiplier ?? 1.2)),
   } as unknown as BotConfig;
 }
 
@@ -764,6 +794,14 @@ export async function updateBotConfig(updates: Partial<BotConfig>) {
       ),
     );
 
+    const p_mode = updates.pilot_mode !== undefined
+      ? updates.pilot_mode
+      : (current.pilot_mode || "matrix");
+    
+    const p_usdt = !!(updates.pilot_use_usdt !== undefined
+      ? updates.pilot_use_usdt
+      : (current.pilot_use_usdt ?? false));
+
     const now = Date.now();
 
     console.log(`[DB] Updating bot config ID=1 with:`, updates);
@@ -772,12 +810,16 @@ export async function updateBotConfig(updates: Partial<BotConfig>) {
             INSERT INTO bot_configs (
                 id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, updated_at,
                 pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation, pilot_timeframe, fibo_length, timeframe_settings, pilot_only_holdings, f4_power_loss_threshold,
-                pilot_mtf_veto, pilot_mtf_threshold
+                pilot_mtf_veto, pilot_mtf_threshold, f4_lookback_bars, f4_squeeze_threshold, min_power_loss,
+                scalp_length, scalp_volume_multiplier, swing_length, swing_volume_multiplier,
+                pilot_mode, pilot_use_usdt
             )
             VALUES (
                 1, ${f4}, ${whale}, ${ai}, ${auto}, ${defense}, ${now},
                 ${pt_buy}, ${pt_buy_dev}, ${pt_tp}, ${pt_tp_dev}, ${pt_sl}, ${pt_sl_dev}, ${ptf}, ${fibo}, ${JSON.stringify(updates.timeframe_settings || current.timeframe_settings || {})}, ${p_only}, ${updates.f4_power_loss_threshold ?? current.f4_power_loss_threshold ?? 90},
-                ${p_veto}, ${p_thresh}
+                ${p_veto}, ${p_thresh}, ${updates.f4_lookback_bars ?? current.f4_lookback_bars ?? 30}, ${updates.f4_squeeze_threshold ?? current.f4_squeeze_threshold ?? 20}, ${updates.min_power_loss ?? current.min_power_loss ?? 90},
+                ${updates.scalp_length ?? current.scalp_length ?? 11}, ${updates.scalp_volume_multiplier ?? current.scalp_volume_multiplier ?? 3.0}, ${updates.swing_length ?? current.swing_length ?? 10}, ${updates.swing_volume_multiplier ?? current.swing_volume_multiplier ?? 1.2},
+                ${p_mode}, ${p_usdt}
             )
             ON CONFLICT (id) DO UPDATE SET
                 f4_length = EXCLUDED.f4_length,
@@ -798,7 +840,16 @@ export async function updateBotConfig(updates: Partial<BotConfig>) {
                 pilot_only_holdings = EXCLUDED.pilot_only_holdings,
                 f4_power_loss_threshold = EXCLUDED.f4_power_loss_threshold,
                 pilot_mtf_veto = EXCLUDED.pilot_mtf_veto,
-                pilot_mtf_threshold = EXCLUDED.pilot_mtf_threshold
+                pilot_mtf_threshold = EXCLUDED.pilot_mtf_threshold,
+                f4_lookback_bars = EXCLUDED.f4_lookback_bars,
+                f4_squeeze_threshold = EXCLUDED.f4_squeeze_threshold,
+                min_power_loss = EXCLUDED.min_power_loss,
+                scalp_length = EXCLUDED.scalp_length,
+                scalp_volume_multiplier = EXCLUDED.scalp_volume_multiplier,
+                swing_length = EXCLUDED.swing_length,
+                swing_volume_multiplier = EXCLUDED.swing_volume_multiplier,
+                pilot_mode = EXCLUDED.pilot_mode,
+                pilot_use_usdt = EXCLUDED.pilot_use_usdt
         `;
     console.log(
       `[DB] Bot config updated successfully at ${new Date(now).toISOString()}`,

@@ -324,6 +324,17 @@ export function synthesizeActivityLog(
     });
   }
 
+  // 12.1. Pilot Veto Warning
+  if (meta.pilotVetoReason && !isClosed && !logs.some(l => l.message.includes("PİLOT KAPALI"))) {
+    logs.push({
+      time: now - 450,
+      type: "ERROR",
+      message: `✈️ PİLOT KAPALI: ${meta.pilotVetoReason} (İşlem gerçekleştirilemedi)`,
+      icon: "✈️",
+      color: "text-amber-400",
+    });
+  }
+
   // 13. Highest/Lowest Price tracking
   if (meta.highestPrice && Number(meta.highestPrice) > entry) {
     const peakPct = ((Number(meta.highestPrice) - entry) / entry) * 100;

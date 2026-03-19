@@ -33,7 +33,21 @@ import { useModuleTimeframe } from "@/context/TimeframeContext";
 import { F4Data } from "@/lib/trading-logic";
 import { useSortedHoldings } from "@/hooks/useSortedHoldings";
 
-export function MatrixPortfolio() {
+interface MatrixPortfolioProps {
+  onNewTrade?: () => void;
+  // Lifted props
+  signalDataMap?: Record<string, F4Data>;
+  isLoadingSignals?: boolean;
+  fetchIntervalForSymbols?: (symbols: string[], interval: string) => Promise<void>;
+  isManaged?: boolean;
+}
+
+export const MatrixPortfolio: React.FC<MatrixPortfolioProps> = ({
+  onNewTrade,
+  signalDataMap: propSignalDataMap,
+  isLoadingSignals: propIsLoadingSignals,
+  fetchIntervalForSymbols: propFetchIntervalForSymbols,
+}) => {
   const lastSyncTime = useMemo(() => new Date().toLocaleTimeString(), []);
   // 1. Portfolio Data
   const { data: holdings, isLoading: isHoldingsLoading, refetch } = useHoldings();
@@ -62,19 +76,15 @@ export function MatrixPortfolio() {
 
   const { tickerData, isConnected } = useMexcWebSocket(activeSymbols);
 
-  // 3. Interval Selection
-  const [interval, setIntervalState] = useModuleTimeframe("4h");
-  const intervals = [
-    { id: "15m", label: "15D" },
-    { id: "1h", label: "1S" },
-    { id: "4h", label: "4S" },
-    { id: "1d", label: "1G" },
-    { id: "1w", label: "1H" },
-  ];
+  // 3. Timeframe following (Bound to global/horizon)
+  const [interval] = useModuleTimeframe("4h");
 
-  // 4. AI Signal Data
-  const { signalDataMap, isLoadingSignals, fetchIntervalForSymbols } =
-    useTradingSignals();
+  const isManaged = propSignalDataMap !== undefined;
+  const internalSignals = useTradingSignals(!isManaged);
+
+  const signalDataMap = isManaged ? propSignalDataMap! : internalSignals.signalDataMap;
+  const isLoadingSignals = isManaged ? propIsLoadingSignals! : internalSignals.isLoadingSignals;
+  const fetchIntervalForSymbols = isManaged ? propFetchIntervalForSymbols! : internalSignals.fetchIntervalForSymbols;
   const [tradeAmounts, setTradeAmounts] = useState<Record<string, string>>({});
   const [isTrading, setIsTrading] = useState<Record<string, boolean>>({});
   const [tradeStatus, setTradeStatus] = useState<
@@ -98,10 +108,12 @@ export function MatrixPortfolio() {
 
   // Fetch AI signals — Hook tarafından yönetiliyor
   useEffect(() => {
+    if (isManaged) return;
+    
     if (activeSymbols.length > 0) {
       fetchIntervalForSymbols(activeSymbols, interval);
     }
-  }, [activeSymbols.length, interval, fetchIntervalForSymbols, activeSymbols]);
+  }, [activeSymbols.length, interval, fetchIntervalForSymbols, activeSymbols, isManaged]);
 
   const setTradeAmountToMax = useCallback(
     (symbol: string, side: "BUY" | "SELL") => {
@@ -212,7 +224,7 @@ export function MatrixPortfolio() {
 
   if (isHoldingsLoading) {
     return (
-      <div className="bg-transparent text-slate-200 rounded-lg h-48 flex items-center justify-center">
+      <div className="bg-slate-900/40 backdrop-blur-md p-8 flex flex-col items-center justify-center gap-4 mt-6">
         <RefreshCw className="w-6 h-6 animate-spin text-cyan-500 mr-2" />
         <span className="text-slate-400 font-mono text-xs">
           MATRIX V3 MOTORU BAŞLATILIYOR...
@@ -222,22 +234,25 @@ export function MatrixPortfolio() {
   }
 
   return (
-    <div className="bg-transparent text-slate-200 rounded-lg h-full flex flex-col font-sans">
+    <div className="bg-transparent text-slate-200 h-full flex flex-col font-sans">
       {/* UNIFIED COMMAND BAR (Header) */}
       <div 
-        className="relative z-20 flex flex-wrap items-center justify-center sm:justify-between py-2 px-2 gap-3 border-b border-slate-800/40 bg-slate-950/20 backdrop-blur-sm rounded-t-xl mb-2 font-mono cursor-pointer group"
+        className={cn(
+          "relative z-20 flex flex-col lg:grid lg:grid-cols-3 items-center py-2 px-2 gap-3 border-b border-slate-800/40 bg-slate-950/20 hover:bg-slate-900/40 transition-colors backdrop-blur-sm font-mono cursor-pointer",
+          isSectionExpanded ? "mb-2" : "mb-0"
+        )}
         onClick={() => setIsSectionExpanded(!isSectionExpanded)}
       >
         {/* GROUP 1: SECTION TITLE */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/60 border border-slate-800/80 rounded-xl shadow-lg">
+        <div className="flex flex-wrap items-center gap-2 lg:justify-self-start w-full lg:w-auto">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/20 shadow-lg">
             <Wallet className="w-4 h-4 text-emerald-400" />
-            <h2 className="text-[10px] font-black tracking-[0.2em] text-cyan-100 uppercase hidden lg:block">
+            <h2 className="text-[10px] font-black tracking-[0.2em] text-cyan-100 uppercase hidden xl:block">
               Matrix Portföy
             </h2>
           </div>
 
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/60 border border-slate-800/80 rounded-xl">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/20">
              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">VARLIK:</span>
              <span className="text-[10px] font-black text-emerald-400">
                {holdings?.length || 0}
@@ -245,39 +260,12 @@ export function MatrixPortfolio() {
           </div>
         </div>
 
-        {/* GROUP 2: STATUS & INTERVAL */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 px-3 py-1 bg-slate-950/60 border border-slate-800/80 rounded-xl">
-            <div className={cn("w-1.5 h-1.5 rounded-full", isConnected ? "bg-emerald-500 animate-pulse" : "bg-rose-500")} />
-            <span className={cn("text-[9px] font-black uppercase tracking-widest leading-none", isConnected ? "text-emerald-400" : "text-rose-400")}>
-              {isConnected ? "ONLINE" : "OFFLINE"}
-            </span>
-          </div>
-
-          <div className="flex bg-slate-950/60 p-1 rounded-xl border border-slate-800/80">
-            {intervals.map((item) => (
-              <button
-                key={item.id}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIntervalState(item.id);
-                }}
-                className={cn(
-                  "px-2.5 py-1 text-[9px] font-black rounded-lg transition-all duration-200 uppercase tracking-tighter",
-                  interval === item.id
-                    ? "bg-cyan-500 text-slate-950 shadow-lg"
-                    : "text-slate-500 hover:text-white"
-                )}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        {/* GROUP 2: EMPTY CENTER (For grid alignment consistency) */}
+        <div className="hidden lg:block lg:justify-self-center"></div>
 
         {/* GROUP 3: ACTIONS */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center p-1 bg-slate-950/60 border border-slate-800/80 rounded-xl gap-1">
+        <div className="flex items-center gap-2 lg:justify-self-end justify-between w-full lg:w-auto">
+          <div className="flex items-center p-1 bg-slate-950/20 gap-1">
              <button
               onClick={(e) => { 
                 e.stopPropagation(); 
@@ -293,22 +281,28 @@ export function MatrixPortfolio() {
             </button>
             
             <button
-               className="p-1.5 rounded-lg border border-slate-800 text-slate-500 hover:text-white transition-all"
+               className={cn(
+                 "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all",
+                 isSectionExpanded ? "bg-cyan-500 text-slate-950 shadow-md" : "text-slate-500 hover:text-white"
+               )}
                onClick={(e) => { e.stopPropagation(); setIsSectionExpanded(!isSectionExpanded); }}
             >
-              {isSectionExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              {isSectionExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              <span className="hidden sm:inline">{isSectionExpanded ? "GİZLE" : "GÖSTER"}</span>
             </button>
           </div>
         </div>
       </div>
 
-      <div className={cn(
-        "transition-all duration-500 overflow-hidden flex-1 flex flex-col",
-        isSectionExpanded
-          ? "max-h-[5000px] opacity-100"
-          : "max-h-0 opacity-0"
-      )}>
-        <div className="overflow-x-auto flex-1 custom-scrollbar">
+      <div
+        className={cn(
+          "transition-all duration-500 overflow-hidden",
+          isSectionExpanded
+            ? "max-h-[5000px] opacity-100"
+            : "max-h-0 opacity-0",
+        )}
+      >
+        <div className="bg-[#0f172a]/20 backdrop-blur-xl border-t border-slate-800/40 overflow-x-auto custom-scrollbar">
         <table className="min-w-full divide-y divide-slate-800/40">
           <thead className="bg-slate-900/60 backdrop-blur-md sticky top-0 z-10 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
             <tr>

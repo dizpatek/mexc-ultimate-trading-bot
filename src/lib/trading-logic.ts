@@ -680,23 +680,28 @@ export function interpretTradingStatus(
     return { statusText, statusColor, liveAiScore };
   }
 
-  // 1. TP/SL Yakınlık Kontrolü
+  // 1. TP/SL Yakınlık Kontrolü (Gelişmiş Eşikler)
   if (tp > 0) {
     const dist =
       side === "BUY"
         ? ((tp - currentPrice) / currentPrice) * 100
         : ((currentPrice - tp) / currentPrice) * 100;
+        
     if (dist <= 0) {
-      statusText = "💰 TP VURULDU";
+      statusText = "💰 TP TAMAMLANDI";
       statusColor = "text-emerald-500 animate-pulse font-black";
-    } else if (dist < 0.5) {
-      statusText = "🎯 TP TESTİ (KRİTİK)";
+    } else if (dist < 0.25) {
+      statusText = "🔥 TP ÇOK YAKIN (KRİTİK)";
+      statusColor = "text-emerald-400 animate-pulse font-black shadow-[0_0_10px_rgba(16,185,129,0.5)]";
+    } else if (dist < 0.75) {
+      statusText = "🎯 HEDEF TESTİ";
       statusColor = "text-emerald-400 animate-pulse";
     } else if (dist < 1.5) {
       statusText = "✅ HEDEF YAKIN";
-      statusColor = "text-emerald-400";
+      statusColor = "text-emerald-400/90 font-bold";
     }
   }
+  
   if (sl > 0) {
     const distSl =
       side === "BUY"
@@ -704,13 +709,16 @@ export function interpretTradingStatus(
         : ((sl - currentPrice) / currentPrice) * 100;
 
     if (distSl <= 0) {
-      statusText = "❌ SL VURULDU (KAPALI)";
+      statusText = "❌ SL VURULDU";
       statusColor = "text-rose-600 animate-pulse font-black";
-    } else if (distSl < 0.5) {
-      statusText = "🔥 SL TESTİ (KRİTİK)";
-      statusColor = "text-rose-500 animate-pulse font-black";
+    } else if (distSl < 0.25) {
+      statusText = "💀 SL ÇOK YAKIN (KRİTİK)";
+      statusColor = "text-rose-500 animate-pulse font-black shadow-[0_0_10px_rgba(244,63,94,0.5)]";
+    } else if (distSl < 0.75) {
+      statusText = "🔥 SL TEST EDİLİYOR";
+      statusColor = "text-rose-500 animate-pulse font-bold";
     } else if (distSl < 1.5) {
-      statusText = "🛡️ SL YAKIN (DİKKAT)";
+      statusText = "🛡️ RİSKLİ BÖLGE";
       statusColor = "text-rose-400 font-bold";
     }
   }

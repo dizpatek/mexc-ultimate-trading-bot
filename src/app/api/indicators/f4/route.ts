@@ -70,8 +70,8 @@ export async function GET(request: NextRequest) {
       throw new Error(`Market data unavailable: ${err.message}`);
     });
 
-    if (!klines || klines.length < 20) {
-      throw new Error("Insufficient data for analysis");
+    if (!klines || klines.length < 50) {
+      throw new Error("Insufficient data for analysis (min 50 candles required for Matrix V5)");
     }
 
     // Step 2: Extract arrays for engine

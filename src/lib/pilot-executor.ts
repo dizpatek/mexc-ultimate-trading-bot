@@ -1,7 +1,9 @@
 import { BotConfig, createStrategySignal, logSystemEvent } from "./db";
+import { buildInsight } from "./insight-utils";
 import { DEFAULT_BOT_CONFIG, DEFAULT_TIMEFRAME_SETTINGS } from "./constants/bot-defaults";
 import { TradingMode, getPrice } from "./mexc-wrapper";
 import { handleSmartTrade } from "./smart-trade";
+import { executeExit } from "./smart-trade-execution";
 import { sql } from "./postgres";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -186,7 +188,7 @@ export class PilotExecutor {
     if (hasHolding && signalType === "BUY") {
        // Recalculate targetQty based on USDT allocation instead of 10% of existing
        // This ensures USDT is actually spent correctly.
-       targetQty = 0; // Will be handled in executeTradeOnHolding using USDT
+       targetQty = 0; // Will be handled in handleSignal for duplicate skip
     }
 
     return { hasHolding, targetQty, isNewBuy, isReEntry, reEntryUsdt };
@@ -245,71 +247,6 @@ export class PilotExecutor {
   }
 
   /**
-   * Executes a trade on an existing holding.
-   * Based on config, it either bypasses the buy and applies TP/SL, or buys more.
-   */
-  static async executeTradeOnHolding(symbol: string, botConfig: BotConfig, userId: number, mode: TradingMode, timeframe: string, signal: any, targetQty: number, holdingsMap: Map<string, any>) {
-    try {
-      const currentPrice = await getPrice(symbol);
-      
-      const tpPerc = botConfig.timeframe_settings?.pilot_tp_percent ?? DEFAULT_TIMEFRAME_SETTINGS.pilot_tp_percent;
-      const slPerc = botConfig.timeframe_settings?.pilot_sl_percent ?? DEFAULT_TIMEFRAME_SETTINGS.pilot_sl_percent;
-      
-      const { finalTpPrice, finalSlPrice } = this.validatePilotTargets(
-        currentPrice, 
-        signal.targets || {}, 
-        tpPerc, 
-        slPerc, 
-        true // Trade mode is Long
-      );
-
-      const cleanSymbol = normalizeSymbol(symbol);
-      
-      // Calculate allocation based on USDT balance for "Ek Alım"
-      // This ensures we spend a consistent USDT amount even if we already hold some.
-      const usdtHolding = holdingsMap.get("USDT");
-      const usdtBalance = Number(usdtHolding?.free || 0);
-      const pilotAllocPct = Number(botConfig.timeframe_settings?.pilot_trade_allocation || 10);
-      const allocUsdt = (usdtBalance * (pilotAllocPct / 100));
-
-      if (allocUsdt < 5) {
-        console.log(`[Pilot] ⚠️ ${cleanSymbol} EK ALIM ATLANDI: $${allocUsdt.toFixed(2)}. Min $5 gerekli.`);
-        return { executed: false, data: { message: "Bakiye yetersiz." } };
-      }
-
-      const execQty = allocUsdt / currentPrice;
-
-      console.log(`[Pilot] ✈️ Executing ADD TO POSITION (Ek Alım) for ${cleanSymbol} | Qty: ${execQty.toFixed(8)} | Entry: ${currentPrice} | TP: ${finalTpPrice.toFixed(4)} | SL: ${finalSlPrice.toFixed(4)} | USDT: $${allocUsdt.toFixed(2)}`);
-      
-      const res = await handleSmartTrade({
-        mode: "TRADE",
-        symbol,
-        amount: execQty.toFixed(8),
-        buyPrice: currentPrice.toString(),
-        buyType: "MARKET",
-        useExisting: false, // MUST be false to trigger actual buy order
-        user_id: userId,
-        trailingBuy: false, 
-        takeProfit: {
-          price: finalTpPrice.toString(),
-          trailing: Boolean(botConfig.timeframe_settings?.pilot_tp_trailing ?? botConfig.pilot_tp_trailing ?? DEFAULT_BOT_CONFIG.pilot_tp_trailing),
-          deviation: Number(botConfig.timeframe_settings?.pilot_tp_deviation ?? botConfig.pilot_tp_deviation ?? DEFAULT_BOT_CONFIG.pilot_tp_deviation),
-        },
-        stopLoss: {
-          price: finalSlPrice.toString(),
-          trailing: Boolean(botConfig.timeframe_settings?.pilot_sl_trailing ?? botConfig.pilot_sl_trailing ?? DEFAULT_BOT_CONFIG.pilot_sl_trailing),
-          deviation: Number(botConfig.timeframe_settings?.pilot_sl_deviation ?? botConfig.pilot_sl_deviation ?? DEFAULT_BOT_CONFIG.pilot_sl_deviation),
-        },
-        timeframe,
-        source: "pilot_auto",
-      }, mode);
-      return { executed: true, data: { ...(res as any), type: "SMART_TRADE", source: "pilot_auto" } };
-    } catch (err) {
-      return { executed: false, data: { error: String(err) } };
-    }
-  }
-
-  /**
    * Executes a brand new buy using USDT balance
    */
   static async executeNewBuy(symbol: string, botConfig: BotConfig, userId: number, mode: TradingMode, timeframe: string, signal: any, holdingsMap: Map<string, any>) {
@@ -326,7 +263,7 @@ export class PilotExecutor {
       if (allocUsdt < 5) {
         const cleanSymbol = normalizeSymbol(symbol);
         const msg = `Bakiye yetersiz.`;
-        console.log(`[Pilot] ⚠️ ${cleanSymbol} BUY ATLANDI: $${allocUsdt.toFixed(2)}. Min $5 gerekli.`);
+        console.log(`[Pilot] \u26a0\ufe0f ${cleanSymbol} BUY ATLANDI: $${allocUsdt.toFixed(2)}. Min $5 gerekli.`);
         await logSystemEvent(userId, "SYSTEM", "TRADE_SKIPPED", `TRADE_SKIPPED: ${cleanSymbol} atlandı: ${msg}`);
         return { executed: false, data: { message: msg } };
       }
@@ -344,7 +281,7 @@ export class PilotExecutor {
         true // New Buy is Long
       );
 
-      console.log(`[Pilot] ✈️ Executing NEW BUY (Increasing Position) for ${symbol} | Entry: ${currentPrice} | TP: ${finalTpPrice.toFixed(4)} | SL: ${finalSlPrice.toFixed(4)} | Alloc: $${allocUsdt.toFixed(2)}`);
+      console.log(`[Pilot] \u2708\ufe0f Executing NEW BUY for ${symbol} | Entry: ${currentPrice} | TP: ${finalTpPrice.toFixed(4)} | SL: ${finalSlPrice.toFixed(4)} | Alloc: $${allocUsdt.toFixed(2)}`);
       
       const res = await handleSmartTrade({
         mode: "TRADE",
@@ -377,18 +314,16 @@ export class PilotExecutor {
 
   /**
    * Executes a RE-ENTRY buy using USDT proceeds from a previous pilot sale.
-   * This is called when the pilot previously sold an asset and wants to re-buy.
    */
   static async executeReEntryBuy(symbol: string, botConfig: BotConfig, userId: number, mode: TradingMode, timeframe: string, signal: any, reEntryUsdt: number) {
     try {
-      // Consume the re-entry record (removes it from the map)
       const record = await consumeReEntry(symbol);
       const allocUsdt = record?.lastSaleUsdt || reEntryUsdt;
 
       if (allocUsdt < 5) {
         const cleanSymbol = normalizeSymbol(symbol);
         const msg = `Bakiye yetersiz.`;
-        console.log(`[Pilot] ⚠️ ${cleanSymbol} RE-ENTRY ATLANDI: $${allocUsdt.toFixed(2)}. Min $5 gerekli.`);
+        console.log(`[Pilot] \u26a0\ufe0f ${cleanSymbol} RE-ENTRY ATLANDI: $${allocUsdt.toFixed(2)}. Min $5 gerekli.`);
         await logSystemEvent(userId, "SYSTEM", "TRADE_SKIPPED", `TRADE_SKIPPED: ${cleanSymbol} atlandı: ${msg}`);
         return { executed: false, data: { message: msg } };
       }
@@ -407,7 +342,7 @@ export class PilotExecutor {
         true // Re-entry is Long
       );
 
-      console.log(`[Pilot] ♻️ Executing RE-ENTRY BUY for ${symbol} | Entry: ${currentPrice} | TP: ${finalTpPrice.toFixed(4)} | SL: ${finalSlPrice.toFixed(4)} | USDT: $${allocUsdt.toFixed(2)}`);
+      console.log(`[Pilot] \u267b\ufe0f Executing RE-ENTRY BUY for ${symbol} | Entry: ${currentPrice} | TP: ${finalTpPrice.toFixed(4)} | SL: ${finalSlPrice.toFixed(4)} | USDT: $${allocUsdt.toFixed(2)}`);
 
       const res = await handleSmartTrade({
         mode: "TRADE",
@@ -415,7 +350,7 @@ export class PilotExecutor {
         amount: baseQty.toFixed(8),
         buyPrice: currentPrice.toString(),
         buyType: "MARKET",
-        useExisting: false, // Re-entry MUST buy with USDT
+        useExisting: false, 
         user_id: userId,
         trailingBuy: botConfig.pilot_trailing_buy ?? DEFAULT_BOT_CONFIG.pilot_trailing_buy,
         trailingBuyDev: botConfig.pilot_trailing_buy_dev ?? DEFAULT_BOT_CONFIG.pilot_trailing_buy_dev,
@@ -444,9 +379,6 @@ export class PilotExecutor {
   static async executeCover(symbol: string, botConfig: BotConfig, userId: number, mode: TradingMode, timeframe: string, targetQty: number, signal: any) {
     try {
       const currentPrice = await getPrice(symbol);
-
-      console.log(`[Pilot] ✈️ Creating SmartTrade SELL (COVER) for ${symbol} | Qty: ${targetQty.toFixed(8)}`);
-
       const tpPerc = botConfig.timeframe_settings?.cover_tp_percent ?? DEFAULT_TIMEFRAME_SETTINGS.cover_tp_percent;
       const slPerc = botConfig.timeframe_settings?.cover_sl_percent ?? DEFAULT_TIMEFRAME_SETTINGS.cover_sl_percent;
 
@@ -458,7 +390,7 @@ export class PilotExecutor {
         false // Cover is Short
       );
 
-      console.log(`[Pilot] ✈️ Creating SmartTrade SELL (COVER) for ${symbol} | Entry: ${currentPrice} | TP: ${finalTpPrice.toFixed(4)} | SL: ${finalSlPrice.toFixed(4)} | Qty: ${targetQty.toFixed(8)}`);
+      console.log(`[Pilot] \u2708\ufe0f Creating SmartTrade SELL (COVER) for ${symbol} | Entry: ${currentPrice} | TP: ${finalTpPrice.toFixed(4)} | SL: ${finalSlPrice.toFixed(4)} | Qty: ${targetQty.toFixed(8)}`);
 
       const res = await handleSmartTrade({
         mode: "COVER",
@@ -495,8 +427,9 @@ export class PilotExecutor {
     executionResult: any, 
     mode: TradingMode, 
     scanTimeframe: string, 
-    aiScore: number, 
-    recentSignals: any[]
+    aiScore: number,
+    recentSignals: any[],
+    activeSmartTrades?: any[]
   }) {
     const { symbol, signal, timestamp, executed, executionResult, mode, scanTimeframe, aiScore } = p;
     let vetoReason: string | undefined = undefined;
@@ -506,6 +439,7 @@ export class PilotExecutor {
       ...(executionResult || {}),
       confidence: aiScore,
       is_whale: !!signal.indicators?.whaleDetected,
+      insight: buildInsight(signal.signal, signal.indicators),
       meta: {
         rawSignal: signal,
         vetoReason,
@@ -518,12 +452,50 @@ export class PilotExecutor {
       timeframe: scanTimeframe,
       signal_type: signal.signal,
       price: signal.price || 0,
-      timestamp, // Fix: the DB requires timestamp, we pass it explicitly here
+      timestamp, 
       executed,
       execution_result: mergedResult,
       trading_mode: mode,
       veto_reason: vetoReason
     });
+  }
+
+  /**
+   * Force-closes an active SmartTrade (used for Matrix mode flipping).
+   */
+  static async closeSmartTrade(record: any, userId: number, mode: TradingMode) {
+    const symbol = record.symbol;
+    try {
+      console.log(`[Pilot] \u21aa\ufe0f Closing SmartTrade for ${symbol} (Matrix Flip/Exit)`);
+      const currentPrice = await getPrice(symbol);
+      const qty = parseFloat(String(record.qty || 0));
+      
+      if (qty <= 0) {
+        await sql`UPDATE orders SET status = 'CLOSED', updated_at = ${Date.now()}, meta = (meta::jsonb || '{"exitReason": "ZERO_QTY_GHOST_ORDER"}'::jsonb)::text WHERE id = ${record.id}`;
+        return;
+      }
+
+      await executeExit(
+        {
+          id: record.id,
+          user_id: userId,
+          symbol: symbol,
+          side: record.side,
+          qty: record.qty,
+          price: record.price,
+          meta: record.meta,
+          trading_mode: mode
+        },
+        currentPrice,
+        "MATRIX_FLIP_EXIT",
+        record.meta,
+        qty
+      );
+      console.log(`[Pilot] \u2705 Successfully closed ${symbol} for flip.`);
+    } catch (err) {
+      console.error(`[Pilot] \u274c Failed to close SmartTrade for ${symbol}:`, err);
+      await sql`UPDATE orders SET status = 'CLOSED', updated_at = ${Date.now()}, meta = (meta::jsonb || '{"exitError": "FAILED_TO_EXIT_API"}'::jsonb)::text WHERE id = ${record.id}`;
+    }
   }
 
   static async handleSignal(params: {
@@ -535,9 +507,10 @@ export class PilotExecutor {
     mode: TradingMode;
     holdingsMap: Map<string, any>;
     recentSignals: any[];
+    activeSmartTrades: any[];
     lockInfo?: any;
   }) {
-    const { symbol, signal, scanTimeframe, botConfig, userId, mode, holdingsMap, recentSignals } = params;
+    const { symbol, signal, scanTimeframe, botConfig, userId, mode, holdingsMap, recentSignals, activeSmartTrades } = params;
     const timestamp = Date.now();
 
     // 1. Deduplication check
@@ -545,6 +518,33 @@ export class PilotExecutor {
       s.symbol === symbol && (s.signal_type === "BUY" || s.signal_type === "SELL") && s.executed === true
     );
     if (recentExecuted) return;
+
+    // 2. Matrix vs Hedge Logic
+    const activeForSymbol = activeSmartTrades.filter(t => normalizeSymbol(t.symbol) === normalizeSymbol(symbol));
+    const buyTrade = activeForSymbol.find(t => t.meta?.mode === "TRADE");
+    const sellTrade = activeForSymbol.find(t => t.meta?.mode === "COVER");
+
+    const pilotMode = botConfig.pilot_mode || "matrix";
+
+    if (signal.signal === "BUY") {
+      if (buyTrade) {
+        console.log(`[Pilot] \ud83d\udee1 ${symbol} için zaten aktif bir ALIM (TRADE) işlemi var. Sinyal atlanıyor.`);
+        return;
+      }
+      if (sellTrade && pilotMode === "matrix") {
+        console.log(`[Pilot] \u21aa\ufe0f ${symbol} Matrix Modu: Aktif SATIŞ (COVER) kapatılıyor...`);
+        await this.closeSmartTrade(sellTrade, userId, mode);
+      }
+    } else if (signal.signal === "SELL") {
+      if (sellTrade) {
+        console.log(`[Pilot] \ud83d\udee1 ${symbol} için zaten aktif bir SATIŞ (COVER) işlemi var. Sinyal atlanıyor.`);
+        return;
+      }
+      if (buyTrade && pilotMode === "matrix") {
+        console.log(`[Pilot] \u21aa\ufe0f ${symbol} Matrix Modu: Aktif ALIŞ (TRADE) kapatılıyor...`);
+        await this.closeSmartTrade(buyTrade, userId, mode);
+      }
+    }
 
     if (!signal.signal) {
       await this.recordSignalResult({ ...params, timestamp, executed: false, executionResult: {}, aiScore: 0 });
@@ -554,20 +554,20 @@ export class PilotExecutor {
     const aiScore = typeof signal.indicators?.aiScore === 'number' ? signal.indicators.aiScore : 0;
     console.log(`[Pilot] Signal for ${symbol}: ${signal.signal} | Score: ${aiScore}`);
     
-    // 2. Calculate Allocation
+    // 3. Calculate Allocation
     const alloc = this.calculateAllocation(symbol, holdingsMap, botConfig, signal.signal);
 
     let executed = false;
     let executionResult: Record<string, unknown> = {};
 
-    // 3. Execution Routing
+    // 4. Execution Routing
     const cleanSymbol = normalizeSymbol(symbol);
     if (!alloc.hasHolding && !alloc.isNewBuy && !alloc.isReEntry) {
       const skipMsg = botConfig.pilot_only_holdings 
         ? "Portföyü Tara aktif olduğu için ve varlık bulunmadığı için atlandı." 
         : "Varlık bakiyesi yetersiz olduğu için atlandı.";
         
-      console.log(`[Pilot] 🛡 ${cleanSymbol} ATLANDI: ${skipMsg}`);
+      console.log(`[Pilot] \ud83d\udee1 ${cleanSymbol} ATLANDI: ${skipMsg}`);
       
       await logSystemEvent(userId, "SYSTEM", 
         `Sinyal geldi [${cleanSymbol}]`, 
@@ -575,15 +575,13 @@ export class PilotExecutor {
       );
       executionResult = { message: skipMsg };
     } else {
-      // Log positive signal before attempt
-      await logSystemEvent(userId, "SYSTEM", "POSITIVE", `🎯 MATRIX V5 SİNYALİ: ${cleanSymbol} [${signal.signal === "BUY" ? "GO_LONG" : "GO_SHORT"}]: AI Skoru: ${aiScore} | ${signal.signal === "BUY" ? "YUKARI 📈" : "AŞAĞI 📉"}`);
+      await logSystemEvent(userId, "SYSTEM", "POSITIVE", `\ud83c\udfaf MATRIX V5 S\u0130NYAL\u0130: ${cleanSymbol} [${signal.signal === "BUY" ? "GO_LONG" : "GO_SHORT"}]: AI Skoru: ${aiScore} | ${signal.signal === "BUY" ? "YUKARI \ud83d\udcc8" : "A\u015eA\u011eI \ud83d\udcc9"}`);
 
       if (signal.signal === "BUY") {
         if (alloc.isReEntry) {
-          // ♻️ RE-ENTRY: Previously traded asset, use stored USDT proceeds
           await logSystemEvent(userId, "SYSTEM", 
             `Sinyal geldi [${cleanSymbol}], Re-Entry (Geri Alım) modunda işleme giriliyor.`,
-            `Hafızadaki tutar: $${alloc.reEntryUsdt.toFixed(2)}. AI Skoru: ${aiScore}`
+            `AI Skoru: ${aiScore}.`
           );
           const result = await this.executeReEntryBuy(symbol, botConfig, userId, mode, scanTimeframe, signal, alloc.reEntryUsdt);
           executed = result.executed;
@@ -591,24 +589,56 @@ export class PilotExecutor {
         } else if (alloc.isNewBuy) {
           await logSystemEvent(userId, "SYSTEM", 
             `Sinyal geldi [${cleanSymbol}], Yeni Varlık modunda işleme giriliyor.`,
-            `AI Skoru: ${aiScore}. Alım Limiti: $${(alloc.targetQty * signal.price || 0).toFixed(2)}`
+            `AI Skoru: ${aiScore}.`
           );
-           const result = await this.executeNewBuy(symbol, botConfig, userId, mode, scanTimeframe, signal, holdingsMap);
-           executed = result.executed;
-           executionResult = result.data;
+          const result = await this.executeNewBuy(symbol, botConfig, userId, mode, scanTimeframe, signal, holdingsMap);
+          executed = result.executed;
+          executionResult = result.data;
         } else {
+          // 📦 EXISTING ASSET MANAGEMENT (No Ek Alım / Portföy Odaklı)
+          // Eğer cüzdanda varlık varsa ancak aktif bir SmartTrade yoksa (manuel alım veya takip dışı),
+          // otopilot bu varlığı 'useExisting: true' ile devralır. Ek bakiye harcamaz.
           await logSystemEvent(userId, "SYSTEM", 
-            `Sinyal geldi [${cleanSymbol}], Mevcut Varlık artırımı için işleme giriliyor.`,
-            `AI Skoru: ${aiScore}. Ek Alım planlanıyor.`
+            `Sinyal geldi [${cleanSymbol}], Mevcut varlık otopilot denetimine alınıyor.`,
+            `Varlık Denetimi: Aktif. Ek Alım: Hayır (Pas geçildi). AI Skoru: ${aiScore}`
           );
-           const result = await this.executeTradeOnHolding(symbol, botConfig, userId, mode, scanTimeframe, signal, alloc.targetQty, holdingsMap);
-           executed = result.executed;
-           executionResult = result.data;
+          
+          // executeTradeOnHolding'i useExisting: true olacak şekilde çağırmalıyız veya benzer mantık.
+          // Mevcut executeTradeOnHolding USDT harcamaya çalışıyor, onu pas geçip direkt handleSmartTrade'e gidelim.
+          const currentPrice = await getPrice(symbol);
+          const tpPerc = botConfig.timeframe_settings?.pilot_tp_percent ?? DEFAULT_TIMEFRAME_SETTINGS.pilot_tp_percent;
+          const slPerc = botConfig.timeframe_settings?.pilot_sl_percent ?? DEFAULT_TIMEFRAME_SETTINGS.pilot_sl_percent;
+          const { finalTpPrice, finalSlPrice } = this.validatePilotTargets(currentPrice, signal.targets || {}, tpPerc, slPerc, true);
+
+          const res = await handleSmartTrade({
+            mode: "TRADE",
+            symbol,
+            amount: alloc.targetQty.toString(), // hasHolding true olduğu için calculateAllocation'dan gelen miktar (veya cüzdan miktarı)
+            buyPrice: currentPrice.toString(),
+            buyType: "MARKET",
+            useExisting: true, // KRİTİK: Mevcut varlığı kullan, USDT harcama
+            user_id: userId,
+            takeProfit: {
+              price: finalTpPrice.toString(),
+              trailing: Boolean(botConfig.timeframe_settings?.pilot_tp_trailing ?? botConfig.pilot_tp_trailing ?? DEFAULT_BOT_CONFIG.pilot_tp_trailing),
+              deviation: Number(botConfig.timeframe_settings?.pilot_tp_deviation ?? botConfig.pilot_tp_deviation ?? DEFAULT_BOT_CONFIG.pilot_tp_deviation),
+            },
+            stopLoss: {
+              price: finalSlPrice.toString(),
+              trailing: Boolean(botConfig.timeframe_settings?.pilot_sl_trailing ?? botConfig.pilot_sl_trailing ?? DEFAULT_BOT_CONFIG.pilot_sl_trailing),
+              deviation: Number(botConfig.timeframe_settings?.pilot_sl_deviation ?? botConfig.pilot_sl_deviation ?? DEFAULT_BOT_CONFIG.pilot_sl_deviation),
+            },
+            timeframe: scanTimeframe,
+            source: "pilot_auto",
+          }, mode);
+          
+          executed = true;
+          executionResult = { ...(res as any), type: "SMART_TRADE_ADOPTED", source: "pilot_auto" };
         }
       } else if (signal.signal === "SELL" && alloc.hasHolding) {
         await logSystemEvent(userId, "SYSTEM", 
           `Sinyal geldi [${cleanSymbol}], Satış (COVER) modunda çıkış yapılıyor.`,
-          `AI Skoru: ${aiScore}. Satış Miktarı: ${alloc.targetQty.toFixed(4)}`
+          `AI Skoru: ${aiScore}.`
         );
         const result = await this.executeCover(symbol, botConfig, userId, mode, scanTimeframe, alloc.targetQty, signal);
         executed = result.executed;
@@ -616,7 +646,7 @@ export class PilotExecutor {
       }
     }
 
-    // 4. Record Result
+    // 5. Record Result
     await this.recordSignalResult({
       symbol,
       signal,
@@ -626,14 +656,16 @@ export class PilotExecutor {
       mode,
       scanTimeframe,
       aiScore,
-      recentSignals
+      recentSignals,
+      activeSmartTrades
     });
 
     if (executed) {
       recentSignals.push({
         symbol,
         signal_type: signal.signal,
-        executed: true
+        executed: true,
+        timestamp: Date.now()
       });
     }
   }

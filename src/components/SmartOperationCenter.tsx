@@ -5,8 +5,10 @@ import { SmartTrade } from "./SmartTrade";
 import { ActiveSmartTrades, SmartTradeOrder } from "./ActiveSmartTrades";
 import { debugLog } from "@/services/api";
 import { useTrade } from "@/context/TradeContext";
+import { useTradingSignals } from "@/hooks/useTradingSignals";
+import { cn } from "@/lib/utils";
 
-export const SmartOperationCenter = () => {
+export const SmartOperationCenter = ({ signalsData }: { signalsData?: ReturnType<typeof useTradingSignals> }) => {
   const [isClient, setIsClient] = useState(false);
   const {
     symbol,
@@ -85,7 +87,7 @@ export const SmartOperationCenter = () => {
 
   if (!isClient) {
     return (
-      <div className="w-full h-[900px] bg-slate-950/20 border border-slate-800 rounded-2xl flex flex-col items-center justify-center gap-3">
+      <div className="w-full h-[400px] bg-slate-900/40 backdrop-blur-md flex flex-col items-center justify-center gap-3">
         <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
         <span className="text-xs font-black text-cyan-500 uppercase tracking-widest">
           Başlatılıyor...
@@ -131,7 +133,18 @@ export const SmartOperationCenter = () => {
       </div>
 
       <div ref={activeTradesRef}>
-        <ActiveSmartTrades onEdit={handleEdit} onNewTrade={handleNew} />
+        <ActiveSmartTrades 
+          onEdit={handleEdit} 
+          onNewTrade={handleNew}
+          mtfData={signalsData?.mtfData}
+          loadingMtf={signalsData?.loadingMtf}
+          failedMtf={signalsData?.failedMtf}
+          liveSignals={signalsData?.liveSignals}
+          fetchMtfAnalysis={signalsData?.fetchMtfAnalysis}
+          fetchMultipleMtfAnalysis={signalsData?.fetchMultipleMtfAnalysis}
+          fetchLiveSignals={signalsData?.fetchLiveSignals}
+          isManaged={!!signalsData}
+        />
       </div>
     </div>
   );

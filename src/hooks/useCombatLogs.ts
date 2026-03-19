@@ -31,6 +31,7 @@ export interface LogEntry {
     price?: number;
     f4Power?: number;
     f4PowerLoss?: number;
+    insight?: string;
   };
 }
 
@@ -59,7 +60,7 @@ function extractMetaData(raw: any): {
 
   try {
     let data = raw;
-    
+
     // De-stringify if needed
     if (typeof raw === "string") {
       const trimmed = raw.trim();
@@ -73,33 +74,72 @@ function extractMetaData(raw: any): {
     }
 
     if (typeof data === "object" && data !== null) {
-      extractedDetail = data.detail || data.msg || data.message || data.reason || data.reasonText;
-      
+      extractedDetail =
+        data.detail ||
+        data.msg ||
+        data.message ||
+        data.reason ||
+        data.reasonText;
+
       // Exhaustive search for indicator payload
-      const indicators = 
-        data.indicators || 
+      const indicators =
+        data.indicators ||
         data.execution_result?.indicators ||
-        data.meta?.rawSignal?.indicators || 
+        data.meta?.rawSignal?.indicators ||
         data.meta?.indicators ||
-        (typeof data.execution_result === 'object' ? data.execution_result : undefined) ||
+        (typeof data.execution_result === "object"
+          ? data.execution_result
+          : undefined) ||
         data.meta ||
         data;
 
-      const aiScoreRaw = indicators?.aiScore ?? data.aiScore ?? data.finalAiScore;
-      const regimeRaw = indicators?.regime ?? data.regime ?? data.regimePrediction ?? indicators?.regimePrediction;
-      
+      const aiScoreRaw =
+        indicators?.aiScore ?? data.aiScore ?? data.finalAiScore;
+      const regimeRaw =
+        indicators?.regime ??
+        data.regime ??
+        data.regimePrediction ??
+        indicators?.regimePrediction;
+
       if (aiScoreRaw !== undefined || regimeRaw || indicators?.whaleDetected) {
         metaData = {
-          aiScore: Number(aiScoreRaw),
-          regime: regimeRaw,
-          prediction: indicators?.prediction?.text ?? indicators?.prediction ?? data.prediction?.text ?? data.prediction,
-          mtf: indicators?.mtfVerdict ?? indicators?.mtfConsensus ?? data.mtfConsensus ?? data.mtfVerdict,
-          veto: data.vetoReason || data.meta?.vetoReason || data.veto_reason || indicators?.vetoReason,
-          confidence: data.confidence || indicators?.confidence || indicators?.saeConfidence,
-          isWhale: data.is_whale || indicators?.whaleDetected || data.whaleDetected || indicators?.isWhale,
-          price: data.price || data.meta?.rawSignal?.price || indicators?.price,
-          f4Power: indicators?.f4Power ?? data.f4Power,
-          f4PowerLoss: indicators?.f4PowerLoss ?? data.f4PowerLoss,
+          aiScore: Number(aiScoreRaw) || 0,
+          regime: String(regimeRaw || ""),
+          prediction: String(
+            indicators?.prediction?.text ??
+            indicators?.prediction ??
+            data.prediction?.text ??
+            data.prediction ?? ""
+          ),
+          mtf: String(
+            indicators?.mtfVerdict ??
+            indicators?.mtfConsensus ??
+            data.mtfConsensus ??
+            data.mtfVerdict ?? ""
+          ),
+          veto: String(
+            data.vetoReason ||
+            data.meta?.vetoReason ||
+            data.veto_reason ||
+            indicators?.vetoReason ||
+            raw?.veto_reason ||
+            (typeof raw === "object" && raw !== null ? raw.veto_reason : "") || ""
+          ),
+          confidence: Number(
+            data.confidence ||
+            indicators?.confidence ||
+            indicators?.saeConfidence || 0
+          ),
+          isWhale: !!(
+            data.is_whale ||
+            indicators?.whaleDetected ||
+            data.whaleDetected ||
+            indicators?.isWhale
+          ),
+          price: Number(data.price || data.meta?.rawSignal?.price || indicators?.price || 0),
+          f4Power: Number(indicators?.f4Power ?? data.f4Power ?? 0),
+          f4PowerLoss: Number(indicators?.f4PowerLoss ?? data.f4PowerLoss ?? 0),
+          insight: String(indicators?.insight ?? data.insight ?? ""),
         };
       }
     }
@@ -132,6 +172,14 @@ function formatLogMessage(sig: any, suffix: string): string {
   if (sig.type?.startsWith("F4_")) {
     return `⚡ ${sig.type.replace(/_/g, " ")}: ${sig.symbol}`;
   }
+  if (sig.type?.startsWith("VETOED_")) {
+    const act = sig.type.replace("VETOED_", "");
+    return `✋ VETO [${act}]: ${sig.symbol} @ ${sig.price}`;
+  }
+  if (sig.type?.startsWith("SCANNER_")) {
+    const act = sig.type.replace("SCANNER_", "");
+    return `🔭 TARAMA [${act}]: ${sig.symbol} @ ${sig.price}`;
+  }
   return `🎯 AI: ${sig.symbol}`;
 }
 
@@ -139,20 +187,33 @@ function formatLogMessage(sig: any, suffix: string): string {
  * Robustly parses a raw log entry from the database into a LogEntry object.
  */
 export function parseLogEntry(sig: any, isTestMode: boolean = true): LogEntry {
-  const isTrade = ["BUY", "SELL", "STOP_LOSS", "TAKE_PROFIT"].includes(sig.type);
+  const isTrade = ["BUY", "SELL", "STOP_LOSS", "TAKE_PROFIT"].includes(
+    sig.type,
+  );
   const isSystem = sig.type === "SYSTEM" || sig.symbol === "SYSTEM";
 
-  const { message: extractedDetail, meta: metaDataFromDetail } = extractMetaData(sig.detail);
-  const metaDataFromExec = extractMetaData(sig.execution_result).meta;
-  
+  const { message: extractedDetail, meta: metaDataFromDetail } =
+    extractMetaData(sig.detail);
+  const { message: execMessage, meta: metaDataFromExec } = extractMetaData(
+    sig.execution_result,
+  );
+
   // Combine meta data, prioritizing the structured execution_result
-  const metaData = metaDataFromExec || metaDataFromDetail;
+  const metaData = metaDataFromExec || metaDataFromDetail || {};
+
+  if (sig.veto_reason) {
+    metaData.veto = sig.veto_reason;
+  } else if (!sig.executed && execMessage) {
+    metaData.veto = execMessage;
+  }
+
   const isVetoed = !!metaData?.veto;
 
   let logType: LogEntry["type"] = "AI_DECISION";
   if (isTrade && !isVetoed) logType = "EXECUTION";
   else if (isSystem) logType = "SYSTEM";
-  else if (sig.type === "WHALE" || sig.type === "WHALE_ALERT") logType = "WHALE_ALERT";
+  else if (sig.type === "WHALE" || sig.type === "WHALE_ALERT")
+    logType = "WHALE_ALERT";
   else if (sig.type === "STRUCTURE") logType = "STRUCTURE";
   else if (sig.type?.startsWith("F4_")) logType = "F4_SIGNAL";
 
@@ -164,10 +225,12 @@ export function parseLogEntry(sig: any, isTestMode: boolean = true): LogEntry {
       : sig.strategy_name;
   }
 
-  const { timeframe: parsedTf, suffix: tfSuffix } = extractTimeframe(finalDetail || "");
+  const { timeframe: parsedTf, suffix: tfSuffix } = extractTimeframe(
+    finalDetail || "",
+  );
   const displayMessage = formatLogMessage(sig, tfSuffix);
   let finalTimeframe = parsedTf || sig.timeframe || "";
-  
+
   // Normalize 1M (Month) to 1Mo to distinguish from 1m (Minute)
   if (finalTimeframe === "1M") finalTimeframe = "1Mo";
 
@@ -178,29 +241,55 @@ export function parseLogEntry(sig: any, isTestMode: boolean = true): LogEntry {
     message: displayMessage,
     // Clear details if we have rich meta data to avoid UI clutter,
     // keep it only for SYSTEM messages or when no meta is found.
-    details: (isSystem || !metaData) ? finalDetail : (metaData.veto ? `VETO: ${metaData.veto}` : undefined),
+    details:
+      isSystem || !metaData
+        ? finalDetail
+        : metaData.veto
+          ? `VETO: ${metaData.veto}`
+          : undefined,
     assetSymbol: isSystem ? undefined : normalizeSymbol(sig.symbol),
     timeframe: finalTimeframe,
-    strategyName: sig.strategy_name || (metaData ? "MATRIX_V5" : undefined),
-    meta: metaData,
-    sentiment: ["BUY", "F4_CONFIRMED_BUY", "F4_EARLY_BUY"].includes(sig.type)
+    strategyName:
+      sig.strategy_name ||
+      (Object.keys(metaData).length > 0 ? "MATRIX_V5" : undefined),
+    meta: Object.keys(metaData).length > 0 ? metaData : undefined,
+    sentiment: [
+      "BUY",
+      "SCANNER_BUY",
+      "VETOED_BUY",
+      "F4_CONFIRMED_BUY",
+      "F4_EARLY_BUY",
+    ].includes(sig.type)
       ? "POSITIVE"
-      : ["SELL", "F4_CONFIRMED_SELL", "F4_EARLY_SELL"].includes(sig.type)
+      : [
+          "SELL",
+          "SCANNER_SELL",
+          "VETOED_SELL",
+          "F4_CONFIRMED_SELL",
+          "F4_EARLY_SELL",
+        ].includes(sig.type)
         ? "NEGATIVE"
-        : isSystem 
-          ? (
-            /yetersiz|atlandı|hata|error|failed|veto|loss|düşüş|ayı/i.test(displayMessage) ? "NEGATIVE" :
-            /aktif|onaylandı|başarılı|success|long|boğa|📈|🎯|on/i.test(displayMessage) ? "POSITIVE" : 
-            "NEUTRAL"
-          )
+        : isSystem
+          ? /yetersiz|atlandı|hata|error|failed|veto|loss|düşüş|ayı/i.test(
+              displayMessage,
+            )
+            ? "NEGATIVE"
+            : /aktif|onaylandı|başarılı|success|long|boğa|📈|🎯|on/i.test(
+                  displayMessage,
+                )
+              ? "POSITIVE"
+              : "NEUTRAL"
           : "NEUTRAL",
   };
 }
 
-const SCAN_COOLDOWN_MS = 45000; // Safe margin (server is 30s)
+const SCAN_COOLDOWN_MS = 10000; // Safe margin (server is 5s)
 let isScanningGlobal = false; // Shared lock for all hook instances in the SAME tab
 
-export function useCombatLogs(timeframe: string = "4h") {
+export function useCombatLogs(
+  timeframe: string = "4h",
+  enabled: boolean = true,
+) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [scanStatus, setScanStatus] = useState<"idle" | "scanning" | "done">(
     "idle",
@@ -210,21 +299,24 @@ export function useCombatLogs(timeframe: string = "4h") {
   const [error, setError] = useState<string | null>(null);
 
   const fetchLogs = useCallback(async () => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    if (!token) {
+    const token =
+      typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (!token || !enabled) {
       setIsLoading(false);
       return;
     }
 
     try {
-      // P3.2 Fix: Fetch ALL signals regardless of current UI timeframe 
+      // P3.2 Fix: Fetch ALL signals regardless of current UI timeframe
       // This ensures we keep history when switching views
       const response = await api.get(`/logs/signals?timeframe=all`);
       const data = response.data;
       setError(null);
 
       if (Array.isArray(data)) {
-        const formattedLogs: LogEntry[] = data.map((sig: any) => parseLogEntry(sig, true));
+        const formattedLogs: LogEntry[] = data.map((sig: any) =>
+          parseLogEntry(sig, true),
+        );
         setLogs(formattedLogs.slice(0, 1000)); // cap to keep filtering cost bounded
       }
     } catch (err) {
@@ -238,80 +330,102 @@ export function useCombatLogs(timeframe: string = "4h") {
     }
   }, [timeframe]);
 
-  const triggerScan = useCallback(async (isManual: boolean = false) => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    if (!token) return;
+  const triggerScan = useCallback(
+    async (isManual: boolean = false) => {
+      const token =
+        typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      if (!token || !enabled) return;
 
-    const now = Date.now();
-    
-    // 1. Same-tab shared lock
-    if (isScanningGlobal) return;
-    
-    // 2. Cross-tab localStorage check
-    const lastScanStored = Number(localStorage.getItem('last_signal_scan') || 0);
-    const timeSinceLast = now - lastScanStored;
+      const now = Date.now();
 
-    if (timeSinceLast < SCAN_COOLDOWN_MS) {
-      if (isManual) {
-        console.log(`[P4.3-ULTRA-SAFE] Manual Throttle: Retry in ${Math.ceil((SCAN_COOLDOWN_MS - timeSinceLast) / 1000)}s`);
+      // 1. Same-tab shared lock
+      if (isScanningGlobal) return;
+
+      // 2. Cross-tab localStorage check
+      const lastScanStored = Number(
+        localStorage.getItem("last_signal_scan") || 0,
+      );
+      const timeSinceLast = now - lastScanStored;
+
+      const currentCooldown = isManual ? 3000 : SCAN_COOLDOWN_MS;
+
+      if (timeSinceLast < currentCooldown) {
+        if (isManual) {
+          console.log(
+            `[P4.3-ULTRA-SAFE] Manual Throttle: Retry in ${Math.ceil((currentCooldown - timeSinceLast) / 1000)}s`,
+          );
+        }
+        return;
       }
-      return;
-    }
 
-    try {
-      isScanningGlobal = true;
-      setScanStatus("scanning");
-      const response = await api.get(`/signals/scan?timeframe=${timeframe}`);
-      
-      const finishTime = Date.now();
-      localStorage.setItem('last_signal_scan', finishTime.toString());
-      setLastScanTime(finishTime);
-      setScanStatus("done");
-      await fetchLogs();
-    } catch (err: unknown) {
-      if (err instanceof AxiosError) {
-        if (err.response?.status === 429) {
-          const serverRetryMs = err.response.data?.retryAfterMs || SCAN_COOLDOWN_MS;
-          // Sync exactly with server requirement + 2s padding
-          localStorage.setItem('last_signal_scan', (Date.now() - (SCAN_COOLDOWN_MS - serverRetryMs) + 2000).toString());
-          console.warn(`[P4.3-ULTRA-SAFE] Server 429. Syncing lock for ${Math.ceil(serverRetryMs/1000)}s`);
-          setScanStatus("idle");
-        } else if (err.response?.status === 400) {
-          const msg = err.response.data?.error || "Geçersiz İstek";
-          setError(msg);
-          setScanStatus("idle");
-        } else if (err.response?.status === 401) {
-          setScanStatus("idle");
+      try {
+        isScanningGlobal = true;
+        setScanStatus("scanning");
+        const response = await api.get(`/signals/scan?timeframe=${timeframe}`);
+
+        const finishTime = Date.now();
+        localStorage.setItem("last_signal_scan", finishTime.toString());
+        setLastScanTime(finishTime);
+        setScanStatus("done");
+        await fetchLogs();
+      } catch (err: unknown) {
+        if (err instanceof AxiosError) {
+          if (err.response?.status === 429) {
+            const serverRetryMs =
+              err.response.data?.retryAfterMs || SCAN_COOLDOWN_MS;
+            // Sync exactly with server requirement + 2s padding
+            localStorage.setItem(
+              "last_signal_scan",
+              (
+                Date.now() -
+                (SCAN_COOLDOWN_MS - serverRetryMs) +
+                2000
+              ).toString(),
+            );
+            console.warn(
+              `[P4.3-ULTRA-SAFE] Server 429. Syncing lock for ${Math.ceil(serverRetryMs / 1000)}s`,
+            );
+            setScanStatus("idle");
+          } else if (err.response?.status === 400) {
+            const msg = err.response.data?.error || "Geçersiz İstek";
+            setError(msg);
+            setScanStatus("idle");
+          } else if (err.response?.status === 401) {
+            setScanStatus("idle");
+          } else {
+            console.error("Signal Scan Error:", err);
+            setScanStatus("idle");
+          }
         } else {
           console.error("Signal Scan Error:", err);
           setScanStatus("idle");
         }
-      } else {
-        console.error("Signal Scan Error:", err);
-        setScanStatus("idle");
+      } finally {
+        isScanningGlobal = false;
       }
-    } finally {
-      isScanningGlobal = false;
-    }
-  }, [fetchLogs, timeframe]);
+    },
+    [fetchLogs, timeframe],
+  );
 
   useEffect(() => {
+    if (!enabled) return;
     fetchLogs();
-    const interval = setInterval(fetchLogs, 5000);
+    const interval = setInterval(fetchLogs, 15000); // 15s - Optimized
     return () => clearInterval(interval);
-  }, [fetchLogs]);
+  }, [fetchLogs, enabled]);
 
   useEffect(() => {
-    // P4.3 Fix: Staggered start with jitter to prevent cross-tab race on initial load
+    // P4.3 Fix: REMOVED automatic scan interval to prevent "API Explosion" when multiple tabs are open.
+    // Periodic scanning is now handled by the background bot-worker.mjs (every 90s).
+    // Manual scan can still be triggered via UI button.
+    
     const jitter = Math.random() * 5000;
     const timer = setTimeout(() => {
       triggerScan(false);
     }, jitter);
 
-    const scanInterval = setInterval(() => triggerScan(false), 60000);
     return () => {
       clearTimeout(timer);
-      clearInterval(scanInterval);
     };
   }, [triggerScan]);
 
@@ -335,37 +449,39 @@ const FILTERED_SYSTEM_PREFIXES = [
   "Kullanıcı oturumu başlatıldı",
 ];
 
-export function deduplicateSystemLogs(
-  logs: LogEntry[],
-): LogEntry[] {
+export function deduplicateSystemLogs(logs: LogEntry[]): LogEntry[] {
   const seen = new Set<string>();
-  return logs.filter((l) => {
-    if (l.type !== "SYSTEM") return false;
-    if (FILTERED_SYSTEM_PREFIXES.some((p) => l.message.startsWith(p)))
-      return false;
-    if (seen.has(l.message)) return false;
-    seen.add(l.message);
-    return true;
-  }).sort(
-    (a, b) => b.timestamp - a.timestamp,
-  );
+  return logs
+    .filter((l) => {
+      if (l.type !== "SYSTEM") return false;
+      if (FILTERED_SYSTEM_PREFIXES.some((p) => l.message.startsWith(p)))
+        return false;
+      if (seen.has(l.message)) return false;
+      seen.add(l.message);
+      return true;
+    })
+    .sort((a, b) => b.timestamp - a.timestamp);
 }
+
+const ALWAYS_VISIBLE_BASES = new Set([
+  "BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOGE", "AVAX", "LINK", "DOT", "POL"
+]);
 
 export function filterSignalsByHoldings(
   tradeLogs: LogEntry[],
   holdings: { symbol: string }[] | null | undefined,
 ): LogEntry[] {
   // P3.1 Fix: If holdings are null (loading state), don't fallback to all logs
-  // returning an empty array prevents the "popping" effect where all signals appear briefly then disappear
   if (holdings === null || holdings === undefined) return [];
 
-  // Normalize held symbols: remove slashes and USDT suffix if any, then upper
-  // Filter out stablecoins to avoid noise
   const heldBases = new Set(
     holdings
       .filter((h) => h.symbol !== "USDT" && h.symbol !== "USDC")
       .map((h) => extractBaseAsset(h.symbol)),
   );
+  
+  // Add always visible bases to the set to ensure user sees major market updates
+  ALWAYS_VISIBLE_BASES.forEach(base => heldBases.add(base));
 
   return tradeLogs.filter((l) => {
     if (!l.assetSymbol) return false;

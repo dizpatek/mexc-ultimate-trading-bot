@@ -195,7 +195,7 @@ export const UnifiedControlStrip = ({
             ref={(el) => {
               tradeAnchorRef.current = el;
             }}
-            className="px-2 pt-1 pb-2 flex flex-col gap-2"
+            className="px-2 pt-1 pb-8 flex flex-col gap-2"
           >
             <SmartTrade
               compact={true}

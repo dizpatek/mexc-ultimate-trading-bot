@@ -53,7 +53,7 @@ class MarketKernel extends Kernel<
   private debounceTimeout: NodeJS.Timeout | null = null;
 
   constructor() {
-    super(2000); // 2 seconds between automatic refreshes (conservative)
+    super(1000); // 1 second between automatic refreshes (as requested)
   }
 
   /**
@@ -111,24 +111,40 @@ class MarketKernel extends Kernel<
   protected async fetch() {
     if (this.symbols.size === 0) return;
     try {
-      const symbolsToFetch = Array.from(this.symbols);
-      const symbolsJson = JSON.stringify(symbolsToFetch);
+      const allSymbols = Array.from(this.symbols);
+      const CHUNK_SIZE = 30; // 4.7 FIXED: Chunking to prevent URL truncation and 404s
+      const chunks: string[][] = [];
+      
+      for (let i = 0; i < allSymbols.length; i += CHUNK_SIZE) {
+        chunks.push(allSymbols.slice(i, i + CHUNK_SIZE));
+      }
 
-      const response = await api.get("/market/ticker", {
-        params: { symbols: symbolsJson },
-      });
-      const data = response.data;
+      const now = Date.now();
+      const updates: Record<string, { price: string; time: number }> = {};
 
-      if (Array.isArray(data)) {
-        const updates: Record<string, { price: string; time: number }> = {};
-        const now = Date.now();
-        data.forEach((item: { symbol: string; price: string }) => {
-          updates[item.symbol] = { price: item.price, time: now };
-        });
+      await Promise.all(chunks.map(async (chunk) => {
+        try {
+          const symbolsJson = JSON.stringify(chunk);
+          const response = await api.get("/market/ticker", {
+            params: { symbols: symbolsJson },
+          });
+          const data = response.data;
+
+          if (Array.isArray(data)) {
+            data.forEach((item: { symbol: string; price: string }) => {
+              updates[item.symbol] = { price: item.price, time: now };
+            });
+          }
+        } catch (innerErr) {
+          console.error("[MarketKernel] Chunk Fetch Error:", innerErr);
+        }
+      }));
+
+      if (Object.keys(updates).length > 0) {
         this.notify({ ...(this.data || {}), ...updates });
       }
     } catch (err) {
-      console.error("[MarketKernel] Fetch Error:", err);
+      console.error("[MarketKernel] Fatal Fetch Error:", err);
     }
   }
 

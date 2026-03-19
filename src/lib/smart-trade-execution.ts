@@ -130,7 +130,48 @@ export async function executeExit(
       }
     }
 
-    await sql`UPDATE orders SET status = 'CLOSED', updated_at = ${Date.now()}, meta = ${JSON.stringify({ ...meta, exitReason: reason, exitResult: result, exitPrice: Number(realExitPrice), executedQty: Number(executedQty), closedAt: Date.now(), tradeState })} WHERE id = ${id}`;
+    // ── PERFORMANCE TRACKING ENHANCEMENT ──────────────────────────────
+    // Calculate PnL based on entry price vs exit price
+    const entryPrice = Number(trade.price || 0);
+    let profitLoss = 0;
+    let profitLossPercentage = 0;
+
+    if (entryPrice > 0) {
+      if (side === "BUY") {
+        // Long exit: (Sell - Buy)
+        profitLoss = (realExitPrice - entryPrice) * executedQty;
+        profitLossPercentage = ((realExitPrice - entryPrice) / entryPrice) * 100;
+      } else {
+        // Short exit (Cover): (SellEntry - BuyExit)
+        // Note: For Short, entry was a SELL, exit is a BUY
+        profitLoss = (entryPrice - realExitPrice) * executedQty;
+        profitLossPercentage = ((entryPrice - realExitPrice) / entryPrice) * 100;
+      }
+    }
+
+    const { insertTradeHistory, calculateDailyPerformance } = await import("./db");
+    
+    // Update order status first
+    await sql`UPDATE orders SET status = 'CLOSED', updated_at = ${Date.now()}, meta = ${JSON.stringify({ ...meta, exitReason: reason, exitResult: result, exitPrice: Number(realExitPrice), executedQty: Number(executedQty), closedAt: Date.now(), tradeState, profitLoss, profitLossPercentage })} WHERE id = ${id}`;
+
+    // Record in Trade History
+    await insertTradeHistory({
+      user_id: user_id,
+      order_id: id,
+      symbol: symbol,
+      side: side === "BUY" ? "SELL" : "BUY", // The exit side
+      type: "MARKET",
+      qty: executedQty,
+      price: realExitPrice,
+      quote_qty: realExitPrice * executedQty,
+      commission: 0, // Simplified, MEXC fills have this info if needed
+      profit_loss: profitLoss,
+      profit_loss_percentage: profitLossPercentage,
+      created_at: Date.now()
+    } as any);
+
+    // Refresh daily performance metrics
+    await calculateDailyPerformance().catch(e => console.error("[Performance] Calc failed:", e));
   } catch (err) {
     console.error(`[Exit Error]`, err);
     throw err;
@@ -164,6 +205,42 @@ export async function executePartialTP(
       (res?.executedQty as string) || String(exec.qty),
     );
     newQty -= executed;
+
+    // ── PARTIAL TP PERFORMANCE RECORDING ────────────────────────────
+    const entryPrice = Number(trade.price || 0);
+    const side = trade.side as string;
+    let profitLoss = 0;
+    let profitLossPercentage = 0;
+
+    if (entryPrice > 0) {
+      if (side === "BUY") {
+        profitLoss = (currentPrice - entryPrice) * executed;
+        profitLossPercentage = ((currentPrice - entryPrice) / entryPrice) * 100;
+      } else {
+        profitLoss = (entryPrice - currentPrice) * executed;
+        profitLossPercentage = ((entryPrice - currentPrice) / entryPrice) * 100;
+      }
+    }
+
+    const { insertTradeHistory, calculateDailyPerformance } = await import("./db");
+    
+    await insertTradeHistory({
+      user_id: trade.user_id,
+      order_id: trade.id,
+      symbol: trade.symbol,
+      side: side === "BUY" ? "SELL" : "BUY",
+      type: "PARTIAL_TP",
+      qty: executed,
+      price: currentPrice,
+      quote_qty: currentPrice * executed,
+      commission: 0,
+      profit_loss: profitLoss,
+      profit_loss_percentage: profitLossPercentage,
+      created_at: Date.now()
+    } as any);
+
+    await calculateDailyPerformance().catch(e => console.error("[Performance] Partial TP Calc fail:", e));
+
     const filled =
       (metaUpdates.filledTargets as number[]) ||
       (meta.filledTargets as number[]) ||

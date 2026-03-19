@@ -7,6 +7,7 @@ interface HorizonCardProps {
   title?: string;
   icon?: React.ReactNode;
   glowColor?: "cyan" | "emerald" | "rose" | "amber" | "indigo";
+  hideCorners?: boolean;
 }
 
 export const HorizonCard: React.FC<HorizonCardProps> = ({
@@ -15,19 +16,20 @@ export const HorizonCard: React.FC<HorizonCardProps> = ({
   title,
   icon,
   glowColor = "indigo",
+  hideCorners = false,
 }) => {
   const glowMap = {
-    cyan: "shadow-cyan-500/10 border-cyan-500/20",
-    emerald: "shadow-emerald-500/10 border-emerald-500/20",
-    rose: "shadow-rose-500/10 border-rose-500/20",
-    amber: "shadow-amber-500/10 border-amber-500/20",
-    indigo: "shadow-indigo-500/10 border-indigo-500/20",
+    cyan: "shadow-cyan-500/10",
+    emerald: "shadow-emerald-500/10",
+    rose: "shadow-rose-500/10",
+    amber: "shadow-amber-500/10",
+    indigo: "shadow-indigo-500/10",
   };
 
   return (
     <div
       className={cn(
-        "relative bg-[#0f172a]/40 backdrop-blur-md rounded-xl border flex flex-col overflow-hidden transition-all duration-300 group",
+        "relative bg-[#0f172a]/40 backdrop-blur-md flex flex-col overflow-hidden transition-all duration-300 group",
         glowMap[glowColor],
         className,
       )}
@@ -49,10 +51,14 @@ export const HorizonCard: React.FC<HorizonCardProps> = ({
       <div className="flex-1 relative z-10">{children}</div>
 
       {/* Tech Corners (Decorative) */}
-      <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-white/20 rounded-tl pointer-events-none" />
-      <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-white/20 rounded-tr pointer-events-none" />
-      <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-white/20 rounded-bl pointer-events-none" />
-      <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-white/20 rounded-br pointer-events-none" />
+      {!hideCorners && (
+        <>
+          <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-white/20 rounded-tl pointer-events-none" />
+          <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-white/20 rounded-tr pointer-events-none" />
+          <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-white/20 rounded-bl pointer-events-none" />
+          <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-white/20 rounded-br pointer-events-none" />
+        </>
+      )}
     </div>
   );
 };

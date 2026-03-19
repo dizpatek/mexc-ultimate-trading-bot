@@ -74,7 +74,7 @@ export const DecisionBar: React.FC<DecisionBarProps> = ({
                 {mode}
               </span>
               <span className="text-[7px] lg:text-[8px] font-bold text-slate-500 uppercase mt-1 tracking-widest">
-                Matrix Online
+                Matrix Engine
               </span>
             </div>
           </div>

@@ -6,7 +6,8 @@ import {
   StrategySignalInput,
 } from "@/lib/db";
 import { getAccountInfo } from "@/lib/mexc-wrapper";
-import { getBotConfig, resolveTradeMode, BotConfig } from "@/lib/db";
+import { getBotConfig, resolveTradeMode, BotConfig, logSystemEvent } from "@/lib/db";
+import { buildInsight } from "@/lib/insight-utils";
 
 
 const DEFAULT_SCAN_SYMBOLS = [
@@ -34,29 +35,77 @@ export interface ScanResult {
   vetoReason?: string;
 }
 
+
 export class SignalScanner {
   static async resolveScanSymbols(
     userId: number,
     mode: "test" | "production" = "test",
+    botConfig?: BotConfig
   ): Promise<string[]> {
-    const account = await getAccountInfo(userId, mode);
-    const holdingsSymbols = (account?.balances || [])
-      .filter(
-        (b: { free: string; locked: string }) =>
-          parseFloat(b.free) + parseFloat(b.locked) > 0,
-      )
-      .map((b: { asset: string }) => `${b.asset}USDT`)
-      .filter((s: string) => !s.startsWith("USDT") && !s.startsWith("USDC"));
+    const config = botConfig || await getBotConfig();
+    
+    let holdingsSymbols: string[] = [];
+    
+    if (mode === "test") {
+      // P1.2 SAFETY: In test mode, only scan symbols being virtually traded in DB or held in simulator
+      const { getActiveOrderSymbols } = await import("@/lib/db");
+      const { getSetting } = await import("@/lib/settings");
+      const activeSymbols = await getActiveOrderSymbols(userId, "test");
+      
+      // Also include symbols from simulator balances so "Portfolio Only" catches coins the user owns but isn't trading yet
+      const simBalancesRaw = await getSetting("SIMULATED_BALANCES", userId);
+      let simSymbols: string[] = [];
+      if (simBalancesRaw) {
+        try {
+          const balances = JSON.parse(simBalancesRaw);
+          simSymbols = balances
+            .filter((b: any) => (parseFloat(b.free) + parseFloat(b.locked)) > 0)
+            .map((b: any) => `${b.asset}USDT`)
+            .filter((s: string) => !s.startsWith("USDT") && !s.startsWith("USDC"));
+        } catch (e) {
+          console.error("[Scanner] Failed to parse SIMULATED_BALANCES:", e);
+        }
+      }
 
-    // Production mode optimization: Only scan what the user actually OWNS
-    if (mode === "production") {
-      return Array.from(new Set(holdingsSymbols)).slice(0, 50);
+      holdingsSymbols = Array.from(new Set([...activeSymbols, ...simSymbols]));
+      console.log(`[Scanner] Test Mode Holdings: ${holdingsSymbols.length} assets (${activeSymbols.length} Active, ${simSymbols.length} in Wallet).`);
+      
+      const { logSystemEvent } = await import("@/lib/db");
+      await logSystemEvent(userId, "INFO", 
+        `🎯 Fokus Tarama: ${holdingsSymbols.length} varlık`, 
+        `Simülatördeki ${simSymbols.length} varlık ve ${activeSymbols.length} aktif işlem taranıyor.`
+      );
+    } else {
+      // Production: Scan real wallet for otopilot opportunities
+      const account = await getAccountInfo(userId, mode);
+      holdingsSymbols = (account?.balances || [])
+        .filter(
+          (b: { free: string; locked: string }) =>
+            parseFloat(b.free) + parseFloat(b.locked) > 0,
+        )
+        .map((b: { asset: string }) => `${b.asset}USDT`)
+        .filter((s: string) => !s.startsWith("USDT") && !s.startsWith("USDC"));
     }
 
-    // Test/Demo mode: Scan holdings + major pairs
+    // P4.2: Robust Symbol Resolution
+    // Even if pilot_only_holdings is true, we include a minimal set of Top Assets 
+    // to ensure the user's request for "scanning all assets" is partially met in the UI.
+    const { getTopAssets } = await import("@/lib/mexc-wrapper");
+    const topAssets = await getTopAssets(30);
+    const topSymbols = topAssets.map(a => a.symbol.replace("/", ""));
+
+    if (config.pilot_only_holdings) {
+      // If only holdings, we still add the top 20 assets to the scan so the scanner is never "empty"
+      return Array.from(new Set([...holdingsSymbols, ...topSymbols.slice(0, 20)])).slice(0, 80);
+    }
+
+    // If pilot_only_holdings is false, we scan holdings + more top assets
+    const topAssetsBroad = await getTopAssets(60);
+    const topSymbolsBroad = topAssetsBroad.map(a => a.symbol.replace("/", ""));
+
     return Array.from(
-      new Set([...holdingsSymbols, ...DEFAULT_SCAN_SYMBOLS]),
-    ).slice(0, 60);
+      new Set([...holdingsSymbols, ...topSymbolsBroad, ...DEFAULT_SCAN_SYMBOLS]),
+    ).slice(0, 120); // Scaled for better coverage
   }
 
   static async runScan(symbols: string[], targetTimeframe?: string, mode: "test" | "production" = "test"): Promise<ScanResult[]> {
@@ -119,6 +168,21 @@ export class SignalScanner {
 
     if (allSignalsToInsert.length > 0) {
       await createStrategySignalsBulk(allSignalsToInsert);
+      
+      // Log new significant signals for audit
+      for (const sig of allSignalsToInsert) {
+        const result = allResults.find(r => r.symbol === sig.symbol && r.signalType === sig.signal_type);
+        if (result?.inserted) {
+          const aiScore = result.aiScore || 0;
+          const execRes = sig.execution_result as any;
+          const mtf = execRes?.mtfVerdict || "N/A";
+          
+          await logSystemEvent(1, aiScore > 75 ? "SUCCESS" : "INFO", 
+            `📡 YENİ SİNYAL: ${sig.symbol} (${sig.timeframe})`, 
+            `Tip: ${sig.signal_type} | AI: %${aiScore} | MTF: ${mtf} | Fiyat: ${sig.price}`
+          );
+        }
+      }
     }
 
     return allResults;
@@ -146,8 +210,16 @@ export class SignalScanner {
       const strategy = new MatrixV5Strategy(symbol, {
         timeframe: interval,
         minAiScore: config.ai_threshold || 65,
+        tradeMode: resolveTradeMode(config),
         mtfVeto: config.pilot_mtf_veto,
-        mtfThreshold: 80 // Hard-force to 80% as requested by user to ensure consistency
+        mtfThreshold: config.pilot_mtf_threshold || 80,
+        f4Length: config.f4_length,
+        whaleVolumeMultiplier: config.whale_multiplier,
+        f4PowerLossThreshold: config.f4_power_loss_threshold,
+        f4LookbackBars: config.f4_lookback_bars,
+        f4SqueezeThreshold: config.f4_squeeze_threshold,
+        minPowerLoss: config.min_power_loss,
+        fiboLength: config.fibo_length
       });
 
       const signal = await strategy.analyze();
@@ -168,6 +240,19 @@ export class SignalScanner {
       let vetoReason: string | undefined = undefined;
       if (signal.reason && signal.reason.includes("🛑")) {
         vetoReason = signal.reason.split("🛑")[1].trim();
+        
+        // Visibility: If it was a BUY/SELL but got vetoed, mark it specifically
+        const originalIntent = (signal.indicators as any).originalIntent;
+        if (originalIntent === "BUY") signalType = "VETOED_BUY";
+        else if (originalIntent === "SELL") signalType = "VETOED_SELL";
+        else signalType = "VETOED";
+      } else if (signalType === "BUY" || signalType === "SELL") {
+        // Override BUY/SELL because SignalScanner only scans, it does not execute trades
+        signalType = `SCANNER_${signalType}`;
+      }
+      
+      if (!vetoReason && signalType.startsWith("SCANNER_")) {
+        vetoReason = "Manuel Tarama: Cüzdan (Bakiye/Portföy) ve Otopilot (Motor) sırasına alındı, onay bekleniyor.";
       }
 
       // If already exists, skip
@@ -185,29 +270,35 @@ export class SignalScanner {
         return { results, signalsToInsert };
       }
 
-      const detailWithTimeframe = vetoReason ? `🛑 VETOED: ${vetoReason} (${interval})` : `${signal.reason} (${interval})`;
+      const detailWithTimeframe = vetoReason ? `🛑 VETOED: ${vetoReason} (${interval})` : `${signal.reason || "Matrix Signal"} (${interval})`;
 
       results.push({
         symbol,
         signalType,
         price: currentPrice,
         detail: detailWithTimeframe,
-        aiScore: Number(signal.indicators.aiScore) || 0,
+        aiScore: Number(signal.indicators?.aiScore) || 0,
         inserted: true,
-        vetoReason
+        vetoReason: vetoReason || ""
       });
 
       signalsToInsert.push({
         symbol,
         signal_type: signalType,
         price: currentPrice,
-        volume: volume,
+        volume: Number(volume) || 0,
         timestamp,
         executed: false,
-        execution_result: { ...signal.indicators, reason: signal.reason, targets: (signal as any).targets, aiScore: (signal.indicators as any).aiScore },
+        execution_result: { 
+          ...(signal.indicators || {}), 
+          reason: String(signal.reason || ""), 
+          targets: (signal as any).targets || { t1: 0, t2: 0, sl: 0 }, 
+          aiScore: Number(signal.indicators?.aiScore) || 0,
+          insight: String(buildInsight(signalType, signal.indicators) || "")
+        },
         timeframe: interval,
         trading_mode: tradingMode,
-        veto_reason: vetoReason
+        veto_reason: vetoReason || ""
       });
 
       return { results, signalsToInsert };

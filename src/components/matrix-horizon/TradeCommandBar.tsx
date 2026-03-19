@@ -5,7 +5,8 @@ import {
   ChevronDown, 
   RefreshCw, 
   Zap,
-  Archive
+  Archive,
+  Skull
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -32,19 +33,22 @@ export const TradeCommandBar: React.FC<TradeCommandBarProps> = ({
 }) => {
   return (
     <div 
-      className="relative z-20 flex flex-wrap items-center justify-center sm:justify-between py-2 px-2 gap-3 border-b border-slate-800/40 bg-slate-950/20 hover:bg-slate-900/40 transition-colors backdrop-blur-sm rounded-t-xl mb-2 font-mono cursor-pointer"
+      className={cn(
+        "relative z-20 flex flex-col lg:grid lg:grid-cols-3 items-center py-2 px-2 gap-3 border-b border-slate-800/40 bg-slate-950/20 hover:bg-slate-900/40 transition-colors backdrop-blur-sm rounded-t-xl font-mono cursor-pointer",
+        isSectionExpanded ? "mb-0" : "mb-0"
+      )}
       onClick={() => setIsSectionExpanded(!isSectionExpanded)}
     >
       {/* GROUP 1: SECTION TITLE */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/60 border border-slate-800/80 rounded-xl shadow-lg">
+      <div className="flex flex-wrap items-center gap-2 lg:justify-self-start w-full lg:w-auto">
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/20 shadow-lg">
           <Radar className="w-4 h-4 text-cyan-400" />
-          <h2 className="text-[10px] font-black tracking-[0.2em] text-cyan-100 uppercase hidden lg:block">
+          <h2 className="text-[10px] font-black tracking-[0.2em] text-cyan-100 uppercase hidden xl:block">
             Akıllı İşlemler
           </h2>
         </div>
 
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/60 border border-slate-800/80 rounded-xl">
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/20">
           <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">AKTİF:</span>
           <span className="text-[10px] font-black text-cyan-400">
             {activeTradesCount}
@@ -53,8 +57,8 @@ export const TradeCommandBar: React.FC<TradeCommandBarProps> = ({
       </div>
 
       {/* GROUP 2: TABS SELECTOR */}
-      <div className="flex items-center gap-2">
-        <div className="flex items-center p-1 bg-slate-950/60 border border-slate-800/80 rounded-xl">
+      <div className="flex items-center gap-2 lg:justify-self-center justify-center w-full lg:w-auto">
+        <div className="flex items-center p-1 bg-slate-950/20">
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -83,16 +87,18 @@ export const TradeCommandBar: React.FC<TradeCommandBarProps> = ({
       </div>
 
       {/* GROUP 3: COMMAND ACTIONS */}
-      <div className="flex items-center gap-2">
-        <div className="flex items-center p-1 bg-slate-950/60 border border-slate-800/80 rounded-xl gap-1">
+      <div className="flex items-center gap-2 lg:justify-self-end justify-between w-full lg:w-auto">
+        <div className="flex items-center p-1 bg-slate-950/20 gap-1">
           <button
             onClick={(e) => {
               e.stopPropagation();
               onNewTrade?.();
             }}
-            className="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all bg-emerald-500 text-slate-950 flex items-center gap-1"
+            className="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all bg-emerald-500 text-slate-950 flex items-center gap-1 hover:bg-emerald-400"
           >
-            <Zap className="w-3 h-3" /> YENİ İŞLEM
+            <Zap className="w-3 h-3" />
+            <span className="hidden sm:inline">YENİ İŞLEM</span>
+            <span className="sm:hidden">YENİ</span>
           </button>
 
           <button
@@ -100,10 +106,15 @@ export const TradeCommandBar: React.FC<TradeCommandBarProps> = ({
               e.stopPropagation();
               handleClearAll(activeTab === "AKTIF" ? "active" : "passive");
             }}
-            className="p-1.5 rounded-lg border border-rose-500/20 text-rose-500 hover:bg-rose-500/10"
-            title="Tümünü Temizle (Satış Yapar)"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-600/60 bg-red-950/40 text-red-500 hover:bg-red-600 hover:text-white transition-colors shadow-[0_0_15px_rgba(220,38,38,0.2)]"
+            title={activeTab === "AKTIF" ? "DİKKAT: HER ŞEYİ SAT (PANİK BUTONU)" : "GEÇMİŞİ KOMPLE SİL"}
           >
-            <RefreshCw className={cn("w-3.5 h-3.5", clearingAction === "active" && "animate-spin")} />
+            {clearingAction === (activeTab === "AKTIF" ? "active" : "passive") ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Skull className="w-3.5 h-3.5" />
+            )}
+            <span className="hidden sm:inline text-[9px] font-black uppercase tracking-widest">{activeTab === "AKTIF" ? "HER ŞEYİ SAT" : "GEÇMİŞİ SİL"}</span>
           </button>
 
           {activeTab === "AKTIF" && (

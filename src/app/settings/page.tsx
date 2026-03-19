@@ -19,10 +19,18 @@ import { updateTradingMode } from "@/app/actions/trading-mode";
 import { api } from "@/services/api";
 import { useAuth } from "@/hooks/useAuth";
 import type { User } from "@/lib/db";
+import { useBotConfig } from "@/hooks/useBotConfig";
+import { 
+  Zap, 
+  Settings2,
+  Cpu,
+  Coins
+} from "lucide-react";
 
 export default function SettingsPage() {
   const router = useRouter();
   const { user } = useAuth();
+  const { config } = useBotConfig();
   const { notify, confirm } = useNotification();
   const [mode, setMode] = useState("test");
   const [apiKey, setApiKey] = useState("");
@@ -217,6 +225,7 @@ export default function SettingsPage() {
               </button>
             </form>
           </div>
+
 
           {/* Module 3: Danger Zone */}
           <div className="stat-card bg-red-500/[0.03] border-red-500/20 h-full relative overflow-visible">

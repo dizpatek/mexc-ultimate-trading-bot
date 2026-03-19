@@ -7,11 +7,17 @@ import { HorizonLayout } from "@/components/matrix-horizon/HorizonLayout";
 import { Header } from "@/components/Header";
 import { HologramCard } from "@/components/HologramCard";
 import { GUIDE_SECTIONS, type GuideSection } from "@/config/guide-data";
-import { ArrowLeft, Shield, Terminal } from "lucide-react";
+import { ArrowLeft, Shield, Terminal, Search } from "lucide-react";
 import { MatrixLogo } from "@/components/MatrixLogo";
 
 const GuidePageContent = () => {
   const router = useRouter();
+  const [searchTerm, setSearchTerm] = React.useState("");
+
+  const filteredSections = GUIDE_SECTIONS.filter((section) =>
+    section.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    section.content.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
     <HorizonLayout className="bg-[#020617]">
@@ -28,41 +34,70 @@ const GuidePageContent = () => {
         </div>
 
         <div className="container mx-auto px-6 py-12 max-w-[1400px] relative z-10">
-          <div className="flex flex-col gap-2 mb-16 animate-in fade-in slide-in-from-top-4 duration-1000">
-            <div className="flex items-center gap-3 mb-1">
-              <div className="h-[1px] w-12 bg-cyan-500/50" />
-              <span className="text-cyan-400 text-[10px] font-black tracking-[0.4em] uppercase">
-                User Manual v4.0
-              </span>
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-16 animate-in fade-in slide-in-from-top-4 duration-1000">
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-3 mb-1">
+                <div className="h-[1px] w-12 bg-cyan-500/50" />
+                <span className="text-cyan-400 text-[10px] font-black tracking-[0.4em] uppercase">
+                  User Manual v5.0
+                </span>
+              </div>
+              <h1 className="text-5xl md:text-7xl font-black italic tracking-tighter text-white uppercase leading-none">
+                User{" "}
+                <span
+                  className="text-transparent border-t-text-white stroke-white"
+                  style={{ WebkitTextStroke: "1px rgba(255,255,255,0.3)" }}
+                >
+                  Manual
+                </span>
+                <br />
+                Center
+              </h1>
+              <p className="mt-6 text-slate-400 max-w-2xl text-lg leading-relaxed font-medium">
+                Matrix terminalin son 2 aydaki tüm teknik yeteneklerini ve Matrix V5 operasyonel akışını
+                keşfedin.
+              </p>
             </div>
-            <h1 className="text-5xl md:text-7xl font-black italic tracking-tighter text-white uppercase leading-none">
-              User{" "}
-              <span
-                className="text-transparent border-t-text-white stroke-white"
-                style={{ WebkitTextStroke: "1px rgba(255,255,255,0.3)" }}
-              >
-                Manual
-              </span>
-              <br />
-              Center
-            </h1>
-            <p className="mt-6 text-slate-400 max-w-2xl text-lg leading-relaxed font-medium">
-              Matrix terminalin tüm teknik yeteneklerini ve operasyonel akışını
-              keşfedin.
-            </p>
+
+            {/* SEARCH BAR */}
+            <div className="relative group w-full md:w-[400px]">
+              <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
+                <Search className="w-5 h-5 text-slate-500 group-focus-within:text-cyan-400 transition-colors" />
+              </div>
+              <input
+                type="text"
+                placeholder="Özellik ara (ör: SMC, F4, Balina...)"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full bg-slate-900/50 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/20 transition-all font-medium"
+              />
+              {searchTerm && (
+                <div className="absolute top-full left-0 mt-2 text-[10px] font-black text-cyan-500/50 uppercase tracking-widest pl-2">
+                  {filteredSections.length} sonuç bulundu
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
-            {GUIDE_SECTIONS.map((section: GuideSection, idx: number) => (
-              <HologramCard
-                key={section.id}
-                title={section.title}
-                content={section.content}
-                icon={section.icon}
-                image={section.image}
-                delay={idx * 100}
-              />
-            ))}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 transition-all duration-500">
+            {filteredSections.length > 0 ? (
+              filteredSections.map((section: GuideSection, idx: number) => (
+                <HologramCard
+                  key={section.id}
+                  title={section.title}
+                  content={section.content}
+                  icon={section.icon}
+                  image={section.image}
+                  delay={idx % 15 * 50} // Optimize stagger animation for large lists
+                />
+              ))
+            ) : (
+              <div className="col-span-full py-20 text-center border border-dashed border-white/5 rounded-3xl bg-white/5">
+                <div className="text-slate-500 text-lg font-bold italic uppercase tracking-widest">
+                  Aradığınız özellik bulunamadı
+                </div>
+              </div>
+            )}
           </div>
 
           {/* FUTURISTIC RETURN BUTTON */}
@@ -112,11 +147,11 @@ const GuidePageContent = () => {
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-2">
                 <Shield className="w-3 h-3 text-cyan-500/50" />
-                <span>Encrypted Manual</span>
+                <span>Encrypted Manual v5.0.1</span>
               </div>
               <div className="flex items-center gap-2">
                 <Terminal className="w-3 h-3 text-cyan-500/50" />
-                <span>Agent V4.0.2</span>
+                <span>Agent Horizon-V5</span>
               </div>
             </div>
             <div className="flex items-center gap-6">

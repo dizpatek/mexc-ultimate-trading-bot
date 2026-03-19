@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Matrix Pro Bridge",
-  "version": "3.3",
-  "description": "Advanced bypass for TradingView & Google Auth.",
+  "version": "3.4",
+  "description": "TradingView iframe bridge for Matrix Dashboard. Isolated — does NOT touch Google cookies.",
   "permissions": [
     "declarativeNetRequest",
     "scripting",
@@ -12,10 +12,7 @@
     "notifications"
   ],
   "host_permissions": [
-    "<all_urls>",
     "*://*.tradingview.com/*",
-    "*://*.google.com/*",
-    "*://accounts.google.com/*",
     "*://*.mexc.com/*",
     "*://*.vercel.app/*",
     "*://localhost/*",
@@ -31,7 +28,10 @@
   "content_scripts": [
     {
       "matches": [
-        "<all_urls>"
+        "*://*.tradingview.com/*",
+        "*://localhost/*",
+        "*://127.0.0.1/*",
+        "*://*.vercel.app/*"
       ],
       "js": ["content.js"],
       "run_at": "document_start",

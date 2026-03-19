@@ -8,8 +8,24 @@ const api = axios.create({
   baseURL: API_BASE_URL,
 });
 
-// Add auth token to requests
-api.interceptors.request.use((config) => {
+// Simple Request Throttler to prevent "API Explosions"
+let lastRequestTime = 0;
+const MIN_REQUEST_GAP = 200; // 5 req/sec staggered
+
+api.interceptors.request.use(async (config) => {
+  // Only throttle background polling (GET requests)
+  if (config.method === "get" || config.method === "GET") {
+    const now = Date.now();
+    const timeSinceLast = now - lastRequestTime;
+    if (timeSinceLast < MIN_REQUEST_GAP) {
+      const delay = MIN_REQUEST_GAP - timeSinceLast;
+      await new Promise(resolve => setTimeout(resolve, delay));
+      lastRequestTime = Date.now();
+    } else {
+      lastRequestTime = now;
+    }
+  }
+  
   if (typeof window !== "undefined") {
     const token = localStorage.getItem("token");
     if (token) {
@@ -30,11 +46,18 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       if (typeof window !== "undefined") {
-        console.warn("[API] 401 Unauthorized detected. Clearing session.");
-        localStorage.removeItem("token");
-        // Dispatch custom event to notify components/contexts
-        window.dispatchEvent(new Event("api-auth-logout"));
+        const currentPath = window.location.pathname;
+        console.warn(`[API] 401 Unauthorized detected at ${currentPath}. Session may have expired.`);
+        
+        // Only clear and notify if there was a token to begin with
+        if (localStorage.getItem("token")) {
+          localStorage.removeItem("token");
+          // Dispatch custom event to notify components/contexts
+          window.dispatchEvent(new Event("api-auth-logout"));
+        }
       }
+    } else if (error.code === "ECONNABORTED") {
+      console.error("[API] Request timeout. Server may be busy.");
     }
     return Promise.reject(error);
   }
@@ -116,20 +139,27 @@ export const createSmartTrade = async (payload: Record<string, unknown>) => {
 };
 
 // Diagnostic Logger
+let lastLogTime = 0;
 export const debugLog = async (
   level: "info" | "error" | "warn",
   message: string,
   context?: unknown,
 ) => {
   try {
-    let msg = `[${level.toUpperCase()}] ${message}`;
+    const msg = `[${level.toUpperCase()}] ${message}`;
+    console.log(msg, context || "");
+    
+    // 4.7 FIXED: Throttling remote logs to max 1 per second to prevent "API Explosion"
+    const now = Date.now();
+    if (now - lastLogTime < 1000) return;
+    lastLogTime = now;
+
+    let msgEncoded = encodeURIComponent(msg);
     if (context && typeof context === "object") {
-      const ctx = context as { error?: string };
-      if (ctx.error) msg += ` | Error: ${ctx.error}`;
+        const ctx = context as { error?: string };
+        if (ctx.error) msgEncoded += ` | Error: ${ctx.error}`;
     }
-    const debugMsg = encodeURIComponent(msg);
-    // Use api instance to ensure Authorization headers are included (Fixes 401)
-    api.get(`/portfolio/summary?debug=${debugMsg}`).catch(() => {});
+    api.get(`/portfolio/summary?debug=${msgEncoded}`).catch(() => {});
   } catch {
     // Silently fail
   }

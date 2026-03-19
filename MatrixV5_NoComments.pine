@@ -1922,8 +1922,8 @@ if isF4Active
     f4_early_buy := (f4_slope < 0 and f4_power_loss_pct >= strictThreshold and f4_power_loss_pct[1] < strictThreshold) or f4_anticipatory_buy
     f4_early_sell := (f4_slope > 0 and f4_power_loss_pct >= strictThreshold and f4_power_loss_pct[1] < strictThreshold) or f4_anticipatory_sell
     
-    f4_confirmed_buy := f4_cross_up
-    f4_confirmed_sell := f4_cross_dn
+    f4_confirmed_buy := false
+    f4_confirmed_sell := false
     
     var bool buyFired = false
     var bool sellFired = false
@@ -1936,19 +1936,13 @@ if isF4Active
         currentAlerts.F4_BUY := true
         f4_buy_signal := true
         buyFired := true
-    else if f4_confirmed_buy and not buyFired
-        currentAlerts.F4_BUY := true
-        f4_buy_signal := true
-        buyFired := true
+
 
     if f4_early_sell and not sellFired
         currentAlerts.F4_SELL := true
         f4_sell_signal := true
         sellFired := true
-    else if f4_confirmed_sell and not sellFired
-        currentAlerts.F4_SELL := true
-        f4_sell_signal := true
-        sellFired := true
+
 
 longCondition = confluenceScore >= minConfluenceScore and predictionUpProb >= 55 and marketPhaseText != "DAĞITIM ⚠️"
 shortCondition = confluenceScore >= minConfluenceScore and predictionDownProb >= 55 and marketPhaseText != "AKÜMÜLASYON 💎"

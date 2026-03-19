@@ -27,6 +27,7 @@ export interface SmartTradeOrder {
     tpTriggered?: boolean;
     tslActivated?: boolean;
     entryTriggered?: boolean;
+    pilotVetoReason?: string;
     activityLog?: Array<{
       time: number;
       type:

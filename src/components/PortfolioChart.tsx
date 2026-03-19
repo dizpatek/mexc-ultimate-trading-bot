@@ -11,6 +11,8 @@ import {
   CheckCircle,
   ExternalLink,
   List,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useTimeframe } from "@/context/TimeframeContext";
 import { cn } from "@/lib/utils";
@@ -112,6 +114,8 @@ interface PortfolioChartProps {
   isBuyEditable?: boolean;
   showChart?: boolean;
   setShowChart?: (s: boolean) => void;
+  isSectionExpanded?: boolean;
+  setIsSectionExpanded?: (s: boolean) => void;
   isTradeFormOpen?: boolean;
 }
 
@@ -143,6 +147,8 @@ export const PortfolioChart = forwardRef<{ focusOnPrices: () => void }, Portfoli
     setShowChart,
     isTradeFormOpen = false,
   } = props;
+
+  const [isSectionExpanded, setIsSectionExpanded] = useState(false);
 
   const smartChartRef = useRef<{ focusOnPrices: () => void } | null>(null);
 
@@ -542,167 +548,134 @@ export const PortfolioChart = forwardRef<{ focusOnPrices: () => void }, Portfoli
   return (
     <div
       id="portfolio-chart-section"
-      className="h-full w-full flex flex-col bg-slate-950 border border-slate-800 rounded-t-xl overflow-hidden shadow-2xl relative"
+      className="h-full w-full flex flex-col bg-transparent overflow-hidden relative"
     >
       {/* Header/Toolbar [HIDDEN in COMPACT - Standalone view] */}
       {!compact && (
-        <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900 border-b border-slate-800 z-50 rounded-t-xl">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              {/* Tab Switcher */}
-              <div className="flex bg-slate-800/50 p-0.5 rounded-lg ml-2 border border-slate-700/50">
-                <button
-                  onClick={() => setActiveTab("TV")}
-                  className={cn(
-                    "px-3 py-1 rounded text-[9px] font-black tracking-widest uppercase transition-all",
-                    activeTab === "TV"
-                      ? "bg-blue-500 text-slate-950 shadow-[0_0_10px_rgba(59,130,246,0.4)]"
-                      : "text-slate-500 hover:text-slate-300",
-                  )}
-                >
-                  TradingView
-                </button>
-                <button
-                  onClick={() => setActiveTab("SMART")}
-                  className={cn(
-                    "px-3 py-1 rounded text-[9px] font-black tracking-widest uppercase transition-all",
-                    activeTab === "SMART"
-                      ? "bg-cyan-500 text-slate-950 shadow-[0_0_10px_rgba(6,182,212,0.4)]"
-                      : "text-slate-500 hover:text-slate-300",
-                  )}
-                >
-                  Matrix Smart
-                </button>
-              </div>
+        <div 
+          className={cn(
+            "relative z-20 flex flex-col lg:grid lg:grid-cols-3 items-center py-2 px-2 gap-3 border-b border-slate-800/40 bg-slate-950/20 hover:bg-slate-900/40 transition-colors backdrop-blur-sm font-mono cursor-pointer rounded-t-xl",
+            isSectionExpanded ? "mb-2" : "mb-0"
+          )}
+          onClick={() => setIsSectionExpanded(!isSectionExpanded)}
+        >
+          {/* GROUP 1: SECTION TITLE */}
+          <div className="flex items-center gap-2 px-3 py-1.5 lg:justify-self-start w-full lg:w-auto">
+            <Activity className="w-4 h-4 text-cyan-400" />
+            <h2 className="text-[10px] font-black tracking-[0.2em] text-cyan-100 uppercase hidden xl:block">
+              Matrix Terminal
+            </h2>
+          </div>
 
-              {activeTab === "TV" &&
-                extensionChecked &&
-                !extensionInstalled && (
-                  <div
-                    onClick={() => setShowLoginModal(true)}
-                    className="flex items-center gap-1.5 px-2 py-0.5 bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[9px] font-black rounded cursor-pointer hover:bg-rose-500/20 transition-all animate-pulse"
-                  >
-                    <AlertCircle className="w-3 h-3" />
-                    <span>BRIDGE BULUNAMADI</span>
-                  </div>
+          {/* GROUP 2: TABS / SELECTOR & STATUS (CENTERED) */}
+          <div className="flex items-center gap-2 lg:justify-self-center justify-center w-full lg:w-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex bg-slate-900/20 p-0.5 rounded-lg border border-slate-800/20">
+              <button
+                onClick={() => setActiveTab("TV")}
+                className={cn(
+                  "px-3 py-1 rounded text-[9px] font-black tracking-widest uppercase transition-all",
+                  activeTab === "TV"
+                    ? "bg-blue-500 text-slate-950 shadow-[0_0_10px_rgba(59,130,246,0.4)]"
+                    : "text-slate-500 hover:text-slate-300"
                 )}
+              >
+                <span className="hidden sm:inline">TradingView</span>
+                <span className="sm:hidden">TV</span>
+              </button>
+              <button
+                onClick={() => setActiveTab("SMART")}
+                className={cn(
+                  "px-3 py-1 rounded text-[9px] font-black tracking-widest uppercase transition-all",
+                  activeTab === "SMART"
+                    ? "bg-cyan-500 text-slate-950 shadow-[0_0_10px_rgba(6,182,212,0.4)]"
+                    : "text-slate-500 hover:text-slate-300"
+                )}
+              >
+                <span className="hidden sm:inline">Matrix Smart</span>
+                <span className="sm:hidden">SMART</span>
+              </button>
+            </div>
+          </div>
+
+          {/* GROUP 3: COMMANDS & ACTIONS (RIGHT) */}
+          <div className="flex items-center gap-2 lg:justify-self-end justify-between w-full lg:w-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center p-1 bg-slate-950/20 gap-1">
+              {activeTab === "TV" && extensionChecked && !extensionInstalled && (
+                <div
+                  onClick={() => setShowLoginModal(true)}
+                  className="flex items-center gap-1.5 px-2 py-1.5 bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[9px] font-black rounded cursor-pointer hover:bg-rose-500/20 transition-all animate-pulse"
+                >
+                  <span className="hidden sm:inline">Bridge Gerekli</span>
+                  <span className="sm:hidden">BRIDGE</span>
+                </div>
+              )}
+
               {activeTab === "TV" && extensionInstalled && (
                 <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[9px] font-black rounded">
                   <CheckCircle className="w-3 h-3" />
-                  <span>BRIDGE AKTIF</span>
+                  <span className="hidden sm:inline">BRIDGE AKTIF</span>
+                  <span className="sm:hidden">AKTIF</span>
                 </div>
               )}
-            </div>
 
-            {/* Notification Pill (HIDDEN in SMART mode to make room for extended header) */}
-            {activeTab !== "SMART" && message && (
-              <div
-                className={`flex items-center gap-2 px-2.5 py-1 rounded-full text-[10px] font-bold animate-in fade-in slide-in-from-left-2 duration-300 ${
-                  message.type === "success"
-                    ? "bg-green-500/10 text-green-400 border border-green-500/20"
-                    : message.type === "error"
-                      ? "bg-red-500/10 text-red-400 border border-red-500/20"
-                      : "bg-blue-500/10 text-blue-400 border border-blue-500/20"
-                }`}
-              >
-                {message.type === "success" && (
-                  <CheckCircle className="w-3 h-3" />
-                )}
-                {message.type === "error" && (
-                  <AlertCircle className="w-3 h-3" />
-                )}
-                {message.type === "info" && (
-                  <RefreshCw className="w-3 h-3 animate-spin" />
-                )}
-                <span>{message.text}</span>
-              </div>
-            )}
-
-            {/* Extendable Header Portal Target */}
-            <div id="smart-chart-header-portal" className="flex-1 min-w-0" />
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Cookies Status */}
-            {activeTab === "TV" && loginStatus?.isLoggedIn && (
-              <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 bg-slate-800/50 rounded border border-slate-700/50 text-[10px] text-slate-400 font-medium h-8">
-                <Cookie className="w-3 h-3 text-purple-400" />
-                <span>{loginStatus.cookies?.length || 0} Senkron Veri</span>
-              </div>
-            )}
-
-            <div className="h-4 w-[1px] bg-slate-800 mx-1 hidden sm:block" />
-
-            {/* Actions */}
-            <div className="flex items-center gap-1">
               {activeTab === "TV" && (
                 <button
                   onClick={handleWebModeToggle}
-                  className={`group h-8 px-3 rounded flex items-center gap-2 transition-all border text-[10px] font-bold ${
+                  className={`group h-7 px-3 rounded-lg flex items-center gap-2 transition-all text-[9px] font-black uppercase ${
                     isWebMode
                       ? "bg-purple-600/10 text-purple-400 border-purple-500/30 hover:bg-purple-600/20"
-                      : "bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700"
+                      : "bg-slate-800/40 text-slate-500 hover:text-white"
                   }`}
                 >
-                  {isWebMode ? (
-                    <Activity className="w-3.5 h-3.5" />
-                  ) : (
-                    <Globe className="w-3.5 h-3.5" />
-                  )}
-                  <span>{isWebMode ? "Widget Modu" : "Web Modu"}</span>
+                  {isWebMode ? <Activity className="w-3 h-3" /> : <Globe className="w-3 h-3" />}
+                  <span className="hidden md:inline">{isWebMode ? "Widget" : "Web"}</span>
                 </button>
               )}
 
               <button
                 onClick={openProChart}
-                className="h-8 w-8 rounded flex items-center justify-center bg-blue-600/10 text-blue-400 border border-blue-500/30 hover:bg-blue-600/20 transition-all"
+                className="h-7 w-7 rounded-lg flex items-center justify-center bg-blue-600/10 text-blue-400 border border-blue-500/30 hover:bg-blue-600/20 transition-all shadow-md group"
                 title="Yeni Sekmede Aç"
               >
-                <ExternalLink className="w-4 h-4" />
+                <ExternalLink className="w-3 h-3 group-hover:scale-110 transition-transform" />
               </button>
 
               <button
-                onClick={() =>
-                  window.open(
-                    "https://cryptorank.io/watchlist/4f7effbd40d4",
-                    "_blank",
-                  )
-                }
-                className="h-8 px-3 rounded flex items-center gap-2 transition-all border text-[10px] font-bold bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700"
-                title="CryptoRank Watchlist"
+                onClick={() => window.open("https://cryptorank.io/watchlist/4f7effbd40d4", "_blank")}
+                className="h-7 px-3 rounded-lg flex items-center gap-2 transition-all border border-slate-800 bg-slate-950/40 text-slate-500 hover:text-white text-[9px] font-black uppercase"
+                title="Watchlist"
               >
-                <List className="w-3.5 h-3.5" />
-                <span>Watch</span>
+                <List className="w-3 h-3" />
+                <span className="hidden lg:inline">Watch</span>
               </button>
 
-              {activeTab === "TV" &&
-                (loginStatus?.isLoggedIn ? (
-                  <button
-                    onClick={handleLogout}
-                    className="h-8 px-3 rounded flex items-center gap-2 bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20 transition-all text-[10px] font-bold"
-                  >
-                    <LogIn className="w-3.5 h-3.5 rotate-180" />
-                    <span className="hidden sm:inline">Cikis</span>
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setShowLoginModal(true)}
-                    className="h-8 px-3 rounded flex items-center gap-2 bg-green-600/10 text-green-500 border border-green-500/20 hover:bg-green-600/20 transition-all text-[10px] font-bold"
-                  >
-                    <LogIn className="w-3.5 h-3.5" />
-                    <span>Giris</span>
-                  </button>
-                ))}
+              <div className="w-[1px] h-4 bg-slate-800 mx-1" />
+
+              <button
+                onClick={(e) => { e.stopPropagation(); setIsSectionExpanded(!isSectionExpanded); }}
+                className={cn(
+                  "flex items-center justify-center h-7 px-3 rounded-lg text-[9px] font-black uppercase transition-all",
+                  isSectionExpanded ? "bg-cyan-500 text-slate-950 shadow-md" : "text-slate-500 hover:text-white"
+                )}
+              >
+                {isSectionExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                <span className="ml-2 hidden sm:inline text-[9px]">{isSectionExpanded ? "GİZLE" : "GÖSTER"}</span>
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Chart Area */}
-      <div className="flex-1 w-full bg-[#020617] relative overflow-visible flex flex-col">
+      <div 
+        className={cn(
+          "w-full relative transition-all duration-500 overflow-hidden",
+          !isSectionExpanded ? "h-0 min-h-0 opacity-0 invisible" : "h-[600px] min-h-[400px] opacity-100 visible mt-2"
+        )}
+      >
         {activeTab === "SMART" ? (
           <div className="flex-1 w-full overflow-visible pt-0 flex flex-col">
             <SmartChart
+              key={symbol}
               symbol={symbol}
               buyPrice={buyPrice}
               tpPrice={tpPrice}
@@ -722,16 +695,13 @@ export const PortfolioChart = forwardRef<{ focusOnPrices: () => void }, Portfoli
               assets={assets}
               onAssetChange={onAssetChange}
               potentialEntry={potentialEntry}
-              compact={compact}
               isEditingExisting={isEditingExisting}
               isBuyEditable={isBuyEditable}
-              showChart={showChart}
-              setShowChart={setShowChart}
               ref={smartChartRef}
             />
           </div>
         ) : (
-          <div className="flex-1 w-full relative">
+          <div className="flex-1 h-full w-full">
             {isWebMode ? (
               <iframe
                 src={`https://www.tradingview.com/chart/?symbol=${cleanSymbol.includes(":") ? cleanSymbol : `MEXC:${cleanSymbol}`}&interval=${tvInterval}&theme=dark`}

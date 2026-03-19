@@ -1,13 +1,19 @@
-// Matrix Pro Bridge V3.0 - Bridge Script
-// Runs in ISOLATED world to handle extension communication
+// Matrix Pro Bridge V3.4 - Bridge Script
+// Runs in ISOLATED world — only on TradingView, localhost, vercel
 (function() {
     'use strict';
     
     try {
-        const isTV = window.location.hostname.includes('tradingview.com');
+        const hostname = window.location.hostname;
+        const isTV = hostname.includes('tradingview.com');
+        const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+        const isVercel = hostname.includes('vercel.app');
         const isIframe = window.self !== window.top;
         
-        console.log('[Matrix Bridge] Initializing communication bridge...', { isTV, isIframe, url: window.location.href });
+        // Only bridge on allowed domains
+        if (!isTV && !isLocal && !isVercel) return;
+        
+        console.log('[Matrix Bridge] Initializing communication bridge...', { isTV, isLocal, isVercel, isIframe, url: window.location.href });
 
         // 1. Listen for messages from the PAGE (Matrix Dashboard or TradingView Main World)
         window.addEventListener('message', (event) => {
@@ -32,7 +38,7 @@
                 chrome.runtime.sendMessage(event.data);
             }
             
-            // Forward messages from USER DETECTION (Main World logic) if needed
+            // Forward messages from USER DETECTION (Main World logic)
             if (event.data.source === 'matrix-bridge-extension' && event.data.action === 'userLoggedIn') {
                 chrome.runtime.sendMessage(event.data);
             }

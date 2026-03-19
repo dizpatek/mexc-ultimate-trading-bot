@@ -142,6 +142,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
 
   const [assetDropdownOpen, setAssetDropdownOpen] = useState(false);
   const [assetSearchQuery, setAssetSearchQuery] = useState("");
+  const [isSectionExpanded, setIsSectionExpanded] = useState(false);
   const buyPriceInputRef = React.useRef<HTMLInputElement>(null);
   const unitsSectionRef = React.useRef<HTMLDivElement>(null);
 
@@ -313,7 +314,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     [onSlPriceChange],
   );
 
-  const [trailingSl, setTrailingSl] = useState(false);
+  const [trailingSl, setTrailingSl] = useState(true);
 
   const [moveToBreakeven, setMoveToBreakeven] = useState(false);
   const [slTimeout, setSlTimeout] = useState(false);
@@ -1036,42 +1037,22 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
 
   return (
     <div id="trade-top-anchor">
-      {/* Smart Chart Header - Independence (Out of the table prison) */}
-      {!compact && (
-        <div className="mb-2 px-1 relative z-[70] animate-in fade-in slide-in-from-top-2 duration-700">
-          <SmartChartHeader
-            compact={compact}
-            symbol={symbol}
-            currentPrice={marketPrice || selectedHolding?.price || 0}
-            assets={holdings}
-            onAssetChange={handleAssetSelect}
-            timeframe={timeframe}
-            setTimeframe={setTimeframe}
-            focusOnPrices={() => chartRef.current?.focusOnPrices()}
-            startScroll={() => {}}
-            stopScroll={() => {}}
-            assetScrollRef={{ current: null }}
-            isLoading={false}
-            historyLoading={false}
-            showChart={showChart}
-            onToggleChart={() => setShowChart(!showChart)}
-          />
-        </div>
-      )}
+      {/* Smart Chart Header - Removed as redundant with Matrix Horizon header */}
 
       <HorizonCard
         className={cn(
-          "bg-[#020617]/40 backdrop-blur-xl border-slate-800/50 shadow-2xl overflow-hidden group/smart",
-          compact ? "p-2 border-0 shadow-none bg-transparent" : "p-2",
+          "bg-transparent border-0 shadow-none overflow-hidden group/smart",
+          compact ? "p-2" : "p-0",
         )}
         glowColor={mode === "COVER" ? "emerald" : "cyan"}
+        hideCorners={true}
       >
         {/* Integrated PortfolioChart Section (Shown by default in full mode) */}
         {!compact && (
           <div
             className={cn(
               "mb-1 transition-all duration-500 overflow-hidden",
-              !showChart ? "h-0 opacity-0 mb-0" : compact ? "h-[280px] opacity-100" : "h-[630px] opacity-100",
+              !showChart ? "h-0 opacity-0 mb-0" : "h-auto opacity-100",
             )}
           >
             <PortfolioChart
@@ -1099,6 +1080,8 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
               isBuyEditable={!editingTrade || editingTrade.status === "PENDING"}
               showChart={showChart}
               setShowChart={setShowChart}
+              isSectionExpanded={isSectionExpanded}
+              setIsSectionExpanded={setIsSectionExpanded}
               isTradeFormOpen={isTradeFormOpen}
               ref={chartRef}
             />
@@ -1313,7 +1296,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
         )}
 
         {/* Main Grid: 3 Columns or Flex Column if Compact */}
-        {(isTradeFormOpen || !!editingTrade || compact) && (
+        {isSectionExpanded && (isTradeFormOpen || !!editingTrade || compact) && (
           <>
             <div
               id="smart-trade-controls"
@@ -1327,9 +1310,9 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
               {/* COLUMN 1: UNITS & BUY PRICE */}
               <div
                 className={cn(
-                  "bg-slate-950/40 border border-white/5 rounded-xl flex flex-col overflow-hidden relative",
+                  "bg-slate-950/40 flex flex-col overflow-hidden relative",
                   compact
-                    ? "gap-1 p-0 bg-transparent border-0"
+                    ? "gap-1 p-0 bg-transparent"
                     : "p-2 gap-1.5 shadow-sm",
                 )}
               >
@@ -1455,7 +1438,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                         }
                       }}
                       className={cn(
-                        "w-full bg-slate-950/50 border border-slate-800 rounded-lg px-2 text-sm font-black text-white outline-none focus:border-cyan-500/50 transition-all shadow-inner",
+                        "w-full bg-slate-950/50 px-2 text-sm font-black text-white outline-none focus:bg-slate-900/80 transition-all shadow-inner",
                         compact ? "h-8 py-0 pr-12" : "h-9 py-0 pr-24",
                       )}
                     />
@@ -1595,7 +1578,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                         value={computedTotal}
                         readOnly
                         className={cn(
-                          "w-full bg-slate-900/60 border border-slate-800/80 rounded-lg px-3 text-sm font-black text-white outline-none cursor-default font-mono shadow-inner text-emerald-400",
+                          "w-full bg-slate-900/60 px-3 text-sm font-black text-white outline-none cursor-default font-mono shadow-inner text-emerald-400",
                           compact ? "h-8 py-0" : "h-8 py-0",
                         )}
                       />
@@ -2100,6 +2083,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
                     // USER requested no auto-scroll when SmartChart is opened
                   >
                     <SmartChart
+                      key={symbol}
                       compact={true}
                       symbol={symbol}
                       buyPrice={buyP}

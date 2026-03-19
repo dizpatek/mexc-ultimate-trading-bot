@@ -10,6 +10,9 @@ import {
   Radar,
   Target,
   AlertTriangle,
+  ChevronUp,
+  ChevronDown,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { extractBaseAsset } from "@/lib/symbol-utils";
@@ -25,22 +28,50 @@ import {
 } from "../hooks/useCombatLogs";
 
 
-export const CombatLog = () => {
+export const CombatLog = ({ 
+  hideHeader = false,
+  isExpanded: propIsExpanded,
+  onToggleExpanded,
+  // External data props for lifting state
+  data: propLogs,
+  isLoading: propLoading,
+  error: propError,
+  scanStatus: propScanStatus,
+  lastScanTime: propLastScanTime,
+  fetchLogs: propFetchLogs,
+  triggerScan: propTriggerScan,
+}: { 
+  hideHeader?: boolean;
+  isExpanded?: boolean;
+  onToggleExpanded?: () => void;
+  data?: LogEntry[];
+  isLoading?: boolean;
+  error?: string | null;
+  scanStatus?: "idle" | "scanning" | "done";
+  lastScanTime?: number | null;
+  fetchLogs?: () => Promise<void>;
+  triggerScan?: (isManual?: boolean) => Promise<void>;
+}) => {
   const { timeframe } = useTimeframe();
-  const {
-    logs,
-    scanStatus,
-    lastScanTime,
-    isLoading,
-    error,
-    fetchLogs,
-    triggerScan,
-  } = useCombatLogs(timeframe);
+  const internalLogs = useCombatLogs(timeframe, propLogs === undefined);
+  
+  // Use prop if provided, else fallback to internal hook
+  const logs = propLogs !== undefined ? propLogs : internalLogs.logs;
+  const isLoading = propLoading !== undefined ? propLoading : internalLogs.isLoading;
+  const error = propError !== undefined ? propError : internalLogs.error;
+  const scanStatus = propScanStatus !== undefined ? propScanStatus : internalLogs.scanStatus;
+  const lastScanTime = propLastScanTime !== undefined ? propLastScanTime : internalLogs.lastScanTime;
+  const fetchLogs = propFetchLogs !== undefined ? propFetchLogs : internalLogs.fetchLogs;
+  const triggerScan = propTriggerScan !== undefined ? propTriggerScan : internalLogs.triggerScan;
+
   const tradeScrollRef = useRef<HTMLDivElement>(null);
   const systemScrollRef = useRef<HTMLDivElement>(null);
   const trade = useTrade();
   const { data: holdings, isLoading: isLoadingHoldings } = useHoldings();
   const { config } = useBotConfig();
+  const [internalIsExpanded, setInternalIsExpanded] = useState(false);
+  const isSectionExpanded = propIsExpanded !== undefined ? propIsExpanded : internalIsExpanded;
+  const setIsSectionExpanded = onToggleExpanded || setInternalIsExpanded;
 
   const tradeLogs = useMemo(
     () =>
@@ -151,226 +182,253 @@ export const CombatLog = () => {
   };
 
   return (
-    <div className="flex flex-col h-full max-h-[600px] bg-[#020617] border border-slate-800 rounded-xl overflow-hidden shadow-2xl shadow-black/50">
-      {/* Main Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800 bg-slate-900/40 backdrop-blur-xl">
-        <div className="flex items-center gap-3">
-          <div className="bg-cyan-500/10 p-1.5 rounded-lg border border-cyan-500/20">
-            <Terminal className="w-4 h-4 text-cyan-500" />
-          </div>
-          <h3 className="text-[10px] font-black text-cyan-100 uppercase tracking-[0.3em]">
-            Combat Dual Terminal v2.4
-          </h3>
-        </div>
-        <div className="flex items-center gap-4">
-          {/* Interactive Scan Button (P3 Fix) */}
-          <button
-            onClick={() => triggerScan()}
-            disabled={scanStatus === "scanning"}
-            className={cn(
-              "flex items-center gap-1.5 px-2 py-0.5 rounded border text-[9px] font-black uppercase tracking-wider transition-all shadow-inner",
-              scanStatus === "scanning"
-                ? "bg-amber-500/10 border-amber-500/30 text-amber-400 cursor-wait"
-                : scanStatus === "done"
-                  ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20 active:scale-95"
-                  : "bg-slate-900 border-slate-700 text-slate-500 hover:border-slate-500 hover:text-slate-300 active:scale-95",
-            )}
-          >
-            <Radar
-              className={cn(
-                "w-3 h-3",
-                scanStatus === "scanning" && "animate-spin",
-              )}
-            />
-            {scanStatus === "scanning" ? "TARANIYOR" : "TARA"}
-          </button>
-          <div className="flex items-center gap-2 px-2 py-0.5 rounded bg-slate-950 border border-white/5">
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
-            </span>
-            <span className="text-[9px] text-slate-500 font-black uppercase tracking-widest">
-              LIVE SYNC
-            </span>
-          </div>
-        </div>
-      </div>
+    <div className="flex flex-col h-full bg-[#020617] overflow-hidden shadow-2xl shadow-black/50 relative">
+      <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-cyan-500/30 to-transparent opacity-50 animate-pulse" />
 
-      {/* Content Area - Dual Split */}
-      <div className="flex-1 flex divide-x divide-slate-800 overflow-hidden">
-        {/* LEFT: SIGNAL FEED */}
-        <div className="flex-1 flex flex-col bg-slate-950/20 max-w-[50%]">
-          <div className="px-3 py-1.5 bg-slate-900/30 border-b border-slate-800 flex items-center justify-between">
-            <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
-              <Zap size={10} className="text-yellow-400" /> Sinyal Akışı
-            </span>
-            <div className="flex items-center gap-1.5">
-              {lastScanTime && (
-                <span className="text-[8px] text-slate-700 font-mono">
-                  Son:{" "}
-                  {new Date(lastScanTime).toLocaleTimeString([], {
-                    hour12: false,
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
+      {/* UNIFIED COMMAND BAR (Header) */}
+      {!hideHeader && (
+        <div 
+          className="relative z-20 flex flex-wrap items-center justify-center sm:justify-between py-2 px-2 gap-3 border-b border-slate-800/40 bg-slate-950/20 hover:bg-slate-900/40 transition-colors backdrop-blur-sm rounded-t-xl font-mono cursor-pointer"
+          onClick={() => setIsSectionExpanded(!isSectionExpanded)}
+        >
+          {/* GROUP 1: SECTION TITLE */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/20 shadow-lg">
+              <Terminal className="w-4 h-4 text-cyan-500" />
+              <h2 className="text-[10px] font-black tracking-[0.2em] text-cyan-100 uppercase hidden lg:block">
+                COMBAT TERMINAL
+              </h2>
+            </div>
+          </div>
+
+          {/* GROUP 2: LIVE SYNC STATUS */}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/20">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+              </span>
+              <span className="text-[9px] text-slate-500 font-black uppercase tracking-widest leading-none">
+                LIVE SYNC
+              </span>
+            </div>
+          </div>
+
+          {/* GROUP 3: ACTIONS */}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center p-1 bg-slate-950/20 gap-1">
+               <button
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  triggerScan(true);
+                }}
+                disabled={scanStatus === "scanning"}
+                className={cn(
+                  "p-1.5 rounded-lg border border-slate-800 transition-all",
+                  scanStatus === "scanning" ? "text-amber-500 bg-amber-500/10 border-amber-500/30" : "text-slate-500 hover:text-white"
+                )}
+                title="Port-Scan"
+              >
+                <Radar className={cn("w-3.5 h-3.5", scanStatus === "scanning" && "animate-spin")} />
+              </button>
+              
+              <button
+                 className={cn(
+                   "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all",
+                   isSectionExpanded ? "bg-cyan-500 text-slate-950 shadow-md" : "text-slate-500 hover:text-white"
+                 )}
+                 onClick={(e) => { e.stopPropagation(); setIsSectionExpanded(!isSectionExpanded); }}
+              >
+                {isSectionExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                <span className="hidden sm:inline">{isSectionExpanded ? "GİZLE" : "GÖSTER"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div
+        className={cn(
+          "transition-all duration-500 overflow-hidden flex flex-col flex-1",
+          isSectionExpanded ? "max-h-[2000px] opacity-100" : "max-h-0 opacity-0",
+        )}
+      >
+        {/* Content Area - Dual Split */}
+        <div className="flex-1 flex divide-x divide-slate-800 overflow-hidden">
+          {/* LEFT: SIGNAL FEED */}
+          <div className="flex-1 flex flex-col bg-slate-950/20 max-w-[50%]">
+            <div className="px-3 py-1.5 bg-slate-900/30 border-b border-slate-800 flex items-center justify-between">
+              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                <Zap size={10} className="text-yellow-400" /> Sinyal Akışı
+              </span>
+              <div className="flex items-center gap-1.5">
+                {lastScanTime && (
+                  <span className="text-[8px] text-slate-700 font-mono">
+                    Son:{" "}
+                    {new Date(lastScanTime).toLocaleTimeString([], {
+                      hour12: false,
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div
+              ref={tradeScrollRef}
+              className="flex-1 overflow-y-auto p-3 space-y-2.5 font-mono text-[11px] cyber-scrollbar"
+            >
+              {isLoadingHoldings && config?.pilot_only_holdings ? (
+                <div className="flex flex-col items-center justify-center h-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2">
+                  <Activity size={12} className="opacity-20 animate-spin" />
+                  <div>VARLIKLAR SENKRONİZE EDİLİYOR...</div>
+                  <div className="text-[8px] text-slate-800/50 mt-1">
+                    Lütfen Bekleyin · Canlı Senkronizasyon
+                  </div>
+                </div>
+              ) : filteredTradeLogs.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2">
+                  <Radar
+                    className={cn(
+                      "w-6 h-6 opacity-30",
+                      scanStatus === "scanning" && "animate-spin",
+                    )}
+                  />
+                  <div>
+                    {scanStatus === "scanning"
+                      ? "SİNYALLER TARANIYOR..."
+                      : config?.pilot_only_holdings
+                        ? "CÜZDAN & MAJÖR VARLIK TARANIYOR"
+                        : "SİNYAL HATTI ANALİZ EDİLİYOR..."}
+                  </div>
+                  <div className="text-[8px] text-slate-800/50 mt-1">
+                    Dinamik Tarama · 1dk aralık · 60sn döngü
+                  </div>
+                </div>
+              ) : (
+                filteredTradeLogs.map((log: LogEntry) => {
+                  const isHeld = holdings?.some(
+                    (h) =>
+                      h.symbol !== "USDT" &&
+                      h.symbol !== "USDC" &&
+                      log.assetSymbol &&
+                      extractBaseAsset(log.assetSymbol) ===
+                        extractBaseAsset(h.symbol),
+                  );
+                  return (
+                    <LogLine
+                      key={log.id}
+                      log={log}
+                      icon={getIcon(log.type)}
+                      isHeld={!!isHeld}
+                      trade={trade}
+                    />
+                  );
+                })
               )}
             </div>
           </div>
-          <div
-            ref={tradeScrollRef}
-            className="flex-1 overflow-y-auto p-3 space-y-2.5 font-mono text-[11px] cyber-scrollbar"
-          >
-            {isLoadingHoldings && config?.pilot_only_holdings ? (
-              <div className="flex flex-col items-center justify-center h-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2">
-                <Activity size={12} className="opacity-20 animate-spin" />
-                <div>VARLIKLAR SENKRONİZE EDİLİYOR...</div>
-                <div className="text-[8px] text-slate-800/50 mt-1">
-                  Lütfen Bekleyin · Canlı Senkronizasyon
-                </div>
-              </div>
-            ) : filteredTradeLogs.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2">
-                <Radar
-                  className={cn(
-                    "w-6 h-6 opacity-30",
-                    scanStatus === "scanning" && "animate-spin",
-                  )}
-                />
-                <div>
-                  {scanStatus === "scanning"
-                    ? "SİNYALLER TARANIYOR..."
-                    : config?.pilot_only_holdings
-                      ? "VARLIKLARINIZLA EŞLEŞMEDİ"
-                      : "SİNYAL HATTI ANALİZ EDİLİYOR..."}
-                </div>
-                <div className="text-[8px] text-slate-800/50 mt-1">
-                  Dinamik Tarama · 1dk aralık · 60sn döngü
-                </div>
-              </div>
-            ) : (
-              filteredTradeLogs.map((log: LogEntry) => {
-                const isHeld = holdings?.some(
-                  (h) =>
-                    h.symbol !== "USDT" &&
-                    h.symbol !== "USDC" &&
-                    log.assetSymbol &&
-                    extractBaseAsset(log.assetSymbol) ===
-                      extractBaseAsset(h.symbol),
-                );
-                return (
-                  <LogLine
-                    key={log.id}
-                    log={log}
-                    icon={getIcon(log.type)}
-                    isHeld={!!isHeld}
-                    trade={trade}
-                  />
-                );
-              })
-            )}
-          </div>
-        </div>
 
-        {/* RIGHT: SYSTEM CONSOLE */}
-        <div className="flex-1 flex flex-col bg-slate-900/10">
-          <div className="px-3 py-1.5 bg-slate-900/30 border-b border-slate-800 flex items-center justify-between">
-            <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
-              <Activity size={10} className="text-blue-400" /> Sistem Konsolu
-            </span>
-          </div>
-          <div
-            ref={systemScrollRef}
-            className="flex-1 overflow-y-auto p-2 space-y-1.5 font-mono text-[10px] cyber-scrollbar"
-          >
-            {isLoading ? (
-              <div className="flex flex-col items-center justify-center h-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2">
-                <Activity size={12} className="opacity-20 animate-spin" />
-                <div>KONSOL BAŞLATILIYOR...</div>
-              </div>
-            ) : error ? (
-              <div className="flex flex-col items-center justify-center h-full text-rose-800/50 text-[9px] uppercase tracking-[0.2em] gap-2">
-                <AlertTriangle size={12} className="text-rose-500/30" />
-                <div>{error}</div>
-                <button
-                  onClick={() => fetchLogs()}
-                  className="mt-1 text-[8px] text-cyan-500/50 hover:text-cyan-400 font-black"
-                >
-                  VENİDEN DENE
-                </button>
-              </div>
-            ) : systemLogs.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2">
-                <Activity size={12} className="opacity-20 h-3" />
-                <div>SİSTEM BEKLEMEDE</div>
-              </div>
-            ) : (
-              systemLogs.map((log) => {
-                const style = getSystemLogStyle(log.sentiment);
-                const isGroup = (log as any).count > 1;
-                return (
-                  <div
-                    key={log.id}
-                    className={cn(
-                      "flex items-start justify-between gap-3 group p-2 rounded transition-all border animate-in fade-in slide-in-from-right-1 duration-200",
-                      style.bg,
-                      style.border,
-                      style.glow
-                    )}
+          {/* RIGHT: SYSTEM CONSOLE */}
+          <div className="flex-1 flex flex-col bg-slate-900/10">
+            <div className="px-3 py-1.5 bg-slate-900/30 border-b border-slate-800 flex items-center justify-between">
+              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                <Activity size={10} className="text-blue-400" /> Sistem Konsolu
+              </span>
+            </div>
+            <div
+              ref={systemScrollRef}
+              className="flex-1 overflow-y-auto p-2 space-y-1.5 font-mono text-[10px] cyber-scrollbar"
+            >
+              {isLoading ? (
+                <div className="flex flex-col items-center justify-center h-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2">
+                  <Activity size={12} className="opacity-20 animate-spin" />
+                  <div>KONSOL BAŞLATILIYOR...</div>
+                </div>
+              ) : error ? (
+                <div className="flex flex-col items-center justify-center h-full text-rose-800/50 text-[9px] uppercase tracking-[0.2em] gap-2">
+                  <AlertTriangle size={12} className="text-rose-500/30" />
+                  <div>{error}</div>
+                  <button
+                    onClick={() => fetchLogs()}
+                    className="mt-1 text-[8px] text-cyan-500/50 hover:text-cyan-400 font-black"
                   >
-                    <div className="flex gap-2 min-w-0">
-                      <span
-                        className={cn(
-                          "shrink-0 select-none font-bold opacity-80 mt-0.5",
-                          style.icon,
-                        )}
-                      >
-                        {">"}_{" "}
-                      </span>
-                      <span
-                        className={cn(
-                          "flex-1 break-word",
-                          style.text,
-                        )}
-                      >
-                        {log.message}
-                        {isGroup && (
-                          <span className="ml-2 px-1 rounded bg-white/10 text-[9px] font-black tracking-tighter align-middle">
-                            x{(log as any).count}
-                          </span>
-                        )}
+                    VENİDEN DENE
+                  </button>
+                </div>
+              ) : systemLogs.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2">
+                  <Activity size={12} className="opacity-20 h-3" />
+                  <div>SİSTEM BEKLEMEDE</div>
+                </div>
+              ) : (
+                systemLogs.map((log) => {
+                  const style = getSystemLogStyle(log.sentiment);
+                  const isGroup = (log as any).count > 1;
+                  return (
+                    <div
+                      key={log.id}
+                      className={cn(
+                        "flex items-start justify-between gap-3 group p-2 rounded transition-all border animate-in fade-in slide-in-from-right-1 duration-200",
+                        style.bg,
+                        style.border,
+                        style.glow
+                      )}
+                    >
+                      <div className="flex gap-2 min-w-0">
+                        <span
+                          className={cn(
+                            "shrink-0 select-none font-bold opacity-80 mt-0.5",
+                            style.icon,
+                          )}
+                        >
+                          {">"}_{" "}
+                        </span>
+                        <span
+                          className={cn(
+                            "flex-1 break-word",
+                            style.text,
+                          )}
+                        >
+                          {log.message}
+                          {isGroup && (
+                            <span className="ml-2 px-1 rounded bg-white/10 text-[9px] font-black tracking-tighter align-middle">
+                              x{(log as any).count}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+
+                      <span className="text-slate-600 shrink-0 select-none opacity-40 text-[8px] font-mono mt-0.5 bg-black/20 px-1.5 py-0.5 rounded border border-white/5">
+                        {new Date(log.timestamp).toLocaleTimeString([], {
+                          hour12: false,
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                        })}
                       </span>
                     </div>
-
-                    <span className="text-slate-600 shrink-0 select-none opacity-40 text-[8px] font-mono mt-0.5 bg-black/20 px-1.5 py-0.5 rounded border border-white/5">
-                      {new Date(log.timestamp).toLocaleTimeString([], {
-                        hour12: false,
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        second: "2-digit",
-                      })}
-                    </span>
-                  </div>
-                );
-              })
-            )}
+                  );
+                })
+              )}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Input Overlay */}
-      <div className="px-4 py-1.5 border-t border-slate-800 bg-slate-950 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2 flex-1">
-          <span className="text-cyan-500 font-black">{">"}</span>
-          <input
-            type="text"
-            placeholder="Matrix kernel scan active..."
-            className="bg-transparent border-none outline-none text-[10px] text-slate-500 placeholder:text-slate-800 w-full font-mono uppercase tracking-widest"
-            disabled
-          />
-        </div>
-        <div className="text-[9px] font-black text-slate-700 tracking-[0.2em]">
-          MATRIX V5.3.4 ALPHA
+        {/* Input Overlay */}
+        <div className="px-4 py-1.5 border-t border-slate-800 bg-slate-950 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 flex-1">
+            <span className="text-cyan-500 font-black">{">"}</span>
+            <input
+              type="text"
+              placeholder="Matrix kernel scan active..."
+              className="bg-transparent border-none outline-none text-[10px] text-slate-500 placeholder:text-slate-800 w-full font-mono uppercase tracking-widest"
+              disabled
+            />
+          </div>
+          <div className="text-[9px] font-black text-slate-700 tracking-[0.2em]">
+            MATRIX V5.3.4 ALPHA
+          </div>
         </div>
       </div>
     </div>
@@ -538,7 +596,7 @@ const LogLine = ({
                 F4: {Math.round(log.meta.f4Power)}%
               </span>
               
-              {log.meta.f4PowerLoss !== undefined && log.meta.f4PowerLoss > 20 && (
+              {log.meta.f4PowerLoss !== undefined && log.meta.f4PowerLoss > 10 && (
                 <span className="text-[8px] text-rose-400 font-bold animate-pulse">
                   -{Math.round(log.meta.f4PowerLoss)}% GÜÇ KAYBI
                 </span>
@@ -591,6 +649,14 @@ const LogLine = ({
             <span className="text-slate-500 text-[9px] break-words opacity-60 italic">
               {log.details}
             </span>
+          )}
+          
+          {/* INSIGHT EXPLANATION */}
+          {log.meta?.insight && (
+            <div className="w-full mt-1.5 p-1.5 bg-slate-800/40 border border-slate-700/50 rounded flex items-start gap-1.5 text-[9px] text-slate-300 italic leading-relaxed">
+              <span className="text-amber-400 mt-px shrink-0">💡</span>
+              <span>{log.meta.insight}</span>
+            </div>
           )}
         </div>
       </div>

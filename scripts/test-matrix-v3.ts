@@ -1,5 +1,5 @@
 
-import { MatrixV3Engine } from '../src/lib/matrix-v3-engine';
+import { MatrixV5Engine } from '../src/lib/matrix-v5-engine.ts';
 
 // Synthetic Data Generator
 function generateData(length: number) {
@@ -39,7 +39,7 @@ function generateData(length: number) {
 async function runTest() {
     console.log('--- Starting Matrix V3 Engine Test ---');
     
-    const engine = new MatrixV3Engine({
+    const engine = new MatrixV5Engine({
         f4Length: 10,
         whaleVolumeMultiplier: 2.0,
         f4SlopeThreshold: 0.05

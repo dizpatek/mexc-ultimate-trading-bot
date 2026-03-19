@@ -5,6 +5,8 @@ import { getTradingModeSync } from "@/lib/trading-mode";
 export interface TimeframeSettings {
   tradeMode?: string;
   pilot_trade_allocation?: number;
+  pilot_mode?: 'matrix' | 'hedge';
+  pilot_use_usdt?: boolean;
   [key: string]: unknown;
 }
 
@@ -13,6 +15,8 @@ export interface BotConfig {
   pilot_timeframe: string;
   pilot_trailing_buy: boolean;
   pilot_only_holdings: boolean;
+  pilot_mode?: 'matrix' | 'hedge';
+  pilot_use_usdt?: boolean;
   timeframe_settings?: TimeframeSettings;
   [key: string]: unknown;
 }

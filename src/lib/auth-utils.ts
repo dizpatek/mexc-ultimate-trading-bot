@@ -44,7 +44,7 @@ export function generateToken(user: User): string {
       is_admin: user.is_admin,
     },
     JWT_SECRET,
-    { expiresIn: "24h" },
+    { expiresIn: "30d" },
   );
 }
 

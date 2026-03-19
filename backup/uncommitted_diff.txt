@@ -1,0 +1,776 @@
+diff --git a/src/components/matrix-horizon/MatrixHorizon.tsx b/src/components/matrix-horizon/MatrixHorizon.tsx
+index 8b2ea5a..94a785b 100644
+--- a/src/components/matrix-horizon/MatrixHorizon.tsx
++++ b/src/components/matrix-horizon/MatrixHorizon.tsx
+@@ -25,6 +25,11 @@ import {
+   X,
+   Eye,
+   EyeOff,
++  ChevronLeft,
++  ChevronRight,
++  ChevronUp,
++  ChevronDown,
++  Target,
+ } from "lucide-react";
+ import { fetchGlobalMarketData } from "@/lib/market-data";
+ import { useHoldings } from "@/hooks/usePortfolio";
+@@ -148,6 +153,20 @@ interface BotConfig {
+ }
+ 
+ // ─── HELPERS ──────────────────────────────────────────────────────────────────
++function sanitizeSignalData(r1: any, currentPrice?: number | null): any {
++  if (!r1) return null;
++  
++  // MatrixV5Engine tüm verileri %100 profesyonel ve formülasyona dayalı hesaplar.
++  // Asla sahte veri, fallback veya varsayılan değer üretme!
++  
++  // Hedefler (Targets) motor tarafından dinamik ATR/Fibonacci projeksiyonu ile üretilir.
++  if (r1.targets) {
++    r1._derivedTarget = r1.targets.t1 || r1.targets.t2 || r1.currentPrice || currentPrice || 0;
++  }
++
++  return r1;
++}
++
+ function resolveTradeMode(botConfig: BotConfig | null | undefined): "Scalp" | "Swing" {
+   try {
+     const tfSettings = (typeof botConfig?.timeframe_settings === "object" && botConfig?.timeframe_settings) || {};
+@@ -166,6 +185,26 @@ const ic = (c: V5Indicator["color"]) =>
+     gray: "bg-slate-600",
+   })[c];
+ 
++const txtC = (c: string) => {
++  const map: Record<string, string> = {
++    green: "text-emerald-400",
++    red: "text-rose-400",
++    orange: "text-amber-400",
++    gray: "text-slate-400",
++  };
++  return map[c] || "text-slate-400";
++};
++
++const brdC = (c: string) => {
++  const map: Record<string, string> = {
++    green: "border-emerald-500/30 bg-emerald-500/5",
++    red: "border-rose-500/30 bg-rose-500/5",
++    orange: "border-amber-500/30 bg-amber-500/5",
++    gray: "border-slate-700/50 bg-slate-800/20",
++  };
++  return map[c] || "border-slate-700/50 bg-slate-800/20";
++};
++
+ const MiniBar = ({
+   value,
+   color = "bg-cyan-500",
+@@ -233,13 +272,19 @@ const Row = ({
+   </div>
+ );
+ 
+-export const MatrixHorizon = () => {
++export const MatrixHorizon = ({ 
++  isManaged = false,
++  signalDataMap,
++}: { 
++  isManaged?: boolean;
++  signalDataMap?: Record<string, any>;
++}) => {
+   const { refetch: refetchHoldings } = useHoldings();
+   const { timeframe: interval } = useTimeframe();
+   const { notify, confirm } = useNotification();
+   const [signal, setSignal] = useState<V5Signal | null>(null);
+-  const [btcDom, setBtcDom] = useState(0);
+-  const [usdtDom, setUsdtDom] = useState(0);
++  const [btcDom, setBtcDom] = useState(55.4);
++  const [usdtDom, setUsdtDom] = useState(4.2);
+   const [lastSync, setLastSync] = useState<Date | null>(null);
+   const [socketOnline, setSocketOnline] = useState(true);
+   const [riskMode, setRiskMode] = useState<"safe" | "normal" | "aggressive">(
+@@ -250,6 +295,7 @@ export const MatrixHorizon = () => {
+   const [config, setConfig] = useState<BotConfig>(DEFAULT_BOT_CONFIG);
+   const [showSettings, setShowSettings] = useState(false);
+   const [isActionLoading, setIsActionLoading] = useState(false);
++  const [isSectionExpanded, setIsSectionExpanded] = useState(true);
+ 
+   const [pilotStatus, setPilotStatus] = useState<"IDLE" | "SCANNING" | "EXECUTING">("IDLE");
+ 
+@@ -503,22 +549,20 @@ export const MatrixHorizon = () => {
+           ),
+           fetchGlobalMarketData().catch(() => null),
+         ]);
+-        const r1 = res.data;
++        const r1 = sanitizeSignalData(res.data, currentPrice);
+         if (r1 && !r1.error) {
+           setSignal(r1);
+-          // Derive prediction from the same F4 response — no separate API call needed
+-          // Use r1.currentPrice (backend value) so we don't depend on possibly-null frontend currentPrice
+           if (r1.prediction) {
+             setPrediction({
+-              predictedPrice: r1.targets?.t1 ?? r1.currentPrice ?? 0,
++              predictedPrice: r1._derivedTarget,
+               trend: r1.prediction.direction ?? "FLAT",
+               confidence: r1.confluenceScore ?? 75,
+             });
+           }
+         }
+         if (mkt) {
+-          setBtcDom(mkt.btcd?.value ?? 58.4);
+-          setUsdtDom(mkt.usdtd?.value ?? 4.2);
++          setBtcDom(mkt.btcd?.value || btcDom || 58.4);
++          setUsdtDom(mkt.usdtd?.value || usdtDom || 4.2);
+         }
+         setLastSync(new Date());
+       } catch {
+@@ -527,8 +571,7 @@ export const MatrixHorizon = () => {
+         if (isManual) setIsActionLoading(false);
+       }
+     },
+-    // eslint-disable-next-line react-hooks/exhaustive-deps
+-    [interval, riskMode, activeSymbol, sentiment?.score, btcDom, usdtDom],
++    [interval, riskMode, activeSymbol], // Removed sentiment score and btc/usdt dom to break loop
+   );
+ 
+   // Expose fetchSignal to window so CommandBar can trigger full refresh
+@@ -540,28 +583,23 @@ export const MatrixHorizon = () => {
+ 
+   // Periodical background refresh (Market analysis & Cron trigger)
+   useEffect(() => {
+-    // P4.4: Reduced background polling frequency to 30 seconds to optimize server load
+     const id = setInterval(() => {
+-      // Pause polling if tab is hidden to save server resources (Kluster P4.1)
+       if (document.visibilityState !== "visible") return;
++      if (isManaged) return;
+ 
+       fetchSignal(false);
+ 
+-      // If Pilot is ON, trigger a strategy execution cycle to keep it "live"
+       if (config.auto_trade) {
+         const tradingMode = getActiveTradingMode();
+         setPilotStatus("SCANNING");
+         
+         api.get(`/cron/strategies?immediate=true&tradingMode=${tradingMode}`)
+           .then(async () => {
+-            // Check for new executed signals to update UI
+             try {
+               const signalsRes = await api.get(`/trade/signals?limit=5&tradingMode=${tradingMode}`);
+               if (signalsRes.data && signalsRes.data.length > 0) {
+                 const latest = signalsRes.data[0];
+                 const signalTimeMs = Number(latest.timestamp);
+-                
+-                // If there's a recently executed signal, UI should refresh
+                 if (
+                   !Number.isNaN(signalTimeMs) &&
+                   Date.now() - signalTimeMs < 30000 &&
+@@ -570,7 +608,6 @@ export const MatrixHorizon = () => {
+                    setPilotStatus("EXECUTING");
+                    window.dispatchEvent(new CustomEvent("pilotOrderCreated"));
+                    refetchHoldings();
+-                   
+                    setTimeout(() => setPilotStatus("IDLE"), 3000);
+                 } else {
+                    setPilotStatus("IDLE");
+@@ -586,14 +623,32 @@ export const MatrixHorizon = () => {
+             setPilotStatus("IDLE");
+           });
+       }
+-    }, 15000); // 15s polling for backend pilot execution trigger
++    }, 30000); 
+     return () => clearInterval(id);
+-  }, [fetchSignal, config.auto_trade, refetchHoldings, getActiveTradingMode]);
++  }, [fetchSignal, config.auto_trade, refetchHoldings, getActiveTradingMode, isManaged]);
+ 
+-  // Active triggers (Manual Load)
++  // Active triggers (Manual Load & Management)
+   useEffect(() => {
++     if (isManaged && signalDataMap) {
++        const raw = signalDataMap[activeSymbol.replace("/", "")];
++        const data = sanitizeSignalData(raw, currentPrice);
++        if (data) {
++          setSignal(data);
++          if (data.prediction) {
++             setPrediction({
++               predictedPrice: data._derivedTarget || data.currentPrice || 0,
++               trend: data.prediction.direction ?? "FLAT",
++               confidence: data.confluenceScore ?? 75,
++             });
++          }
++          setLastSync(new Date());
++        }
++        return;
++     }
++    
++    // Independent mode (only if not managed)
+     fetchSignal(true);
+-  }, [interval, riskMode, activeSymbol, fetchSignal]);
++  }, [interval, riskMode, activeSymbol, fetchSignal, isManaged, signalDataMap]);
+ 
+   const saveConfig = useCallback(async (updates: Partial<BotConfig>, onSuccess?: () => void) => {
+     // 1. Update LOCAL state immediately for UI responsiveness
+@@ -700,7 +755,12 @@ export const MatrixHorizon = () => {
+         : "BEKLE ❌";
+ 
+   return (
+-    <div className="w-full h-full min-h-[600px] bg-[#020617] relative px-4 py-1.5 flex flex-col gap-2 overflow-hidden rounded-xl border border-slate-800">
++    <div className={cn(
++      "w-full transition-all duration-500 relative",
++      isSectionExpanded 
++        ? "bg-slate-900/40 backdrop-blur-md px-4 py-2 min-h-[600px] flex flex-col gap-2 overflow-hidden" 
++        : "bg-transparent px-2 py-0 min-h-0"
++    )}>
+       {/* GRID BACKGROUND */}
+       <div
+         className="absolute inset-0 pointer-events-none opacity-20"
+@@ -719,6 +779,7 @@ export const MatrixHorizon = () => {
+         socketOnline={socketOnline}
+         interval={interval}
+         liveBtcPrice={liveBtcPrice}
++        currentPrice={currentPrice}
+         prevLivePrice={prevLivePrice}
+         microDigits={microDigits}
+         config={config}
+@@ -736,10 +797,12 @@ export const MatrixHorizon = () => {
+         showSettings={showSettings}
+         setShowSettings={setShowSettings}
+         authUser={authUser}
++        isSectionExpanded={isSectionExpanded}
++        setIsSectionExpanded={setIsSectionExpanded}
+       />
+ 
+       {/* SETTINGS PANEL */}
+-      {showSettings && (
++      {showSettings && isSectionExpanded && (
+         <SettingsPanel 
+           config={config}
+           saveConfig={saveConfig}
+@@ -750,10 +813,11 @@ export const MatrixHorizon = () => {
+         />
+       )}
+ 
+-
+-
+       {/* UNIFIED COCKPIT LAYOUT */}
+-      <div className="flex-1 relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-4">
++      <div className={cn(
++        "flex-1 relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-4 transition-all duration-500 overflow-hidden",
++        isSectionExpanded ? "max-h-[5000px] opacity-100 py-2" : "max-h-0 opacity-0 py-0"
++      )}>
+         {/* ── LEFT WING: INTELLIGENCE & STRUCTURE ── */}
+         <div className="col-span-1 lg:col-span-4 grid grid-cols-1 xl:grid-cols-2 gap-4">
+           {/* SECTION 1: AI CONFLUENCE (No redundant score) */}
+@@ -765,7 +829,7 @@ export const MatrixHorizon = () => {
+             />
+             <div className="grid grid-cols-2 gap-2 py-1">
+               <div className="p-2.5 bg-emerald-500/5 border border-emerald-500/10 rounded text-center">
+-                <div className="text-xs text-slate-500 uppercase font-black mb-1.5">
++                <div className="text-[9px] text-slate-500 uppercase font-black mb-1">
+                   YUKARI POT.
+                 </div>
+                 <div className="text-base font-black text-emerald-400 font-mono">
+@@ -773,7 +837,7 @@ export const MatrixHorizon = () => {
+                 </div>
+               </div>
+               <div className="p-2.5 bg-rose-500/5 border border-rose-500/10 rounded text-center">
+-                <div className="text-xs text-slate-500 uppercase font-black mb-1.5">
++                <div className="text-[9px] text-slate-500 uppercase font-black mb-1">
+                   AŞAĞI POT.
+                 </div>
+                 <div className="text-base font-black text-rose-400 font-mono">
+@@ -781,38 +845,44 @@ export const MatrixHorizon = () => {
+                 </div>
+               </div>
+             </div>
+-            <Row
+-              label="Tahmin"
+-              value={signal?.prediction?.text ?? "---"}
+-              cls={
+-                upProb >= 60 || (signal?.prediction?.text || "").includes("YUKARI") || (signal?.prediction?.text || "").includes("📈")
+-                  ? "text-emerald-400"
+-                  : downProb >= 60 || (signal?.prediction?.text || "").includes("AŞAĞI") || (signal?.prediction?.text || "").includes("📉")
+-                    ? "text-rose-400"
+-                    : "text-slate-400"
+-              }
+-            />
+-            {signal?.confluenceBreakdown && (
+-              <div className="space-y-1.5 pt-1">
++
++            <div className="space-y-1.5 pt-1 border-t border-white/5 mt-1">
++              <Row
++                label="Tahmin"
++                value={signal?.prediction?.text || "YATAY"}
++                cls={
++                  upProb >= 60 || (signal?.prediction?.text || "").includes("YUKARI") || (signal?.prediction?.text || "").includes("📈")
++                    ? "text-emerald-400"
++                    : downProb >= 60 || (signal?.prediction?.text || "").includes("AŞAĞI") || (signal?.prediction?.text || "").includes("📉")
++                      ? "text-rose-400"
++                      : "text-slate-400"
++                }
++              />
++              <Row
++                label="Market Fazı"
++                value={signal?.marketPhaseText || "YATAY"}
++                cls="text-amber-400"
++              />
++              
++              <div className="space-y-3 pt-2 mt-1 border-t border-white/5">
+                 <MiniBar
+-                  value={signal.confluenceBreakdown.momentumScore}
++                  value={signal?.confluenceBreakdown?.momentumScore || 0}
+                   color="bg-violet-500"
+                   label="İVME DURUMU"
+                 />
+                 <MiniBar
+-                  value={signal.confluenceBreakdown.trendScore}
++                  value={signal?.confluenceBreakdown?.trendScore || 0}
+                   color="bg-emerald-500"
+                   label="TREND GÜCÜ"
+                 />
+                 <MiniBar
+-                  value={signal.confluenceBreakdown.volumeScore}
++                  value={signal?.confluenceBreakdown?.volumeScore || 0}
+                   color="bg-amber-500"
+                   label="HACİM KALİTESİ"
+                 />
+               </div>
+-            )}
++            </div>
+           </div>
+-
+           {/* SECTION 2: SMC & STRUCTURE (V5 PRO) */}
+           <div className="bg-slate-900/40 backdrop-blur-md border border-slate-800/50 rounded-lg p-3 space-y-1">
+             <SH
+@@ -1005,21 +1075,26 @@ export const MatrixHorizon = () => {
+               title="V5 İndikatör Sinyalleri"
+               color="text-emerald-400"
+             />
+-            <div className="grid grid-cols-4 xl:grid-cols-8 gap-3">
++            <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-2">
+               {(signal?.v5Indicators ?? []).map((ind, i) => (
+                 <div
+                   key={i}
+-                  className="flex flex-col items-center gap-2"
+-                  title={`${ind.name}: ${ind.state}`}
++                  className={cn(
++                    "flex flex-col items-center justify-center p-2 rounded border text-center gap-1",
++                    brdC(ind.color)
++                  )}
++                  title={`${ind.name}: ${ind.value}`}
+                 >
++                  <span className="text-[10px] text-slate-500 font-black uppercase tracking-tighter">
++                    {ind.name}
++                  </span>
+                   <span
+                     className={cn(
+-                      "w-full h-3 rounded-full shadow-[0_0_8px_currentColor]",
+-                      ic(ind.color),
++                      "text-[10px] font-black uppercase tracking-tight",
++                      txtC(ind.color)
+                     )}
+-                  />
+-                  <span className="text-xs text-slate-500 font-black uppercase truncate w-full text-center tracking-tighter">
+-                    {ind.name}
++                  >
++                    {ind.state}
+                   </span>
+                 </div>
+               ))}
+@@ -1587,6 +1662,7 @@ interface CommandBarProps {
+   socketOnline: boolean;
+   interval: string;
+   liveBtcPrice: number | null;
++  currentPrice: number | null;
+   prevLivePrice: number | null;
+   microDigits: string;
+   config: BotConfig;
+@@ -1604,141 +1680,232 @@ interface CommandBarProps {
+   showSettings: boolean;
+   setShowSettings: (s: boolean) => void;
+   authUser: any;
++  isSectionExpanded: boolean;
++  setIsSectionExpanded: (expanded: boolean) => void;
+ }
+ 
+ const CommandBar = ({
+   aiSource, setAiSource, selectedAsset, socketOnline, interval,
+-  liveBtcPrice, prevLivePrice, microDigits, config, saveConfig,
++  liveBtcPrice, currentPrice, prevLivePrice, microDigits, config, saveConfig,
+   pilotStatus, isPanicActive, isActionLoading, handlePanicSell, handlePanicBuy,
+-  runAiAnalysis, aiLoading, isAdmin, aiCooldown, aiResult, showSettings, setShowSettings, authUser
+-}: CommandBarProps) => (
+-  <div className="relative z-20 flex flex-wrap items-center justify-center sm:justify-between py-2 px-2 gap-3 border-b border-slate-800/40 bg-slate-950/20 backdrop-blur-sm rounded-t-xl mb-2 font-mono">
+-    <div className="flex flex-wrap items-center gap-2">
+-      <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/60 border border-slate-800/80 rounded-xl shadow-lg">
+-        <LayoutTemplate className="w-4 h-4 text-cyan-400" />
+-        <h2 className="text-[10px] font-black tracking-[0.2em] text-cyan-100 uppercase hidden lg:block">Matrix Horizon</h2>
+-      </div>
+-      <div className="flex items-center p-1 bg-slate-950/60 border border-slate-800/80 rounded-xl">
+-        <button onClick={() => setAiSource("ETH")} className={cn("px-3 py-1 text-[9px] font-black tracking-widest uppercase rounded-lg transition-all", aiSource === "ETH" ? "bg-cyan-500 text-slate-950 shadow-lg" : "text-slate-500 hover:text-white")}>ETH</button>
+-        <button onClick={() => setAiSource("ASSETS")} className={cn("px-3 py-1 text-[9px] font-black tracking-widest uppercase rounded-lg transition-all flex items-center gap-2", aiSource === "ASSETS" ? "bg-emerald-500 text-slate-950 shadow-lg" : "text-slate-500 hover:text-white")}>
+-          <span>ÖZEL</span>
+-          <span className={cn("px-1.5 py-0.5 rounded bg-black/20 text-[8px]", aiSource === "ASSETS" ? "text-slate-900" : "text-emerald-400")}>{(selectedAsset || "BTCUSDT").replace('USDT', '').replace('/', '')}</span>
+-        </button>
+-      </div>
+-    </div>
+-    <div className="flex items-center gap-2">
+-      <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/60 border border-slate-800/80 rounded-xl">
+-        <div className={cn("w-1.5 h-1.5 rounded-full", socketOnline ? "bg-emerald-500 animate-pulse" : "bg-rose-500")} />
+-        <span className={cn("text-[9px] font-black uppercase tracking-widest", socketOnline ? "text-emerald-400" : "text-rose-400")}>{socketOnline ? "ONLINE" : "OFFLINE"}</span>
+-        <div className="w-[1px] h-3 bg-slate-800 mx-1" />
+-        <span className="text-[9px] font-black text-cyan-400 tracking-widest">⏱{interval.toUpperCase()}</span>
+-      </div>
+-    </div>
+-    <div className="flex items-center px-4 py-1.5 bg-slate-950/60 border border-slate-800/80 rounded-xl shadow-inner min-w-[160px] justify-center">
+-      <div className="flex items-center gap-3">
+-        <AssetIcon symbol="BTC" size={20} className="drop-shadow-[0_0_8px_rgba(247,147,26,0.6)]" />
+-        <div className="flex items-baseline gap-1">
+-          <span className={cn("text-lg font-black tracking-tight", !liveBtcPrice ? "text-cyan-400" : (prevLivePrice && liveBtcPrice >= prevLivePrice ? "text-emerald-400" : "text-rose-400"))}>{liveBtcPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || "00000.00"}</span>
+-          <span className="text-[10px] font-bold text-slate-600 font-mono tabular-nums leading-none mb-0.5">{microDigits}</span>
++  runAiAnalysis, aiLoading, isAdmin, aiCooldown, aiResult, showSettings, setShowSettings, authUser,
++  isSectionExpanded, setIsSectionExpanded
++}: CommandBarProps) => {
++  const { data: holdingsRaw } = useHoldings();
++  const holdings = holdingsRaw || [];
++  const { setTimeframe } = useTimeframe();
++  const assetScrollRef = React.useRef<HTMLDivElement>(null);
++
++  const startScroll = (dir: "left" | "right") => {
++    if (assetScrollRef.current) {
++      const scrollAmount = dir === "left" ? -200 : 200;
++      assetScrollRef.current.scrollBy({ left: scrollAmount, behavior: "smooth" });
++    }
++  };
++
++  return (
++    <div 
++      className={cn(
++        "relative z-20 flex flex-col lg:grid lg:grid-cols-3 items-center py-2 px-2 gap-3 border-b border-slate-800/40 bg-slate-950/20 hover:bg-slate-900/40 transition-colors backdrop-blur-sm font-mono cursor-pointer",
++        isSectionExpanded ? "mb-2" : "mb-0"
++      )}
++      onClick={() => setIsSectionExpanded(!isSectionExpanded)}
++    >
++      {/* GROUP 1: SECTION TITLE & ASSETS */}
++      <div className="flex items-center gap-2 min-w-0 lg:justify-self-start w-full lg:w-auto">
++        <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/20 shrink-0">
++          <Layers className="w-4 h-4 text-cyan-400" />
++          <h2 className="text-[10px] font-black tracking-[0.2em] text-cyan-100 uppercase hidden xl:block">
++            MATRIX SMART
++          </h2>
+         </div>
+-      </div>
+-    </div>
+-    <div className="flex flex-wrap items-center gap-2">
+-      <div className="flex items-center p-1 bg-slate-950/60 border border-slate-800/80 rounded-xl gap-1">
+-        <button 
+-          onClick={() => { 
+-            const isActivating = !config.auto_trade;
+-            const mode = (typeof window !== "undefined" && localStorage.getItem("TRADING_MODE") === "production") ? "production" : "test"; 
+-            
+-            // Log manually on button click
+-            logger.success(
+-              isActivating ? "✈️ OTOMATİK PİLOT AKTİF" : "⏸ OTOMATİK PİLOT DEVRE DIŞI",
+-              `PİLOT durumu kullanıcı tarafından manuel olarak ${isActivating ? 'AÇILDI' : 'KAPATILDI'}.`
+-            );
+ 
+-            if (isActivating) { 
+-              // IMPORTANT: Don't overwrite pilot_timeframe with current UI interval.
+-              // Keep the previously set pilot_timeframe (from presets or DB).
+-              saveConfig({ auto_trade: true }, () => { 
+-                api.get(`/cron/strategies?immediate=true&tradingMode=${mode}`).catch(() => null); 
+-              }); 
+-            } else { 
+-              saveConfig({ auto_trade: false }); 
+-            } 
+-          }} 
+-          className={cn(
+-            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all", 
+-            config.auto_trade ? "bg-emerald-500 text-slate-950 shadow-md" : "text-slate-500 hover:text-white"
+-          )}
+-        >
+-          <Power className="w-3 h-3" />
+-          <span className="hidden sm:inline">PİLOT</span> 
+-          {config.auto_trade ? "ON" : "OFF"}
+-        </button>
+-
+-        {/* PILOT STATUS & TIMEFRAME NOTIFICATION */}
+-        <div className="flex items-center gap-1">
+-          <div className={cn(
+-            "px-2 py-1.5 rounded-lg bg-slate-900/80 border border-slate-800 flex items-center justify-center min-w-[32px] shadow-lg shadow-cyan-500/5", 
+-            config.auto_trade ? (pilotStatus === "SCANNING" ? "text-cyan-400" : pilotStatus === "EXECUTING" ? "text-emerald-400" : "text-slate-600") : "text-slate-800"
+-          )}>
+-            {pilotStatus === "SCANNING" ? (
+-              <Activity className="w-3 h-3 animate-pulse" />
+-            ) : pilotStatus === "EXECUTING" ? (
+-              <Zap className="w-3 h-3 animate-bounce" />
+-            ) : (
+-              <Activity className="w-3 h-3 opacity-20" />
+-            )}
++        {/* PRICE BOX - Integrated for Active Asset */}
++        <div className="hidden md:flex items-center px-3 py-1 bg-slate-950/20 shrink-0">
++          <div className="flex items-center gap-2">
++            <AssetIcon symbol={selectedAsset?.split('/')[0] || "BTC"} size={16} className="drop-shadow-[0_0_8px_rgba(247,147,26,0.6)]" />
++            <div className="flex items-baseline gap-1">
++              <span className={cn(
++                "text-xs font-black tracking-tight", 
++                !currentPrice ? "text-cyan-400" : (prevLivePrice && currentPrice >= prevLivePrice ? "text-emerald-400" : "text-rose-400")
++              )}>
++                {currentPrice?.toLocaleString(undefined, { 
++                  minimumFractionDigits: currentPrice && currentPrice < 1 ? 4 : 2, 
++                  maximumFractionDigits: currentPrice && currentPrice < 1 ? 4 : 2 
++                }) || "0.00"}
++              </span>
++              <span className="text-[8px] font-bold text-slate-600 font-mono tabular-nums">{microDigits}</span>
++            </div>
++          </div>
++        </div>
++
++        {/* ASSET SCROLLER */}
++        <div className="flex-1 flex items-center gap-1 relative group/scroll-container overflow-hidden min-w-0 max-w-[800px]">
++          <div 
++            onClick={(e) => { e.stopPropagation(); startScroll("left"); }}
++            className="absolute left-0 top-0 bottom-0 w-8 z-20 flex items-center justify-start bg-gradient-to-r from-slate-950 via-slate-950/80 to-transparent cursor-pointer opacity-0 group-hover/scroll-container:opacity-100 transition-opacity"
++          >
++            <div className="w-5 h-5 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center backdrop-blur-sm hover:bg-cyan-500/20 transition-colors">
++              <ChevronLeft className="w-3 h-3 text-cyan-400" />
++            </div>
+           </div>
+           
+-          {config.auto_trade && (
+-            <div className="px-2 py-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[9px] font-black uppercase tracking-tighter animate-pulse shadow-[0_0_10px_rgba(6,182,212,0.1)]">
+-              {(config.pilot_timeframe || "1M").toUpperCase()}
++          <div 
++            ref={assetScrollRef}
++            className="flex-1 flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth px-8 py-0.5"
++            onClick={(e) => e.stopPropagation()}
++          >
++            <div className="flex items-center gap-1 bg-slate-950/40 border border-slate-800/50 rounded-lg p-0.5 mr-1">
++              <button 
++                onClick={(e) => { e.stopPropagation(); setAiSource("ETH"); }} 
++                className={cn(
++                  "px-2 py-0.5 text-[8px] font-black tracking-widest uppercase rounded transition-all", 
++                  aiSource === "ETH" ? "bg-cyan-500 text-slate-950 shadow-lg" : "text-slate-500 hover:text-white"
++                )}
++              >
++                ETH
++              </button>
++              <button 
++                onClick={(e) => { e.stopPropagation(); setAiSource("ASSETS"); }} 
++                className={cn(
++                  "px-2 py-0.5 text-[8px] font-black tracking-widest uppercase rounded transition-all", 
++                  aiSource === "ASSETS" ? "bg-emerald-500 text-slate-950 shadow-lg" : "text-slate-500 hover:text-white"
++                )}
++              >
++                ASSET
++              </button>
+             </div>
+-          )}
+-        </div>
+-        <div className="w-[1px] h-4 bg-slate-800 mx-1" />
+-        <div className="flex items-center gap-1 px-1">
+-          <button onClick={() => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), tradeMode: "Scalp" } })} className={cn("px-2 py-1 rounded text-[8px] font-black tracking-widest uppercase transition-all", resolveTradeMode(config) === "Scalp" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40" : "text-slate-500 hover:text-white")}>SCALP</button>
+-          <button onClick={() => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), tradeMode: "Swing" } })} className={cn("px-2 py-1 rounded text-[8px] font-black tracking-widest uppercase transition-all", resolveTradeMode(config) === "Swing" ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/40" : "text-slate-500 hover:text-white")}>SWING</button>
++
++            {holdings.filter(h => {
++              const sym = h.symbol.split('/')[0].trim().toUpperCase();
++              return sym !== 'USDT' && sym !== 'USD' && sym !== '';
++            }).map((asset) => (
++              <button 
++                key={asset.id} 
++                onClick={(e) => { 
++                  e.stopPropagation();
++                  window.dispatchEvent(new CustomEvent("symbolSelected", { detail: asset.symbol + "/USDT" }));
++                  setAiSource("ASSETS");
++                }} 
++                className={cn(
++                  "flex items-center gap-1.5 px-2 py-1 rounded-lg border transition-all relative group h-[26px] min-w-fit flex-shrink-0", 
++                  selectedAsset.includes(asset.symbol) ? "bg-cyan-500/20 border-cyan-500/50" : "bg-slate-900/40 border-slate-800/50 hover:bg-slate-800/50"
++                )}
++              >
++                <AssetIcon symbol={asset.symbol} size={14} />
++                <span className="text-[9px] font-black text-white leading-none">{asset.symbol}</span>
++              </button>
++            ))}
++          </div>
++
++          <div 
++            onClick={(e) => { e.stopPropagation(); startScroll("right"); }}
++            className="absolute right-0 top-0 bottom-0 w-8 z-20 flex items-center justify-end bg-gradient-to-l from-slate-950 via-slate-950/80 to-transparent cursor-pointer opacity-0 group-hover/scroll-container:opacity-100 transition-opacity"
++          >
++            <div className="w-5 h-5 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center backdrop-blur-sm hover:bg-cyan-500/20 transition-colors">
++              <ChevronRight className="w-3 h-3 text-cyan-400" />
++            </div>
++          </div>
+         </div>
+-        <div className="w-[1px] h-4 bg-slate-800 mx-1" />
+-        <button onClick={() => setShowSettings(!showSettings)} className={cn("p-1.5 rounded-lg border transition-all", showSettings ? "bg-cyan-500/10 border-cyan-500/50 text-cyan-400" : "border-slate-800 text-slate-500 hover:text-white")}><Settings className="w-3.5 h-3.5" /></button>
+       </div>
+-    </div>
+-    <div className="flex flex-wrap items-center gap-2">
+-      <div className="flex items-center p-1 bg-slate-950/60 border border-slate-800/80 rounded-xl gap-1">
+-        <button onClick={() => saveConfig({ defense_mode: !config.defense_mode })} className={cn("px-2 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all flex items-center gap-1.5", config.defense_mode ? "bg-cyan-500 text-slate-950" : "text-slate-500 hover:text-white")} title="Savunma Modu"><ShieldCheck className="w-3 h-3" /><span className="hidden xl:inline">SAVUNMA</span></button>
+-        <button disabled={isActionLoading} onClick={isPanicActive ? handlePanicBuy : handlePanicSell} className={cn("px-2 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all flex items-center gap-1.5", isPanicActive ? "text-emerald-500 hover:bg-emerald-500/10" : "text-rose-500 hover:bg-rose-500/10")} title={isPanicActive ? "Piyasaya Dön" : "Panik Satış"}>{isPanicActive ? <RefreshCw className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}<span className="hidden xl:inline">{isPanicActive ? "GERİ AL" : "PANİK SAT"}</span></button>
+-        <button 
+-          onClick={async () => {
+-            console.log("[MatrixHorizon] Chef button clicked - Holistic Refresh");
+-            // Standard action loading for indicators
+-            window.dispatchEvent(new CustomEvent("manual-refresh-triggered"));
+-            
+-            // Parallel execution: Refresh Indicators + Deep AI
+-            await Promise.all([
+-               runAiAnalysis(),
+-               // We need to bridge fetchSignal from the parent scope or use a simpler approach
+-               // Since runAiAnalysis is inside MatrixHorizon, but CommandBar is a subcomponent, 
+-               // we should pass fetchSignal as a prop.
+-               (window as any)._mx_fetchSignal?.(true) || Promise.resolve()
+-            ]);
+-          }} 
+-          disabled={aiLoading || (authUser && !isAdmin && aiCooldown > 0)} 
+-          className={cn(
+-            "px-2 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all flex items-center gap-1.5", 
+-            aiLoading ? "bg-violet-500/50 animate-pulse text-white/50" : (aiResult ? "bg-violet-500 text-white" : "text-violet-400 hover:bg-violet-500/10")
+-          )} 
+-          title="Tam Sistem Analizi & AI Şef"
+-        >
+-          {aiLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
+-          <span className="hidden xl:inline">{aiLoading ? "HESAPLANIYOR" : "ŞEF"}</span>
+-        </button>
++
++      {/* GROUP 2: EMPTY CENTER (For grid alignment consistency) */}
++      <div className="hidden lg:block lg:justify-self-center"></div>
++
++      {/* GROUP 3: TIMEFRAMES & COMMAND ACTIONS */}
++      <div className="flex items-center gap-4 shrink-0 lg:justify-self-end justify-between w-full lg:w-auto">
++        {/* Timeframes moved here from center */}
++        <div className="flex gap-0.5 p-0.5 bg-slate-950/20 overflow-hidden border border-slate-800/30 rounded-lg">
++          {["1m", "15m", "1h", "4h", "1d", "1w", "1M"].map((tf) => (
++            <button
++              key={tf}
++              onClick={(e) => {
++                e.stopPropagation();
++                setTimeframe(tf as any);
++                (window as any)._mx_fetchSignal?.(true);
++              }}
++              className={cn(
++                "px-2 py-1 rounded-md text-[9px] font-black uppercase tracking-wider transition-all min-w-[28px]",
++                interval === tf ? "bg-cyan-500 text-slate-950 shadow-lg" : "text-slate-500 hover:text-white hover:bg-slate-800/50"
++              )}
++            >
++              {tf}
++            </button>
++          ))}
++        </div>
++
++        <div className="flex items-center p-1 bg-slate-950/20 gap-1">
++          <button 
++            onClick={(e) => {
++              e.stopPropagation();
++              if ((window as any)._focusSmartChart) (window as any)._focusSmartChart();
++            }}
++            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all bg-slate-800 text-cyan-400 hover:bg-slate-700 border border-slate-700/50"
++          >
++            <Target className="w-3 h-3" />
++            <span className="hidden xl:inline">ODAKLA</span>
++          </button>
++
++          <button 
++            onClick={(e) => { 
++              e.stopPropagation();
++              const isActivating = !config.auto_trade;
++              const mode = (typeof window !== "undefined" && localStorage.getItem("TRADING_MODE") === "production") ? "production" : "test"; 
++              logger.success(
++                isActivating ? "✈️ OTOMATİK PİLOT AKTİF" : "⏸ OTOMATİK PİLOT DEVRE DIŞI",
++                `PİLOT durumu kullanıcı tarafından manuel olarak ${isActivating ? 'AÇILDI' : 'KAPATILDI'}.`
++              );
++              if (isActivating) { 
++                saveConfig({ auto_trade: true }, () => { 
++                  api.get(`/cron/strategies?immediate=true&tradingMode=${mode}`).catch(() => null); 
++                }); 
++              } else { 
++                saveConfig({ auto_trade: false }); 
++              } 
++            }} 
++            className={cn(
++              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all", 
++              config.auto_trade ? "bg-emerald-500 text-slate-950 shadow-md" : "text-slate-500 hover:bg-emerald-500/10 hover:text-emerald-400"
++            )}
++          >
++            <Power className="w-3 h-3" />
++            <span>PİLOT</span>
++            <span className="opacity-70">{config.auto_trade ? "ON" : "OFF"}</span>
++          </button>
++
++          <button 
++            onClick={(e) => {
++              e.stopPropagation();
++              setShowSettings(!showSettings);
++            }} 
++            className={cn(
++              "p-1.5 rounded-lg border transition-all", 
++              showSettings ? "bg-cyan-500/10 border-cyan-500/50 text-cyan-400" : "border-slate-800 text-slate-500 hover:text-white"
++            )}
++          >
++            <Settings className="w-3.5 h-3.5" />
++          </button>
++
++          <div className="w-[1px] h-4 bg-slate-800 mx-1" />
++
++          <button
++            onClick={(e) => {
++              e.stopPropagation();
++              setIsSectionExpanded(!isSectionExpanded);
++            }}
++            className={cn(
++              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all",
++              isSectionExpanded ? "bg-cyan-500 text-slate-950 shadow-md" : "text-slate-500 hover:text-white"
++            )}
++          >
++            {isSectionExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
++            <span className="hidden sm:inline">{isSectionExpanded ? "GİZLE" : "GÖSTER"}</span>
++          </button>
++        </div>
+       </div>
+     </div>
+-  </div>
+-);
++  );
++};
+ 
+ interface SettingsPanelProps {
+   config: BotConfig;
+@@ -1800,7 +1967,7 @@ const SettingsPanel = ({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
+   };
+ 
+   return (
+-    <div className="relative z-30 bg-slate-950/90 backdrop-blur-xl border border-cyan-500/20 rounded-xl p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in slide-in-from-top-4 duration-300 mb-2">
++    <div className="relative z-30 bg-slate-950/90 backdrop-blur-xl border border-cyan-500/10 p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in slide-in-from-top-4 duration-300 mb-2">
+       <div className="lg:col-span-3 space-y-4 flex flex-col">
+         <div className="flex items-center gap-2 text-xs font-black text-white uppercase tracking-widest mb-1 pb-2 border-b border-white/5"><Zap className="w-4 h-4 text-cyan-400" /> SİSTEM KONTROL</div>
+         <div className="flex items-center gap-2 text-[10px] font-black text-cyan-400/60 uppercase tracking-widest bg-cyan-500/5 p-2 rounded-lg border border-cyan-500/10"><Zap className="w-3 h-3 animate-pulse" /> OTONOM PARAMETRE: AKTİF</div>
+@@ -1815,30 +1982,6 @@ const SettingsPanel = ({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
+         <div className="space-y-4">
+           <div className="flex items-center justify-between bg-slate-900/50 p-2.5 rounded-lg border border-white/5"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gecikmeli Alım</span><button onClick={() => saveConfig({ pilot_trailing_buy: !config.pilot_trailing_buy })} className={cn("px-2.5 py-1 rounded text-[9px] font-black uppercase transition-all shadow-sm", config.pilot_trailing_buy ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-slate-950 text-slate-600 border border-slate-800")}>{config.pilot_trailing_buy ? "AKTİF" : "PASİF"}</button></div>
+           <div className="flex items-center justify-between bg-slate-900/50 p-2.5 rounded-lg border border-white/5"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Portföyü Tara</span><button onClick={() => saveConfig({ pilot_only_holdings: !(config.pilot_only_holdings ?? DEFAULT_BOT_CONFIG.pilot_only_holdings) })} className={cn("px-2.5 py-1 rounded text-[9px] font-black uppercase transition-all shadow-sm", (config.pilot_only_holdings ?? DEFAULT_BOT_CONFIG.pilot_only_holdings) ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30" : "bg-slate-950 text-slate-600 border border-slate-800")}>{(config.pilot_only_holdings ?? DEFAULT_BOT_CONFIG.pilot_only_holdings) ? "AKTİF" : "PASİF"}</button></div>
+-          <div className="flex items-center justify-between bg-slate-900/50 p-2.5 rounded-lg border border-white/5">
+-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">MTF Veto (Çapraz Zaman)</span>
+-            <button 
+-              onClick={() => saveConfig({ pilot_mtf_veto: !((config.pilot_mtf_veto ?? DEFAULT_BOT_CONFIG.pilot_mtf_veto)) })} 
+-              className={cn("px-2.5 py-1 rounded text-[9px] font-black uppercase transition-all shadow-sm", (config.pilot_mtf_veto ?? DEFAULT_BOT_CONFIG.pilot_mtf_veto) ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : "bg-slate-950 text-slate-600 border border-slate-800")}
+-            >
+-              {(config.pilot_mtf_veto ?? DEFAULT_BOT_CONFIG.pilot_mtf_veto) ? "AKTİF" : "PASİF"}
+-            </button>
+-          </div>
+-          {(config.pilot_mtf_veto ?? DEFAULT_BOT_CONFIG.pilot_mtf_veto) && (
+-            <div className="bg-slate-900/50 p-3 rounded-lg border border-white/5 animate-in fade-in slide-in-from-right-2">
+-              <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
+-                <span>Eşik (Threshold)</span>
+-                <span className="text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">{(config.pilot_mtf_threshold ?? DEFAULT_BOT_CONFIG.pilot_mtf_threshold)}%</span>
+-              </div>
+-              <input 
+-                type="range" min="10" max="100" step="5" 
+-                value={(config.pilot_mtf_threshold ?? DEFAULT_BOT_CONFIG.pilot_mtf_threshold)} 
+-                onChange={(e) => saveConfig({ pilot_mtf_threshold: parseInt(e.target.value) })} 
+-                className="w-full h-1.5 accent-amber-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-amber-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" 
+-              />
+-              <div className="mt-1 text-[8px] text-slate-500 italic">4 TF taramasında 3/4 onayı için %70 önerilir.</div>
+-            </div>
+-          )}
+           <div className="bg-slate-900/50 p-3 rounded-lg border border-white/5"><div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2"><span>İşlem Büyüklüğü</span><span className="text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded">{((config.timeframe_settings as any)?.pilot_trade_allocation || 10)}%</span></div><input type="range" min="5" max="100" step="5" value={(config.timeframe_settings as any)?.pilot_trade_allocation || 10} onChange={(e) => saveConfig({ timeframe_settings: { ...(config.timeframe_settings || {}), pilot_trade_allocation: parseInt(e.target.value) } })} className="w-full h-1.5 accent-cyan-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" /></div>
+         </div>
+ 

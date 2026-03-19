@@ -9,7 +9,7 @@ import {
 import { MatrixV5Engine, MatrixV5Config } from "./matrix-v5-engine";
 import { fetchKlines, batchFetchPrices } from "./mexc";
 import { calculateTrailingExitTarget, calculateTrailingBuyTarget } from "./trading-logic";
-import { getBotConfig, resolveTradeMode } from "./db";
+import { getBotConfig, resolveTradeMode, logSystemEvent } from "./db";
 
 // Cache for klines to avoid redundant API calls in the same monitor cycle
 interface KlineCacheItem {
@@ -43,19 +43,20 @@ async function performRepair() {
 // Global initialization task (P4.3: Robust non-blocking wrap)
 function ensureInitialized() {
   if (isDbRepaired) {
-    performRepair(); // Background check without blocking
     return Promise.resolve();
   }
   if (!repairPromise) repairPromise = performRepair();
   return repairPromise;
 }
 
-export async function monitorSmartTrades() {
+export async function monitorSmartTrades(tradingMode: "test" | "production" = "test") {
   const now = Date.now();
   if (now - lastRun < MONITOR_INTERVAL) return;
   lastRun = now;
 
-  console.log("[SmartMonitor] Starting monitoring cycle...");
+  // console.log("[SmartMonitor] Starting monitoring cycle...");
+  // P4.4: Removed frequent logSystemEvent to reduce DB noise. 
+  // We only log if something actually HAPPENS (error, state change, etc).
 
   const cycleCache: KlineCache = {};
 
@@ -80,7 +81,8 @@ export async function monitorSmartTrades() {
             SELECT id, user_id, symbol, side, qty, price, meta, status, trading_mode 
             FROM orders 
             WHERE meta::jsonb->>'smartTrade' = 'true' 
-            AND status IN ('FILLED', 'PENDING')
+            AND trading_mode = ${tradingMode}
+            AND status IN ('FILLED', 'PENDING', 'PARTIALLY_FILLED')
         `;
 
     if (rows.length === 0) return;
@@ -279,6 +281,14 @@ async function processTradeMonitoring(
       console.log(
         `[SmartMonitor] ✈️ PİLOT KAPALI — Trade #${id} için "${exitReason}" tetiklenmeliydi, ancak dış müdahale devre dışı. Sadece fiyat güncelleniyor.`
       );
+      
+      // P3.5: Persist the status in metadata so UI can show the "Vetoed" state
+      meta.pilotVetoReason = exitReason;
+      isDirty = true;
+      
+      // P3.6: Log to the Global System Console (CombatLog)
+      await logSystemEvent(trade.user_id, "WARN", `✈️ PİLOT KAPALI: ${symbol}`, exitReason);
+
       shouldExit = false;
       exitReason = "";
     }
@@ -575,15 +585,16 @@ function evaluateStopLoss(
     }
 
     if (slHit) {
-      // WARMUP PROTECTION: Don't trigger TSL in the first 2 minutes after entry
-      // This gives the trade time to settle and prevents instant SL hits from normal noise
+      // Volatility Buffer: Don't trigger SL in the first 30 seconds unless price is 1.2x beyond SL
       const filledAt = Number(meta.filledAt || 0);
-      const warmupMs = 120_000; // 2 minutes
-      const isInWarmup = filledAt > 0 && (Date.now() - filledAt) < warmupMs;
+      const durationMs = Date.now() - filledAt;
+      const bufferMs = 30_000; // 30 seconds
+      const slThreshold = Math.abs(entryPrice - (finalSL || slPrice)) / entryPrice;
+      const currentDrop = Math.abs(currentPrice - entryPrice) / entryPrice;
 
-      if (isInWarmup) {
+      if (filledAt > 0 && durationMs < bufferMs && currentDrop < slThreshold * 1.2) {
         console.log(
-          `[SmartMonitor] TSL WARMUP: Trade ${tradeId} | SL hit but in warmup period (${Math.round((Date.now() - filledAt) / 1000)}s). Skipping exit.`,
+          `[SmartMonitor] TSL WARMUP: Trade ${tradeId} | SL hit but within buffer period (${Math.round(durationMs / 1000)}s). Skipping exit.`,
         );
         return { shouldExit: false, reason: "", metaUpdates, hasSlChanged };
       }
@@ -625,6 +636,20 @@ function evaluateStopLoss(
     metaUpdates.activeStopLoss = slPrice;
     const hasSlChanged = (meta.activeStopLoss as number) !== slPrice;
     const slHit = isLong ? currentPrice <= slPrice : currentPrice >= slPrice;
+
+    // Volatility Buffer: Don't trigger SL in the first 30 seconds unless price is 1.2x beyond SL
+    const filledAt = Number(meta.filledAt || 0);
+    const durationMs = Date.now() - filledAt;
+    const bufferMs = 30_000; // 30 seconds
+    const slThreshold = Math.abs(entryPrice - slPrice) / entryPrice;
+    const currentDrop = Math.abs(currentPrice - entryPrice) / entryPrice;
+
+    if (filledAt > 0 && durationMs < bufferMs && currentDrop < slThreshold * 1.2) {
+      console.log(
+        `[SmartMonitor] SL PREVENTED BY BUFFER (FIXED): Trade ${tradeId} | Duration: ${Math.round(durationMs / 1000)}s | Drop: ${(currentDrop * 100).toFixed(2)}% | SL: ${(slThreshold * 100).toFixed(2)}%`,
+      );
+      return { shouldExit: false, reason: "", metaUpdates, hasSlChanged };
+    }
 
     // Diagnostic Log: When price is near fixed SL
     if (Math.abs(currentPrice - slPrice) / slPrice < 0.01 || slHit) {

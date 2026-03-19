@@ -129,6 +129,21 @@ async function signedRequest<T>(
   params: Record<string, string | number | boolean> = {},
   timeout = 10000,
 ): Promise<T | null> {
+  // P1.0 ULTIMATE SAFETY LOCK: Fetch the REAL active mode from database settings
+  const { getSetting } = await import("./settings");
+  const activeMode = (await getSetting("TRADING_MODE", userId)) || "test";
+
+  if (activeMode === "test") {
+    const errorMsg = `[Security Lock] Blocking PRIVATE MEXC ${method} ${endpoint} request: System is in TEST mode.`;
+    console.error(errorMsg);
+    // Instead of throwing which might crash components, we return null or specific signal
+    // Most services check for !res or empty balances.
+    if (endpoint.includes("account")) {
+        return { balances: [] } as unknown as T;
+    }
+    return null;
+  }
+
   const { apiKey, apiSecret } = await getEnv(userId);
 
   const execute = async () => {
@@ -459,6 +474,9 @@ export async function getKlines(
     "1d": "1d",
     "1w": "1W",
     "1W": "1W",
+    "1Mo": "1M",
+    "1mo": "1M",
+    "1MO": "1M",
     "1M": "1M",
   };
 

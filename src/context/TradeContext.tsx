@@ -38,6 +38,33 @@ interface TradeContextType {
   setIsPanelOpen: (open: boolean) => void;
   isTradeFormOpen: boolean;
   setIsTradeFormOpen: (open: boolean) => void;
+  
+  // New States for Chart/Form Sync
+  trailingBuy: boolean;
+  setTrailingBuy: (v: boolean) => void;
+  trailingBuyDev: number;
+  setTrailingBuyDev: (v: number) => void;
+  trailingTp: boolean;
+  setTrailingTp: (v: boolean) => void;
+  tpDeviation: number;
+  setTpDeviation: (v: number) => void;
+  isSplitTp: boolean;
+  setIsSplitTp: (v: boolean) => void;
+  tpTargets: { id: string; price: string; volume: number }[];
+  setTpTargets: React.Dispatch<React.SetStateAction<{ id: string; price: string; volume: number }[]>>;
+  trailingSl: boolean;
+  setTrailingSl: (v: boolean) => void;
+  moveToBreakeven: boolean;
+  setMoveToBreakeven: (v: boolean) => void;
+  slTimeout: boolean;
+  setSlTimeout: (v: boolean) => void;
+  showChart: boolean;
+  setShowChart: (v: boolean) => void;
+  priceSync: boolean;
+  setPriceSync: (v: boolean) => void;
+  marketPrice: number | null;
+  setMarketPrice: (v: number | null) => void;
+
   /** Ref to be attached to the SmartTrade 'Units' section for specific scrolling */
   unitsAnchorRef: React.MutableRefObject<HTMLElement | null>;
   /** Ref to be attached to the SmartTrade panel element for scrolling */
@@ -71,6 +98,22 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
   const [pendingScroll, setPendingScroll] = useState<boolean | "UNITS">(false);
   const tradeAnchorRef = useRef<HTMLElement | null>(null);
   const unitsAnchorRef = useRef<HTMLElement | null>(null);
+
+  // New states
+  const [trailingBuy, setTrailingBuy] = useState(false);
+  const [trailingBuyDev, setTrailingBuyDev] = useState(0.1);
+  const [trailingTp, setTrailingTp] = useState(false);
+  const [tpDeviation, setTpDeviation] = useState(-1.0);
+  const [isSplitTp, setIsSplitTp] = useState(false);
+  const [tpTargets, setTpTargets] = useState<{ id: string; price: string; volume: number }[]>([
+    { id: "1", price: "0", volume: 100 }
+  ]);
+  const [trailingSl, setTrailingSl] = useState(false);
+  const [moveToBreakeven, setMoveToBreakeven] = useState(false);
+  const [slTimeout, setSlTimeout] = useState(false);
+  const [showChart, setShowChart] = useState(false);
+  const [priceSync, setPriceSync] = useState(true);
+  const [marketPrice, setMarketPrice] = useState<number | null>(null);
 
   const scrollToTrade = useCallback(
     (targetSelection: "TOP" | "UNITS" = "TOP") => {
@@ -112,6 +155,12 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
       setAmount("0");
       setAllocationPercent(0);
       setMode("TRADE");
+      setTrailingBuy(false);
+      setTrailingTp(false);
+      setTrailingSl(false);
+      setIsSplitTp(false);
+      setTpTargets([{ id: "1", price: "0", volume: 100 }]);
+      setPriceSync(true);
     }
   }, [symbol, editingTrade]);
 
@@ -144,6 +193,30 @@ export const TradeProvider = ({ children }: { children: ReactNode }) => {
         setIsPanelOpen,
         isTradeFormOpen,
         setIsTradeFormOpen,
+        trailingBuy,
+        setTrailingBuy,
+        trailingBuyDev,
+        setTrailingBuyDev,
+        trailingTp,
+        setTrailingTp,
+        tpDeviation,
+        setTpDeviation,
+        isSplitTp,
+        setIsSplitTp,
+        tpTargets,
+        setTpTargets,
+        trailingSl,
+        setTrailingSl,
+        moveToBreakeven,
+        setMoveToBreakeven,
+        slTimeout,
+        setSlTimeout,
+        showChart,
+        setShowChart,
+        priceSync,
+        setPriceSync,
+        marketPrice,
+        setMarketPrice,
         tradeAnchorRef,
         unitsAnchorRef,
         scrollToTrade,

@@ -29,9 +29,9 @@ export async function fetchGlobalMarketData(): Promise<GlobalMarketData> {
   }
 
   try {
-    // CoinGecko /global endpoint returns dominance percentages directly
-    const res = await axios.get("https://api.coingecko.com/api/v3/global", { timeout: 5000 });
-    const data = res.data?.data;
+    // Use our internal proxy to avoid CORS and client-side rate limits
+    const res = await axios.get("/api/market/global", { timeout: 5000 });
+    const data = res.data;
     if (!data?.market_cap_percentage) throw new Error("No dominance data");
 
     const btcDomVal = data.market_cap_percentage["btc"] ?? _lastKnownBtcDom;
@@ -93,6 +93,10 @@ export async function fetchFundingRate(symbol: string): Promise<number | null> {
     }
     return null;
   } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 400) {
+      // Quietly return null for symbols not on Binance Futures (like WBT, etc.)
+      return null;
+    }
     console.warn(`[FundingRate] Failed to fetch for ${symbol}:`, error instanceof Error ? error.message : String(error));
     return null;
   }

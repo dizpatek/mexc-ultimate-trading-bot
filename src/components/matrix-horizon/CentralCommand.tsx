@@ -4,15 +4,12 @@ import { Brain, Target } from "lucide-react";
 
 interface CentralCommandProps {
   score: number;
-  status: string;
-  prediction: string;
 }
 
 export const CentralCommand: React.FC<CentralCommandProps> = ({
-  score,
-  status,
-  prediction,
+  score
 }) => {
+
   const [rotation, setRotation] = useState({ x: 15, y: -10, z: 0 });
 
   // PSEUDO-RANDOM MOTION ENGINE
@@ -41,6 +38,8 @@ export const CentralCommand: React.FC<CentralCommandProps> = ({
           { rot: "rotateX(80deg) rotateZ(150deg)", dur: "25s", color: "border-slate-400/50", scale: "inset-[-44%]" },
           { rot: "rotateX(81deg) rotateZ(180deg)", dur: "11s", color: "border-cyan-500/30", scale: "inset-[-32%]" },
           { rot: "rotateX(79deg) rotateZ(210deg)", dur: "18s", color: "border-indigo-500/20", scale: "inset-[-28%]" },
+
+
         ].map((ring, i) => (
           <div
             key={i}
@@ -115,6 +114,13 @@ export const CentralCommand: React.FC<CentralCommandProps> = ({
         className={cn(
           "relative w-[70%] h-[70%] flex items-center justify-center transform-gpu [transform-style:preserve-3d] transition-all duration-[3000ms] ease-in-out group/core",
         )}
+
+
+
+
+
+
+
         style={{
           transform: `rotateX(${rotation.x}deg) rotateY(${rotation.y}deg) rotateZ(${rotation.z}deg)`
         }}
@@ -131,9 +137,13 @@ export const CentralCommand: React.FC<CentralCommandProps> = ({
           )}
         />
 
-        <div className="flex flex-col items-center text-center z-10 gap-3 [transform:translateZ(60px)]">
+        <div className="flex flex-col items-center text-center z-10 gap-3 [transform:translateZ(60px)] -translate-y-36">
+
+
+
           <Brain className="w-14 h-14 text-cyan-400 animate-pulse drop-shadow-[0_0_15px_rgba(34,211,238,0.8)]" />
-          <div className="flex flex-col">
+          <div className="flex flex-col items-center">
+
             <span className="text-[10px] font-black text-white/40 tracking-[0.4em] uppercase font-mono">
               NEURAL_LINK::SYSTEM
             </span>
@@ -148,7 +158,8 @@ export const CentralCommand: React.FC<CentralCommandProps> = ({
                     : "text-slate-400 [--glow-color:rgba(148,163,184,0.7)]",
               )}
             >
-              {score.toFixed(1)}%
+              {Math.min(score, 99.9).toFixed(1)}%
+
             </span>
           </div>
           <div className="h-[2px] w-32 bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent my-1" />
@@ -161,45 +172,7 @@ export const CentralCommand: React.FC<CentralCommandProps> = ({
         </div>
       </div>
 
-      {/* CONSOLIDATED INFORMATION SATELLITE */}
-      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-max text-center">
-        <div className="inline-flex items-center gap-4 bg-slate-900/90 border-2 border-slate-800 px-8 py-3.5 rounded-full backdrop-blur-xl shadow-[0_0_50px_rgba(0,0,0,0.8)] transform translate-y-1/2 transition-all duration-300">
-          {/* System Status Integration */}
-          {status && (
-            <>
-              <div
-                className={cn(
-                  "px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-colors",
-                  score >= 65
-                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                    : score < 50
-                      ? "bg-rose-500/10 border-rose-500/30 text-rose-400"
-                      : "bg-slate-800/40 border-slate-700 text-slate-400",
-                )}
-              >
-                {status}
-              </div>
-              <div className="w-[1px] h-6 bg-slate-800" />
-            </>
-          )}
-
-          {/* Prediction Flow */}
-          <div className="flex items-center gap-3">
-            <Target className="w-5 h-5 text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]" />
-            <span className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">
-              TAHMİN:
-            </span>
-            <span className={cn(
-              "text-xl font-mono font-black tracking-tighter glow-text-white transition-colors duration-500",
-              prediction.includes("YUKARI") || prediction.includes("📈") ? "text-emerald-400" :
-              prediction.includes("AŞAĞI") || prediction.includes("📉") ? "text-rose-400" :
-              "text-white"
-            )}>
-              {prediction}
-            </span>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };
+

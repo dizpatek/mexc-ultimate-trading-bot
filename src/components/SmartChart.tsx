@@ -311,7 +311,16 @@ export const SmartChart = forwardRef<{ focusOnPrices: () => void }, SmartChartPr
     // We can try to focus even if we don't have all klines yet
     // but lightweight-charts needs a time range to scale prices.
     // If we have at least TWO trade levels, we can ghost-scale even without klines
-    const activeLevels = [buyPrice, tpPrice, slPrice].filter(p => p > 0);
+    const activeLevels = [buyPrice, tpPrice, slPrice].filter(p => {
+      if (p <= 0) return false;
+      // Safety: If the price level is absurdly far from current market price (>1000% diff),
+      // it's likely a stale prop from a previous asset during a transition. Ignore it.
+      if (lastClose > 0) {
+        const ratio = p / lastClose;
+        if (ratio > 10 || ratio < 0.1) return false;
+      }
+      return true;
+    });
     
     // Check if we have enough data to scale
     const hasData = allKlinesRef.current.length > 0;
@@ -620,8 +629,8 @@ export const SmartChart = forwardRef<{ focusOnPrices: () => void }, SmartChartPr
       height: compact
         ? container.clientHeight || 250
         : container.clientHeight || 800,
-      timeScale: { borderColor: "#1e293b", timeVisible: true },
-      rightPriceScale: { borderColor: "#1e293b", autoScale: true },
+      timeScale: { borderColor: "transparent", timeVisible: true },
+      rightPriceScale: { borderColor: "transparent", autoScale: true },
       handleScroll: {
         mouseWheel: true,
         pressedMouseMove: true,
@@ -738,10 +747,6 @@ export const SmartChart = forwardRef<{ focusOnPrices: () => void }, SmartChartPr
           console.warn("[SmartChart] Cleanup Error:", e);
         } finally {
           chartRef.current = null;
-          seriesRef.current = null;
-          ghostSeriesRef.current = null;
-          volumeSeriesRef.current = null;
-          setIsChartReady(false);
         }
       }
     };
@@ -759,401 +764,263 @@ export const SmartChart = forwardRef<{ focusOnPrices: () => void }, SmartChartPr
     allKlinesRef.current = [];
     allVolumeRef.current = [];
     lastCandleRef.current = null;
+    lastCloseRef.current = 0;
+    lastReportedBuyRef.current = 0;
     setLastClose(0);
+    
     if (seriesRef.current) seriesRef.current.setData([]);
     if (volumeSeriesRef.current) volumeSeriesRef.current.setData([]);
+    if (ghostSeriesRef.current) ghostSeriesRef.current.setData([]);
+    if (tpFillRef.current) tpFillRef.current.setData([]);
+    if (slFillRef.current) slFillRef.current.setData([]);
+    
+    setLineCoords({});
+    setLocalPrices({
+      buy: Number(buyPrice) || 0,
+      tp: Number(tpPrice) || 0,
+      sl: Number(slPrice) || 0,
+    });
+
     initialFocusDoneRef.current = false;
     hasUserInteractedRef.current = false;
+    initialDragPercents.current = null;
   }, [symbol, timeframe]);
 
-  // Data Fetching & Sync (on symbol/timeframe change or interval)
-  useEffect(() => {
-    if (!isChartReady || !seriesRef.current || !volumeSeriesRef.current) return;
+  const fetchData = useCallback(async (shouldFocus = false) => {
+    if (!isMountedRef.current || !seriesRef.current || !volumeSeriesRef.current) return;
 
-    let isMounted = true;
+    if (shouldFocus) {
+      setIsLoading(true);
+      setError(null);
+    }
+    setSyncError(false);
+    const apiSymbol = symbol.replace("/", "");
 
-    // ── Sync strategy: Full Reset ───────────────────────────────────────────────
-    const handleFullReset = (
-      cleanKlines: CandleData[],
-      cleanVolume: VolumeBar[],
-    ) => {
-      if (!seriesRef.current || !volumeSeriesRef.current) return;
-      cleanKlines.sort((a, b) => toSeconds(a.time) - toSeconds(b.time));
-      cleanVolume.sort((a, b) => toSeconds(a.time) - toSeconds(b.time));
-      allKlinesRef.current = cleanKlines;
-      allVolumeRef.current = cleanVolume;
-      seriesRef.current.setData(calculateHeikinAshi(cleanKlines));
-      volumeSeriesRef.current.setData(cleanVolume);
-    };
+    try {
+      const data = await fetchKlines(apiSymbol, timeframe);
+      if (!isMountedRef.current) return;
 
-    // ── Sync strategy: Historical Prepend ──────────────────────────────────────
-    const handleHistoricalPrepend = (
-      cleanKlines: CandleData[],
-      cleanVolume: VolumeBar[],
-    ) => {
-      if (!seriesRef.current || !volumeSeriesRef.current) return;
-      const firstKnownTime = toSeconds(allKlinesRef.current[0].time);
-      const olderKlines = cleanKlines.filter((k) => toSeconds(k.time) < firstKnownTime);
-      const olderVolume = cleanVolume.filter((v) => toSeconds(v.time) < firstKnownTime);
-      if (olderKlines.length > 0) {
-        allKlinesRef.current = [...olderKlines, ...allKlinesRef.current];
-        allVolumeRef.current = [...olderVolume, ...allVolumeRef.current];
-        seriesRef.current.setData(calculateHeikinAshi(allKlinesRef.current));
-        volumeSeriesRef.current.setData(allVolumeRef.current);
+      if (!data || !Array.isArray(data) || data.length === 0) {
+        if (shouldFocus) setError(`Veri bulunamadı: ${apiSymbol}`);
+        return;
       }
-    };
 
-    // ── Sync strategy: Incremental Update (tip-fast or periodic full-scan) ──────
-    const handleIncrementalUpdate = (
-      cleanKlines: CandleData[],
-      cleanVolume: VolumeBar[],
-    ) => {
-      if (!seriesRef.current || !volumeSeriesRef.current) return;
-      const now = Date.now() / 1000;
-      const shouldFullScan = now - lastFullScanRef.current > 30;
+      const validRaw = (data as any[]).filter(
+        (d) => d && (typeof d.time === "number" || typeof d.time === "string"),
+      );
 
-      let changedKlines: CandleData[];
-      let changedVolume: VolumeBar[];
-      let hasHistoricalChange = false;
+      const mappedKlines: CandleData[] = validRaw.map((d) => ({
+        time: d.time as Time,
+        open: Number(d.open) || 0,
+        high: Number(d.high) || 0,
+        low: Number(d.low) || 0,
+        close: Number(d.close) || 0,
+      }));
 
-      if (shouldFullScan) {
-        const result = fullDiffScan(
-          allKlinesRef.current, allVolumeRef.current,
-          cleanKlines, cleanVolume,
-        );
-        changedKlines = result.changedKlines;
-        changedVolume = result.changedVolume;
-        hasHistoricalChange = result.hasHistoricalChange;
-        if (changedKlines.length > 0 || hasHistoricalChange) {
-          allKlinesRef.current = Array.from(result.klineMap.values()).sort(
-            (a, b) => toSeconds(a.time) - toSeconds(b.time),
-          );
-          allVolumeRef.current = Array.from(result.volMap.values()).sort(
-            (a, b) => toSeconds(a.time) - toSeconds(b.time),
-          );
+      const volumeData = validRaw
+        .filter((d) => d.volume !== undefined)
+        .map((d) => ({
+          time: d.time as Time,
+          value: Number(d.volume || 0) || 0,
+          color:
+            Number(d.close) >= Number(d.open)
+              ? "rgba(16,185,129,0.25)"
+              : "rgba(244,63,94,0.25)",
+        }));
+
+      // ── Dispatcher Logic ───────────────────────────────────────────────────
+      const updateSeriesData = (
+        newKlines: CandleData[],
+        newVolume: VolumeBar[],
+        updateMode: "reset" | "update" | "prepend" = "reset",
+      ) => {
+        if (!seriesRef.current || !volumeSeriesRef.current || !isChartReady) return;
+        const cleanKlines = sanitizeChartData(newKlines);
+        const cleanVolume = sanitizeChartData(newVolume);
+
+        if (updateMode === "reset" || allKlinesRef.current.length === 0) {
+          const kKlines = [...cleanKlines].sort((a,b) => toSeconds(a.time) - toSeconds(b.time));
+          const vVol = [...cleanVolume].sort((a,b) => toSeconds(a.time) - toSeconds(b.time));
+          allKlinesRef.current = kKlines;
+          allVolumeRef.current = vVol;
+          seriesRef.current.setData(calculateHeikinAshi(kKlines));
+          volumeSeriesRef.current.setData(vVol);
+        } else if (updateMode === "prepend") {
+          const firstKnownTime = toSeconds(allKlinesRef.current[0].time);
+          const olderKlines = cleanKlines.filter((k) => toSeconds(k.time) < firstKnownTime);
+          const olderVolume = cleanVolume.filter((v) => toSeconds(v.time) < firstKnownTime);
+          if (olderKlines.length > 0) {
+            allKlinesRef.current = [...olderKlines, ...allKlinesRef.current];
+            allVolumeRef.current = [...olderVolume, ...allVolumeRef.current];
+            seriesRef.current.setData(calculateHeikinAshi(allKlinesRef.current));
+            volumeSeriesRef.current.setData(allVolumeRef.current);
+          }
+        } else { // Incremental
+            const now = Date.now() / 1000;
+            const shouldFullScan = now - lastFullScanRef.current > 30;
+            if (shouldFullScan) {
+               const result = fullDiffScan(allKlinesRef.current, allVolumeRef.current, cleanKlines, cleanVolume);
+               if (result.changedKlines.length > 0 || result.hasHistoricalChange) {
+                  allKlinesRef.current = Array.from(result.klineMap.values()).sort((a,b) => toSeconds(a.time) - toSeconds(b.time));
+                  allVolumeRef.current = Array.from(result.volMap.values()).sort((a,b) => toSeconds(a.time) - toSeconds(b.time));
+                  seriesRef.current.setData(calculateHeikinAshi(allKlinesRef.current));
+                  volumeSeriesRef.current.setData(allVolumeRef.current);
+               }
+               lastFullScanRef.current = now;
+            } else {
+               const { changedKlines, changedVolume } = tipDiffScan(allKlinesRef.current, allVolumeRef.current, cleanKlines, cleanVolume);
+               if (changedKlines.length > 0 || changedVolume.length > 0) {
+                  seriesRef.current.setData(calculateHeikinAshi(allKlinesRef.current));
+                  volumeSeriesRef.current.setData(allVolumeRef.current);
+               }
+            }
         }
-        lastFullScanRef.current = now;
-      } else {
-        ({ changedKlines, changedVolume } = tipDiffScan(
-          allKlinesRef.current, allVolumeRef.current,
-          cleanKlines, cleanVolume,
-        ));
-      }
-
-      if (hasHistoricalChange || changedKlines.length > 0 || changedVolume.length > 0) {
-        seriesRef.current.setData(calculateHeikinAshi(allKlinesRef.current));
-        volumeSeriesRef.current.setData(allVolumeRef.current);
-      }
-      // else: no changes → skip all chart API calls
-    };
-
-    // ── Dispatcher ─────────────────────────────────────────────────────────────
-    const updateSeriesData = (
-      newKlines: CandleData[],
-      newVolume: VolumeBar[],
-      updateMode: "reset" | "update" | "prepend" = "reset",
-    ) => {
-      if (!seriesRef.current || !volumeSeriesRef.current || !isChartReady) return;
-      const cleanKlines = sanitizeChartData(newKlines);
-      const cleanVolume = sanitizeChartData(newVolume);
-
-      if (updateMode === "reset" || allKlinesRef.current.length === 0) {
-        handleFullReset(cleanKlines, cleanVolume);
-      } else if (updateMode === "prepend") {
-        handleHistoricalPrepend(cleanKlines, cleanVolume);
-      } else {
-        handleIncrementalUpdate(cleanKlines, cleanVolume);
-      }
-
-      if (allKlinesRef.current.length > 0) {
-        lastCandleRef.current = allKlinesRef.current[allKlinesRef.current.length - 1];
-        // If we are editing and this is the first data load, ensure we focus
-        if (isEditingExisting) {
-          if (focusTimeoutRef.current) clearTimeout(focusTimeoutRef.current);
-          focusTimeoutRef.current = setTimeout(() => {
-            if (isMountedRef.current) focusOnPrices();
-          }, 100);
-        }
-      }
-    };
-
-    const fetchData = async (shouldFocus = false) => {
-      if (!isMounted) return;
-      if (shouldFocus) {
-        setIsLoading(true);
-        setError(null);
-      }
-      setSyncError(false);
-      const apiSymbol = symbol.replace("/", "");
-
-      try {
-        const data = await fetchKlines(apiSymbol, timeframe);
-        if (!isMounted) return;
-
-        if (!data || !Array.isArray(data) || data.length === 0) {
-          if (shouldFocus) setError(`Veri bulunamadı: ${apiSymbol}`);
-          return;
-        }
-
-        // Double check data validity before mapping
-        interface RawCandleLocal {
-          time: string | number;
-          open: string | number;
-          high: string | number;
-          low: string | number;
-          close: string | number;
-          volume?: string | number;
-        }
-        const validRaw = (data as RawCandleLocal[]).filter(
-          (d) =>
-            d && (typeof d.time === "number" || typeof d.time === "string"),
-        );
-
-        const validData: CandleData[] = calculateHeikinAshi(
-          validRaw.map((d) => ({
-            time: d.time as Time,
-            open: Number(d.open) || 0,
-            high: Number(d.high) || 0,
-            low: Number(d.low) || 0,
-            close: Number(d.close) || 0,
-          })),
-        );
-
-        const volumeData = validRaw
-          .filter((d) => d.volume !== undefined)
-          .map((d) => ({
-            time: d.time as Time,
-            value: Number(d.volume || 0) || 0,
-            color:
-              Number(d.close) >= Number(d.open)
-                ? "rgba(16,185,129,0.25)"
-                : "rgba(244,63,94,0.25)",
-          }));
-
-        // Use 'reset' for initial load/focus, 'update' for background polling
-        updateSeriesData(
-          validRaw.map((d) => ({
-            time: d.time as Time,
-            open: Number(d.open) || 0,
-            high: Number(d.high) || 0,
-            low: Number(d.low) || 0,
-            close: Number(d.close) || 0,
-          })),
-          volumeData,
-          shouldFocus ? "reset" : "update",
-        );
 
         if (allKlinesRef.current.length > 0) {
-          const latest = allKlinesRef.current[allKlinesRef.current.length - 1];
-          const price = latest.close;
-          if (price > 0 && !isNaN(price)) {
-            setLastClose(price);
-            if (onMarketPriceUpdate) onMarketPriceUpdate(price);
-            
-            // Only auto-focus once per symbol/timeframe load
-            if (shouldFocus && !initialFocusDoneRef.current) {
-              focusOnPrices();
-              initialFocusDoneRef.current = true;
-            }
+          lastCandleRef.current = allKlinesRef.current[allKlinesRef.current.length - 1];
+          if (isEditingExisting && shouldFocus) {
+            if (focusTimeoutRef.current) clearTimeout(focusTimeoutRef.current);
+            focusTimeoutRef.current = setTimeout(() => { if (isMountedRef.current) focusOnPrices(); }, 100);
           }
         }
-      } catch (err) {
-        console.error("[SmartChart] Data error:", err);
-        if (isMounted) {
-          // Only show blocking error if we HAVE NO DATA YET
-          if (allKlinesRef.current.length === 0) {
-            setError(`Bağlantı hatası: ${apiSymbol}`);
-          } else {
-            // Background sync failed, show subtle warning instead
-            setSyncError(true);
-            // Reset sync error after some time to avoid permanent warning
-            setTimeout(() => setSyncError(false), 5000);
+      };
+
+      updateSeriesData(mappedKlines, volumeData, shouldFocus ? "reset" : "update");
+
+      if (allKlinesRef.current.length > 0) {
+        const latest = allKlinesRef.current[allKlinesRef.current.length - 1];
+        const price = latest.close;
+        if (price > 0 && !isNaN(price)) {
+          setLastClose(price);
+          if (onMarketPriceUpdate) onMarketPriceUpdate(price);
+          if (shouldFocus && !initialFocusDoneRef.current) {
+            focusOnPrices();
+            initialFocusDoneRef.current = true;
           }
         }
-      } finally {
-        if (isMounted) setIsLoading(false);
       }
-    };
+    } catch (err) {
+      console.error("[SmartChart] Data error:", err);
+      if (isMountedRef.current && allKlinesRef.current.length === 0) {
+        setError(`Bağlantı hatası: ${apiSymbol}`);
+      } else {
+        setSyncError(true);
+        setTimeout(() => setSyncError(false), 5000);
+      }
+    } finally {
+      if (isMountedRef.current) setIsLoading(false);
+    }
+  }, [symbol, timeframe, isChartReady, isEditingExisting, focusOnPrices, onMarketPriceUpdate]);
+
+  // Data Sync Management - STABILIZED: Only re-run on symbol/timeframe change
+  const fetchDataRef = useRef(fetchData);
+  useEffect(() => { fetchDataRef.current = fetchData; }, [fetchData]);
+
+  const triggerCoordSyncRef = useRef(triggerCoordSync);
+  useEffect(() => { triggerCoordSyncRef.current = triggerCoordSync; }, [triggerCoordSync]);
+
+  useEffect(() => {
+    if (!isChartReady || !seriesRef.current || !volumeSeriesRef.current || !chartRef.current) return;
+
+    // Initial load
+    fetchDataRef.current(true);
+    
+    // REST polling every 10 seconds
+    const refreshInterval = setInterval(() => fetchDataRef.current(false), 10000);
 
     const fetchHistory = async () => {
-      if (isHistoryLoadingRef.current || allKlinesRef.current.length === 0)
-        return;
+      if (isHistoryLoadingRef.current || allKlinesRef.current.length === 0) return;
       isHistoryLoadingRef.current = true;
       setHistoryLoading(true);
 
       const apiSymbol = symbol.replace("/", "");
       const firstCandle = allKlinesRef.current[0];
-      const endTime = (firstCandle.time as number) * 1000 - 1; // 1ms before first candle
+      const endTime = (toSeconds(firstCandle.time) as number) * 1000 - 1;
 
       try {
-        const data = await fetchKlines(
-          apiSymbol,
-          timeframe,
-          500,
-          undefined,
-          endTime,
-        );
-        if (!isMounted) return;
+        const data = await fetchKlines(apiSymbol, timeframe, 500, undefined, endTime);
+        if (!isMountedRef.current) return;
 
         if (data && Array.isArray(data) && data.length > 0) {
-          const historicalKlines: CandleData[] = (data as RawCandle[])
-            .filter((d): d is RawCandle => !!(d && d.time !== undefined))
-            .map((d) => ({
-              time: d.time as Time,
-              open: Number(d.open),
-              high: Number(d.high),
-              low: Number(d.low),
-              close: Number(d.close),
-            }));
+          const histKlines = (data as any[]).filter(d => d && d.time !== undefined).map(d => ({
+            time: d.time as Time,
+            open: Number(d.open), high: Number(d.high), low: Number(d.low), close: Number(d.close)
+          }));
+          const histVol = (data as any[]).filter(d => d && d.time !== undefined && d.volume !== undefined).map(d => ({
+            time: d.time as Time,
+            value: Number(d.volume || 0),
+            color: Number(d.close) >= Number(d.open) ? "rgba(16,185,129,0.25)" : "rgba(244,63,94,0.25)"
+          }));
 
-          const historicalVolume = (data as RawCandle[])
-            .filter(
-              (d): d is RawCandle =>
-                !!(d && d.time !== undefined && d.volume !== undefined),
-            )
-            .map((d) => ({
-              time: d.time as Time,
-              value: Number(d.volume || 0),
-              color:
-                Number(d.close) >= Number(d.open)
-                  ? "rgba(16,185,129,0.25)"
-                  : "rgba(244,63,94,0.25)",
-            }));
-
-          updateSeriesData(historicalKlines, historicalVolume, "prepend");
+          const firstKnownTime = toSeconds(allKlinesRef.current[0].time);
+          const olderKlines = histKlines.filter((k) => toSeconds(k.time) < firstKnownTime);
+          const olderVolume = histVol.filter((v) => toSeconds(v.time) < firstKnownTime);
+          if (olderKlines.length > 0) {
+            allKlinesRef.current = [...olderKlines, ...allKlinesRef.current];
+            allVolumeRef.current = [...olderVolume, ...allVolumeRef.current];
+            if (seriesRef.current) seriesRef.current.setData(calculateHeikinAshi(allKlinesRef.current));
+            if (volumeSeriesRef.current) volumeSeriesRef.current.setData(allVolumeRef.current);
+          }
         }
       } catch (err) {
         console.error("[SmartChart] History fetch error:", err);
       } finally {
         isHistoryLoadingRef.current = false;
-        setHistoryLoading(false);
+        if (isMountedRef.current) setHistoryLoading(false);
       }
     };
 
-    // Subscription for visible range changes (coordinates and history loading)
-    let rangeListener: ((range: LogicalRange | null) => void) | null = null;
-    if (chartRef.current) {
-      rangeListener = (range: LogicalRange | null) => {
-        if (isMounted) triggerCoordSync();
-        if (range && range.from < 10) {
-          fetchHistory();
-        }
-      };
-      chartRef.current
-        .timeScale()
-        .subscribeVisibleLogicalRangeChange(rangeListener);
-    }
+    const rangeListener = (range: LogicalRange | null) => {
+      if (isMountedRef.current) triggerCoordSyncRef.current();
+      if (range && range.from < 10) fetchHistory();
+    };
 
-    fetchData(true); // Initial/Symbol change load: Focus
-    const refreshInterval = setInterval(() => fetchData(false), 5000); // 5s REST poll; MarketKernel handles 1s realtime updates
+    chartRef.current.timeScale().subscribeVisibleLogicalRangeChange(rangeListener);
 
-    // Real-time pulse from MarketKernel
     const formattedSym = symbol.replace("/", "");
     core.market.setSymbols([formattedSym]);
     const unsubscribeMarket = core.market.subscribe((updates) => {
-      if (!isMounted || !isMountedRef.current || !chartRef.current || !seriesRef.current) return;
-      
+      if (!isMountedRef.current || !chartRef.current || !seriesRef.current) return;
       const update = updates[formattedSym];
       if (update) {
-        try {
-          const price = Number(update.price);
-          if (price > 0) {
-            const prevPrice = lastCloseRef.current;
-            setLastClose(price);
-            lastCloseRef.current = price;
-            if (onMarketPriceUpdate) onMarketPriceUpdate(price);
-            
-            // Only trigger coordinate sync if price moved >0.01% to reduce layout thrashing
-            if (prevPrice === 0 || Math.abs(price - prevPrice) / price > 0.0001) {
-              triggerCoordSync();
-            }
+        const price = Number(update.price);
+        if (price > 0) {
+          const prevPrice = lastCloseRef.current;
+          setLastClose(price);
+          lastCloseRef.current = price;
+          if (onMarketPriceUpdate) onMarketPriceUpdate(price);
+          if (prevPrice === 0 || Math.abs(price - prevPrice) / price > 0.0001) {
+            triggerCoordSyncRef.current();
           }
-
-          // Update candlestick logic...
+          
           const candlestickSeconds = TIMEFRAME_SECONDS[timeframe] || 3600;
           const nowTotalSeconds = Math.floor(Date.now() / 1000);
-          const lastKnownTime =
-            allKlinesRef.current.length > 0
-              ? Number(allKlinesRef.current[allKlinesRef.current.length - 1].time)
-              : 0;
-
-          let currentBarTime: number;
-          if (lastKnownTime > 0) {
-            const offset = lastKnownTime % candlestickSeconds;
-            const ideal =
-              Math.floor((nowTotalSeconds - offset) / candlestickSeconds) *
-                candlestickSeconds +
-              offset;
-            currentBarTime = Math.max(ideal, lastKnownTime);
-          } else {
-            currentBarTime =
-              Math.floor(nowTotalSeconds / candlestickSeconds) *
-              candlestickSeconds;
-          }
-
+          const lastKnownTime = allKlinesRef.current.length > 0 ? Number(allKlinesRef.current[allKlinesRef.current.length - 1].time) : 0;
+          let currentBarTime = lastKnownTime > 0 ? Math.max(Math.floor((nowTotalSeconds - (lastKnownTime % candlestickSeconds)) / candlestickSeconds) * candlestickSeconds + (lastKnownTime % candlestickSeconds), lastKnownTime) : Math.floor(nowTotalSeconds / candlestickSeconds) * candlestickSeconds;
+          
           const lastCandle = lastCandleRef.current;
-
-          if (seriesRef.current) {
-            if (lastCandle && Number(lastCandle.time) === currentBarTime) {
-              const updatedCandle = {
-                ...lastCandle,
-                close: price,
-                high: Math.max(lastCandle.high, price),
-                low: Math.min(lastCandle.low, price),
-              };
-              lastCandleRef.current = updatedCandle;
-              if (
-                allKlinesRef.current.length > 0 &&
-                Number(
-                  allKlinesRef.current[allKlinesRef.current.length - 1].time,
-                ) === currentBarTime
-              ) {
-                allKlinesRef.current[allKlinesRef.current.length - 1] =
-                  updatedCandle;
-              }
-            } else if (!lastCandle || currentBarTime > Number(lastCandle.time)) {
-              const newBar = {
-                time: currentBarTime as Time,
-                open: price,
-                high: price,
-                low: price,
-                close: price,
-              };
-              lastCandleRef.current = newBar;
-              allKlinesRef.current = [
-                ...allKlinesRef.current.filter(
-                  (k) => Number(k.time) < currentBarTime,
-                ),
-                newBar,
-              ];
+          if (lastCandle && Number(lastCandle.time) === currentBarTime) {
+            const updated = { ...lastCandle, close: price, high: Math.max(lastCandle.high, price), low: Math.min(lastCandle.low, price) };
+            lastCandleRef.current = updated;
+            if (allKlinesRef.current.length > 0 && Number(allKlinesRef.current[allKlinesRef.current.length -1].time) === currentBarTime) {
+              allKlinesRef.current[allKlinesRef.current.length - 1] = updated;
             }
-            // HA Refresh
-            seriesRef.current.setData(calculateHeikinAshi(allKlinesRef.current));
+          } else {
+            const newBar = { time: currentBarTime as Time, open: price, high: price, low: price, close: price };
+            lastCandleRef.current = newBar;
+            allKlinesRef.current = [...allKlinesRef.current.filter(k => Number(k.time) < currentBarTime), newBar];
           }
-        } catch (e) {
-          console.warn("[SmartChart] Market Pulse Error (likely disposed):", e);
+          if (seriesRef.current) seriesRef.current.setData(calculateHeikinAshi(allKlinesRef.current));
         }
       }
     });
 
     return () => {
-      isMounted = false;
       clearInterval(refreshInterval);
       unsubscribeMarket();
-      if (chartRef.current && rangeListener) {
-        chartRef.current
-          .timeScale()
-          .unsubscribeVisibleLogicalRangeChange(rangeListener);
-      }
+      if (chartRef.current) chartRef.current.timeScale().unsubscribeVisibleLogicalRangeChange(rangeListener);
     };
-  }, [
-    isChartReady,
-    symbol,
-    timeframe,
-    onMarketPriceUpdate,
-    focusOnPrices,
-    triggerCoordSync,
-  ]);
+  }, [symbol, timeframe, isChartReady]);
 
 
   // Subscriptions for timescale changes to keep overlays in sync

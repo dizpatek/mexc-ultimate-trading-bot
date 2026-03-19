@@ -363,6 +363,16 @@ async function runSchemaMigrations() {
   } catch {
     /* ignore */
   }
+  try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_mode TEXT DEFAULT 'matrix'`;
+  } catch {
+    /* ignore */
+  }
+  try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_use_usdt BOOLEAN DEFAULT FALSE`;
+  } catch {
+    /* ignore */
+  }
 
   // Portfolio snapshots & Performance metrics migrations
   try {

@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // NOTE: In a multi-instance or serverless environment (like Vercel), this Map is per-instance.
 // For production consistency and memory safety, a distributed cache like Redis should be used.
 const scanRateMap = new Map<number, number>();
-const SCAN_COOLDOWN_MS = 30000;
+const SCAN_COOLDOWN_MS = 25000;
 
 export async function GET(request: Request) {
   try {
@@ -69,7 +69,9 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const targetTimeframe = searchParams.get("timeframe") || undefined;
 
-    const scanSymbols = await SignalScanner.resolveScanSymbols(userId, mode);
+    const { getBotConfig } = await import("@/lib/db");
+    const botConfig = await getBotConfig();
+    const scanSymbols = await SignalScanner.resolveScanSymbols(userId, mode, botConfig || undefined);
     const scanStartTime = Date.now();
     const allResults = await SignalScanner.runScan(scanSymbols, targetTimeframe, mode);
     const scanDuration = Date.now() - scanStartTime;

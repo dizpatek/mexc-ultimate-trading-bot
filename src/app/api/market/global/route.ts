@@ -1,0 +1,28 @@
+import { NextResponse } from "next/server";
+import axios from "axios";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 60; // Cache for 60 seconds
+
+export async function GET() {
+  try {
+    const response = await axios.get(
+      "https://api.coingecko.com/api/v3/global",
+      {
+        timeout: 10000,
+      }
+    );
+
+    if (!response.data || !response.data.data) {
+      return NextResponse.json({ error: "Empty response from provider" }, { status: 504 });
+    }
+
+    return NextResponse.json(response.data.data);
+  } catch (error: unknown) {
+    console.error("Error in global market dominance API:", error instanceof Error ? error.message : String(error));
+    return NextResponse.json(
+      { error: "Failed to fetch global market data" },
+      { status: 500 }
+    );
+  }
+}

@@ -372,7 +372,7 @@ export class MatrixV5Engine {
         minAiScore: getVal(60, "minAiScore"), 
         minConfluenceScore: getVal(55, "minConfluenceScore"), 
         f4SlopeThreshold: getVal(0.01, "f4SlopeThreshold"), 
-        lookback: 30,
+        f4LookbackBars: getVal(30, "f4LookbackBars"),
       };
     } else {
       // Swing Mode
@@ -383,7 +383,7 @@ export class MatrixV5Engine {
         minAiScore: getVal(70, "minAiScore"), 
         minConfluenceScore: getVal(65, "minConfluenceScore"), 
         f4SlopeThreshold: getVal(0.01, "f4SlopeThreshold"), 
-        lookback: 30,
+        f4LookbackBars: getVal(30, "f4LookbackBars"),
       };
     }
   }
@@ -757,6 +757,7 @@ export class MatrixV5Engine {
       "12h": 43200,
       "1d": 86400,
       "1w": 604800,
+      "1Mo": 2592000,
     };
     return map[interval] || 3600;
   }
@@ -828,61 +829,66 @@ export class MatrixV5Engine {
   // ===========================
 
   private calculateADM(closes: number[], vpa?: VPAResult, _fastSlope?: number): ADMResult {
-    const horizon = 60;
-    const sampleBars = Math.min(756, closes.length - 1);
+    const len = closes.length;
+    if (len < 10) return { classification: 0, evidence: "YOK", bias: "Sapma Yok", direction: 0 };
 
-    // --- Full statistical ADM (prefers 70+ candles) ---
-    if (closes.length >= horizon + 10) {
-      const returns: number[] = [];
-      for (let i = 0; i < sampleBars - horizon && i + horizon < closes.length; i++) {
-        const r = (closes[closes.length - 1 - i] - closes[closes.length - 1 - i - horizon]) /
-          closes[closes.length - 1 - i - horizon];
+    // 1. Dinamik Horizon Seçimi (Veriye Göre Adım Adım)
+    const horizon = Math.min(60, Math.floor(len / 4));
+    if (horizon < 5) return { classification: 0, evidence: "YOK", bias: "Sapma Yok", direction: 0 };
+
+    // 2. Returns (Getiriler) tabanlı İstatistiksel ADM Hesaplaması
+    const returns: number[] = [];
+    const maxSampleBars = Math.min(756, len - 1);
+    
+    // Geçmiş getirilerin dağılımı
+    for (let i = 0; i < maxSampleBars - horizon && i + horizon < len; i++) {
+        const idx = len - 1 - i;
+        const prevIdx = idx - horizon;
+        if (prevIdx < 0) break;
+        const r = (closes[idx] - closes[prevIdx]) / closes[prevIdx];
         returns.push(r);
-      }
-      if (returns.length >= 10) {
-        const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-        const variance = returns.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (returns.length - 1);
-        const sd = Math.sqrt(variance);
-        const se = sd / Math.sqrt(returns.length);
-        const tStat = se > 1e-10 ? mean / se : 0;
-        const annDrift = mean * (252 / horizon);
-        const direction = mean > 0 ? 1 : mean < 0 ? -1 : 0;
-        const statSig = Math.abs(tStat) > 2.0;
-        const econSig = Math.abs(annDrift) >= 0.03;
-        let classCode = 0;
-        if (!statSig) classCode = 0;
-        else if (!econSig) classCode = 1;
-        else classCode = 2;
-        const classification = classCode === 2 ? direction * 2 : classCode === 1 ? direction : 0;
-        const evidence: ADMResult["evidence"] = classCode === 2 ? "GÜÇLÜ" : classCode === 1 ? "ZAYIF" : "YOK";
-        const bias = classification >= 2 ? "Pozitif Sapma" : classification <= -2 ? "Negatif Sapma" :
-          classification === 1 ? "Pozitif (Zayıf)" : classification === -1 ? "Negatif (Zayıf)" : "Sapma Yok";
-        return { classification, evidence, bias, direction };
-      }
     }
 
-    // --- Fallback: VPA net pressure + short-term price drift (when closes insufficient) ---
-    if (vpa) {
-      const np = vpa.netPressure;
-      let driftSignal = 0;
-      if (closes.length >= 10) {
-        const safeLen = closes.length;
-        const recent5 = closes.slice(Math.max(0, safeLen - 5));
-        const prev5 = closes.slice(Math.max(0, safeLen - 10), Math.max(0, safeLen - 5));
-        if (recent5.length >= 3 && prev5.length >= 3) {
-          const r5Avg = recent5.reduce((a, b) => a + b, 0) / recent5.length;
-          const p5Avg = prev5.reduce((a, b) => a + b, 0) / prev5.length;
-          driftSignal = p5Avg > 0 ? ((r5Avg - p5Avg) / p5Avg) * 100 : 0;
-        }
-      }
-      const combined = np * 0.6 + driftSignal * 0.4;
-      const cls = combined > 40 ? 2 : combined > 10 ? 1 : combined < -40 ? -2 : combined < -10 ? -1 : 0;
-      const evidence: ADMResult["evidence"] = Math.abs(combined) > 40 ? "GÜÇLÜ" : Math.abs(combined) > 10 ? "ZAYIF" : "YOK";
-      const bias = combined > 10 ? "Pozitif Sapma" : combined < -10 ? "Negatif Sapma" : "Nötr Sapma";
-      return { classification: cls, evidence, bias, direction: cls > 0 ? 1 : cls < 0 ? -1 : 0 };
+    if (returns.length < 5) {
+        return { classification: 0, evidence: "YOK", bias: "Sapma Yok", direction: 0 };
     }
 
-    return { classification: 0, evidence: "YOK", bias: "Sapma Yok", direction: 0 };
+    const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+    const variance = returns.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (returns.length - 1);
+    const sd = Math.sqrt(variance);
+    const se = sd / Math.sqrt(returns.length);
+    const tStat = se > 1e-10 ? mean / se : 0;
+    
+    // Yıllıklandırılmış Drift Oranı (Standart 252 İş Günü Modeli Adaptasyonu)
+    const annDrift = mean * (252 / horizon);
+    const direction = mean > 0 ? 1 : mean < 0 ? -1 : 0;
+    
+    // T-İstatistiğine Bağlı Güvenilirlik Testi
+    // |tStat| > 1.96 = 95% Güven, |tStat| > 2.58 = 99% Güven
+    const statSig = Math.abs(tStat) > 1.96;
+    const strongStatSig = Math.abs(tStat) > 2.58;
+    
+    // Ekonomik Açıdan Anlamlılık (%5+ yıllıklandırılmış sapma)
+    const econSig = Math.abs(annDrift) >= 0.05;
+    
+    let classification = 0;
+    let evidence: ADMResult["evidence"] = "YOK";
+
+    if (strongStatSig && econSig) {
+        classification = direction * 2;
+        evidence = "GÜÇLÜ";
+    } else if (statSig || econSig) {
+        classification = direction;
+        evidence = "ZAYIF";
+    }
+
+    // Bias Yorumu (Profesyonel Standart)
+    const bias = classification === 2 ? "Güçlü Pozitif Sapma" : 
+                 classification === -2 ? "Güçlü Negatif Sapma" :
+                 classification === 1 ? "Pozitif (Zayıf)" : 
+                 classification === -1 ? "Negatif (Zayıf)" : "Sapma Yok";
+
+    return { classification, evidence, bias, direction };
   }
 
   // ===========================
@@ -896,35 +902,105 @@ export class MatrixV5Engine {
     volumes: number[],
   ): VPAResult {
     const len = closes.length;
-    if (len < 2)
+    if (len < 20) {
       return {
         buyVolume: 0,
         sellVolume: 0,
         delta: 0,
-        netPressure: 0,
+        netPressure: 50,
         state: "NÖTR",
       };
+    }
 
-    const range = highs[len - 1] - lows[len - 1];
-    const buyPct =
-      range === 0 ? 0.5 : (closes[len - 1] - lows[len - 1]) / range;
-    const totalVol = volumes[len - 1];
-    const buyVol = totalVol * buyPct;
-    const sellVol = totalVol * (1 - buyPct);
-    const delta = buyVol - sellVol;
-    const netPressure = totalVol > 0 ? (buyVol / totalVol) * 100 : 50;
+    // Gerçek Wyckoff VPA (Volume Price Analysis) Hesaplaması
+    const currentHigh = highs[len - 1];
+    const currentLow = lows[len - 1];
+    const currentClose = closes[len - 1];
+    const currentOpen = closes[len - 2] || currentClose;
+    const currentVol = volumes[len - 1];
+
+    const spread = currentHigh - currentLow;
+    
+    // Average Spread & Volume (20 periods)
+    let sumSpread = 0;
+    let sumVol = 0;
+    for (let i = len - 20; i < len; i++) {
+        sumSpread += highs[i] - lows[i];
+        sumVol += volumes[i];
+    }
+    const avgSpread = sumSpread / 20;
+    const avgVol = sumVol / 20;
+
+    const relVol = avgVol > 0 ? currentVol / avgVol : 1;
+    const relSpread = avgSpread > 0 ? spread / avgSpread : 1;
+    const isUp = currentClose > currentOpen;
+    const closePosition = spread > 0 ? (currentClose - currentLow) / spread : 0.5;
+
+    // Anomaliler ve Modlar
+    const isHighVol = relVol > 1.5;
+    const isUltraHighVol = relVol > 2.5;
+
+    let state: VPAResult["state"] = "NÖTR";
+    let pressureMod = 50;
+
+    if (isUp) {
+        if (isHighVol && closePosition < 0.4) {
+            state = "SATIM BASKISI"; // Exhaustion / Satıcıların devreye girmesi
+            pressureMod = 30;
+        } else if (isUltraHighVol && relSpread < 0.8 && closePosition > 0.5) {
+            state = "ALIM BASKISI"; // Bullish absorption
+            pressureMod = 80;
+        } else if (isHighVol && closePosition > 0.6) {
+            state = "ALIM BASKISI"; // Güçlü boğa mumu
+            pressureMod = 70;
+        } else if (relVol < 0.7 && relSpread < 0.7) {
+            state = "NÖTR"; // No demand
+            pressureMod = 45;
+        } else {
+            pressureMod = 55;
+        }
+    } else {
+        if (isHighVol && closePosition > 0.6) {
+            state = "ALIM BASKISI"; // Stopping Volume / Alıcıların devreye girmesi
+            pressureMod = 75;
+        } else if (isUltraHighVol && relSpread < 0.8 && closePosition < 0.5) {
+            state = "SATIM BASKISI"; // Bearish absorption
+            pressureMod = 20;
+        } else if (isHighVol && closePosition < 0.4) {
+            state = "SATIM BASKISI"; // Güçlü ayı mumu
+            pressureMod = 30;
+        } else if (relVol < 0.7 && relSpread < 0.7) {
+            state = "NÖTR"; // No supply
+            pressureMod = 55;
+        } else {
+            pressureMod = 45;
+        }
+    }
+
+    // Kısa vadeli trendi yumuşatarak Net Pressure hesapla (5 barlık kümülatif delta v2)
+    let buyVolAcc = 0;
+    let sellVolAcc = 0;
+    for (let i = len - 5; i < len; i++) {
+        const _spread = highs[i] - lows[i];
+        const _buyPct = _spread === 0 ? 0.5 : (closes[i] - lows[i]) / _spread;
+        buyVolAcc += volumes[i] * _buyPct;
+        sellVolAcc += volumes[i] * (1 - _buyPct);
+    }
+
+    const netPressure = (buyVolAcc + sellVolAcc) > 0 
+        ? ((buyVolAcc / (buyVolAcc + sellVolAcc)) * 100 * 0.7) + (pressureMod * 0.3) 
+        : 50;
+
+    const buyPct = spread === 0 ? 0.5 : (currentClose - currentLow) / spread;
+    const currentBuyVol = currentVol * buyPct;
+    const currentSellVol = currentVol * (1 - buyPct);
 
     return {
-      buyVolume: buyVol,
-      sellVolume: sellVol,
-      delta,
-      netPressure,
-      state:
-        netPressure > 50
-          ? "ALIM BASKISI"
-          : netPressure < 50
-            ? "SATIM BASKISI"
-            : "NÖTR",
+      buyVolume: currentBuyVol,
+      sellVolume: currentSellVol,
+      delta: currentBuyVol - currentSellVol,
+      netPressure: Math.min(100, Math.max(0, netPressure)),
+      state,
     };
   }
 
@@ -1085,19 +1161,36 @@ export class MatrixV5Engine {
     const trendST = stBull ? 10 : 0;
     const trendScore = Math.min(40, Math.max(0, trendADX + trendRibbon + trendIchi + trendST));
 
-    // Market Score
-    const mktScore = Math.min(25, Math.max(0, (marketRegime === "RISK_ON" ? 15 : 5) + (trendUp ? 10 : 0)));
+    // 5. Market Score: Regime + Altcoin Season Context
+    let mktScoreRaw = (marketRegime === "RISK_ON" ? 15 : 5) + (trendUp ? 10 : 0);
+    
+    // Impact of BTC Dominance: High BTC.D is usually bad for alts unless BTC is pumping
+    if (btcDominance > 55) mktScoreRaw -= 5;
+    else if (btcDominance < 45) mktScoreRaw += 5;
 
-    // Timing Score
-    const timScore = Math.min(10, Math.max(0, (volatilityRegime === "SQUEEZE" ? 3 : volatilityRegime === "EXPLOSION" ? 5 : 4) + (earlyReversal ? 5 : 3)));
+    // Impact of Sentiment: Extremes are contra-indicators or momentum boosters
+    if (sentimentScore > 70) mktScoreRaw += 5; // Greed follows trend
+    else if (sentimentScore < -50) mktScoreRaw -= 5; // Fear risk
 
+    const mktScore = Math.min(30, Math.max(0, mktScoreRaw));
+
+    // 6. Timing Score: Volatility + Funding Impact
+    let timScoreRaw = (volatilityRegime === "SQUEEZE" ? 3 : volatilityRegime === "EXPLOSION" ? 5 : 4) + (earlyReversal ? 5 : 3);
+    
+    // Funding Rate Impact: High positive funding = leverage risk for longs
+    if (fundingRate > 0.01) timScoreRaw -= 2;
+    else if (fundingRate < -0.01) timScoreRaw += 2;
+
+    const timScore = Math.min(15, Math.max(0, timScoreRaw));
+
+    // ─── FINAL AGGREGATION ───
     const confluenceScore = Math.max(0, Math.min(100,
       (techScore / 40) * dynamicWeights.tech +
       (momentumScore / 30) * dynamicWeights.momentum +
       (volumeScore / 25) * activeConfig.confluenceWeightVol +
       (trendScore / 40) * dynamicWeights.trend +
-      (mktScore / 25) * dynamicWeights.market +
-      (timScore / 10) * activeConfig.confluenceWeightTiming +
+      (mktScore / 30) * dynamicWeights.market +
+      (timScore / 15) * activeConfig.confluenceWeightTiming +
       liquidityBonus));
 
     const confluenceStatus: ConfluenceStatus = confluenceScore >= saeThreshold ? "MÜKEMMEL" : confluenceScore >= 65 ? "GÜÇLÜ" : confluenceScore >= 50 ? "ORTA" : confluenceScore >= saeThreshold - 20 ? "ZAYIF" : "YETERSİZ";
@@ -1612,9 +1705,7 @@ export class MatrixV5Engine {
     }
 
     if (len < 50) {
-      console.warn(
-        "Matrix V5: Insufficient data (<50 candles). Results may be inaccurate.",
-      );
+      // Matrix V5: Data < 50 candles. Silent in production logs to avoid spamming.
     }
 
     // 0. Initialize Dynamic Autonomous Parameters
@@ -2017,7 +2108,7 @@ export class MatrixV5Engine {
     // Eski mutlak deger mantigi V-Turn'lerde gec tetikleniyordu.
     // Yeni: Sadece mevcut trend yonundeki slope zayiflamasini olcer.
     const slopeHistory: number[] = [];
-    const lb = Math.min(autoParams.lookback, f4WholeSeries.length - 2);
+    const lb = Math.min(autoParams.f4LookbackBars || activeConfig.f4LookbackBars, f4WholeSeries.length - 2);
     for (let i = 0; i < lb; i++) {
         const idx = f4WholeSeries.length - 1 - i;
         slopeHistory.push(f4WholeSeries[idx] - (f4WholeSeries[idx - 1] || f4WholeSeries[idx]));
@@ -2045,12 +2136,24 @@ export class MatrixV5Engine {
     const f4AnticipatoryBuy = f4Slope < 0 && (buyLeadConfluence >= 1 || f4PowerLoss >= 99.0) && f4PowerLoss >= minLoss;
     const f4AnticipatorySell = f4Slope > 0 && (sellLeadConfluence >= 1 || f4PowerLoss >= 99.0) && f4PowerLoss >= minLoss;
 
-    const f4EarlyBuy = (f4Slope < 0 && f4PowerLoss >= buySqueezeThreshold) || f4AnticipatoryBuy;
-    const f4EarlySell = (f4Slope > 0 && f4PowerLoss >= sellSqueezeThreshold) || f4AnticipatorySell;
+    // === MATRIX HORIZON FAZ 1: Trend Takip (Continuation) Sinyalleri ===
+    // Eğer trend çok güçlüyse ve güç kaybı yoksa (re-acceleration), re-entry için sinyal üretir.
+    const isStrongBull = f4Value > 50 && f4Slope > 0 && f4PowerLoss < 15;
+    const isStrongBear = f4Value < -50 && f4Slope < 0 && f4PowerLoss < 15;
     
-    // P4.1: Confirmed signals MUST also satisfy the Power Loss threshold as per user mandate
-    const f4ConfirmedBuy = f4Value > prevF4Value && prevF4Value <= (f4WholeSeries[f4WholeSeries.length - 3] || prevF4Value) && f4PowerLoss >= minLoss;
-    const f4ConfirmedSell = f4Value < prevF4Value && prevF4Value >= (f4WholeSeries[f4WholeSeries.length - 3] || prevF4Value) && f4PowerLoss >= minLoss;
+    // Confluence desteği varsa trend takip sinyali tetiklenir
+    const f4ContinuationBuy = isStrongBull && (stochRsi.k > 50 || earlyReversal === "UP");
+    const f4ContinuationSell = isStrongBear && (stochRsi.k < 50 || earlyReversal === "DOWN");
+
+    const f4EarlyBuy = (f4Slope < 0 && f4PowerLoss >= buySqueezeThreshold) || f4AnticipatoryBuy || f4ContinuationBuy;
+    const f4EarlySell = (f4Slope > 0 && f4PowerLoss >= sellSqueezeThreshold) || f4AnticipatorySell || f4ContinuationSell;
+
+    
+    // Confirmed signals are pure trend changes (color changes of the F4 line).
+    // They do NOT require "power loss" because at the moment of reversal, power loss resets.
+    // [SYNCHRONIZED] Confirmed signals are disabled by user request to focus only on Early signals.
+    const f4ConfirmedBuy = false; 
+    const f4ConfirmedSell = false;
 
     return { f4PowerLoss, buySqueezeThreshold, sellSqueezeThreshold, hasEarlyBuyLead: f4EarlyBuy, hasEarlySellLead: f4EarlySell, hasConfirmedBuyLead: f4ConfirmedBuy, hasConfirmedSellLead: f4ConfirmedSell };
   }
@@ -2064,8 +2167,9 @@ export class MatrixV5Engine {
     let rawSystemDecision: SystemDecision = (confluenceScore >= currentMinConf && predictionUpProb >= saeThreshold) ? "GO_LONG" : (confluenceScore >= currentMinConf && predictionDownProb >= saeThreshold) ? "GO_SHORT" : "WAIT";
     
     // F4 Priority Sync (Global) - Treat F4 labels as actionable even if trend is opposite
-    const isF4BuyPriority = hasEarlyBuyLead || hasConfirmedBuyLead;
-    const isF4SellPriority = hasEarlySellLead || hasConfirmedSellLead;
+    // [OPTIMIZATION] Only prioritize Early leads for faster entry (Confirmed leads ignored for priority)
+    const isF4BuyPriority = hasEarlyBuyLead;
+    const isF4SellPriority = hasEarlySellLead;
     const isF4Priority = isF4BuyPriority || isF4SellPriority;
 
     if (isF4BuyPriority && rawSystemDecision === "WAIT") rawSystemDecision = "GO_LONG";
@@ -2103,9 +2207,9 @@ export class MatrixV5Engine {
 
     let tradeSignal: "BUY" | "SELL" | null = null;
     
-    // [URGENT] F4 Mandate: Signal ONLY if F4 is active
-    const isF4Buy = hasEarlyBuyLead || hasConfirmedBuyLead;
-    const isF4Sell = hasEarlySellLead || hasConfirmedSellLead;
+    // [URGENT] F4 Mandate: Signal ONLY if F4 Early is active (Confirmed disabled by user request)
+    const isF4Buy = hasEarlyBuyLead;
+    const isF4Sell = hasEarlySellLead;
 
     if (isF4Buy && finalAiScore >= currentMinAi && !this.buyFired) {
         tradeSignal = "BUY";

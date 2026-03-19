@@ -250,12 +250,12 @@ export class MatrixV5Strategy extends BaseStrategy {
       f4Length: this.parameters.f4Length ? Number(this.parameters.f4Length) : undefined,
       whaleVolumeMultiplier: this.parameters.whaleVolumeMultiplier ? Number(this.parameters.whaleVolumeMultiplier) : undefined,
       mtfThreshold: this.parameters.mtfThreshold ? Number(this.parameters.mtfThreshold) : 80,
-      f4SlopeThreshold: 0.01,
-      f4PowerLossThreshold: 90,
-      f4LookbackBars: 30,
-      longSqueezeThreshold: 20,
-      shortSqueezeThreshold: 20,
-      minPowerLoss: 90,
+      f4SlopeThreshold: 0.01, // Usually static
+      f4PowerLossThreshold: this.parameters.f4PowerLossThreshold ? Number(this.parameters.f4PowerLossThreshold) : 90,
+      f4LookbackBars: this.parameters.f4LookbackBars ? Number(this.parameters.f4LookbackBars) : 30,
+      longSqueezeThreshold: this.parameters.f4SqueezeThreshold ? Number(this.parameters.f4SqueezeThreshold) : 20,
+      shortSqueezeThreshold: this.parameters.f4SqueezeThreshold ? Number(this.parameters.f4SqueezeThreshold) : 20,
+      minPowerLoss: this.parameters.minPowerLoss ? Number(this.parameters.minPowerLoss) : 90,
     });
   }
 
@@ -269,7 +269,8 @@ export class MatrixV5Strategy extends BaseStrategy {
         | "15m"
         | "1h"
         | "4h"
-        | "1d";
+        | "1d"
+        | "1Mo";
       const klines = await getKlines(this.symbol, timeframeStr, limit);
       if (!klines || klines.length < 200) return null;
 
@@ -299,6 +300,8 @@ export class MatrixV5Strategy extends BaseStrategy {
       );
 
       let signalType: "BUY" | "SELL" | null = result.signal;
+      const originalSignal = signalType; // Save original intent
+
       let reasonText = `[MatrixV5] ${result.whaleSignalText ? result.whaleSignalText + " | " : ""}AI: ${result.aiScore} | ⚡ F4: ${Math.round(result.f4Power)}%`;
 
       // [URGENT] F4 Mandate: Only generate signals if F4 is active
@@ -311,50 +314,51 @@ export class MatrixV5Strategy extends BaseStrategy {
       let mtfScore = 50;
       let mtfVerdictText = "ATLANDI";
 
-      if (signalType) {
+      if (originalSignal) {
         const consensus = await this.getMtfConsensus(timeframeStr, result);
         mtfScore = consensus.score;
         mtfVerdictText = consensus.verdictText;
 
-        const veto = this.applyMtfVeto(signalType, mtfScore, mtfVerdictText);
-        signalType = veto.signal;
+        const isEarly = !!(result.f4EarlyBuy || result.f4EarlySell);
+        const veto = this.applyMtfVeto(originalSignal, mtfScore, mtfVerdictText, isEarly);
+        signalType = veto.signal; // Can become null
         reasonText += veto.reasonExtension;
       }
 
-      // Final check: if we have no signal (BUY/SELL) and no Whale, return null unless AI is very high
-      if (!signalType && !result.whaleDetected && result.aiScore < 80) {
-        if (reasonText.includes("🛑 MTF Veto")) {
-          signalType = "NONE" as any;
-        } else {
-          return null;
-        }
+      // Visibility Optimization: If vetoed, we still return the signal but marked as VETOED
+      const isVetoed = originalSignal && !signalType;
+
+      // Final check: if we have no signal (BUY/SELL) and no Whale, return null unless AI is very high OR it was vetoed
+      if (!signalType && !result.whaleDetected && result.aiScore < 80 && !isVetoed) {
+        return null;
       }
 
       return {
         symbol: this.symbol,
         strategy: "matrix_v5",
-        signal: signalType,
+        signal: signalType, // This will be null if vetoed, but reasonText will have 🛑
         price: closes[closes.length - 1],
         reason: reasonText,
         indicators: {
-          aiScore: result.aiScore,
-          confluence: result.confluenceScore,
-          regime: result.regimePrediction,
-          prediction: result.prediction.text,
-          whaleDetected: result.whaleDetected,
-          whaleStatus: result.whaleStatus,
-          mtfWeightedScore: mtfScore,
-          mtfVerdict: mtfVerdictText,
-          fundingRate: result.fundingRate,
-          fundingImpact: result.fundingImpact,
-          f4PowerLoss: result.f4PowerLoss,
-          f4Power: result.f4Power,
-          f4EarlyBuy: result.f4EarlyBuy,
-          f4EarlySell: result.f4EarlySell,
-          f4ConfirmedBuy: result.f4ConfirmedBuy,
-          f4ConfirmedSell: result.f4ConfirmedSell,
+          aiScore: Number(result.aiScore) || 0,
+          confluence: Number(result.confluenceScore) || 0,
+          regime: String(result.regimePrediction || ""),
+          prediction: String(result.prediction?.text || ""),
+          whaleDetected: !!result.whaleDetected,
+          whaleStatus: String(result.whaleStatus || ""),
+          mtfWeightedScore: Number(mtfScore) || 50,
+          mtfVerdict: String(mtfVerdictText || "N/A"),
+          fundingRate: Number(result.fundingRate) || 0,
+          fundingImpact: String(result.fundingImpact || ""),
+          f4PowerLoss: Number(result.f4PowerLoss) || 0,
+          f4Power: Number(result.f4Power) || 0,
+          f4EarlyBuy: !!result.f4EarlyBuy,
+          f4EarlySell: !!result.f4EarlySell,
+          f4ConfirmedBuy: !!result.f4ConfirmedBuy,
+          f4ConfirmedSell: !!result.f4ConfirmedSell,
+          originalIntent: originalSignal || "" // Hidden metadata, ensure not null
         },
-        targets: result.targets,
+        targets: result.targets || { t1: 0, t2: 0, sl: 0 },
         timestamp: Date.now(),
       };
 
@@ -407,20 +411,24 @@ export class MatrixV5Strategy extends BaseStrategy {
   private applyMtfVeto(
     signal: "BUY" | "SELL" | null,
     mtfScore: number,
-    mtfVerdictText: string
+    mtfVerdictText: string,
+    isEarly: boolean = false
   ): { signal: "BUY" | "SELL" | null; reasonExtension: string } {
     const mtfVetoEnabled = this.parameters.mtfVeto !== false; // Default to true if not explicitly false
     const mtfThreshold = Number(this.parameters.mtfThreshold) || 80;
+
     let finalSignal = signal;
     let reasonExtension = "";
 
     if (mtfVetoEnabled) {
       if (signal === "BUY" && mtfScore < mtfThreshold) {
-        reasonExtension = ` | 🛑 MTF Veto: Trend (${mtfVerdictText}) zayıf (Threshold: ${mtfThreshold}%).`;
+        reasonExtension = ` | 🛑 MTF Veto: Boğa trendi (${mtfVerdictText}) yetersiz (Threshold: ${mtfThreshold}%).`;
         finalSignal = null;
       } else if (signal === "SELL" && mtfScore > 100 - mtfThreshold) {
-        reasonExtension = ` | 🛑 MTF Veto: Trend (${mtfVerdictText}) zayıf (Threshold: ${mtfThreshold}%).`;
+        reasonExtension = ` | 🛑 MTF Veto: Ayı trendi (${mtfVerdictText}) yetersiz (Karşıt Trend Güçlü).`;
         finalSignal = null;
+      } else if (isEarly) {
+        reasonExtension = ` | ⚡ Early Priority Entry (MTF ${mtfVerdictText})`;
       }
     } else {
       reasonExtension = ` | ℹ️ MTF Check: ${mtfVerdictText} (Veto Disabled)`;
@@ -449,11 +457,16 @@ export class MatrixV5Strategy extends BaseStrategy {
     const fetchPromise = (async () => {
       try {
         const klines = await getKlines(this.symbol, tf, 50);
-        if (klines && klines.length >= 21) {
-          const closes = klines.map((k) => parseFloat(String(k[4])));
+        if (klines && klines.length >= 50) {
+          const closes = klines.map((k: any) => parseFloat(String(k[4])));
           const lastClose = closes[closes.length - 1];
-          const ema20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
-          const result = lastClose > ema20 ? 1 : 0;
+          const ema20 = closes.slice(-20).reduce((a: number, b: number) => a + b, 0) / 20;
+          const ema50 = closes.slice(-50).reduce((a: number, b: number) => a + b, 0) / 50;
+          
+          let result = 0;
+          if (lastClose > ema20) result += 0.5;
+          if (lastClose > ema50) result += 0.5;
+          
           mtfResultsCache.set(cacheKey, { result, timestamp: Date.now() });
           return result;
         }

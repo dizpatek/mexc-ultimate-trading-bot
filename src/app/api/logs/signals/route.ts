@@ -7,12 +7,29 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
-    const user = await getSessionUser(request);
+    const isDev = process.env.NODE_ENV !== "production";
+    const cronSecret = process.env.CRON_SECRET || (isDev ? "dev-secret" : null);
+    const { searchParams } = new URL(request.url);
+    const querySecret = searchParams.get("secret");
+    const authHeader = request.headers.get("authorization");
+
+    let user = await getSessionUser(request);
+    
+    // Auth bypass for direct browser access or cron jobs using secret
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      const isAuthorizedBySecret = (cronSecret && (
+        querySecret === cronSecret || 
+        authHeader === `Bearer ${cronSecret}`
+      ));
+
+      if (isAuthorizedBySecret) {
+        // Mock system user if authorized by secret
+        user = { id: 1, email: "system@internal", username: "system" } as any;
+      } else {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
     }
 
-    const { searchParams } = new URL(request.url);
     const timeframe = searchParams.get("timeframe") || "1m";
 
     // Ensure tables exist (optimized with isInitialized internal flag)
@@ -35,7 +52,8 @@ export async function GET(request: Request) {
                     s.timestamp,
                     s.executed,
                     s.execution_result::text as detail,
-                    s.timeframe as timeframe
+                    s.timeframe as timeframe,
+                    s.veto_reason
                 FROM strategy_signals s
                 LEFT JOIN strategies st ON s.strategy_id = st.id
                 WHERE (s.strategy_id IS NULL OR st.user_id = ${user.id})
@@ -59,7 +77,8 @@ export async function GET(request: Request) {
                     timestamp,
                     true as executed,
                     message || ': ' || COALESCE(details, '') as detail,
-                    'SYSTEM' as timeframe
+                    'SYSTEM' as timeframe,
+                    NULL as veto_reason
                 FROM system_logs
                 WHERE (user_id = ${user.id} OR user_id IS NULL)
                 AND timestamp > ${fortyEightHoursAgo}

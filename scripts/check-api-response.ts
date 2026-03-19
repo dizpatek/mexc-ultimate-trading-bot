@@ -1,4 +1,4 @@
-import { MatrixV3Engine } from '../src/lib/matrix-v3-engine';
+import { MatrixV5Engine } from '../src/lib/matrix-v5-engine.ts';
 
 async function checkApiResponse() {
     console.log('--- Checking Matrix V3 API Response Structure ---');
@@ -12,7 +12,7 @@ async function checkApiResponse() {
         const lows = closes.map(c => c - 50);
         const volumes = Array(100).fill(100).map((v, i) => i === 90 ? 500 : 100); // Whale spike
 
-        const engine = new MatrixV3Engine();
+        const engine = new MatrixV5Engine();
         const result = engine.analyze(closes, highs, lows, volumes);
 
         const apiResponse = {

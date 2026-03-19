@@ -7,6 +7,7 @@ import {
   logSystemEvent,
   getActiveOrderSymbols,
   getRecentSignalsBulk,
+  getActiveSmartTrades,
   acquireLock,
   releaseLock,
   markSignalExecuted,
@@ -138,7 +139,20 @@ async function processStrategy(
     console.log(`[StrategyEngine] Analyzing ${strategy.name} (${symbol}) for User: ${userId}...`);
 
     // Instantiate strategy - cast parameters to StrategyParameters
-    const parameters = (strategy.parameters || {}) as StrategyParameters;
+    // Inherit global defaults to fix old custom strategies lacking these fields
+    const parameters = {
+      mtfVeto: botConfig.pilot_mtf_veto,
+      mtfThreshold: botConfig.pilot_mtf_threshold,
+      minAiScore: botConfig.ai_threshold || 65,
+      f4Length: botConfig.f4_length,
+      whaleVolumeMultiplier: botConfig.whale_multiplier,
+      f4PowerLossThreshold: botConfig.f4_power_loss_threshold,
+      f4LookbackBars: botConfig.f4_lookback_bars,
+      f4SqueezeThreshold: botConfig.f4_squeeze_threshold,
+      minPowerLoss: botConfig.min_power_loss,
+      ...(strategy.parameters || {})
+    } as StrategyParameters;
+    
     const strategyInstance = createStrategy(
       strategy.strategy_type,
       symbol,
@@ -267,39 +281,47 @@ async function runPilotCycle(
     // Load re-entry map from DB ONCE per cycle instead of per-symbol (Performance Fix P4.2)
     await PilotExecutor.ensureReEntryMapLoaded();
 
-    const activeOrderSymbols = await getActiveOrderSymbols(userId, mode);
+    const activeSmartTrades = await getActiveSmartTrades(userId, mode);
+    const activeOrderSymbols = activeSmartTrades.map(t => t.symbol);
     
-    // SCAN RANGE: If pilot_only_holdings is ON, only scan owned assets. 
-    // If OFF, fetch top assets from exchange to scan the whole market.
+    // SCAN RANGE: Even if pilot_only_holdings is ON, we include a minimal set of Top Assets 
+    // to ensure the bot can discover new entry opportunities as requested by the user.
     let assetsToScan = [...holdingPairs];
-    if (botConfig.pilot_only_holdings === false) {
-      const topAssets = await getTopAssets(50);
-      assetsToScan = Array.from(new Set([...assetsToScan, ...topAssets.map(a => a.symbol.replace("/", ""))]));
-      console.log(`[PilotEngine] 🌐 Full market scan enabled. Monitoring top 50 assets + holdings.`);
-    }
+    const topAssetsCount = botConfig.pilot_only_holdings ? 20 : 60; // Discovery vs Full Market
+    
+    const topAssets = await getTopAssets(topAssetsCount);
+    const topSymbols = topAssets.map(a => a.symbol.replace("/", ""));
+    
+    assetsToScan = Array.from(new Set([...assetsToScan, ...topSymbols]));
+    console.log(`[PilotEngine] 🌐 Scan set prepared: ${assetsToScan.length} assets (Holdings + Top ${topAssetsCount}).`);
 
     const finalCoins = assetsToScan.filter((s) => 
       s !== "USDTUSDT" && 
       s !== "USDT" && 
       s !== "undefinedUSDT" && 
-      s.length > 4 &&
-      !activeOrderSymbols.includes(s)
+      s.length > 4
+      // MATRIX Modu için aktif olanları DA tarıyoruz ki ters sinyal gelince kapatabilelim.
+      // SADECE HEDGE modunda ve aynı yönde işlem varsa belki atlanabilir ama PilotExecutor içinde kontrol etmek daha sağlıklı.
     );
 
     console.log(`[PilotEngine] 🔍 Monitoring ${finalCoins.length} assets.`);
 
-    // Fetch recent signals to prevent duplicate rapid-fire trades (Race Condition Fix)
-    const recentSignals = await getRecentSignalsBulk(finalCoins, DEDUP_WINDOW_MS, mode);
+    // P4.2: Hybrid Multi-Timeframe Scanning
+    // We scan 1m for ultra-fast "Early" signals and the configured pilot_timeframe for trend signals.
+    let mainTf = botConfig.pilot_timeframe || "4h";
+    if (mainTf.toLowerCase() === "1mo") mainTf = "1M";
+    
+    // Timeframes to scan: Always include 1m if Scalp mode or if user specifically needs fast signals
+    const timeframesToScan = (mainTf === "1m") ? ["1m"] : ["1m", mainTf];
 
-    const scanTimeframe = botConfig.pilot_timeframe || "4h";
     console.log(
-      `[PilotEngine] Monitoring ${finalCoins.length} assets on ${scanTimeframe}...`,
+      `[PilotEngine] Monitoring ${finalCoins.length} assets on ${timeframesToScan.join(", ")}...`,
     );
     await logSystemEvent(
       userId,
       "SYSTEM",
       "PILOT_SCAN",
-      `${finalCoins.length} varlık pilot taramasında (${scanTimeframe}).`,
+      `${finalCoins.length} varlık pilot taramasında (${timeframesToScan.join(", ")}).`,
     );
 
     // Run parallel analysis for monitored assets in batches
@@ -313,12 +335,30 @@ async function runPilotCycle(
       if (h.symbol) holdingsMap.set(h.symbol.replace("/", ""), h);
     }
 
+    // Fetch recent signals to prevent duplicate rapid-fire trades
+    const recentSignals = await getRecentSignalsBulk(finalCoins, DEDUP_WINDOW_MS, mode);
+
     let noSignalCount = 0;
-    const CHUNK_SIZE = Math.max(5, Math.ceil(finalCoins.length / 5));
-    for (let i = 0; i < finalCoins.length; i += CHUNK_SIZE) {
-      const chunk = finalCoins.slice(i, i + CHUNK_SIZE);
-      const chunkNoSignal = await processPilotChunk(chunk, scanTimeframe, botConfig, userId, isImmediate, mode, holdingsMap, recentSignals);
-      noSignalCount += chunkNoSignal;
+    const CHUNK_SIZE = 100;
+
+    // P4.2: Iterate through all enabled timeframes (e.g. 1m and 4h)
+    for (const tf of timeframesToScan) {
+      console.log(`[PilotEngine] 🕒 Scanning ${finalCoins.length} coins on ${tf}...`);
+      for (let i = 0; i < finalCoins.length; i += CHUNK_SIZE) {
+        const chunk = finalCoins.slice(i, i + CHUNK_SIZE);
+        const chunkNoSignal = await processPilotChunk(
+          chunk, 
+          tf, 
+          botConfig, 
+          userId, 
+          isImmediate, 
+          mode, 
+          holdingsMap, 
+          recentSignals, 
+          activeSmartTrades
+        );
+        noSignalCount += chunkNoSignal;
+      }
     }
 
     if (noSignalCount > 0) {
@@ -338,7 +378,8 @@ async function processPilotChunk(
   isImmediate: boolean,
   mode: TradingMode = "test",
   holdingsMap: Map<string, any> = new Map(),
-  recentSignals: any[] = []
+  recentSignals: any[] = [],
+  activeSmartTrades: any[] = []
 ): Promise<number> {
   let noSignalCount = 0;
   // P4.2: Optimized for performance - Analyze in parallel, but process execution sequentially
@@ -368,7 +409,14 @@ async function processPilotChunk(
           minAiScore: botConfig.ai_threshold || 65,
           tradeMode: resolveTradeMode(botConfig),
           mtfVeto: botConfig.pilot_mtf_veto,
-          mtfThreshold: botConfig.pilot_mtf_threshold
+          mtfThreshold: botConfig.pilot_mtf_threshold,
+          f4Length: botConfig.f4_length,
+          whaleVolumeMultiplier: botConfig.whale_multiplier,
+          f4PowerLossThreshold: botConfig.f4_power_loss_threshold,
+          f4LookbackBars: botConfig.f4_lookback_bars,
+          f4SqueezeThreshold: botConfig.f4_squeeze_threshold,
+          minPowerLoss: botConfig.min_power_loss,
+          fiboLength: botConfig.fibo_length
         });
 
         const signal = await strategy.analyze();
@@ -409,6 +457,7 @@ async function processPilotChunk(
         mode,
         holdingsMap,
         recentSignals,
+        activeSmartTrades,
         lockInfo
       });
     } catch (err) {

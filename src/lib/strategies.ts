@@ -380,7 +380,8 @@ export class MatrixV5Strategy extends BaseStrategy {
     const tfsToFetch = tfsToScan.filter((tf) => tf !== currentTimeframe);
 
     const engineBullCount = (engineResult as any).indicatorBullCount ?? (engineResult as any).mtfBullCount ?? 0;
-    let mtfBullCount = engineBullCount >= 3 ? 1 : 0;
+    // Granular scoring: Convert 0-5 bull count to a base score (e.g. 1/5 = 0.2)
+    let mtfBullScore = engineBullCount / 5;
     let mtfTotal = 1;
 
     try {
@@ -392,7 +393,8 @@ export class MatrixV5Strategy extends BaseStrategy {
 
       for (const res of mtfResults) {
         if (res !== null) {
-          mtfBullCount += res;
+          // performLiteMtfCheck returns 1 (bull) or 0 (bear)
+          mtfBullScore += res;
           mtfTotal++;
         }
       }
@@ -400,8 +402,8 @@ export class MatrixV5Strategy extends BaseStrategy {
       console.error(`[MTF-Lite] Parallel check failed for ${this.symbol}:`, err);
     }
 
-    const score = mtfTotal > 0 ? (mtfBullCount / mtfTotal) * 100 : 50;
-    const verdictText = `${mtfBullCount}/${mtfTotal} TF Sinyal`;
+    const score = mtfTotal > 0 ? (mtfBullScore / mtfTotal) * 100 : 50;
+    const verdictText = `${mtfBullScore.toFixed(1)}/${mtfTotal} TF Sinyal`;
     return { score, verdictText };
   }
 
@@ -421,11 +423,16 @@ export class MatrixV5Strategy extends BaseStrategy {
     let reasonExtension = "";
 
     if (mtfVetoEnabled) {
+      // ASYMMETRIC VETO:
+      // BUY signals need strong BULL confirmation (Score >= Threshold, e.g. 80%)
+      // SELL signals only vetoed if BULL trend is too strong (Score > 40-50%)
+      const sellVetoThreshold = Math.min(40, 100 - mtfThreshold); // If user wants 90% threshold, sell veto happens at 10%. Default 40%.
+
       if (signal === "BUY" && mtfScore < mtfThreshold) {
         reasonExtension = ` | 🛑 MTF Veto: Boğa trendi (${mtfVerdictText}) yetersiz (Threshold: ${mtfThreshold}%).`;
         finalSignal = null;
-      } else if (signal === "SELL" && mtfScore > 100 - mtfThreshold) {
-        reasonExtension = ` | 🛑 MTF Veto: Ayı trendi (${mtfVerdictText}) yetersiz (Karşıt Trend Güçlü).`;
+      } else if (signal === "SELL" && mtfScore > sellVetoThreshold) {
+        reasonExtension = ` | 🛑 MTF Veto: Ayı trendi (${mtfVerdictText}) yetersiz (Karşıt Boğa Baskısı: ${mtfScore.toFixed(1)}% > ${sellVetoThreshold}%).`;
         finalSignal = null;
       } else if (isEarly) {
         reasonExtension = ` | ⚡ Early Priority Entry (MTF ${mtfVerdictText})`;

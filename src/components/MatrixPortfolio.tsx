@@ -166,7 +166,11 @@ export const MatrixPortfolio: React.FC<MatrixPortfolioProps> = ({
           [symbol]: { type: "success", msg: "Tamam!" },
         }));
         setTimeout(
-          () => setTradeStatus((prev) => ({ ...prev, [symbol]: null })),
+          () => {
+            setTradeStatus((prev) => ({ ...prev, [symbol]: null }));
+            // Scroll to active trades after a successful direct execution
+            document.getElementById('active-smart-trades-section')?.scrollIntoView({ behavior: 'smooth' });
+          },
           3000,
         );
       } else {
@@ -266,6 +270,9 @@ export const MatrixPortfolio: React.FC<MatrixPortfolioProps> = ({
         {/* GROUP 3: ACTIONS */}
         <div className="flex items-center gap-2 lg:justify-self-end justify-between w-full lg:w-auto">
           <div className="flex items-center p-1 bg-slate-950/20 gap-1">
+             <span className="text-[8px] font-black bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 uppercase tracking-widest px-2 py-0.5 rounded hidden sm:block opacity-90 shadow-[0_0_10px_rgba(16,185,129,0.1)]">
+                THIS AI IS FOR USERS, NOT FOR THE PILOT
+             </span>
              <button
               onClick={(e) => { 
                 e.stopPropagation(); 
@@ -383,12 +390,17 @@ export const MatrixPortfolio: React.FC<MatrixPortfolioProps> = ({
                 return (
                   <React.Fragment key={fullSymbol}>
                     <tr
+                      id={`portfolio-row-${fullSymbol}`}
                       className={`hover:bg-cyan-950/20 transition-all duration-200 group relative cursor-pointer ${expandedRow === fullSymbol ? "bg-cyan-950/10" : ""}`}
-                      onClick={() =>
+                      onClick={() => {
                         setExpandedRow(
                           expandedRow === fullSymbol ? null : fullSymbol,
-                        )
-                      }
+                        );
+                        // Scroll to chart if not already expanded, or just scroll to mission control
+                        if (expandedRow !== fullSymbol) {
+                          document.getElementById('mission-control-section')?.scrollIntoView({ behavior: 'smooth' });
+                        }
+                      }}
                     >
                       {/* 1. ASSET */}
                       <td className="px-3 py-2.5 border-r border-slate-800/30">

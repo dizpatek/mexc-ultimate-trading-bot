@@ -7,7 +7,19 @@ export interface TimeframeSettings {
   pilot_trade_allocation?: number;
   pilot_mode?: 'matrix' | 'hedge';
   pilot_use_usdt?: boolean;
-  [key: string]: unknown;
+  pilot_tp_percent?: number;
+  pilot_sl_percent?: number;
+  pilot_tp_trailing?: boolean;
+  pilot_tp_deviation?: number;
+  pilot_sl_trailing?: boolean;
+  pilot_sl_deviation?: number;
+  cover_tp_percent?: number;
+  cover_sl_percent?: number;
+  cover_tp_trailing?: boolean;
+  cover_tp_deviation?: number;
+  cover_sl_trailing?: boolean;
+  cover_sl_deviation?: number;
+  [key: string]: any;
 }
 
 export interface BotConfig {
@@ -17,8 +29,27 @@ export interface BotConfig {
   pilot_only_holdings: boolean;
   pilot_mode?: 'matrix' | 'hedge';
   pilot_use_usdt?: boolean;
+  defense_mode?: boolean;
+  ai_threshold?: number;
+  whale_multiplier?: number;
+  f4_multiplier?: number;
+  f4_length?: number;
+  f4_lookback_bars?: number;
+  f4_squeeze_threshold?: number;
+  f4_power_loss_threshold?: number;
+  min_power_loss?: number;
+  trade_freshness_bars?: number;
+  pilot_mtf_veto?: boolean;
+  pilot_mtf_long_threshold?: number;
+  pilot_mtf_short_threshold?: number;
+  pilot_mtf_threshold?: number;
+  pilot_trailing_buy_dev?: number;
+  pilot_tp_trailing?: boolean;
+  pilot_tp_deviation?: number;
+  pilot_sl_trailing?: boolean;
+  pilot_sl_deviation?: number;
   timeframe_settings?: TimeframeSettings;
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 export function useBotConfig() {

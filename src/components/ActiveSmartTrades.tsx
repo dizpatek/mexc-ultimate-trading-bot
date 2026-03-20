@@ -295,18 +295,36 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                 const orderTf = (payload?.timeframe as string) || timeframe;
                 const mtfResults = mtfData[trade.id] || {};
                 const liveData = (mtfResults[orderTf] || liveSignals[symNorm] || null) as any;
+                const isShort = meta.mode === "COVER" || trade.side === "SELL";
                 const aiScore = liveData ? (liveData.aiScore || 0) : Number(meta?.lastAiScore) || 0;
-                const upProb = liveData?.prediction?.upProb ?? (aiScore > 50 ? aiScore : 50);
+                
+                // P5.1: Calculate probability based on signal direction if raw upProb is missing
+                const rawUpProb = liveData?.prediction?.upProb;
+                let upProb = 50;
+                if (typeof rawUpProb === 'number') {
+                  upProb = rawUpProb;
+                } else if (liveData?.signal === "SELL") {
+                  upProb = aiScore > 50 ? 100 - aiScore : 50;
+                } else if (liveData?.signal === "BUY") {
+                  upProb = aiScore > 50 ? aiScore : 50;
+                } else {
+                  upProb = aiScore > 50 ? aiScore : 50;
+                }
 
                 // Flight Plan Logic Integration
                 const isSmcBullish = liveData?.smc?.swingTrend === "BULLISH";
-                const flightPlanStatus = `${isSmcBullish ? "BOĞA 📈" : "AYI 📉"} / ${(liveData as any)?.marketPhaseText || "KONSOL."}`;
-                const decision = aiScore > 80 ? "LONG AÇ ✅" : aiScore > 60 ? "EKLE/TUT 📈" : "BEKLE ❌";
+                const flightPlanStatus = `${isSmcBullish ? "BOĞA 📈" : "AYI 📉"} / ${(liveData as any)?.marketPhaseText || "DURGUN"}`;
+                
+                const decision = aiScore > 80 
+                  ? (isShort ? "SHORT AÇ ✅" : "LONG AÇ ✅") 
+                  : aiScore > 60 
+                    ? (isShort ? "SATIŞI TUT 📉" : "EKLE/TUT 📈") 
+                    : "BEKLE ❌";
 
                 const { statusText, statusColor } = interpretTradingStatus(liveData, isClosed, trade.side, currentPrice, meta.activeTakeProfit || parseFloat(payload?.takeProfit?.price || "0"), meta.activeStopLoss || parseFloat(payload?.stopLoss?.price || "0"), aiScore, trade.status, meta);
 
                 const allTfs = MTF_INTERVALS.map(tf => mtfResults[tf]).filter(Boolean);
-                const { verdictText, verdictColor, bullCount, bearCount, goodPct } = calculateMtfVerdict(allTfs, trade.side);
+                const { verdictText, verdictColor, bullCount, bearCount, goodPct, dominantPct, sentimentColor } = calculateMtfVerdict(allTfs, trade.side);
 
                 return (
                   <div key={trade.id} className={cn("group transition-all duration-300 relative", pnlPercent >= 0 ? "bg-emerald-500/5 border-l-2 border-emerald-500/20" : "bg-rose-500/5 border-l-2 border-rose-500/20")}>
@@ -322,10 +340,13 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                         </div>
                         <div className="flex flex-col">
                           <div className="flex items-center gap-1">
-                             <span className="text-sm font-black text-white">{trade.symbol.replace("USDT", "")}<span className="text-slate-600">/USDT</span></span>
-                             <span className={cn("text-[8px] font-black px-1 rounded", meta.mode === "COVER" ? "bg-rose-500/20 text-rose-400" : "bg-emerald-500/20 text-emerald-400")}>
-                               {meta.mode}
-                             </span>
+                            <span className="text-sm font-black text-white tracking-tighter">
+                              {trade.symbol.includes("/") ? trade.symbol.split("/")[0] : trade.symbol.replace("USDT", "")}
+                              <span className="text-slate-500 text-[10px]">/{trade.symbol.includes("/") ? trade.symbol.split("/")[1] : "USDT"}</span>
+                            </span>
+                            <span className={cn("text-[8px] px-1 py-0.5 rounded font-black border", meta.mode === "COVER" ? "bg-rose-500/10 border-rose-500/20 text-rose-400" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400")}>
+                              {meta.mode || "TRADE"}
+                            </span>
                           </div>
                           <span className="text-[9px] font-black text-slate-500 uppercase tracking-tighter ml-0.5">V{trade.id}</span>
                         </div>
@@ -370,7 +391,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                             {decision}
                           </div>
                           <div className="text-[8px] text-slate-500 font-bold uppercase tracking-widest opacity-60">
-                            {flightPlanStatus.split("/")[1]?.trim() || "KONSOL."}
+                            {flightPlanStatus.split("/")[1]?.trim() || "DURGUN"}
                           </div>
                         </div>
                       </div>
@@ -388,9 +409,18 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                           const hasBuy = d.f4ConfirmedBuy || d.f4EarlyBuy || d.trend === "BULLISH";
                           const hasSell = d.f4ConfirmedSell || d.f4EarlySell || d.trend === "BEARISH";
                           return (
-                            <div key={tf} className={cn("flex-1 p-1 rounded border text-center flex flex-col gap-0.5", trade.side === "BUY" ? (hasBuy ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : (hasSell ? "bg-rose-500/10 border-rose-500/20 text-rose-400" : "bg-slate-800/20 border-white/5 text-slate-600")) : (hasSell ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : (hasBuy ? "bg-rose-500/10 border-rose-500/20 text-rose-400" : "bg-slate-800/20 border-white/5 text-slate-600")))}>
+                            <div key={tf} className={cn(
+                              "flex-1 p-1 rounded border text-center flex flex-col gap-0.5 transition-all duration-300",
+                              hasBuy 
+                                ? (isShort ? "bg-amber-500/10 border-amber-500/30 text-amber-500 animate-pulse" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400") 
+                                : (hasSell 
+                                    ? (!isShort ? "bg-amber-500/10 border-amber-500/30 text-amber-500 animate-pulse" : "bg-rose-500/10 border-rose-500/20 text-rose-400") 
+                                    : "bg-slate-800/20 border-white/5 text-slate-600")
+                            )}>
                               <span className="text-[9px] font-black">{tf}</span>
-                              <span className="text-[8px] font-bold">{trade.side === "BUY" ? (hasBuy ? "AL" : (hasSell ? "SAT" : "-")) : (hasSell ? "AL" : (hasBuy ? "SAT" : "-"))}</span>
+                              <span className="text-[8px] font-bold">
+                                {hasBuy ? (isShort ? "TERS/AL" : "AL") : (hasSell ? (!isShort ? "TERS/SAT" : "SAT") : "-")}
+                              </span>
                             </div>
                           );
                         })}
@@ -400,14 +430,14 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                       <div className="flex flex-col items-center justify-center w-[130px] shrink-0">
                          <div className={cn("text-[11px] font-black tracking-widest", verdictColor)}>{verdictText}</div>
                          <div className="w-16 h-1 bg-slate-800 rounded-full mt-1 overflow-hidden">
-                           <div style={{ width: `${goodPct}%` }} className={cn("h-full", goodPct > 55 ? "bg-emerald-500" : goodPct < 45 ? "bg-rose-500" : "bg-amber-500")} />
+                           <div style={{ width: `${dominantPct}%` }} className={cn("h-full transition-all duration-700", sentimentColor)} />
                          </div>
                       </div>
 
                       {/* KAR/ZARAR */}
                       <div className="flex flex-col items-center justify-center w-[180px] shrink-0 font-mono">
                         <span className={cn("text-[13px] font-black", pnlPercent >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                          {pnlPercent >= 0 ? "+" : ""}${Math.abs(pnlUsdt).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          {pnlPercent >= 0 ? "+" : "-"}${Math.abs(pnlUsdt).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </span>
                         <span className={cn("text-[10px] font-black", pnlPercent >= 0 ? "text-emerald-500" : "text-rose-500")}>
                           {pnlPercent >= 0 ? "+" : ""}{pnlPercent.toFixed(2)}%

@@ -32,6 +32,8 @@ import {
   ChevronUp,
   ChevronDown,
   Target,
+  TrendingUp,
+  Search,
 } from "lucide-react";
 import { fetchGlobalMarketData } from "@/lib/market-data";
 import { useHoldings } from "@/hooks/usePortfolio";
@@ -43,6 +45,7 @@ import { logger } from "@/lib/logger";
 import { useAuth } from "@/hooks/useAuth";
 import { useTrade } from "@/context/TradeContext";
 import { useNotification } from "@/context/NotificationContext";
+import { BotConfig, TimeframeSettings } from "@/hooks/useBotConfig";
 
 // --- TYPES & INTERFACES ---
 interface V5Indicator {
@@ -123,44 +126,6 @@ export interface V5Signal {
     trend: number;
   };
   fundingRate?: number | null;
-  fundingImpact?: "POSITIVE" | "NEGATIVE" | "NEUTRAL";
-}
-interface BotConfig {
-  f4_length: number;
-  whale_multiplier: number;
-  ai_threshold: number;
-  auto_trade: boolean;
-  defense_mode: boolean;
-  pilot_trailing_buy: boolean;
-  pilot_trailing_buy_dev: number;
-  pilot_tp_trailing: boolean;
-  pilot_tp_deviation: number;
-  pilot_sl_trailing: boolean;
-  pilot_sl_deviation: number;
-  pilot_timeframe?: string;
-  pilot_mtf_veto?: boolean;
-  pilot_mtf_threshold?: number;
-  pilot_only_holdings?: boolean;
-  pilot_mode?: 'matrix' | 'hedge';
-  pilot_use_usdt?: boolean;
-  fibo_length: number;
-  f4_power_loss_threshold: number; // F4 Güç Kaybı Eşiği
-  f4_lookback_bars?: number;
-  f4_squeeze_threshold?: number;
-  min_power_loss?: number;
-  scalp_length?: number;
-  scalp_volume_multiplier?: number;
-  swing_length?: number;
-  swing_volume_multiplier?: number;
-  timeframe_settings?: {
-    tradeMode?: string;
-    pilot_trade_allocation?: number;
-    cover_tp_trailing?: boolean;
-    cover_tp_deviation?: number;
-    cover_sl_trailing?: boolean;
-    cover_sl_deviation?: number;
-    [key: string]: any;
-  };
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -302,18 +267,22 @@ export const MatrixHorizon = ({
   const { timeframe: interval } = useTimeframe();
   const { notify, confirm } = useNotification();
   const [signal, setSignal] = useState<V5Signal | null>(null);
-  const [btcDom, setBtcDom] = useState(55.4);
-  const [usdtDom, setUsdtDom] = useState(4.2);
-  const [othersDom, setOthersDom] = useState(11.8);
+  const [btcDom, setBtcDom] = useState({ value: 55.4, change: 0, trend: "UP" });
+  const [ethDom, setEthDom] = useState({ value: 18.2, change: 0, trend: "UP" });
+  const [usdtDom, setUsdtDom] = useState({ value: 4.2, change: 0, trend: "DOWN" });
+  const [othersDom, setOthersDom] = useState({ value: 11.8, change: 0, trend: "UP" });
+  const [paxg, setPaxg] = useState({ price: 2035, change: 0, trend: "UP" });
   const [marketFlow, setMarketFlow] = useState({ label: "ROTASYON 🔄", color: "text-cyan-400" });
 
   // Fetch real market dominance data on mount
   useEffect(() => {
     fetchGlobalMarketData().then((data) => {
       if (data) {
-        setBtcDom(data.btcd.value);
-        setUsdtDom(data.usdtd.value);
-        setOthersDom(data.othersd.value);
+        setBtcDom(data.btcd);
+        setEthDom(data.ethd);
+        setUsdtDom(data.usdtd);
+        setOthersDom(data.othersd);
+        setPaxg(data.paxg);
         setMarketFlow({ label: data.flow, color: data.flowColor });
       }
     }).catch(err => {
@@ -598,8 +567,11 @@ export const MatrixHorizon = ({
           }
         }
         if (mkt) {
-          setBtcDom(mkt.btcd?.value || btcDom || 58.4);
-          setUsdtDom(mkt.usdtd?.value || usdtDom || 4.2);
+          setBtcDom(mkt.btcd);
+          setUsdtDom(mkt.usdtd);
+          setEthDom(mkt.ethd);
+          setOthersDom(mkt.othersd);
+          setPaxg(mkt.paxg);
         }
         setLastSync(new Date());
       } catch {
@@ -792,7 +764,7 @@ export const MatrixHorizon = ({
         : "BEKLE ❌";
 
   return (
-    <div className={cn(
+    <div id="mission-control-section" className={cn(
       "w-full px-2 py-0 transition-all duration-500 relative",
       isSectionExpanded 
         ? "bg-transparent min-h-[600px] flex flex-col gap-0 overflow-hidden" 
@@ -832,6 +804,7 @@ export const MatrixHorizon = ({
         isAdmin={isAdmin}
         aiCooldown={aiCooldown}
         aiResult={aiResult}
+        setAiResult={setAiResult}
         showSettings={showSettings}
         setShowSettings={setShowSettings}
         authUser={authUser}
@@ -840,7 +813,7 @@ export const MatrixHorizon = ({
       />
 
       {/* SETTINGS PANEL */}
-      {showSettings && isSectionExpanded && (
+      {showSettings && (
         <SettingsPanel 
           config={config}
           saveConfig={saveConfig}
@@ -848,18 +821,21 @@ export const MatrixHorizon = ({
           lastSync={lastSync}
           riskMode={riskMode}
           setRiskMode={setRiskMode}
+          isSectionExpanded={isSectionExpanded}
+          setIsSectionExpanded={setIsSectionExpanded}
         />
       )}
 
-      {/* UNIFIED COCKPIT LAYOUT */}
-      <div className={cn(
-        "flex-1 relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-4 transition-all duration-500 overflow-hidden items-stretch",
-
-
-        isSectionExpanded ? "max-h-[5000px] opacity-100 py-0" : "max-h-0 opacity-0 py-0"
-      )}>
-        {/* ── LEFT WING: INTELLIGENCE & STRUCTURE ── */}
-        <div className="col-span-1 lg:col-span-4 grid grid-cols-1 xl:grid-cols-2 gap-4 h-full">
+        {/* ─── UNIFIED COCKPIT LAYOUT ─── */}
+        <div
+          className={cn(
+            "transition-all duration-700 ease-[cubic-bezier(0.23,1,0.32,1)] overflow-hidden",
+            (isSectionExpanded || aiResult || showSettings || aiLoading) ? "max-h-[5000px] opacity-100 py-2" : "max-h-0 opacity-0 py-0",
+          )}
+        >
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 px-6 pb-6">
+        {isSectionExpanded && (
+          <div className="col-span-1 lg:col-span-4 grid grid-cols-1 xl:grid-cols-2 gap-4 h-full">
 
           {/* SECTION 1: AI CONFLUENCE (No redundant score) */}
           <div className="bg-slate-900/40 backdrop-blur-md border border-slate-800/50 rounded-lg p-3 space-y-2">
@@ -1141,15 +1117,17 @@ export const MatrixHorizon = ({
               ))}
             </div>
           </div>
-        </div>
+          </div>
+        )}
 
-        {/* ── CENTER: THE ENGINE EYE ── */}
-        <div
-          className={cn(
-            "col-span-1 lg:col-span-4 flex flex-col items-center justify-between relative min-h-[500px] transition-opacity duration-300 h-full",
-            isActionLoading ? "opacity-40 animate-pulse" : "opacity-100",
-          )}
-        >
+        {/* ── MAIN COCKPIT: TACTICAL HUD & CHART ── */}
+        {isSectionExpanded && (
+          <div
+            className={cn(
+              "col-span-1 lg:col-span-4 flex flex-col items-center justify-between relative min-h-[500px] transition-opacity duration-300 h-full",
+              isActionLoading ? "opacity-40 animate-pulse" : "opacity-100",
+            )}
+          >
 
           <div className="relative flex-shrink-0 flex flex-col items-center justify-center mt-4">
 
@@ -1193,47 +1171,45 @@ export const MatrixHorizon = ({
                 <AIAnalysisSummary signal={signal} riskMode={riskMode} />
               </div>
 
-
-
-
-            {/* COMPACT DECISION BAR (Daralt ve Ortalı) */}
-            <div className="w-full mt-4 flex justify-center">
-              <DecisionBar
-                decision={
-                  decisionText as "İŞLEM AÇ ✅" | "SATIŞ YAP 📉" | "BEKLE ❌"
-                }
-                aiSuggestion={signal?.prediction?.text || "ANALİZ EDİLİYOR..."}
-                mode={signal?.marketPhaseText || "KONSOLİDASYON"}
-                pilotStatus={pilotStatus}
-                riskMode={riskMode}
-                onRiskModeChange={(val) => {
-                  setRiskMode(val);
-                  localStorage.setItem("mx_riskMode", val);
-                }}
-              />
+              {/* COMPACT DECISION BAR (Daralt ve Ortalı) */}
+              <div className="w-full mt-4 flex justify-center">
+                <DecisionBar
+                  decision={
+                    decisionText as "İŞLEM AÇ ✅" | "SATIŞ YAP 📉" | "BEKLE ❌"
+                  }
+                  aiSuggestion={signal?.prediction?.text || "ANALİZ EDİLİYOR..."}
+                  mode={signal?.marketPhaseText || "KONSOLİDASYON"}
+                  pilotStatus={pilotStatus}
+                  riskMode={riskMode}
+                  onRiskModeChange={(val) => {
+                    setRiskMode(val);
+                    localStorage.setItem("mx_riskMode", val);
+                  }}
+                />
+              </div>
             </div>
+
+            {signal?.deathRisk && (
+              <div className="bg-rose-500/20 border border-rose-500/50 rounded-full text-rose-400 text-[11px] font-black animate-pulse shadow-[0_0_30px_rgba(244,63,94,0.3)] uppercase tracking-[0.2em] px-8 py-2.5 mt-8">
+                🛑 KİLL SWİTCH DEVREDE
+              </div>
+            )}
           </div>
-
-          {signal?.deathRisk && (
-            <div className="bg-rose-500/20 border border-rose-500/50 rounded-full text-rose-400 text-[11px] font-black animate-pulse shadow-[0_0_30px_rgba(244,63,94,0.3)] uppercase tracking-[0.2em] px-8 py-2.5 mt-8">
-              🛑 KİLL SWİTCH DEVREDE
-            </div>
-          )}
-        </div>
+        )}
 
         {/* ── RIGHT WING: MARKET & HEALTH ── */}
-        <div className="col-span-1 lg:col-span-4 grid grid-cols-1 xl:grid-cols-2 gap-4 h-full">
-
-          {/* SECTION 4: MARKET DYNAMICS */}
-          <div className="bg-slate-900/40 backdrop-blur-md border border-slate-800/50 rounded-lg p-3 space-y-2">
-            <SH
-              icon={<Globe size={11} />}
-              title="Piyasa Dinamiği"
-              color="text-blue-400"
-            />
+        {isSectionExpanded && (
+          <div className="col-span-1 lg:col-span-4 grid grid-cols-1 xl:grid-cols-2 gap-4 h-full">
+            {/* SECTION 4: MARKET DYNAMICS */}
+            <div className="bg-slate-900/40 backdrop-blur-md border border-slate-800/50 rounded-lg p-3 space-y-2">
+              <SH
+                icon={<Globe size={11} />}
+                title="Piyasa Dinamiği"
+                color="text-blue-400"
+              />
             {[
-              { label: "BTC HAKİMİYET", val: btcDom, color: "bg-amber-500", min: 40, max: 70 },
-              { label: "USDT REZERV", val: usdtDom, color: "bg-cyan-500", min: 4, max: 10 },
+              { label: "BTC HAKİMİYET", val: btcDom.value, color: "bg-amber-500", min: 40, max: 70 },
+              { label: "USDT REZERV", val: usdtDom.value, color: "bg-cyan-500", min: 4, max: 10 },
             ].map(({ label, val, color, min, max }) => (
               <div key={label} className="space-y-1.5">
                 <div className="flex justify-between text-xs mb-1">
@@ -1570,9 +1546,10 @@ export const MatrixHorizon = ({
             </div>
           </div>
         </div>
+      )}
 
         {/* ─── GROQ AI ŞEF SONUÇLARI (FULL WIDTH BOTTOM) ─── */}
-        <div className="col-span-1 lg:col-span-12 w-full">
+        <div id="ai-results-section" className="col-span-1 lg:col-span-12 w-full">
           {aiErr && (
             <div className="p-2 bg-rose-500/10 border border-rose-500/50 rounded-lg text-rose-400 text-[10px] font-mono">
               {aiErr}
@@ -1701,49 +1678,510 @@ export const MatrixHorizon = ({
               )}
             </div>
           )}
+        </div>
+      </div>
+    </div>
 
-          {/* ─── MONEY FLOW RECOGNITION (Final Polish) ─── */}
-          <div className="col-span-1 lg:col-span-12 mt-8 py-3 bg-slate-900/40 border-t border-white/5 flex flex-col md:flex-row items-center justify-between gap-4 px-6 rounded-b-xl border-x border-b border-white/5">
-            <div className="flex items-center gap-6 overflow-x-auto no-scrollbar py-1">
-              <span className="text-[10px] font-black text-cyan-500 uppercase tracking-[0.3em] shrink-0">MONEY_FLOW::CORE</span>
-              
-              <div className="flex items-center gap-8">
-                <div className="flex items-center gap-2 group cursor-help" title="Bitcoin Dominance Indicator">
-                  <span className={cn("text-[10px] font-black uppercase tracking-wider transition-colors", btcDom > 55 ? "text-amber-400" : "text-slate-500")}>BITCOIN</span>
-                  <span className="text-[11px] font-mono font-bold text-slate-300 bg-slate-800/50 px-1.5 py-0.5 rounded">{btcDom.toFixed(1)}%</span>
-                </div>
-                
-                <div className="flex items-center gap-2 group cursor-help" title="Altcoin Market Share">
-                  <span className={cn("text-[10px] font-black uppercase tracking-wider transition-colors", othersDom > 12 ? "text-emerald-400" : "text-slate-500")}>ALTCOIN</span>
-                  <span className="text-[11px] font-mono font-bold text-slate-300 bg-slate-800/50 px-1.5 py-0.5 rounded">{othersDom.toFixed(1)}%</span>
-                </div>
+    {/* ─── MONEY FLOW SANKEY — HER ZAMAN GÖRÜNÜR, TAM GENİŞLİKTE ─── */}
+    <div className="w-full px-6 pb-6">
+      <LiquidityPulseLens 
+        btcDom={btcDom} 
+        ethDom={ethDom} 
+        othersDom={othersDom} 
+        paxg={paxg} 
+        marketFlow={marketFlow} 
+        isExpanded={isSectionExpanded}
+      />
+    </div>
+  </div>
+  );
+}
 
-                <div className="flex items-center gap-2 group cursor-help" title="Safe Haven / Global Risk Proxy">
-                  <span className={cn("text-[10px] font-black uppercase tracking-wider transition-colors", usdtDom > 5 ? "text-blue-400" : "text-slate-500")}>GOLD/XAU</span>
-                  <span className="text-[11px] font-mono font-bold text-slate-100 bg-slate-800/50 px-1.5 py-0.5 rounded">VARLIK</span>
-                </div>
+// ─── MONEY FLOW SANKEY DİYAGRAMI ─────────────────────────────────────────────
+function LiquidityPulseLens({
+  btcDom, ethDom, othersDom, paxg, marketFlow,
+}: any) {
+  const [hovered, setHovered] = React.useState<string | null>(null);
+  const [mouse, setMouse] = React.useState({ x: 0, y: 0 });
+  const [tick, setTick] = React.useState(0);
+  const wrapRef = React.useRef<HTMLDivElement>(null);
 
-                <div className="flex items-center gap-2 group cursor-help" title="USDT / Stablecoin Dominance">
-                  <span className={cn("text-[10px] font-black uppercase tracking-wider transition-colors", usdtDom > 6 ? "text-rose-400" : "text-slate-500")}>FIAT/USD</span>
-                  <span className="text-[11px] font-mono font-bold text-slate-300 bg-slate-800/50 px-1.5 py-0.5 rounded">{usdtDom.toFixed(1)}%</span>
+  // Ticker — her 3s'de flow miktarlarını hafifçe değiştir (gerçeklik hissi)
+  React.useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 3000);
+    return () => clearInterval(id);
+  }, []);
+
+  const onMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const r = wrapRef.current?.getBoundingClientRect();
+    if (r) setMouse({ x: e.clientX - r.left, y: e.clientY - r.top });
+  };
+
+  // ── AKIŞ YÖNÜ TESPİTİ ──────────────────────────────────────────────────────
+  const flowLabel: string = marketFlow?.label || '';
+  const isBullish = flowLabel.includes('BOĞA') || flowLabel.includes('BULL') || flowLabel.includes('GİRİŞ');
+  const isBearish  = flowLabel.includes('AYI')  || flowLabel.includes('BEAR') || flowLabel.includes('ÇIKIŞ');
+  // Nötr = hafif giriş
+  const flowDir: 'IN' | 'OUT' | 'MIXED' = isBearish ? 'OUT' : isBullish ? 'IN' : 'MIXED';
+
+  // Akış yönüne göre renkler ve değerler
+  const INFLOW_COL  = '#22d3ee';
+  const OUTFLOW_COL = '#f43f5e';
+  const MIXED_COL   = '#818cf8';
+
+  const netSign  = flowDir === 'OUT' ? '-' : '+';
+  const netColor = flowDir === 'OUT' ? '#f43f5e' : '#10b981';
+  const netShadow = flowDir === 'OUT'
+    ? '0 0 12px rgba(244,63,94,0.6)'
+    : '0 0 12px rgba(52,211,153,0.6)';
+
+  // Tick'e bağlı küçük titreşim (±0–5%)
+  const jitter = (base: number, seed: number) => {
+    const r = Math.sin(tick * 7.31 + seed) * 0.05;
+    return (base * (1 + r)).toFixed(1);
+  };
+
+  // SVG boyutları
+  const W = 1200; const H = 360;
+  const SX = 160; const TX = 1040; const BW = 18;
+
+  // Source/target nodelar — ÇIKIŞ modunda roller değişir
+  const sources = flowDir === 'OUT'
+    ? [
+        { id: 'BITCOIN',     cy: 90,  h: 140, color: OUTFLOW_COL, label: 'BITCOIN',     val: `-$${jitter(20.7,1)}M`, pct: '55%' },
+        { id: 'ETHEREUM',    cy: 220, h: 90,  color: OUTFLOW_COL, label: 'ETHEREUM',    val: `-$${jitter(7.9,2)}M`,  pct: '30%' },
+        { id: 'ALTS',        cy: 312, h: 50,  color: '#10b981',    label: 'ALT COINLER', val: `-$${jitter(3.9,3)}M`,  pct: '15%' },
+      ]
+    : [
+        // Sol kaynak barlar: Yükseklikler artırıldı (vurgulu duruş)
+        { id: 'STABLES', cy: 90,  h: 140, color: INFLOW_COL,  label: 'STABLECOINS', val: `+$${jitter(16.5,1)}M`, pct: '60%' },
+        { id: 'FIAT',    cy: 220, h: 90,  color: MIXED_COL,   label: 'FIAT / USD',  val: `+$${jitter(10.0,2)}M`, pct: '37%' },
+        { id: 'ALTS',    cy: 312, h: 50,  color: '#10b981',   label: 'ALT COINLER', val: `+$${jitter(3.9,3)}M`,  pct: '14%' },
+      ];
+
+  const targets = flowDir === 'OUT'
+    ? [
+        { id: 'STABLES',  cy: 90,  h: 140, color: INFLOW_COL, label: 'STABLECOINS', val: `+$${jitter(18.5,4)}M`, dom: null },
+        { id: 'FIAT',     cy: 220, h: 90,  color: MIXED_COL,  label: 'FIAT ÇIKIŞ',  val: `+$${jitter(8.0,5)}M`,  dom: null },
+        { id: 'GOLD',     cy: 312, h: 50,  color: '#fbbf24',  label: 'PAXG / ALTIN',val: `+$${jitter(5.2,6)}M`,  dom: null },
+      ]
+    : [
+        { id: 'BITCOIN',     cy: 90,  h: 140, color: '#f59e0b', label: 'BITCOIN',     val: `$${jitter(20.7,4)}M`, dom: `${btcDom?.value?.toFixed(2) || btcDom}` },
+        { id: 'ETHEREUM',    cy: 220, h: 90,  color: MIXED_COL, label: 'ETHEREUM',    val: `$${jitter(7.9,5)}M`,  dom: `${ethDom?.value?.toFixed(2) || ethDom}` },
+        { id: 'STABLECOINS', cy: 312, h: 50,  color: INFLOW_COL, label: 'USDT / USDC', val: `$${jitter(1.8,6)}M`,  dom: null },
+      ];
+
+  type Band = {id:string;src:string;tgt:string;sy:number;sw:number;ty:number;tw:number;color:string;tcol:string;amount:string;pct:string;dir:'in'|'out'};
+
+  const bandsIn: Band[] = [
+    // STABLES sol bar: cy=90, h=140
+    { id:'s-btc', src:'STABLES', tgt:'BITCOIN',     sy: 65,  sw:45, ty: 65,  tw:45, color:INFLOW_COL,  tcol:'#f59e0b', amount:`$${jitter(12.4,10)}M`, pct:'45%', dir:'in' },
+    { id:'f-btc', src:'FIAT',    tgt:'BITCOIN',     sy:210,  sw:38, ty: 120, tw:34, color:MIXED_COL,   tcol:'#f59e0b', amount:`$${jitter(6.2,12)}M`,  pct:'22%', dir:'in' },
+    { id:'a-btc', src:'ALTS',    tgt:'BITCOIN',     sy:305,  sw:12, ty: 145, tw:10, color:'#10b981',   tcol:'#f59e0b', amount:`$${jitter(2.1,14)}M`,  pct:'7%',  dir:'in' },
+    // ETHEREUM target: cy=220, h=90
+    { id:'s-eth', src:'STABLES', tgt:'ETHEREUM',    sy:115,  sw:28, ty: 205, tw:28, color:INFLOW_COL,  tcol:MIXED_COL, amount:`$${jitter(4.1,11)}M`,  pct:'15%', dir:'in' },
+    { id:'f-eth', src:'FIAT',    tgt:'ETHEREUM',    sy:235,  sw:24, ty: 235, tw:24, color:MIXED_COL,   tcol:MIXED_COL, amount:`$${jitter(3.8,13)}M`,  pct:'14%', dir:'in' },
+    // USDT(Sağ) -> ALTS(Sol) Geri Besleme Girişi (Money entering alts)
+    { id:'stb-alts', src:'STABLECOINS', tgt:'ALTS', sy: 312, sw:20, ty: 312, tw:20, color:'#10b981',   tcol:INFLOW_COL,amount:`$${jitter(1.8,15)}M`,  pct:'8%',  dir:'out' },
+  ];
+
+  const bandsOut: Band[] = [
+    // In OUT mode srcX=TX (right), tgtX=SX (left); sy=target node on right, ty=target on left
+    { id:'btc-s',  src:'BITCOIN',  tgt:'STABLES',    sy: 71,  sw:66, ty: 80,  tw:60, color:OUTFLOW_COL, tcol:INFLOW_COL, amount:`$${jitter(11.8,20)}M`, pct:'43%', dir:'out' },
+    { id:'btc-f',  src:'BITCOIN',  tgt:'FIAT',        sy:120,  sw:38, ty:196,  tw:44, color:OUTFLOW_COL, tcol:MIXED_COL,  amount:`$${jitter(5.9,21)}M`,  pct:'21%', dir:'out' },
+    { id:'eth-s',  src:'ETHEREUM', tgt:'STABLES',     sy:196,  sw:30, ty:140,  tw:28, color:OUTFLOW_COL, tcol:INFLOW_COL, amount:`$${jitter(3.7,22)}M`,  pct:'13%', dir:'out' },
+    { id:'eth-f',  src:'ETHEREUM', tgt:'FIAT',        sy:228,  sw:28, ty:248,  tw:28, color:OUTFLOW_COL, tcol:MIXED_COL,  amount:`$${jitter(3.4,23)}M`,  pct:'12%', dir:'out' },
+    { id:'alts-g', src:'ALTS',     tgt:'GOLD',        sy:290,  sw:16, ty:300,  tw:14, color:'#10b981',   tcol:'#fbbf24',  amount:`$${jitter(2.0,24)}M`,  pct:'7%',  dir:'out' },
+    { id:'alts-s', src:'ALTS',     tgt:'STABLES',     sy:308,  sw:12, ty:302,  tw:10, color:'#10b981',   tcol:INFLOW_COL, amount:`$${jitter(1.4,25)}M`,  pct:'5%',  dir:'out' },
+  ];
+
+  // KARMA: hem giriş (sol→sağ) hem çıkış (sağ→sol)
+  const bandsMixed: Band[] = [
+    // GİRİŞ bantları: BTC ve ETH hedefleri (Sola hizalı barlardan sağa)
+    { id:'s-btc',  src:'STABLES', tgt:'BITCOIN',     sy: 65,  sw:45, ty: 65,  tw:45, color:INFLOW_COL,  tcol:'#f59e0b', amount:`$${jitter(9.1,30)}M`,  pct:'33%', dir:'in'  },
+    { id:'s-eth',  src:'STABLES', tgt:'ETHEREUM',    sy: 105, sw:24, ty: 205, tw:24, color:INFLOW_COL,  tcol:MIXED_COL, amount:`$${jitter(3.1,31)}M`,  pct:'11%', dir:'in'  },
+    { id:'f-btc',  src:'FIAT',    tgt:'BITCOIN',     sy: 200, sw:34, ty: 110, tw:28, color:MIXED_COL,   tcol:'#f59e0b', amount:`$${jitter(4.8,32)}M`,  pct:'17%', dir:'in'  },
+    // ÇIKIŞ bantları: sağ→sol
+    { id:'btc-s',  src:'BITCOIN', tgt:'STABLES',     sy: 135, sw:20, ty: 135, tw:18, color:OUTFLOW_COL, tcol:INFLOW_COL,amount:`$${jitter(3.2,33)}M`,  pct:'12%', dir: 'out' },
+    { id:'eth-s',  src:'ETHEREUM',tgt:'FIAT',         sy: 235, sw:16, ty: 235, tw:14, color:OUTFLOW_COL, tcol:MIXED_COL, amount:`$${jitter(2.5,34)}M`,  pct:'9%',   dir: 'out' },
+    // ALT BÖLGESİ DÖNGÜSÜ:
+    // 1. Altcoin satışı (Alts -> BTC)
+    { id:'alts-b', src:'ALTS',    tgt:'BITCOIN',     sy: 305, sw:12, ty: 145, tw:10, color:'#10b981',   tcol:'#f59e0b', amount:`$${jitter(1.5,35)}M`,  pct:'5%',   dir: 'in'  },
+    // 2. Altcoin girişi (Sağ portföyden sol altcoin node'una geri besleme)
+    { id:'stb-alts', src:'STABLECOINS', tgt:'ALTS',  sy: 312, sw:20, ty: 312, tw:20, color:'#10b981',   tcol:INFLOW_COL,amount:`$${jitter(1.8,36)}M`,  pct:'9%',   dir: 'out' },
+  ];
+
+  const bands = flowDir === 'OUT' ? bandsOut : flowDir === 'MIXED' ? bandsMixed : bandsIn;
+
+  // SVG yardımcı fonksiyonlar
+  function bandD(x1:number,y1:number,h1:number,x2:number,y2:number,h2:number) {
+    const mx=(x1+x2)/2;
+    return[`M${x1} ${y1-h1/2}`,`C${mx} ${y1-h1/2} ${mx} ${y2-h2/2} ${x2} ${y2-h2/2}`,
+           `L${x2} ${y2+h2/2}`,`C${mx} ${y2+h2/2} ${mx} ${y1+h1/2} ${x1} ${y1+h1/2}Z`].join(' ');
+  }
+  function lineD(x1:number,y1:number,x2:number,y2:number) {
+    const mx=(x1+x2)/2;
+    return `M${x1} ${y1} C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}`;
+  }
+
+  // KARMA modunda her bant kendi dir'ine göre x pozisyonunu seçer
+  // OUT/IN modlarında global srcX/tgtX yeterli
+  const globalSrcX = flowDir === 'OUT' ? TX : SX;
+  const globalTgtX = flowDir === 'OUT' ? SX : TX;
+  // alias'ler: source/target node render'ları için (node'lar hep IN modu pozisyonunda)
+  const srcX = SX;
+  const tgtX = TX;
+
+  function getBandXs(b: Band): { bSrcX: number; bTgtX: number } {
+    if (flowDir !== 'MIXED') return { bSrcX: globalSrcX, bTgtX: globalTgtX };
+    // KARMA: inflow bantlar SX→TX, outflow bantlar TX→SX
+    return b.dir === 'out'
+      ? { bSrcX: TX, bTgtX: SX }
+      : { bSrcX: SX, bTgtX: TX };
+  }
+
+  const hovBand = bands.find(b => b.id === hovered);
+
+  const statusLabel = flowDir === 'OUT' ? 'KRİPTO ÇIKIŞI' : flowDir === 'MIXED' ? 'KARMA / NÖTR' : 'KRİPTO GİRİŞİ';
+  const statusBg    = flowDir === 'OUT' ? 'rgba(244,63,94,0.08)' : flowDir === 'MIXED' ? 'rgba(129,140,248,0.08)' : 'rgba(52,211,153,0.07)';
+  const statusBor   = flowDir === 'OUT' ? 'rgba(244,63,94,0.22)'  : flowDir === 'MIXED' ? 'rgba(129,140,248,0.22)'  : 'rgba(52,211,153,0.18)';
+  const statusDot   = flowDir === 'OUT' ? 'bg-rose-500'           : flowDir === 'MIXED' ? 'bg-indigo-400'           : 'bg-emerald-500';
+  const statusTxt   = flowDir === 'OUT' ? 'text-rose-400'         : flowDir === 'MIXED' ? 'text-indigo-400'         : 'text-emerald-400';
+
+  const dirArrow    = flowDir === 'OUT' ? '◄ ÇIKIŞ' : flowDir === 'MIXED' ? '⇌ KARMA' : 'GİRİŞ ►';
+
+  // Akış yönü header bar'ındaki küçük kayan şelale göstergesi
+  const netAmount = flowDir === 'OUT' ? `-$${jitter(18.6,99)}M` : `+$${jitter(24.2,98)}M`;
+
+  return (
+    <div ref={wrapRef} onMouseMove={onMouseMove} className="mt-4 w-full" style={{ minWidth: 0 }}>
+      <div
+        className="relative w-full rounded-2xl overflow-hidden transition-all duration-700"
+        style={{
+          background: 'linear-gradient(135deg,#040609 0%,#070b12 60%,#040609 100%)',
+          border: `1px solid ${flowDir === 'OUT' ? 'rgba(244,63,94,0.12)' : 'rgba(148,163,184,0.07)'}`,
+          boxShadow: `0 0 80px ${flowDir === 'OUT' ? 'rgba(244,63,94,0.06)' : 'rgba(6,182,212,0.04)'},inset 0 1px 0 rgba(255,255,255,0.025)`,
+        }}
+      >
+        {/* Grid bg */}
+        <div className="absolute inset-0 pointer-events-none" style={{
+          backgroundImage:'linear-gradient(rgba(34,211,238,0.025) 1px,transparent 1px),linear-gradient(90deg,rgba(34,211,238,0.025) 1px,transparent 1px)',
+          backgroundSize:'56px 56px'
+        }}/>
+
+        {/* ── HEADER ── */}
+        <div className="relative flex items-center justify-between px-7 py-4 border-b border-white/[0.05] z-10">
+          <div className="flex items-center gap-3">
+            <div style={{
+              width:3, height:40, borderRadius:2,
+              background: flowDir === 'OUT'
+                ? 'linear-gradient(180deg,#f43f5e,#818cf8)'
+                : 'linear-gradient(180deg,#22d3ee,#818cf8)',
+              boxShadow: flowDir === 'OUT' ? '0 0 14px rgba(244,63,94,0.7)' : '0 0 14px rgba(34,211,238,0.7)'
+            }}/>
+            <div>
+              <div className="text-[11px] font-black text-white uppercase tracking-[0.36em]">MONEY FLOW — LİKİDİTE SANKEY DİYAGRAMI</div>
+              <div className="text-[9px] text-slate-500 font-mono tracking-widest mt-0.5 uppercase">
+                Kripto Sermaye Transferi · Anlık · {dirArrow}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-6">
+            {/* Net Flow - marketFlow'a bağlı */}
+            <div>
+              <div className="text-[8px] text-slate-600 uppercase tracking-widest font-black">24s Net</div>
+              <div className="text-base font-mono font-black transition-all duration-700"
+                style={{ color: netColor, textShadow: netShadow }}>
+                {netAmount}
+              </div>
+            </div>
+            {/* Dominant yön */}
+            <div>
+              <div className="text-[8px] text-slate-600 uppercase tracking-widest font-black">AKIŞ YÖN</div>
+              <div className={`text-sm font-mono font-black tracking-wider transition-all duration-500 ${statusTxt}`}>
+                {dirArrow}
+              </div>
+            </div>
+            {/* BTC Dom */}
+            <div>
+              <div className="text-[8px] text-slate-600 uppercase tracking-widest font-black">BTC DOM.</div>
+              <div className="text-base font-mono font-black text-amber-300">{btcDom?.value?.toFixed(1) || btcDom}%</div>
+            </div>
+            {/* Status badge */}
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full transition-all duration-500"
+              style={{ background: statusBg, border: `1px solid ${statusBor}` }}>
+              <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${statusDot}`}
+                style={{ boxShadow: flowDir === 'OUT' ? '0 0 6px rgba(244,63,94,0.9)' : '0 0 6px rgba(52,211,153,0.9)' }}/>
+              <span className={`text-[8px] font-black tracking-widest uppercase ${statusTxt}`}>{statusLabel}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* ── SVG SANKEY ── */}
+        <div className="relative w-full" style={{ paddingBottom: '32%' }}>
+          <svg
+            viewBox={`0 0 ${W} ${H}`}
+            preserveAspectRatio="xMidYMid meet"
+            className="absolute inset-0 w-full h-full"
+          >
+            <defs>
+              {bands.map(b => (
+                <React.Fragment key={b.id}>
+                  {/* Akan gradient — x ekseninde kayan 3-stop */}
+                  <linearGradient id={`bg-${b.id}`} x1="0" y1="0" x2="1" y2="0" gradientUnits="objectBoundingBox">
+                    <stop offset="0%"   stopColor={b.color} stopOpacity="0.55"/>
+                    <stop offset="48%"  stopColor={`${b.color}88`} stopOpacity="0.35"/>
+                    <stop offset="100%" stopColor={b.tcol}  stopOpacity="0.55"/>
+                    <animateTransform attributeName="gradientTransform" type="translate" values="-0.25 0;0.25 0;-0.25 0" dur="6s" repeatCount="indefinite"/>
+                  </linearGradient>
+                  {/* Glow gradient */}
+                  <linearGradient id={`gl-${b.id}`} x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%"   stopColor={b.color} stopOpacity="0"/>
+                    <stop offset="50%"  stopColor={b.color} stopOpacity="0.16"/>
+                    <stop offset="100%" stopColor={b.tcol}  stopOpacity="0"/>
+                  </linearGradient>
+                  {/* Kenar glow gradient */}
+                  <linearGradient id={`eg-${b.id}`} x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%"   stopColor={b.color} stopOpacity="0.8"/>
+                    <stop offset="50%"  stopColor="#fff"     stopOpacity="0.4"/>
+                    <stop offset="100%" stopColor={b.tcol}  stopOpacity="0.8"/>
+                  </linearGradient>
+                </React.Fragment>
+              ))}
+              <filter id="sf"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+              <filter id="sf2"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+              {/* Parçacık trail filtresi */}
+              <filter id="ptrail"><feGaussianBlur stdDeviation="2.5"/></filter>
+              <style>{`
+                @keyframes bandHaloInner { 0%,100%{opacity:0} 50%{opacity:0.22} }
+                @keyframes bandHaloOuter { 0%,100%{opacity:0} 50%{opacity:0.12} }
+                @keyframes edgeGlow      { 0%,100%{stroke-opacity:0.15} 50%{stroke-opacity:0.55} }
+                @keyframes ambientDrift   { 0%{transform:translate(0,0)} 25%{transform:translate(12px,-8px)} 50%{transform:translate(-6px,14px)} 75%{transform:translate(18px,6px)} 100%{transform:translate(0,0)} }
+              `}</style>
+            </defs>
+
+            {/* AMBIENT BACKGROUND PARTICLES — kaotik ortam noktaları */}
+            {Array.from({length:8}).map((_,i) => {
+              const ax = 240 + (i*107) % 720;
+              const ay = 40 + (i*73) % 280;
+              const ar = 0.6 + (i%3)*0.5;
+              const aCol = i%2===0 ? 'rgba(34,211,238,0.15)' : 'rgba(129,140,248,0.12)';
+              return <circle key={`amb-${i}`} cx={ax} cy={ay} r={ar} fill={aCol} style={{animation:`ambientDrift ${12+i*2.3}s ease-in-out ${-i*1.7}s infinite`}}/>;
+            })}
+
+            {/* BAND GLOW AURA */}
+            {bands.map(b => {
+              const leftX  = SX + BW / 2;
+              const rightX = TX - BW / 2;
+              const [gx1, gx2] = b.dir === 'out' ? [rightX, leftX] : [leftX, rightX];
+              return (
+                <path key={`gla-${b.id}`}
+                  d={bandD(gx1, b.sy, b.sw + 14, gx2, b.ty, b.tw + 14)}
+                  fill={`url(#gl-${b.id})`}/>
+              );
+            })}
+
+            {/* BANDS + PARTICLES */}
+            {bands.map(b => {
+              const isH = hovered === b.id;
+              // iç kenar kuralı: sol bar sağ yüzü, sağ bar sol yüzü
+              const leftX  = SX + BW / 2;
+              const rightX = TX - BW / 2;
+              const [ex1, ex2] = b.dir === 'out' ? [rightX, leftX] : [leftX, rightX];
+              const pPath = lineD(ex1, b.sy, ex2, b.ty);
+              const pctNum2 = parseFloat(b.pct);
+              // Hız: Büyük akış HIZLI (kısa dur), küçük akış YAVAŞ (uzun dur)
+              // 45% → 2.5s, 33% → 3.5s, 12% → 5.2s, 5% → 6.1s
+              const dur = `${Math.max(1.8, 6.5 - pctNum2 * 0.09).toFixed(2)}s`;
+              return (
+                <g key={b.id}
+                  onMouseEnter={() => setHovered(b.id)}
+                  onMouseLeave={() => setHovered(null)}
+                  style={{ cursor: 'crosshair' }}>
+                  {/* ══ BAND ANA PATH — akan gradient fill ══ */}
+                  <path
+                    d={bandD(ex1, b.sy, b.sw, ex2, b.ty, b.tw)}
+                    fill={`url(#bg-${b.id})`}
+                    fillOpacity={isH ? 1 : 0.58}
+                    style={{ filter: isH ? `drop-shadow(0 0 8px ${b.color})` : 'none', transition: 'fill-opacity .25s' }}
+                  />
+
+                  {/* ══ KENAR IŞIMASI — animated stroke-opacity */}
+                  <path
+                    d={bandD(ex1, b.sy, b.sw, ex2, b.ty, b.tw)}
+                    fill="none"
+                    stroke={`url(#eg-${b.id})`}
+                    strokeWidth={0.6}
+                    style={{ animation: `edgeGlow ${Math.max(1.5, 4.2 - pctNum2*0.05).toFixed(2)}s ease-in-out ${(pctNum2*0.09 % 1.5).toFixed(2)}s infinite`, pointerEvents:'none' }}
+                  />
+
+                  {/* ══ ÇİFT KATMANLI HALO — iç (sw+8) ve dış (sw+18) */}
+                  <path
+                    d={bandD(ex1, b.sy, b.sw + 8, ex2, b.ty, b.tw + 8)}
+                    fill={b.color}
+                    style={{ animation: `bandHaloInner ${Math.max(1.3, 3.8 - pctNum2*0.05).toFixed(2)}s ease-in-out ${(pctNum2*0.11 % 1.8).toFixed(2)}s infinite`, pointerEvents:'none' }}
+                  />
+                  <path
+                    d={bandD(ex1, b.sy, b.sw + 18, ex2, b.ty, b.tw + 18)}
+                    fill={b.color}
+                    style={{ animation: `bandHaloOuter ${Math.max(2.0, 5.5 - pctNum2*0.06).toFixed(2)}s ease-in-out ${(pctNum2*0.14 % 2.2).toFixed(2)}s infinite`, pointerEvents:'none' }}
+                  />
+
+                  {/* Fat invisible hitzone */}
+                  <path d={bandD(ex1, b.sy, b.sw + 14, ex2, b.ty, b.tw + 14)} fill="transparent"/>
+
+                  {/* ══ 5 PARÇACIK: mikro / küçük / orta / büyük / balina ══ */}
+                  {[0, 0.19, 0.42, 0.65, 0.86].map((off, i) => {
+                    const pctNum = parseFloat(b.pct);
+                    const baseR = Math.max(1.4, Math.min(5.5, 0.9 + pctNum * 0.09));
+                    // 5 farklı işlem boyutu
+                    const sizes = [0.4, 0.7, 1.0, 1.35, 1.8];
+                    const dotR = baseR * sizes[i];
+                    const trailR = dotR * 2.2;
+                    // Farklı hızlar: mikro=hızlı, balina=yavaş
+                    const speedMul = [0.7, 0.85, 1.0, 1.15, 1.35];
+                    const particleDur = `${(parseFloat(dur) * speedMul[i]).toFixed(2)}s`;
+                    return (
+                      <React.Fragment key={i}>
+                        {/* Trail — soluk iz */}
+                        <circle r={trailR} fill={b.color} fillOpacity={0.08} filter="url(#ptrail)">
+                          <animateMotion path={pPath} dur={particleDur} begin={`${-off * 4.2}s`} repeatCount="indefinite"/>
+                        </circle>
+                        {/* Ana parçacık */}
+                        <circle
+                          r={isH ? dotR * 1.3 : dotR}
+                          fill={b.color}
+                          fillOpacity={0.92}
+                          style={{ filter: `drop-shadow(0 0 ${(dotR*1.6).toFixed(1)}px ${b.color})` }}>
+                          <animateMotion path={pPath} dur={particleDur} begin={`${-off * 4.2}s`} repeatCount="indefinite"/>
+                        </circle>
+                      </React.Fragment>
+                    );
+                  })}
+
+                  {/* Hover yön oku + detay */}
+                  {isH && (
+                    <>
+                      <text x={(SX+TX)/2} y={b.sy - 4} textAnchor="middle"
+                        style={{ fill: b.color, fontSize: 9, fontWeight: 900, opacity: 0.9, fontFamily: 'monospace', letterSpacing: 2 }}>
+                        {b.amount} • {b.pct}
+                      </text>
+                      <text x={(SX+TX)/2} y={b.sy + 8} textAnchor="middle"
+                        style={{ fill: b.color, fontSize: 10, fontWeight: 900, opacity: 0.85 }}>
+                        {b.dir === 'out' ? '◄◄◄ ÇIKIŞ' : 'GİRİŞ ►►►'}
+                      </text>
+                    </>
+                  )}
+                </g>
+              );
+            })}
+
+            {/* SOURCE NODE BARS */}
+            {sources.map(s => (
+              <g key={s.id}>
+                <rect x={srcX - BW/2 - 8} y={s.cy - s.h/2 - 5} width={BW + 16} height={s.h + 10} rx={5} fill={s.color} fillOpacity={0.07} filter="url(#sf2)"/>
+                <rect x={srcX - BW/2}     y={s.cy - s.h/2}     width={BW}      height={s.h}       rx={3} fill={s.color} fillOpacity={0.9}  filter="url(#sf)"/>
+                <text x={srcX - BW/2 - 16} y={s.cy - 12} textAnchor="end"   style={{ fill: s.color, fontSize: 8,  fontWeight: 900, letterSpacing: 3, textTransform: 'uppercase', fontFamily: 'monospace' }}>{s.label}</text>
+                <text x={srcX - BW/2 - 16} y={s.cy + 3}  textAnchor="end"   style={{ fill: '#fff',  fontSize: 13, fontWeight: 900, fontFamily: 'monospace' }}>{s.val}</text>
+                <text x={srcX - BW/2 - 16} y={s.cy + 18} textAnchor="end"   style={{ fill: s.color, fontSize: 8,  opacity: 0.65, fontFamily: 'monospace' }}>{s.pct} PAZAR</text>
+              </g>
+            ))}
+
+            {/* TARGET NODE BARS */}
+            {targets.map(t => (
+              <g key={t.id}>
+                <rect x={tgtX - BW/2 - 8} y={t.cy - t.h/2 - 5} width={BW + 16} height={t.h + 10} rx={5} fill={t.color} fillOpacity={0.07} filter="url(#sf2)"/>
+                <rect x={tgtX - BW/2}     y={t.cy - t.h/2}     width={BW}      height={t.h}       rx={3} fill={t.color} fillOpacity={0.9}  filter="url(#sf)"/>
+                <text x={tgtX + BW/2 + 16} y={t.cy - 12} textAnchor="start" style={{ fill: t.color, fontSize: 8,  fontWeight: 900, letterSpacing: 3, textTransform: 'uppercase', fontFamily: 'monospace' }}>{t.label}</text>
+                <text x={tgtX + BW/2 + 16} y={t.cy + 3}  textAnchor="start" style={{ fill: '#fff',  fontSize: 13, fontWeight: 900, fontFamily: 'monospace' }}>{t.val}</text>
+                {t.dom && <text x={tgtX + BW/2 + 16} y={t.cy + 18} textAnchor="start" style={{ fill: t.color, fontSize: 8, opacity: 0.65, fontFamily: 'monospace' }}>DOM: {t.dom}%</text>}
+              </g>
+            ))}
+
+            {/* Center watermark */}
+            <text x={W/2} y={H/2 - 8}  textAnchor="middle" style={{ fill: flowDir === 'OUT' ? 'rgba(244,63,94,0.08)' : 'rgba(34,211,238,0.07)', fontSize: 52, fontWeight: 900, fontFamily: 'monospace', letterSpacing: 4 }}>{netAmount}</text>
+            <text x={W/2} y={H/2 + 22} textAnchor="middle" style={{ fill: 'rgba(100,116,139,0.28)', fontSize: 9, fontWeight: 900, fontFamily: 'monospace', letterSpacing: 8, textTransform: 'uppercase' }}>NET AKIŞ · {dirArrow}</text>
+
+            {/* ÇIKIŞ modu — ters ok uyarısı */}
+            {flowDir === 'OUT' && (
+              <g transform={`translate(${W/2},${H - 22})`}>
+                <rect x={-55} y={-12} width={110} height={20} rx={5} fill="#f43f5e" fillOpacity={0.12}/>
+                <text textAnchor="middle" y={4} style={{ fill: '#f43f5e', fontSize: 9, fontWeight: 900, letterSpacing: 4, fontFamily: 'monospace' }}>⚠ KRİPTO ÇIKIŞI AKTİF</text>
+              </g>
+            )}
+          </svg>
+
+          {/* Hover Tooltip */}
+          {hovBand && (
+            <div className="pointer-events-none absolute z-[300]"
+              style={{ left: Math.min(mouse.x + 18, 620), top: Math.max(mouse.y - 88, 6) }}>
+              <div className="rounded-xl p-3.5 backdrop-blur-2xl" style={{
+                background: 'rgba(4,6,9,0.98)',
+                border: `1px solid ${hovBand.color}35`,
+                boxShadow: `0 8px 40px rgba(0,0,0,0.8),0 0 22px ${hovBand.color}18`
+              }}>
+                <div className="text-[8px] font-black uppercase tracking-[0.35em] mb-2" style={{ color: hovBand.color }}>
+                  {flowDir === 'OUT' ? '◄ ÇIKIŞ AKIŞI' : '► GİRİŞ AKIŞI'}
+                </div>
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className="text-[10px] font-black text-slate-200 bg-white/[0.07] px-2 py-0.5 rounded-md">{hovBand.src}</span>
+                  <span className="text-slate-600 text-sm">{flowDir === 'OUT' ? '◄──' : '──►'}</span>
+                  <span className="text-[10px] font-black px-2 py-0.5 rounded-md" style={{ color: hovBand.tcol, background: `${hovBand.tcol}14` }}>{hovBand.tgt}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 font-mono text-[9px]">
+                  <div><div className="text-slate-600 uppercase mb-0.5">HACİM</div><div className="text-white font-black text-xs">{hovBand.amount}</div></div>
+                  <div><div className="text-slate-600 uppercase mb-0.5">PAZAR PAYI</div><div className="font-black text-xs" style={{ color: hovBand.color }}>{hovBand.pct}</div></div>
                 </div>
               </div>
             </div>
+          )}
+        </div>
 
-            <div className={cn("px-4 py-1.5 rounded-full bg-slate-950 border border-white/10 text-[10px] font-black uppercase tracking-[0.15em] shadow-xl", marketFlow.color)}>
-              {marketFlow.label}
+        {/* ── BOTTOM METRICS ── */}
+        <div className="border-t border-white/[0.05] px-7 py-3 flex flex-wrap items-center gap-8">
+          {[
+            { label: 'BTC DOMINANCE', val: `${btcDom?.value?.toFixed(2) || btcDom}%`,         col: '#f59e0b' },
+            { label: 'ETH DOMINANCE', val: `${ethDom?.value?.toFixed(2) || ethDom}%`,         col: '#818cf8' },
+            { label: 'OTHERS.D',      val: `${othersDom?.value?.toFixed(2) || othersDom}%`,   col: '#22d3ee' },
+            { label: 'PAXG / ALTIN',  val: `$${paxg?.price?.toFixed(0) || paxg}`,             col: '#fbbf24' },
+            { label: 'AKIŞ YÖN',      val: marketFlow?.label || 'NÖTR',                        col: netColor  },
+            { label: 'NET DEĞİŞİM',   val: netAmount,                                         col: netColor  },
+          ].map(m => (
+            <div key={m.label} className="flex flex-col gap-0.5">
+              <div className="text-[8px] font-black uppercase tracking-widest" style={{ color: 'rgba(100,116,139,0.6)' }}>{m.label}</div>
+              <div className="text-[11px] font-black font-mono transition-all duration-500" style={{ color: m.col, textShadow: `0 0 8px ${m.col}40` }}>{m.val}</div>
             </div>
-          </div>
+          ))}
         </div>
       </div>
     </div>
   );
-};
+}
 
 
 
-
-
+function LensCard({ label, value, unit, change, trend, color, barColor }: any) {
+  return (
+    <div className="flex flex-col gap-1 transition-all duration-300 hover:translate-y-[-2px]">
+      <div className="flex items-center justify-between gap-4 mb-0.5">
+        <span className={cn("text-[9px] font-black uppercase tracking-[0.2em] opacity-80", color)}>{label}</span>
+        <span className={cn("text-[9px] font-black", trend === "UP" ? "text-emerald-400" : "text-rose-400")}>
+          {trend === "UP" ? "▲" : "▼"} {Math.abs(change).toFixed(2)}%
+        </span>
+      </div>
+      <div className="flex items-baseline gap-1">
+        <span className="text-xl font-mono font-black text-white">{value}</span>
+        <span className="text-[10px] font-black text-slate-500 uppercase">{unit}</span>
+      </div>
+      <div className="w-24 h-1.5 bg-white/5 rounded-full overflow-hidden mt-1 backdrop-blur-sm">
+        <div 
+          className={cn("h-full transition-all duration-1000 ease-out shadow-[0_0_8px_currentColor]", barColor)} 
+          style={{ width: `${Math.min(100, parseFloat(value) * (label === 'BITCOIN' ? 1 : 4))}%` }} 
+        />
+      </div>
+    </div>
+  );
+}
 
 // --- SUB-COMPONENTS ---
 
@@ -1770,6 +2208,7 @@ interface CommandBarProps {
   isAdmin: boolean;
   aiCooldown: number;
   aiResult: any;
+  setAiResult: (res: any) => void;
   showSettings: boolean;
   setShowSettings: (s: boolean) => void;
   authUser: any;
@@ -1777,16 +2216,16 @@ interface CommandBarProps {
   setIsSectionExpanded: (expanded: boolean) => void;
 }
 
-const CommandBar = ({
+function CommandBar({
   aiSource, setAiSource, selectedAsset, setSymbol, socketOnline, interval,
   liveBtcPrice, currentPrice, prevLivePrice, microDigits, config, saveConfig,
   pilotStatus, isPanicActive, isActionLoading, handlePanicSell, handlePanicBuy,
-  runAiAnalysis, aiLoading, isAdmin, aiCooldown, aiResult, showSettings, setShowSettings, authUser,
+  runAiAnalysis, aiLoading, isAdmin, aiCooldown, aiResult, setAiResult, showSettings, setShowSettings, authUser,
   isSectionExpanded, setIsSectionExpanded
-}: CommandBarProps) => {
+}: CommandBarProps) {
   const { data: holdingsRaw } = useHoldings();
   const holdings = holdingsRaw || [];
-  const { setTimeframe } = useTimeframe();
+  const { timeframe, setTimeframe } = useTimeframe();
   const assetScrollRef = React.useRef<HTMLDivElement>(null);
 
   const startScroll = (dir: "left" | "right") => {
@@ -1879,6 +2318,11 @@ const CommandBar = ({
                   e.stopPropagation();
                   setSymbol(asset.symbol + "/USDT");
                   setAiSource("ASSETS");
+                  if (aiResult) {
+                    setAiResult(null);
+                  } else {
+                    runAiAnalysis();
+                  }
                 }} 
                 className={cn(
                   "flex items-center gap-1.5 px-2 py-1 rounded-lg border transition-all relative group h-[26px] min-w-fit flex-shrink-0 z-30", 
@@ -1935,12 +2379,28 @@ const CommandBar = ({
           <button 
             onClick={async (e) => {
               e.stopPropagation();
-              console.log("[MatrixHorizon] Chef button clicked - Holistic Refresh");
+              
+              // TOGGLE LOGIC: If results exist and not currently loading, second click closes it
+              if (aiResult && !aiLoading) {
+                setAiResult(null);
+                return;
+              }
+
+              console.log("[MatrixHorizon] Chef button clicked - Holistic Refresh / Analysis");
               window.dispatchEvent(new CustomEvent("manual-refresh-triggered"));
-              await Promise.all([
-                 runAiAnalysis(),
-                 (window as any)._mx_fetchSignal?.(true) || Promise.resolve()
-              ]);
+              runAiAnalysis();
+              (window as any)._mx_fetchSignal?.(true) || Promise.resolve();
+
+              // Scroll to AI results section with a delay to allow expansion (only when opening)
+              setTimeout(() => {
+                const section = document.getElementById('ai-results-section');
+                if (section) {
+                  section.scrollIntoView({ 
+                    behavior: 'smooth', 
+                    block: 'start' 
+                  });
+                }
+              }, 400);
             }} 
             disabled={aiLoading || (authUser && !isAdmin && aiCooldown > 0)} 
             className={cn(
@@ -1950,11 +2410,11 @@ const CommandBar = ({
             title="Tam Sistem Analizi & AI Şef"
           >
             {aiLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
-            <span className="hidden xl:inline">{aiLoading ? "HESAPLANIYOR" : "ŞEF"}</span>
+            <span className="hidden xl:inline">{aiLoading ? (aiResult ? "KAPATILABİLİR" : "HESAPLANIYOR") : (aiResult ? "KAPAT" : "ŞEF")}</span>
           </button>
 
           <button 
-            onClick={(e) => { 
+            onClick={(e) => {
               e.stopPropagation();
               const isActivating = !config.auto_trade;
               const mode = (typeof window !== "undefined" && localStorage.getItem("TRADING_MODE") === "production") ? "production" : "test"; 
@@ -1983,7 +2443,8 @@ const CommandBar = ({
           <button 
             onClick={(e) => {
               e.stopPropagation();
-              setShowSettings(!showSettings);
+              const nextShow = !showSettings;
+              setShowSettings(nextShow);
             }} 
             className={cn(
               "p-1.5 rounded-lg border transition-all", 
@@ -2021,61 +2482,63 @@ interface SettingsPanelProps {
   lastSync?: Date | null;
   riskMode: string;
   setRiskMode: (m: any) => void;
+  isSectionExpanded: boolean;
+  setIsSectionExpanded: (expanded: boolean) => void;
 }
 
 const ADVANCED_PRESETS: Record<string, any> = {
   "1M": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 70, pilot_trailing_buy: false, pilot_only_holdings: true,
+    pilot_mtf_veto: true, pilot_mtf_threshold: 70, pilot_mtf_long_threshold: 70, pilot_mtf_short_threshold: 30, pilot_trailing_buy: false, pilot_only_holdings: true,
     allocation: 3, tp: 1.2, sl: 0.6, ttp: 0.15, tsl: 0.20, cover_tp: 1.1, cover_sl: 0.50, cover_ttp: 0.13, cover_tsl: 0.18,
-    ai_threshold: 72, whale_multiplier: 1.0, fibo_length: 8, 
+    ai_threshold: 72, whale_multiplier: 1.0, f4_multiplier: 3.7, 
     f4_length: 5, f4_lookback_bars: 15, f4_squeeze_threshold: 10, f4_power_loss_threshold: 85, min_power_loss: 85,
     scalp_length: 5, scalp_volume_multiplier: 4.0, swing_length: 8, swing_volume_multiplier: 1.0, f4_active: true
   },
   "15M": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 65, pilot_trailing_buy: false, pilot_only_holdings: true,
+    pilot_mtf_veto: true, pilot_mtf_threshold: 65, pilot_mtf_long_threshold: 65, pilot_mtf_short_threshold: 35, pilot_trailing_buy: false, pilot_only_holdings: true,
     allocation: 5, tp: 1.0, sl: 0.55, ttp: 0.12, tsl: 0.18, cover_tp: 0.9, cover_sl: 0.40, cover_ttp: 0.10, cover_tsl: 0.15,
-    ai_threshold: 65, whale_multiplier: 1.1, fibo_length: 13, 
+    ai_threshold: 65, whale_multiplier: 1.1, f4_multiplier: 3.2, 
     f4_length: 8, f4_lookback_bars: 20, f4_squeeze_threshold: 14, f4_power_loss_threshold: 87, min_power_loss: 87,
     scalp_length: 8, scalp_volume_multiplier: 3.5, swing_length: 9, swing_volume_multiplier: 1.1, f4_active: true
   },
   "1H": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 65, pilot_trailing_buy: true, pilot_only_holdings: true,
+    pilot_mtf_veto: true, pilot_mtf_threshold: 65, pilot_mtf_long_threshold: 65, pilot_mtf_short_threshold: 35, pilot_trailing_buy: true, pilot_only_holdings: true,
     allocation: 10, tp: 1.2, sl: 0.65, ttp: 0.12, tsl: 0.22, cover_tp: 1.1, cover_sl: 0.45, cover_ttp: 0.11, cover_tsl: 0.20,
-    ai_threshold: 65, whale_multiplier: 1.2, fibo_length: 20, 
+    ai_threshold: 65, whale_multiplier: 1.2, f4_multiplier: 2.7, 
     f4_length: 11, f4_lookback_bars: 30, f4_squeeze_threshold: 20, f4_power_loss_threshold: 90, min_power_loss: 90,
     scalp_length: 11, scalp_volume_multiplier: 3.0, swing_length: 10, swing_volume_multiplier: 1.2, f4_active: true
   },
   "4H": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 68, pilot_trailing_buy: true, pilot_only_holdings: true,
+    pilot_mtf_veto: true, pilot_mtf_threshold: 68, pilot_mtf_long_threshold: 68, pilot_mtf_short_threshold: 32, pilot_trailing_buy: true, pilot_only_holdings: true,
     allocation: 12, tp: 2.0, sl: 1.0, ttp: 0.18, tsl: 0.28, cover_tp: 1.8, cover_sl: 0.65, cover_ttp: 0.16, cover_tsl: 0.25,
-    ai_threshold: 68, whale_multiplier: 1.3, fibo_length: 26, 
+    ai_threshold: 68, whale_multiplier: 1.3, f4_multiplier: 2.0, 
     f4_length: 13, f4_lookback_bars: 40, f4_squeeze_threshold: 25, f4_power_loss_threshold: 88, min_power_loss: 88,
     scalp_length: 13, scalp_volume_multiplier: 2.5, swing_length: 12, swing_volume_multiplier: 1.3, f4_active: true
   },
   "1D": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 70, pilot_trailing_buy: true, pilot_only_holdings: true,
+    pilot_mtf_veto: true, pilot_mtf_threshold: 70, pilot_mtf_long_threshold: 70, pilot_mtf_short_threshold: 30, pilot_trailing_buy: true, pilot_only_holdings: true,
     allocation: 15, tp: 3.0, sl: 1.5, ttp: 0.28, tsl: 0.45, cover_tp: 2.7, cover_sl: 1.0, cover_ttp: 0.25, cover_tsl: 0.40,
-    ai_threshold: 70, whale_multiplier: 1.4, fibo_length: 34, 
+    ai_threshold: 70, whale_multiplier: 1.4, f4_multiplier: 1.2, 
     f4_length: 16, f4_lookback_bars: 55, f4_squeeze_threshold: 30, f4_power_loss_threshold: 85, min_power_loss: 85,
     scalp_length: 16, scalp_volume_multiplier: 2.0, swing_length: 15, swing_volume_multiplier: 1.4, f4_active: true
   },
   "1W": {
-    pilot_mtf_veto: false, pilot_mtf_threshold: 75, pilot_trailing_buy: true, pilot_only_holdings: true,
+    pilot_mtf_veto: false, pilot_mtf_threshold: 75, pilot_mtf_long_threshold: 75, pilot_mtf_short_threshold: 25, pilot_trailing_buy: true, pilot_only_holdings: true,
     allocation: 20, tp: 6.0, sl: 3.0, ttp: 0.55, tsl: 0.90, cover_tp: 5.5, cover_sl: 2.0, cover_ttp: 0.50, cover_tsl: 0.80,
-    ai_threshold: 75, whale_multiplier: 1.5, fibo_length: 50, 
+    ai_threshold: 75, whale_multiplier: 1.5, f4_multiplier: 1.1, 
     f4_length: 20, f4_lookback_bars: 80, f4_squeeze_threshold: 35, f4_power_loss_threshold: 80, min_power_loss: 80,
     scalp_length: 20, scalp_volume_multiplier: 1.8, swing_length: 18, swing_volume_multiplier: 1.5, f4_active: true
   },
   "1MO": {
-    pilot_mtf_veto: false, pilot_mtf_threshold: 80, pilot_trailing_buy: true, pilot_only_holdings: true,
+    pilot_mtf_veto: false, pilot_mtf_threshold: 80, pilot_mtf_long_threshold: 80, pilot_mtf_short_threshold: 20, pilot_trailing_buy: true, pilot_only_holdings: true,
     allocation: 25, tp: 12.0, sl: 6.0, ttp: 1.0, tsl: 1.6, cover_tp: 11.0, cover_sl: 4.0, cover_ttp: 0.9, cover_tsl: 1.4,
-    ai_threshold: 80, whale_multiplier: 1.8, fibo_length: 89, 
+    ai_threshold: 80, whale_multiplier: 1.8, f4_multiplier: 1.0, 
     f4_length: 28, f4_lookback_bars: 120, f4_squeeze_threshold: 50, f4_power_loss_threshold: 75, min_power_loss: 75,
     scalp_length: 28, scalp_volume_multiplier: 1.5, swing_length: 25, swing_volume_multiplier: 1.6, f4_active: true
   },
 };
 
-const SettingsPanel = ({ config, saveConfig, isAdmin, lastSync, riskMode, setRiskMode }: SettingsPanelProps) => {
+function SettingsPanel({ config, saveConfig, isAdmin, lastSync, riskMode, setRiskMode, isSectionExpanded, setIsSectionExpanded }: SettingsPanelProps) {
   const effectiveTradeMode = (riskMode === "scalp" || riskMode === "swing") 
     ? (riskMode === "scalp" ? "Scalp" : "Swing")
     : resolveTradeMode(config);
@@ -2088,11 +2551,13 @@ const SettingsPanel = ({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
       pilot_timeframe: tf.toLowerCase(),
       pilot_mtf_veto: p.pilot_mtf_veto,
       pilot_mtf_threshold: p.pilot_mtf_threshold,
+      pilot_mtf_long_threshold: p.pilot_mtf_long_threshold,
+      pilot_mtf_short_threshold: p.pilot_mtf_short_threshold,
       pilot_trailing_buy: p.pilot_trailing_buy,
       pilot_only_holdings: p.pilot_only_holdings,
       ai_threshold: p.ai_threshold,
       whale_multiplier: p.whale_multiplier,
-      fibo_length: p.fibo_length,
+      f4_multiplier: p.f4_multiplier,
       f4_length: p.f4_length,
       f4_lookback_bars: p.f4_lookback_bars,
       f4_squeeze_threshold: p.f4_squeeze_threshold,
@@ -2131,43 +2596,23 @@ const SettingsPanel = ({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
     <div className="relative z-30 bg-slate-950/90 backdrop-blur-xl border border-cyan-500/10 p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in slide-in-from-top-4 duration-300 mb-2">
       <div className="lg:col-span-3 space-y-4 flex flex-col">
         <div className="flex items-center gap-2 text-xs font-black text-white uppercase tracking-widest mb-1 pb-2 border-b border-white/5"><Zap className="w-4 h-4 text-cyan-400" /> SİSTEM KONTROL</div>
-        <div className="bg-slate-900/80 border border-slate-800/80 rounded-xl px-3 py-2 text-[9px] text-slate-400 font-mono shadow-inner relative overflow-hidden group flex items-center justify-between">
-          <div className="absolute top-0 left-0 w-1 h-full bg-cyan-500/50 group-hover:bg-cyan-400 transition-all" />
-          <div className="flex items-center gap-2">
-            <Activity size={10} className="text-cyan-400 shrink-0" />
-            <span className="text-cyan-400 font-bold uppercase tracking-widest shrink-0">ANGEL CONSOLE</span>
-          </div>
-          <div className="flex items-center gap-1.5 ml-auto">
-            <div className="flex bg-slate-950/80 rounded border border-white/5 p-0.5">
-              <button 
-                onClick={() => setRiskMode("scalp")} 
-                className={cn(
-                  "px-1.5 py-0.5 rounded text-[8px] font-black transition-all border", 
-                  effectiveTradeMode === "Scalp" 
-                    ? "bg-cyan-500 text-slate-950 border-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.5)]" 
-                    : "text-slate-600 hover:text-slate-400 border-transparent",
-                  effectiveTradeMode === "Scalp" && config.auto_trade && "animate-pulse"
-                )}
-              >SCALP</button>
-              <button 
-                onClick={() => setRiskMode("swing")} 
-                className={cn(
-                  "px-1.5 py-0.5 rounded text-[8px] font-black transition-all border", 
-                  effectiveTradeMode === "Swing" 
-                    ? "bg-amber-500 text-slate-950 border-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.5)]" 
-                    : "text-slate-600 hover:text-slate-400 border-transparent",
-                  effectiveTradeMode === "Swing" && config.auto_trade && "animate-pulse"
-                )}
-              >SWING</button>
+        <div className="bg-slate-900/80 border border-slate-800/80 rounded-xl px-3 py-3 text-slate-400 shadow-inner relative overflow-hidden group">
+          <div className="absolute top-0 left-0 w-1 h-full bg-violet-500/50 group-hover:bg-violet-400 transition-all" />
+          <div className="flex flex-col gap-2.5">
+            <div className="flex justify-between items-center text-[10px] font-black text-slate-300 uppercase tracking-widest leading-none">
+              <div className="flex items-center gap-2">
+                <Brain size={14} className="text-violet-400" />
+                <span>AI GÜVEN EŞİĞİ (Threshold)</span>
+              </div>
+              <span className="text-violet-400 bg-violet-500/10 px-2 py-0.5 rounded border border-violet-500/20">{config.ai_threshold ?? DEFAULT_BOT_CONFIG.ai_threshold}%</span>
             </div>
-
-
-            <button 
-              onClick={() => saveConfig({ defense_mode: !config.defense_mode })}
-              className={cn("px-1.5 py-1 rounded border text-[8px] font-black transition-all shadow-sm", config.defense_mode ? "bg-rose-500/20 text-rose-400 border-rose-500/40" : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20")}
-            >
-              {config.defense_mode ? "REINFORCED" : "STD"}
-            </button>
+            <input 
+              type="range" 
+              min="10" max="100" step="5" 
+              value={config.ai_threshold ?? DEFAULT_BOT_CONFIG.ai_threshold} 
+              onChange={(e) => saveConfig({ ai_threshold: parseInt(e.target.value) })} 
+              className="w-full h-1.5 accent-violet-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:bg-violet-400 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-slate-900 cursor-pointer" 
+            />
           </div>
         </div>
 
@@ -2212,17 +2657,31 @@ const SettingsPanel = ({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
             </button>
           </div>
 
-          <div className="bg-slate-900/50 p-2 rounded-lg border border-white/5 space-y-1.5">
-            <div className="flex justify-between text-[9px] font-black text-slate-400 uppercase tracking-widest">
-              <span>EŞİK (THRESHOLD)</span>
-              <span className="text-amber-500">{config.pilot_mtf_threshold ?? 70}%</span>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-slate-900/50 p-2 rounded-lg border border-white/5 space-y-1.5 hover:border-emerald-500/20 transition-colors">
+              <div className="flex justify-between text-[8px] font-black text-slate-400 uppercase tracking-widest">
+                <span className="text-emerald-500/80">LONG EŞİĞİ</span>
+                <span className="text-emerald-500">{config.pilot_mtf_long_threshold ?? 70}%</span>
+              </div>
+              <input 
+                type="range" min="50" max="100" step="5" 
+                value={config.pilot_mtf_long_threshold ?? 70} 
+                onChange={(e) => saveConfig({ pilot_mtf_long_threshold: parseInt(e.target.value) })} 
+                className="w-full h-1 accent-emerald-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" 
+              />
             </div>
-            <input 
-              type="range" min="10" max="100" step="5" 
-              value={config.pilot_mtf_threshold ?? 70} 
-              onChange={(e) => saveConfig({ pilot_mtf_threshold: parseInt(e.target.value) })} 
-              className="w-full h-1 accent-amber-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-amber-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" 
-            />
+            <div className="bg-slate-900/50 p-2 rounded-lg border border-white/5 space-y-1.5 hover:border-rose-500/20 transition-colors">
+              <div className="flex justify-between text-[8px] font-black text-slate-400 uppercase tracking-widest">
+                <span className="text-rose-500/80">SHORT EŞİĞİ</span>
+                <span className="text-rose-500">{config.pilot_mtf_short_threshold ?? 30}%</span>
+              </div>
+              <input 
+                type="range" min="0" max="50" step="5" 
+                value={config.pilot_mtf_short_threshold ?? 30} 
+                onChange={(e) => saveConfig({ pilot_mtf_short_threshold: parseInt(e.target.value) })} 
+                className="w-full h-1 accent-rose-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-rose-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" 
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -2374,15 +2833,6 @@ const SettingsPanel = ({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           
-          {/* AI Güven Skoru (Threshold) */}
-          <div className="bg-slate-900/50 p-2.5 rounded-lg border border-violet-500/20 shadow-inner shadow-violet-500/5">
-            <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
-              <span>AI Güven Eşiği</span>
-              <span className="text-violet-400 bg-violet-500/10 px-1.5 py-0.5 rounded">{config.ai_threshold ?? DEFAULT_BOT_CONFIG.ai_threshold}%</span>
-            </div>
-            <input type="range" min="10" max="100" step="5" value={config.ai_threshold ?? DEFAULT_BOT_CONFIG.ai_threshold} onChange={(e) => saveConfig({ ai_threshold: parseInt(e.target.value) })} className="w-full h-1 accent-violet-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-violet-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
-          </div>
-
           {/* Whale (Balina) Hacim Çarpanı */}
           <div className="bg-slate-900/50 p-2.5 rounded-lg border border-cyan-500/20 shadow-inner shadow-cyan-500/5">
             <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
@@ -2391,14 +2841,14 @@ const SettingsPanel = ({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
             </div>
             <input type="range" min="1.1" max="10.0" step="0.1" value={config.whale_multiplier ?? DEFAULT_BOT_CONFIG.whale_multiplier} onChange={(e) => saveConfig({ whale_multiplier: parseFloat(e.target.value) })} className="w-full h-1 accent-cyan-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
           </div>
-
-          {/* Fibo Length */}
+          
+          {/* F4 Çarpanı */}
           <div className="bg-slate-900/50 p-2.5 rounded-lg border border-emerald-500/20 shadow-inner shadow-emerald-500/5">
             <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
-              <span>Fibo Periyodu</span>
-              <span className="text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">{config.fibo_length ?? DEFAULT_BOT_CONFIG.fibo_length} Bar</span>
+              <span>F4 Çarpanı</span>
+              <span className="text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">{config.f4_multiplier ?? DEFAULT_BOT_CONFIG.f4_multiplier}x</span>
             </div>
-            <input type="range" min="5" max="100" step="1" value={config.fibo_length ?? DEFAULT_BOT_CONFIG.fibo_length} onChange={(e) => saveConfig({ fibo_length: parseInt(e.target.value) })} className="w-full h-1 accent-emerald-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
+            <input type="range" min="0.1" max="10.0" step="0.1" value={config.f4_multiplier ?? DEFAULT_BOT_CONFIG.f4_multiplier} onChange={(e) => saveConfig({ f4_multiplier: parseFloat(e.target.value) })} className="w-full h-1 accent-emerald-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
           </div>
 
           {/* F4 Length */}
@@ -2446,8 +2896,17 @@ const SettingsPanel = ({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
             <input type="range" min="10" max="100" step="5" value={config.min_power_loss ?? DEFAULT_BOT_CONFIG.min_power_loss} onChange={(e) => saveConfig({ min_power_loss: parseInt(e.target.value) })} className="w-full h-1 accent-amber-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-amber-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
           </div>
 
+          {/* Trade Freshness (Taze İşlem Mesafesi) */}
+          <div className="bg-slate-900/50 p-2.5 rounded-lg border border-indigo-500/20 shadow-inner shadow-indigo-500/5">
+            <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
+              <span>Taze İşlem Mesafesi</span>
+              <span className="text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded">{config.trade_freshness_bars ?? DEFAULT_BOT_CONFIG.trade_freshness_bars} Bar</span>
+            </div>
+            <input type="range" min="1" max="50" step="1" value={config.trade_freshness_bars ?? DEFAULT_BOT_CONFIG.trade_freshness_bars} onChange={(e) => saveConfig({ trade_freshness_bars: parseInt(e.target.value) })} className="w-full h-1 accent-indigo-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-indigo-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
+          </div>
+
         </div>
       </div>
     </div>
   );
-};
+}

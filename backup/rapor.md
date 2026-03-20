@@ -2,6 +2,34 @@
 
 Kullanılan TS tabanlı `MatrixV5Engine` ile asıl şablon olan `MatrixV5.pine` (V5.3) kaynak kodunu karşılaştırdığımızda otopilotun ürettiği kararlarda, hesaplamaların doğruluğunda ve sinyal iletiminde ciddi sapmalar (drifts) olduğu görülmektedir. "Sürekli zarardayız" durumunu yaratan temel faktörler aşağıda analiz edilmiştir.
 
+## MTF ve Karar Mekanizması Düzeltmeleri (BNB & DOT Çözümü)
+
+Aktif işlemlerdeki MTF göstergeleri ve karar metinlerindeki (LONG/SHORT) kafa karıştırıcı tutarsızlıklar giderildi.
+
+### 1. Mutlak MTF Renk ve Etiket Standardı
+
+Önceden sistem, pozisyonun "iyiliğine" göre renk belirliyordu (Kısa pozisyonda düşüş varken Yeşil görünmesi gibi).
+
+- **Düzeltme:** Artık MTF kutucukları ve etiketleri her zaman **Piyasa Trendine** sadık kalır.
+  - **Boğa (Yükseliş):** Her zaman **YEŞİL / AL**
+  - **Ayı (Düşüş):** Her zaman **KIRMIZI / SAT**
+- **Sonuç:** BNB (Kısa) örneğinde artık "GÜÇLÜ SAT" kırmızı bar ve kırmızı kutucuklarla doğru şekilde raporlanmaktadır.
+
+### 2. Pozisyona Duyarlı Karar (Decision) Metni
+
+Kısa/Cover pozisyonlarda bile "LONG AÇ" yazan genel mantık düzeltildi.
+
+- **Düzeltme:** Karar mekanizması artık pozisyon türünü (BUY/SELL/COVER) kontrol eder.
+  - **TRADE (Long):** "LONG AÇ ✅" veya "EKLE/TUT 📈"
+  - **COVER (Short):** "SHORT AÇ ✅" veya "SATIŞI TUT 📉"
+
+### 3. Olasılık Barı (upProb) Optimizasyonu
+
+Sinyal yönü SATIŞ (SELL) iken, AI puanının yüksek olması durumunda barın yanlışlıkla Yeşil görünmesi engellendi. Sinyal yönü baz alınarak olasılık renkleri normalize edildi.
+
+> [!TIP]
+> Artık terminal ekranınızdaki **MTF Analizi** ve **DURUM & KARAR** sütunları, işleminizin yönüyle tam bir görsel uyum içinde çalışacaktır.
+
 ## 1. Kritik Formül Eksikleri ve Yanlışlar
 
 ### A. Zamana Ölçekli Dinamik Periyot Hatası (TF-Adaptation Factor)

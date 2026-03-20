@@ -99,6 +99,7 @@ const SentimentBar = ({
 };
 
 const NewsTicker = ({ items }: { items: NewsItem[] }) => {
+  const trade = useTrade();
   const highImpact = useMemo(
     () =>
       items.filter(
@@ -156,13 +157,19 @@ const NewsTicker = ({ items }: { items: NewsItem[] }) => {
               </span>
               <span
                 className={cn(
-                  "font-bold drop-shadow-sm transition-colors",
+                  "font-bold drop-shadow-sm transition-colors cursor-pointer hover:text-cyan-400",
                   item.sentiment === "BULLISH"
                     ? "text-emerald-400"
                     : item.sentiment === "BEARISH"
                       ? "text-rose-400"
                       : "text-slate-300",
                 )}
+                onClick={() => {
+                  if (item.relatedAsset !== 'GLOBAL') {
+                    trade.setSymbol(`${item.relatedAsset}/USDT`);
+                    document.getElementById('mission-control-section')?.scrollIntoView({ behavior: 'smooth' });
+                  }
+                }}
               >
                 {item.title}
               </span>
@@ -184,13 +191,20 @@ const NewsItemRow = ({
   isHeld: boolean;
   handleNewsTrade: (item: NewsItem, direction: "BUY" | "SELL") => void;
 }) => {
+  const trade = useTrade();
   const isCritical =
     item.impact === "HIGH" && Math.abs(item.sentimentScore) > 25;
 
   return (
     <div
+      onClick={() => {
+        if (item.relatedAsset !== 'GLOBAL') {
+          trade.setSymbol(`${item.relatedAsset}/USDT`);
+          document.getElementById('mission-control-section')?.scrollIntoView({ behavior: 'smooth' });
+        }
+      }}
       className={cn(
-        "p-2 border-b border-blue-900/30 hover:bg-blue-950/25 transition-all duration-300 group relative overflow-hidden",
+        "p-2 border-b border-blue-900/30 hover:bg-blue-950/25 transition-all duration-300 group relative overflow-hidden cursor-pointer",
         isCritical && "bg-amber-950/10 border-amber-500/20",
         item.isNew && "animate-news-flash",
       )}
@@ -308,6 +322,7 @@ const WhaleBubble = ({
   isLatest: boolean;
   isDeemphasized: boolean;
 }) => {
+  const trade = useTrade();
   const isBuy = whale.side === "BUY";
   const valueK = (whale.valueUsd / 1000).toFixed(0);
   const timeStr = new Date(whale.time).toLocaleTimeString([], {
@@ -317,8 +332,13 @@ const WhaleBubble = ({
 
   return (
     <div
+      onClick={() => {
+        const base = whale.symbol.split('/')[0];
+        trade.setSymbol(`${base}/USDT`);
+        document.getElementById('mission-control-section')?.scrollIntoView({ behavior: 'smooth' });
+      }}
       className={cn(
-        "inline-flex items-center gap-1.5 px-3 py-1 rounded-full border shrink-0 whitespace-nowrap text-[9px] font-black transition-all",
+        "inline-flex items-center gap-1.5 px-3 py-1 rounded-full border shrink-0 whitespace-nowrap text-[9px] font-black transition-all cursor-pointer hover:border-cyan-500/60",
         isBuy
           ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400"
           : "bg-rose-500/15 border-rose-500/30 text-rose-400",

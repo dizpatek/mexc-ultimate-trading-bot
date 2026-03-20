@@ -63,7 +63,13 @@ export async function checkAlarms() {
       return acc;
     }, new Map<number, Alarm[]>());
 
-    const userConfigCache = new Map<number, { tradeMode: "Scalp" | "Swing"; scanTimeframe: string }>();
+    const userConfigCache = new Map<number, { 
+      tradeMode: "Scalp" | "Swing"; 
+      scanTimeframe: string; 
+      f4Multiplier: number;
+      scalpF4Multiplier: number;
+      swingF4Multiplier: number;
+    }>();
 
     for (const [userId, userAlarms] of alarmsByUser.entries()) {
       let config = userConfigCache.get(userId);
@@ -73,14 +79,28 @@ export async function checkAlarms() {
           config = {
             tradeMode: resolveTradeMode(botConfig),
             scanTimeframe: botConfig?.pilot_timeframe || "1h",
+            f4Multiplier: botConfig?.f4_multiplier ? Number(botConfig.f4_multiplier) : 1.0,
+            scalpF4Multiplier: botConfig?.scalp_f4_multiplier ? Number(botConfig.scalp_f4_multiplier) : 3.7,
+            swingF4Multiplier: botConfig?.swing_f4_multiplier ? Number(botConfig.swing_f4_multiplier) : 1.2
           };
           userConfigCache.set(userId, config);
         } catch {
-          config = { tradeMode: "Scalp", scanTimeframe: "1h" };
+          config = { 
+            tradeMode: "Scalp", 
+            scanTimeframe: "1h", 
+            f4Multiplier: 1.0, 
+            scalpF4Multiplier: 3.7, 
+            swingF4Multiplier: 1.2 
+          };
         }
       }
 
-      const engine = new MatrixV5Engine({ tradeMode: config.tradeMode });
+      const engine = new MatrixV5Engine({ 
+        tradeMode: config.tradeMode,
+        f4Multiplier: config.f4Multiplier,
+        scalpF4Multiplier: config.scalpF4Multiplier,
+        swingF4Multiplier: config.swingF4Multiplier
+      });
       
       // Group by symbol for this user
       const symbolGroups = userAlarms.reduce((acc: Map<string, Alarm[]>, a: Alarm) => {

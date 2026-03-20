@@ -447,11 +447,20 @@ export class PilotExecutor {
     scanTimeframe: string, 
     aiScore: number,
     recentSignals: any[],
-    activeSmartTrades?: any[]
+    activeSmartTrades?: any[],
+    vetoReason?: string
   }) {
     const { userId, symbol, signal, timestamp, executed, executionResult, mode, scanTimeframe, aiScore } = p;
-    let vetoReason: string | undefined = undefined;
-    if (signal.reason && signal.reason.includes("🛑")) vetoReason = signal.reason.split("🛑")[1].trim();
+    let finalVetoReason: string | undefined = p.vetoReason;
+    
+    if (!finalVetoReason && signal.reason && signal.reason.includes("🛑")) {
+      finalVetoReason = signal.reason.split("🛑")[1].trim();
+    }
+    
+    // Fallback: If not executed and no veto reason yet, use executionResult.message
+    if (!executed && !finalVetoReason && executionResult?.message) {
+      finalVetoReason = executionResult.message;
+    }
 
     const mergedResult = {
       ...(executionResult || {}),
@@ -460,7 +469,7 @@ export class PilotExecutor {
       insight: buildInsight(signal.signal, signal.indicators),
       meta: {
         rawSignal: signal,
-        vetoReason,
+        vetoReason: finalVetoReason,
         mode
       }
     };
@@ -469,13 +478,15 @@ export class PilotExecutor {
       user_id: userId,
       symbol,
       timeframe: scanTimeframe,
-      signal_type: signal.signal,
+      signal_type: signal.signal || "NONE",
+      side: signal.signal,
       price: signal.price || 0,
-      timestamp, 
+      timestamp: timestamp, 
       executed,
       execution_result: mergedResult,
       trading_mode: mode,
-      veto_reason: vetoReason
+      veto_reason: finalVetoReason,
+      payload: signal
     });
   }
 
@@ -683,7 +694,8 @@ export class PilotExecutor {
       scanTimeframe,
       aiScore,
       recentSignals,
-      activeSmartTrades
+      activeSmartTrades,
+      vetoReason: !executed ? (executionResult?.message as string) : undefined
     });
 
     if (executed) {

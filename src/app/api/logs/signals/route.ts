@@ -56,7 +56,7 @@ export async function GET(request: Request) {
                     s.veto_reason
                 FROM strategy_signals s
                 LEFT JOIN strategies st ON s.strategy_id = st.id
-                WHERE (s.strategy_id IS NULL OR st.user_id = ${user.id})
+                WHERE (s.user_id = ${user!.id})
                 AND (
                     ${timeframe} = 'all' OR 
                     s.timeframe = ${timeframe} OR 
@@ -80,7 +80,7 @@ export async function GET(request: Request) {
                     'SYSTEM' as timeframe,
                     NULL as veto_reason
                 FROM system_logs
-                WHERE (user_id = ${user.id} OR user_id IS NULL)
+                WHERE (user_id = ${user!.id} OR user_id IS NULL)
                 AND timestamp > ${fortyEightHoursAgo}
                 ORDER BY timestamp DESC
                 LIMIT 500

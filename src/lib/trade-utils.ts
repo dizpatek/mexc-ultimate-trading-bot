@@ -147,26 +147,50 @@ export function calculateMtfVerdict(
   const total = allTfs.length;
   const goodPct = total > 0 ? Math.round((goodCount / total) * 100) : 50;
 
+  const bullPct = total > 0 ? Math.round((bullCountRaw / total) * 100) : 0;
+  const bearPct = total > 0 ? Math.round((bearCountRaw / total) * 100) : 0;
+
   let verdictText = "NÖTR";
   let verdictColor = "text-amber-400";
-  if (goodPct >= 70) {
-    verdictText = "GÜÇLÜ AL";
-    verdictColor = "text-emerald-400";
-  } else if (goodPct >= 55) {
-    verdictText = "AL";
-    verdictColor = "text-emerald-300";
-  } else if (goodPct <= 30) {
-    verdictText = "GÜÇLÜ SAT";
-    verdictColor = "text-rose-400";
-  } else if (goodPct <= 45) {
-    verdictText = "SAT";
-    verdictColor = "text-rose-300";
+  
+  if (side === "BUY") {
+    if (bullPct >= 70) {
+      verdictText = "GÜÇLÜ AL";
+      verdictColor = "text-emerald-400";
+    } else if (bullPct >= 55) {
+      verdictText = "AL";
+      verdictColor = "text-emerald-300";
+    } else if (bearPct >= 70) {
+      verdictText = "TEHLİKE / SAT";
+      verdictColor = "text-rose-500 font-bold underline";
+    } else if (bearPct >= 55) {
+      verdictText = "ZAYIF / AYI";
+      verdictColor = "text-rose-300";
+    }
+  } else {
+    // SELL / COVER Positioning
+    if (bearPct >= 70) {
+      verdictText = "GÜÇLÜ SAT";
+      verdictColor = "text-rose-400";
+    } else if (bearPct >= 55) {
+      verdictText = "SAT";
+      verdictColor = "text-rose-300";
+    } else if (bullPct >= 70) {
+      verdictText = "TEHLİKE / AL";
+      verdictColor = "text-emerald-500 font-bold underline";
+    } else if (bullPct >= 55) {
+      verdictText = "ZAYIF / BOĞA";
+      verdictColor = "text-emerald-300";
+    }
   }
 
   const avgMtfScore =
     total > 0
       ? Math.round(allTfs.reduce((sum, d) => sum + (d.aiScore || 0), 0) / total)
       : 0;
+
+  const dominantPct = Math.max(bullPct, bearPct);
+  const sentimentColor = bullPct >= bearPct ? "bg-emerald-500" : "bg-rose-500";
 
   return {
     bullCount: bullCountRaw,
@@ -175,6 +199,10 @@ export function calculateMtfVerdict(
     badCount,
     total,
     goodPct,
+    bullPct,
+    bearPct,
+    dominantPct,
+    sentimentColor,
     verdictText,
     verdictColor,
     avgMtfScore,

@@ -19,7 +19,7 @@ import { evaluateSAE, SAEInput } from "./engine/signal-arbitration";
 
 export interface MatrixV5Config {
   f4Length: number;
-  fiboLength: number;
+  f4Multiplier: number;
   f4SlopeThreshold: number;
   whaleVolumeMultiplier: number;
   minAiScore: number;
@@ -307,8 +307,8 @@ export class MatrixV5Engine {
 
     this.config = {
       f4Length: d(config.f4Length, 10, "f4Length"),
-      fiboLength: d(config.fiboLength, 20, "fiboLength"),
-      f4SlopeThreshold: d(config.f4SlopeThreshold, 0.01, "f4SlopeThreshold"), // Mapping "Slope Multiplier 0.01"
+      f4Multiplier: d(config.f4Multiplier, 1.2, "f4Multiplier"),
+      f4SlopeThreshold: d(config.f4SlopeThreshold, 0.01, "f4SlopeThreshold"),
       whaleVolumeMultiplier: d(config.whaleVolumeMultiplier, 1.8, "whaleVolumeMultiplier"),
       minAiScore: d(config.minAiScore, 65, "minAiScore"),
       minConfluenceScore: d(config.minConfluenceScore, 60, "minConfluenceScore"),
@@ -353,39 +353,16 @@ export class MatrixV5Engine {
    * Calculates autonomous parameters based on tradeMode and volatility (ATR)
    */
   private getAutonomousConfig(atr: number, basePrice: number, currentConfig: MatrixV5Config, overrides: Partial<MatrixV5Config>) {
-    const isScalp = currentConfig.tradeMode === "Scalp";
-    const volatilityFactor = atr / basePrice; // Relative volatility
-    const volAdjustment = volatilityFactor > 0.02 ? 1.2 : volatilityFactor < 0.005 ? 0.8 : 1.0;
-
-    // Helper to prioritize overrides safely
-    // Priority: 1. Runtime configOverrides (overrides param) 2. Dynamic Autonomous Logic 3. Global Engine Config
-    const getVal = (autoVal: number, key: keyof MatrixV5Config): number => {
-      const val = currentConfig[key];
-      return (key in overrides && typeof val === "number") ? val : autoVal;
+    // Priority: 1. Runtime configOverrides (overrides param) 2. Global Engine Config
+    return {
+      f4Length: overrides.f4Length ?? currentConfig.f4Length ?? 10,
+      f4Multiplier: overrides.f4Multiplier ?? currentConfig.f4Multiplier ?? 1.2,
+      whaleVolumeMultiplier: overrides.whaleVolumeMultiplier ?? currentConfig.whaleVolumeMultiplier ?? 1.8,
+      minAiScore: overrides.minAiScore ?? currentConfig.minAiScore ?? 65,
+      minConfluenceScore: overrides.minConfluenceScore ?? currentConfig.minConfluenceScore ?? 60,
+      f4SlopeThreshold: overrides.f4SlopeThreshold ?? currentConfig.f4SlopeThreshold ?? 0.01,
+      f4LookbackBars: overrides.f4LookbackBars ?? currentConfig.f4LookbackBars ?? 30,
     };
-
-    if (isScalp) {
-      return {
-        f4Length: getVal(11, "f4Length"), // Mapping "Scalp Length 11"
-        fiboLength: getVal(Math.round(11 * volAdjustment), "fiboLength"),
-        whaleVolumeMultiplier: getVal(3.0, "whaleVolumeMultiplier"), // Mapping "Scalp Volume Factor 3"
-        minAiScore: getVal(60, "minAiScore"), 
-        minConfluenceScore: getVal(55, "minConfluenceScore"), 
-        f4SlopeThreshold: getVal(0.01, "f4SlopeThreshold"), 
-        f4LookbackBars: getVal(30, "f4LookbackBars"),
-      };
-    } else {
-      // Swing Mode
-      return {
-        f4Length: getVal(10, "f4Length"), // Mapping "Swing Length 10"
-        fiboLength: getVal(Math.round(10 * volAdjustment), "fiboLength"),
-        whaleVolumeMultiplier: getVal(1.2, "whaleVolumeMultiplier"), // Mapping "Swing Volume Factor 1.2"
-        minAiScore: getVal(70, "minAiScore"), 
-        minConfluenceScore: getVal(65, "minConfluenceScore"), 
-        f4SlopeThreshold: getVal(0.01, "f4SlopeThreshold"), 
-        f4LookbackBars: getVal(30, "f4LookbackBars"),
-      };
-    }
   }
 
   // ===========================
@@ -1717,14 +1694,13 @@ export class MatrixV5Engine {
     const f4Len = autoParams.f4Length;
     const f4WholeSeries = this.calculateF4Series(finalCloses, finalHighs, finalLows, f4Len, 0.95); // Using constant UI alpha
     const f4Value = f4WholeSeries[f4WholeSeries.length - 1];
-    const fiboWholeSeries = this.calculateF4Series(finalCloses, finalHighs, finalLows, autoParams.fiboLength, 0.95); // Using constant UI alpha
-    const f4FiboValue = fiboWholeSeries[fiboWholeSeries.length - 1];
+    const f4FiboValue = 0; // Deprecated, keeping fixed 0 for result structure safety
 
     const tfAdapt = this.getTfAdaptFactor(interval);
 
-    // V5.4 Add F4 Power calculation (ATR normalized)
+    // V5.4 Add F4 Power calculation (ATR normalized) + Multiplier
     const f4ValuePrev5 = f4WholeSeries[f4WholeSeries.length - 6] || f4Value;
-    const f4PowerRaw = atrValue > 0 ? ((f4Value - f4ValuePrev5) / atrValue) * 100 : 0;
+    const f4PowerRaw = atrValue > 0 ? ((f4Value - f4ValuePrev5) / atrValue) * 100 * activeConfig.f4Multiplier : 0;
     const f4Power = Math.max(-100, Math.min(100, f4PowerRaw));
 
     // Slope via LinReg - Indicators use HA if enabled

@@ -195,15 +195,26 @@ async function createBotTables() {
   await sql`
         CREATE TABLE IF NOT EXISTS strategy_signals (
             id SERIAL PRIMARY KEY,
-            strategy_id INTEGER NOT NULL REFERENCES strategies(id),
+            user_id INTEGER REFERENCES users(id),
+            strategy_id INTEGER REFERENCES strategies(id),
+            symbol TEXT,
+            side TEXT,
             signal_type TEXT NOT NULL,
-            price NUMERIC NOT NULL,
+            price NUMERIC,
             volume NUMERIC,
             timestamp BIGINT NOT NULL,
             executed BOOLEAN DEFAULT FALSE,
-            execution_result TEXT
+            execution_result TEXT,
+            trading_mode TEXT,
+            timeframe TEXT,
+            veto_reason TEXT,
+            payload JSONB
         );
     `;
+
+  // Ensure columns exist (for existing tables)
+  await sql`ALTER TABLE strategy_signals ADD COLUMN IF NOT EXISTS side TEXT;`.catch(() => {});
+  await sql`ALTER TABLE strategy_signals ADD COLUMN IF NOT EXISTS payload JSONB;`.catch(() => {});
 
   // 10. Alarms
   await sql`
@@ -337,12 +348,31 @@ async function runSchemaMigrations() {
     /* ignore */
   }
   try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS f4_multiplier NUMERIC DEFAULT 1.0`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS scalp_f4_multiplier NUMERIC DEFAULT 3.7`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS swing_f4_multiplier NUMERIC DEFAULT 1.2`;
+  } catch {
+    /* ignore */
+  }
+  try {
     await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_sl_trailing BOOLEAN DEFAULT TRUE`;
   } catch {
     /* ignore */
   }
   try {
     await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_sl_deviation NUMERIC DEFAULT 0.5`;
+  } catch {
+    /* ignore */
+  }
+  try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_mtf_threshold INTEGER DEFAULT 70`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_mtf_long_threshold INTEGER DEFAULT 70`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_mtf_short_threshold INTEGER DEFAULT 30`;
+  } catch {
+    /* ignore */
+  }
+  try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS trade_freshness_bars INTEGER DEFAULT 5`;
   } catch {
     /* ignore */
   }

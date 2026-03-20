@@ -37,6 +37,9 @@ export const DEFAULT_BOT_CONFIG = {
   f4_alpha: 95,
   fibo_alpha: 95,
   f4_slope_threshold: 0.01,
+  f4_multiplier: 1.0,
+  scalp_f4_multiplier: 3.7,
+  swing_f4_multiplier: 1.2,
   fibo_length: 20,
   f4_power_loss_threshold: 90,
   trade_freshness_bars: 5,
@@ -56,6 +59,8 @@ export const DEFAULT_BOT_CONFIG = {
   pilot_timeframe: '1h',
   pilot_mtf_veto: true,
   pilot_mtf_threshold: 65,
+  pilot_mtf_long_threshold: 70,
+  pilot_mtf_short_threshold: 30,
   pilot_only_holdings: true,
   pilot_mode: "matrix" as const,
   pilot_use_usdt: false,
@@ -109,6 +114,8 @@ export interface TimeframePreset {
   // Sistem Kontrol & Genel
   pilot_mtf_veto: boolean;
   pilot_mtf_threshold: number;
+  pilot_mtf_long_threshold: number;
+  pilot_mtf_short_threshold: number;
   pilot_trailing_buy: boolean; // GECİKMELİ ALIM
   pilot_only_holdings: boolean;
   pilot_trade_allocation: number; // İŞLEM BÜYÜKLÜĞÜ
@@ -146,7 +153,7 @@ export interface TimeframePreset {
 
 export const TIMEFRAME_PRESETS: Record<string, TimeframePreset> = {
   "1m": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 70, pilot_trailing_buy: false, pilot_only_holdings: true, pilot_trade_allocation: 3,
+    pilot_mtf_veto: true, pilot_mtf_threshold: 70, pilot_mtf_long_threshold: 70, pilot_mtf_short_threshold: 30, pilot_trailing_buy: false, pilot_only_holdings: true, pilot_trade_allocation: 3,
     pilot_tp_percent: 1.2, pilot_sl_percent: 0.6, pilot_tp_deviation: 0.15, pilot_sl_deviation: 0.20,
     cover_tp_percent: 1.1, cover_sl_percent: 0.50, cover_tp_deviation: 0.13, cover_sl_deviation: 0.18,
     ai_threshold: 72, whale_multiplier: 1.0, fibo_length: 8, f4_active: true,
@@ -155,7 +162,7 @@ export const TIMEFRAME_PRESETS: Record<string, TimeframePreset> = {
     pilot_mode: "matrix", pilot_use_usdt: false
   },
   "15m": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 65, pilot_trailing_buy: false, pilot_only_holdings: true, pilot_trade_allocation: 5,
+    pilot_mtf_veto: true, pilot_mtf_threshold: 65, pilot_mtf_long_threshold: 65, pilot_mtf_short_threshold: 35, pilot_trailing_buy: false, pilot_only_holdings: true, pilot_trade_allocation: 5,
     pilot_tp_percent: 1.0, pilot_sl_percent: 0.55, pilot_tp_deviation: 0.12, pilot_sl_deviation: 0.18,
     cover_tp_percent: 0.9, cover_sl_percent: 0.40, cover_tp_deviation: 0.10, cover_sl_deviation: 0.15,
     ai_threshold: 65, whale_multiplier: 1.1, fibo_length: 13, f4_active: true,
@@ -164,7 +171,7 @@ export const TIMEFRAME_PRESETS: Record<string, TimeframePreset> = {
     pilot_mode: "matrix", pilot_use_usdt: false
   },
   "1h": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 65, pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 10,
+    pilot_mtf_veto: true, pilot_mtf_threshold: 65, pilot_mtf_long_threshold: 65, pilot_mtf_short_threshold: 35, pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 10,
     pilot_tp_percent: 1.2, pilot_sl_percent: 0.65, pilot_tp_deviation: 0.12, pilot_sl_deviation: 0.22,
     cover_tp_percent: 1.1, cover_sl_percent: 0.45, cover_tp_deviation: 0.11, cover_sl_deviation: 0.20,
     ai_threshold: 65, whale_multiplier: 1.2, fibo_length: 20, f4_active: true,
@@ -173,7 +180,7 @@ export const TIMEFRAME_PRESETS: Record<string, TimeframePreset> = {
     pilot_mode: "matrix", pilot_use_usdt: false
   },
   "4h": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 68, pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 12,
+    pilot_mtf_veto: true, pilot_mtf_threshold: 68, pilot_mtf_long_threshold: 68, pilot_mtf_short_threshold: 32, pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 12,
     pilot_tp_percent: 2.0, pilot_sl_percent: 1.0, pilot_tp_deviation: 0.18, pilot_sl_deviation: 0.28,
     cover_tp_percent: 1.8, cover_sl_percent: 0.65, cover_tp_deviation: 0.16, cover_sl_deviation: 0.25,
     ai_threshold: 68, whale_multiplier: 1.3, fibo_length: 26, f4_active: true,
@@ -182,7 +189,7 @@ export const TIMEFRAME_PRESETS: Record<string, TimeframePreset> = {
     pilot_mode: "matrix", pilot_use_usdt: false
   },
   "1d": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 70, pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 15,
+    pilot_mtf_veto: true, pilot_mtf_threshold: 70, pilot_mtf_long_threshold: 70, pilot_mtf_short_threshold: 30, pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 15,
     pilot_tp_percent: 3.0, pilot_sl_percent: 1.5, pilot_tp_deviation: 0.28, pilot_sl_deviation: 0.45,
     cover_tp_percent: 2.7, cover_sl_percent: 1.0, cover_tp_deviation: 0.25, cover_sl_deviation: 0.40,
     ai_threshold: 70, whale_multiplier: 1.4, fibo_length: 34, f4_active: true,
@@ -191,7 +198,7 @@ export const TIMEFRAME_PRESETS: Record<string, TimeframePreset> = {
     pilot_mode: "matrix", pilot_use_usdt: false
   },
   "1w": {
-    pilot_mtf_veto: false, pilot_mtf_threshold: 75, pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 20,
+    pilot_mtf_veto: false, pilot_mtf_threshold: 75, pilot_mtf_long_threshold: 75, pilot_mtf_short_threshold: 25, pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 20,
     pilot_tp_percent: 6.0, pilot_sl_percent: 3.0, pilot_tp_deviation: 0.55, pilot_sl_deviation: 0.90,
     cover_tp_percent: 5.5, cover_sl_percent: 2.0, cover_tp_deviation: 0.50, cover_sl_deviation: 0.80,
     ai_threshold: 75, whale_multiplier: 1.5, fibo_length: 50, f4_active: true,
@@ -200,7 +207,7 @@ export const TIMEFRAME_PRESETS: Record<string, TimeframePreset> = {
     pilot_mode: "matrix", pilot_use_usdt: false
   },
   "1M": {
-    pilot_mtf_veto: false, pilot_mtf_threshold: 80, pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 25,
+    pilot_mtf_veto: false, pilot_mtf_threshold: 80, pilot_mtf_long_threshold: 80, pilot_mtf_short_threshold: 20, pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 25,
     pilot_tp_percent: 12.0, pilot_sl_percent: 6.0, pilot_tp_deviation: 1.0, pilot_sl_deviation: 1.6,
     cover_tp_percent: 11.0, cover_sl_percent: 4.0, cover_tp_deviation: 0.9, cover_sl_deviation: 1.4,
     ai_threshold: 80, whale_multiplier: 1.8, fibo_length: 89, f4_active: true,

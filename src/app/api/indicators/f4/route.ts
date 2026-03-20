@@ -7,7 +7,10 @@ import { fetchKlines } from "@/lib/mexc";
 import { getSessionUser } from "@/lib/auth-utils";
 import { logSystemEvent } from "@/lib/db";
 import { resolveTradeMode } from "@/lib/db";
-import { waitUntil } from "@vercel/functions";
+// Local fallback for waitUntil (avoids build error in non-vercel environments)
+const waitUntil = (promise: Promise<any>) => {
+  promise.catch(err => console.error("[WaitUntil] Async task error:", err));
+};
 import { evaluateRisk } from "@/lib/engine/risk-management";
 import { fetchFundingRate } from "@/lib/market-data";
 

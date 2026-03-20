@@ -416,6 +416,8 @@ async function processPilotChunk(
           tradeMode: resolveTradeMode(botConfig),
           mtfVeto: botConfig.pilot_mtf_veto,
           mtfThreshold: botConfig.pilot_mtf_threshold,
+          mtfLongThreshold: botConfig.pilot_mtf_long_threshold,
+          mtfShortThreshold: botConfig.pilot_mtf_short_threshold,
           f4Length: botConfig.f4_length,
           whaleVolumeMultiplier: botConfig.whale_multiplier,
           f4PowerLossThreshold: botConfig.f4_power_loss_threshold,

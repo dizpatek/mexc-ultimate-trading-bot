@@ -107,16 +107,19 @@ export interface BotConfig {
   pilot_timeframe: string;
   pilot_mtf_veto: boolean;
   pilot_mtf_threshold: number;
+  pilot_mtf_long_threshold: number;
+  pilot_mtf_short_threshold: number;
   pilot_only_holdings: boolean;
   pilot_mode: "matrix" | "hedge";
   pilot_use_usdt: boolean;
-  fibo_length: number;
+  f4_multiplier: number;
   f4_power_loss_threshold: number;
   f4_lookback_bars: number;
   f4_squeeze_threshold: number;
   long_squeeze_threshold: number;
   short_squeeze_threshold: number;
   min_power_loss: number;
+  trade_freshness_bars: number;
   scalp_length?: number;
   scalp_volume_multiplier?: number;
   swing_length?: number;
@@ -469,6 +472,7 @@ export async function deleteStrategy(id: number, userId: number = DEFAULT_UID) {
 export interface StrategySignalInput {
   strategy_id?: number | null;
   symbol: string;
+  side: string;
   signal_type: string;
   price: number;
   volume?: number;
@@ -478,6 +482,7 @@ export interface StrategySignalInput {
   veto_reason?: string | null;
   timeframe?: string;
   trading_mode?: string;
+  payload?: any;
 }
 
 export async function createStrategySignalsBulk(
@@ -489,7 +494,7 @@ export async function createStrategySignalsBulk(
   const placeholders = signals
     .map(
       (_, i) =>
-        `($${i * 12 + 1}, $${i * 12 + 2}, $${i * 12 + 3}, $${i * 12 + 4}, $${i * 12 + 5}, $${i * 12 + 6}, $${i * 12 + 7}, $${i * 12 + 8}, $${i * 12 + 9}, $${i * 12 + 10}, $${i * 12 + 11}, $${i * 12 + 12})`,
+        `($${i * 14 + 1}, $${i * 14 + 2}, $${i * 14 + 3}, $${i * 14 + 4}, $${i * 14 + 5}, $${i * 14 + 6}, $${i * 14 + 7}, $${i * 14 + 8}, $${i * 14 + 9}, $${i * 14 + 10}, $${i * 14 + 11}, $${i * 14 + 12}, $${i * 14 + 13}, $${i * 14 + 14})`,
     )
     .join(",");
 
@@ -497,6 +502,7 @@ export async function createStrategySignalsBulk(
     userId,
     s.strategy_id || null,
     s.symbol || null,
+    s.side || null,
     s.signal_type || "NONE",
     s.price ?? null,
     s.volume ?? null,
@@ -506,10 +512,11 @@ export async function createStrategySignalsBulk(
     s.trading_mode || "test",
     s.timeframe || null,
     s.veto_reason || null,
+    s.payload ? JSON.stringify(s.payload) : null,
   ]);
 
   const query = `
-    INSERT INTO strategy_signals (user_id, strategy_id, symbol, signal_type, price, volume, timestamp, executed, execution_result, trading_mode, timeframe, veto_reason)
+    INSERT INTO strategy_signals (user_id, strategy_id, symbol, side, signal_type, price, volume, timestamp, executed, execution_result, trading_mode, timeframe, veto_reason, payload)
     VALUES ${placeholders}
   `;
 
@@ -520,6 +527,7 @@ export async function createStrategySignal(signalData: {
   user_id: number;
   strategy_id?: number;
   symbol?: string;
+  side?: string;
   signal_type: string;
   price?: number;
   volume?: number;
@@ -529,6 +537,7 @@ export async function createStrategySignal(signalData: {
   trading_mode?: string;
   timeframe?: string;
   veto_reason?: string;
+  payload?: any;
 }) {
   const {
     user_id,
@@ -543,10 +552,12 @@ export async function createStrategySignal(signalData: {
     trading_mode,
     timeframe,
     veto_reason,
+    side,
+    payload,
   } = signalData;
   const { rows } = await sql`
-        INSERT INTO strategy_signals (user_id, strategy_id, symbol, signal_type, price, volume, timestamp, executed, execution_result, trading_mode, timeframe, veto_reason)
-        VALUES (${user_id}, ${strategy_id || null}, ${symbol || null}, ${signal_type || 'NONE'}, ${price ?? null}, ${volume ?? null}, ${timestamp}, ${executed || false}, ${JSON.stringify(execution_result || {})}, ${trading_mode || "test"}, ${timeframe || "1m"}, ${veto_reason || null})
+        INSERT INTO strategy_signals (user_id, strategy_id, symbol, side, signal_type, price, volume, timestamp, executed, execution_result, trading_mode, timeframe, veto_reason, payload)
+        VALUES (${user_id}, ${strategy_id || null}, ${symbol || null}, ${side || null}, ${signal_type || 'NONE'}, ${price ?? null}, ${volume ?? null}, ${timestamp}, ${executed || false}, ${JSON.stringify(execution_result || {})}, ${trading_mode || "test"}, ${timeframe || "1m"}, ${veto_reason || null}, ${JSON.stringify(payload || {})})
         RETURNING id
     `;
   return rows[0].id;
@@ -620,8 +631,11 @@ export async function getBotConfig(userId: number): Promise<BotConfig> {
     pilot_sl_trailing: !!rows[0].pilot_sl_trailing,
     pilot_mtf_veto: !!rows[0].pilot_mtf_veto,
     pilot_mtf_threshold: parseInt(String(rows[0].pilot_mtf_threshold || 70)),
+    pilot_mtf_long_threshold: parseInt(String(rows[0].pilot_mtf_long_threshold || 70)),
+    pilot_mtf_short_threshold: parseInt(String(rows[0].pilot_mtf_short_threshold || 30)),
     pilot_mode: (rows[0].pilot_mode as any) || "matrix",
     pilot_use_usdt: !!rows[0].pilot_use_usdt,
+    f4_multiplier: parseFloat(String(rows[0].f4_multiplier || 1.0)),
     f4_power_loss_threshold: parseFloat(String(rows[0].f4_power_loss_threshold || 90)),
     long_squeeze_threshold: parseFloat(String(rows[0].long_squeeze_threshold || 20)),
     short_squeeze_threshold: parseFloat(String(rows[0].short_squeeze_threshold || 20)),
@@ -629,6 +643,7 @@ export async function getBotConfig(userId: number): Promise<BotConfig> {
     scalp_volume_multiplier: parseFloat(String(rows[0].scalp_volume_multiplier ?? 3.0)),
     swing_length: parseInt(String(rows[0].swing_length ?? 10)),
     swing_volume_multiplier: parseFloat(String(rows[0].swing_volume_multiplier ?? 1.2)),
+    trade_freshness_bars: parseInt(String(rows[0].trade_freshness_bars ?? 5)),
   } as unknown as BotConfig;
 }
 
@@ -742,11 +757,11 @@ export async function updateBotConfig(userId: number, updates: Partial<BotConfig
           : (current.ai_threshold ?? 65),
       ),
     );
-    const fibo = parseInt(
+    const multiplier = parseFloat(
       String(
-        updates.fibo_length !== undefined
-          ? updates.fibo_length
-          : (current.fibo_length ?? 20),
+        updates.f4_multiplier !== undefined
+          ? updates.f4_multiplier
+          : (current.f4_multiplier ?? 1.2),
       ),
     );
 
@@ -809,6 +824,22 @@ export async function updateBotConfig(userId: number, updates: Partial<BotConfig
       ),
     );
 
+    const p_long = parseInt(
+      String(
+        updates.pilot_mtf_long_threshold !== undefined
+          ? updates.pilot_mtf_long_threshold
+          : (current.pilot_mtf_long_threshold ?? 70),
+      ),
+    );
+
+    const p_short = parseInt(
+      String(
+        updates.pilot_mtf_short_threshold !== undefined
+          ? updates.pilot_mtf_short_threshold
+          : (current.pilot_mtf_short_threshold ?? 30),
+      ),
+    );
+
     const p_mode = updates.pilot_mode !== undefined
       ? updates.pilot_mode
       : (current.pilot_mode || "matrix");
@@ -824,15 +855,17 @@ export async function updateBotConfig(userId: number, updates: Partial<BotConfig
     await sql`
             INSERT INTO bot_configs (
                 user_id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, updated_at,
-                pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation, pilot_timeframe, fibo_length, timeframe_settings, pilot_only_holdings, f4_power_loss_threshold,
-                pilot_mtf_veto, pilot_mtf_threshold, f4_lookback_bars, f4_squeeze_threshold, min_power_loss,
+                pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation, pilot_timeframe, f4_multiplier, timeframe_settings, pilot_only_holdings, f4_power_loss_threshold,
+                pilot_mtf_veto, pilot_mtf_threshold, pilot_mtf_long_threshold, pilot_mtf_short_threshold, f4_lookback_bars, f4_squeeze_threshold, min_power_loss,
+                trade_freshness_bars,
                 scalp_length, scalp_volume_multiplier, swing_length, swing_volume_multiplier,
                 pilot_mode, pilot_use_usdt
             )
             VALUES (
                 ${userId}, ${f4}, ${whale}, ${ai}, ${auto}, ${defense}, ${now},
-                ${pt_buy}, ${pt_buy_dev}, ${pt_tp}, ${pt_tp_dev}, ${pt_sl}, ${pt_sl_dev}, ${ptf}, ${fibo}, ${JSON.stringify(updates.timeframe_settings || current.timeframe_settings || {})}, ${p_only}, ${updates.f4_power_loss_threshold ?? current.f4_power_loss_threshold ?? 90},
-                ${p_veto}, ${p_thresh}, ${updates.f4_lookback_bars ?? current.f4_lookback_bars ?? 30}, ${updates.f4_squeeze_threshold ?? current.f4_squeeze_threshold ?? 20}, ${updates.min_power_loss ?? current.min_power_loss ?? 90},
+                ${pt_buy}, ${pt_buy_dev}, ${pt_tp}, ${pt_tp_dev}, ${pt_sl}, ${pt_sl_dev}, ${ptf}, ${multiplier}, ${JSON.stringify(updates.timeframe_settings || current.timeframe_settings || {})}, ${p_only}, ${updates.f4_power_loss_threshold ?? current.f4_power_loss_threshold ?? 90},
+                ${p_veto}, ${p_thresh}, ${p_long}, ${p_short}, ${updates.f4_lookback_bars ?? current.f4_lookback_bars ?? 30}, ${updates.f4_squeeze_threshold ?? current.f4_squeeze_threshold ?? 20}, ${updates.min_power_loss ?? current.min_power_loss ?? 90},
+                ${updates.trade_freshness_bars ?? current.trade_freshness_bars ?? 5},
                 ${updates.scalp_length ?? current.scalp_length ?? 11}, ${updates.scalp_volume_multiplier ?? current.scalp_volume_multiplier ?? 3.0}, ${updates.swing_length ?? current.swing_length ?? 10}, ${updates.swing_volume_multiplier ?? current.swing_volume_multiplier ?? 1.2},
                 ${p_mode}, ${p_usdt}
             )
@@ -849,13 +882,16 @@ export async function updateBotConfig(userId: number, updates: Partial<BotConfig
                 pilot_sl_trailing = EXCLUDED.pilot_sl_trailing,
                 pilot_sl_deviation = EXCLUDED.pilot_sl_deviation,
                 pilot_timeframe = EXCLUDED.pilot_timeframe,
-                fibo_length = EXCLUDED.fibo_length,
+                f4_multiplier = EXCLUDED.f4_multiplier,
+                trade_freshness_bars = EXCLUDED.trade_freshness_bars,
                 updated_at = EXCLUDED.updated_at,
                 timeframe_settings = EXCLUDED.timeframe_settings,
                 pilot_only_holdings = EXCLUDED.pilot_only_holdings,
                 f4_power_loss_threshold = EXCLUDED.f4_power_loss_threshold,
                 pilot_mtf_veto = EXCLUDED.pilot_mtf_veto,
                 pilot_mtf_threshold = EXCLUDED.pilot_mtf_threshold,
+                pilot_mtf_long_threshold = EXCLUDED.pilot_mtf_long_threshold,
+                pilot_mtf_short_threshold = EXCLUDED.pilot_mtf_short_threshold,
                 f4_lookback_bars = EXCLUDED.f4_lookback_bars,
                 f4_squeeze_threshold = EXCLUDED.f4_squeeze_threshold,
                 min_power_loss = EXCLUDED.min_power_loss,

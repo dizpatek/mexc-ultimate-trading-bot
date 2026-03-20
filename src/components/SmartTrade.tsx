@@ -535,6 +535,13 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
     }
   }, []);
 
+  const scrollToChart = useCallback(() => {
+    const target = document.getElementById("smart-chart-section");
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, []);
+
   const handleSubmit = async () => {
     // VALIDATION GATE: Prevent absurd trades
     const submitAmt = parseFloat(amount);
@@ -674,11 +681,12 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
           type: "success",
         });
 
-        // Yeni işlem sonrası listeye odaklan
+        // Yeni işlem sonrası grafiğe odaklan
         setTimeout(() => {
           if (onSaveSuccess) onSaveSuccess();
           // Mesajı temizle
           setStatusMsg(null);
+          scrollToChart();
         }, 2000);
       }
       refetchHoldings(); // Refresh portfolio immediately
@@ -1043,7 +1051,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
   // Removed active simulation block that caused TP, SL, and Potential Entry lines to jitter/snap towards market price when trailing was active.
 
   return (
-    <div id="trade-top-anchor">
+    <div id="smart-trade-form-section">
       {/* Smart Chart Header - Removed as redundant with Matrix Horizon header */}
 
       <HorizonCard
@@ -1057,6 +1065,7 @@ export const SmartTrade: React.FC<SmartTradeProps> = ({
         {/* Integrated PortfolioChart Section (Shown by default in full mode) */}
         {!compact && (
           <div
+            id="smart-chart-section"
             className={cn(
               "mb-1 transition-all duration-500 overflow-hidden",
               !showChart ? "h-0 opacity-0 mb-0" : "h-auto opacity-100",

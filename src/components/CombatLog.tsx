@@ -476,7 +476,17 @@ const LogLine = ({
   };
 
   return (
-    <div className="group flex gap-2.5 animate-in fade-in slide-in-from-left-1 duration-300 hover:bg-white/5 p-1 rounded transition-colors relative">
+    <div 
+      onClick={() => {
+        if (asset) {
+          const assetSymbol = `${asset.replace("USDT", "")}/USDT`;
+          trade.setSymbol(assetSymbol);
+          // Scroll to mission control for the chart
+          document.getElementById('mission-control-section')?.scrollIntoView({ behavior: 'smooth' });
+        }
+      }}
+      className="group flex gap-2.5 animate-in fade-in slide-in-from-left-1 duration-300 hover:bg-white/5 p-1 rounded transition-colors relative cursor-pointer"
+    >
       <div className="mt-0.5 shrink-0 opacity-80 group-hover:opacity-100 transition-all">
         {icon}
       </div>

@@ -254,7 +254,7 @@ const StationNode = ({ station, index, isActive, onClick }: { station: Station; 
       {/* Building Image - MUST SIT ON TOP OF PODIUM */}
       <motion.div
         initial={{ y: 0, opacity: 0 }}
-        animate={{ y: -65, opacity: 1 }} // Moved DOWN by 20px (from -85) to reach desired proximity
+        animate={{ y: -15, opacity: 1 }} // Lowered by another 30px (total 70px down from original -85)
         transition={{ delay: 0.1 + index * 0.05, duration: 0.6 }}
         className="relative z-40 w-full h-full flex flex-col items-center justify-center"
       >
@@ -313,13 +313,21 @@ export const PilotPipeline3D = () => {
   const [activeId, setActiveId] = useState<string | null>(null);
 
   useEffect(() => {
-    // ══ SYNC TIMER ══
-    // Drives the capsule's 15s path animation and the progress state
-    const controls = animate(0, 100, {
-      duration: 15,
+    // ══ SYNC TIMER with FLASHBACK EFFECT ══
+    // Forward for 15s, snappy rewind (flashback) for 0.5s
+    const controls = animate(0, 15.5, {
+      duration: 15.5,
       repeat: Infinity,
       ease: "linear",
-      onUpdate: (latest) => setProgress(latest),
+      onUpdate: (v: number) => {
+        if (v <= 15) {
+          setProgress((v / 15) * 100);
+        } else {
+          // Flashback: 15 to 15.5 (0.5s) -> 100 to 0
+          const flashbackVal = 1 - ((v - 15) / 0.5);
+          setProgress(flashbackVal * 100);
+        }
+      },
     });
     return controls.stop;
   }, []);
@@ -332,12 +340,12 @@ export const PilotPipeline3D = () => {
         <div className="absolute inset-0 opacity-[0.02] bg-[linear-gradient(#fff_1px,transparent_1px),linear-gradient(90deg,#fff_1px,transparent_1px)] bg-[length:40px_40px]" />
       </div>
 
-      <div className="relative z-10 px-4 pt-3 pb-8 max-w-[1240px] mx-auto">
+      <div className="relative z-10 px-4 pt-0 pb-8 max-w-[1240px] mx-auto">
         {/* Header */}
-        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="mb-4 flex items-center justify-between">
+        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="mb-[-37px] flex items-center justify-between">
           <div className="flex items-baseline gap-4">
             <h2 className="text-lg md:text-xl font-black italic text-white uppercase tracking-tighter">
-              PILOT <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-500 to-cyan-400">PIPELINE</span>
+              PILOT <span className="pr-2 text-transparent bg-clip-text bg-gradient-to-r from-purple-500 to-cyan-400">PIPELINE</span>
             </h2>
             <div className="h-px w-8 bg-slate-800" />
             <span className="text-slate-500 text-[8px] font-black tracking-[0.4em] uppercase opacity-60">SYSTEM FLOW V5.1</span>
@@ -380,8 +388,13 @@ export const PilotPipeline3D = () => {
             {/* 🚗 SIGNAL CAPSULE - V2 RIGHTWARD ORIENTED */}
             <motion.g
               initial={{ offsetDistance: "0%" }}
-              animate={{ offsetDistance: "100%" }}
-              transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
+              animate={{ offsetDistance: ["0%", "100%", "0%"] }}
+              transition={{ 
+                duration: 15.5, 
+                repeat: Infinity, 
+                times: [0, 0.967, 1],
+                ease: ["linear", "circIn"] 
+              }}
               style={{ offsetPath: `path("${ROAD_PATH}")` }}
             >
               <foreignObject width="100" height="100" x="-50" y="-50">

@@ -254,7 +254,7 @@ const StationNode = ({ station, index, isActive, onClick }: { station: Station; 
       {/* Building Image - MUST SIT ON TOP OF PODIUM */}
       <motion.div
         initial={{ y: 0, opacity: 0 }}
-        animate={{ y: -85, opacity: 1 }} // Moved UP significantly to sit ON TOP of the 3D stand
+        animate={{ y: -65, opacity: 1 }} // Moved DOWN by 20px (from -85) to reach desired proximity
         transition={{ delay: 0.1 + index * 0.05, duration: 0.6 }}
         className="relative z-40 w-full h-full flex flex-col items-center justify-center"
       >

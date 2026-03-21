@@ -387,8 +387,16 @@ export const PilotPipeline3D = () => {
               <foreignObject width="100" height="100" x="-50" y="-50">
                 <div className="flex items-center justify-center w-full h-full relative">
                   <motion.div
-                    animate={{ scale: [1, 1.1, 1] }} 
-                    transition={{ repeat: Infinity, duration: 2 }}
+                    animate={{ 
+                      scale: [1, 1.05, 1],
+                      x: [0, -1, 0.6, -0.3, 0.9, -0.6, 0],
+                      y: [0, 0.5, -0.8, 0.7, -0.2, 0.8, 0]
+                    }} 
+                    transition={{ 
+                      scale: { repeat: Infinity, duration: 2 },
+                      x: { repeat: Infinity, duration: 0.15, ease: "linear" },
+                      y: { repeat: Infinity, duration: 0.12, ease: "linear" }
+                    }}
                     className="relative"
                   >
                     <Image

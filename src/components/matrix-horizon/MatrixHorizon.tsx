@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { DEFAULT_BOT_CONFIG } from "@/lib/constants/bot-defaults";
 import { cn } from "@/lib/utils";
 import { DecisionBar } from "./DecisionBar";
@@ -35,6 +36,7 @@ import {
   TrendingUp,
   Search,
 } from "lucide-react";
+import { MatrixLogo } from "../MatrixLogo";
 import { fetchGlobalMarketData } from "@/lib/market-data";
 import { useHoldings } from "@/hooks/usePortfolio";
 import { api } from "@/services/api";
@@ -256,12 +258,16 @@ const Row = ({
   </div>
 );
 
+import { GlobalMarketData } from "@/lib/market-data";
+
 export const MatrixHorizon = ({ 
   isManaged = false,
   signalDataMap,
+  globalMarketData = null,
 }: { 
   isManaged?: boolean;
   signalDataMap?: Record<string, any>;
+  globalMarketData?: GlobalMarketData | null;
 }) => {
   const { refetch: refetchHoldings } = useHoldings();
   const { timeframe: interval } = useTimeframe();
@@ -274,8 +280,18 @@ export const MatrixHorizon = ({
   const [paxg, setPaxg] = useState({ price: 2035, change: 0, trend: "UP" });
   const [marketFlow, setMarketFlow] = useState({ label: "ROTASYON 🔄", color: "text-cyan-400" });
 
-  // Fetch real market dominance data on mount
+  // Sync Global Market Data Polling (Integrated)
   useEffect(() => {
+    if (globalMarketData) {
+      setBtcDom(globalMarketData.btcd);
+      setEthDom(globalMarketData.ethd);
+      setUsdtDom(globalMarketData.usdtd || { value: 4.2, change: 0, trend: "DOWN" });
+      setOthersDom(globalMarketData.othersd);
+      setPaxg(globalMarketData.paxg);
+      setMarketFlow({ label: globalMarketData.flow, color: globalMarketData.flowColor });
+      return;
+    }
+
     fetchGlobalMarketData().then((data) => {
       if (data) {
         setBtcDom(data.btcd);
@@ -288,7 +304,7 @@ export const MatrixHorizon = ({
     }).catch(err => {
       console.warn("[MatrixHorizon] Failed to fetch dominance:", err);
     });
-  }, []);
+  }, [globalMarketData]);
 
 
   const [lastSync, setLastSync] = useState<Date | null>(null);
@@ -551,7 +567,7 @@ export const MatrixHorizon = ({
       try {
         const [res, mkt] = await Promise.all([
           api.get(
-            `/indicators/f4?symbol=${activeSymbol}&interval=${interval}&riskMode=${riskMode}${sentiment ? `&sentiment=${sentiment.score}` : ""}&btcDom=${btcDom}&usdtDom=${usdtDom}`,
+            `/indicators/f4?symbol=${activeSymbol}&interval=${interval}&riskMode=${riskMode}${sentiment ? `&sentiment=${sentiment.score}` : ""}&btcDom=${btcDom.value}&usdtDom=${usdtDom.value}`,
           ),
           fetchGlobalMarketData().catch(() => null),
         ]);
@@ -574,7 +590,8 @@ export const MatrixHorizon = ({
           setPaxg(mkt.paxg);
         }
         setLastSync(new Date());
-      } catch {
+      } catch (err) {
+        console.error("[MatrixHorizon] Signal fetch failed:", err);
         setSocketOnline(false);
       } finally {
         if (isManual) setIsActionLoading(false);
@@ -826,13 +843,13 @@ export const MatrixHorizon = ({
         />
       )}
 
-        {/* ─── UNIFIED COCKPIT LAYOUT ─── */}
-        <div
-          className={cn(
-            "transition-all duration-700 ease-[cubic-bezier(0.23,1,0.32,1)] overflow-hidden",
-            (isSectionExpanded || aiResult || showSettings || aiLoading) ? "max-h-[5000px] opacity-100 py-2" : "max-h-0 opacity-0 py-0",
-          )}
-        >
+      {/* UNIFIED COCKPIT LAYOUT ─── */}
+      <div
+        className={cn(
+          "transition-all duration-700 ease-[cubic-bezier(0.23,1,0.32,1)] overflow-hidden",
+          (isSectionExpanded || aiResult || showSettings || aiLoading) ? "max-h-[5000px] opacity-100 py-2" : "max-h-0 opacity-0 py-0",
+        )}
+      >
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 px-6 pb-6">
         {isSectionExpanded && (
           <div className="col-span-1 lg:col-span-4 grid grid-cols-1 xl:grid-cols-2 gap-4 h-full">
@@ -1384,13 +1401,13 @@ export const MatrixHorizon = ({
                             : "neutral",
                     },
                     {
-                      m: "Ayı/Boğa Gücü",
+                      m: "MTF Uzlaşısı",
                       a: signal?.mtfConsensus ?? "Nötr",
-                      y: `${signal?.mtfBullCount ?? 0} TF Boğa`,
+                      y: (signal?.mtfWeightedScore ?? 0) >= 70 ? "Güçlü Boğa" : (signal?.mtfWeightedScore ?? 0) <= 30 ? "Güçlü Ayı" : "Normal",
                       status:
-                        (signal?.mtfBullCount ?? 0) >= 3
+                        (signal?.mtfWeightedScore ?? 50) >= 70
                           ? "good"
-                          : (signal?.mtfBullCount ?? 0) <= 1
+                          : (signal?.mtfWeightedScore ?? 50) <= 30
                             ? "bad"
                             : "neutral",
                     },
@@ -1603,17 +1620,17 @@ export const MatrixHorizon = ({
                 <div className="space-y-1 w-full">
                   <div className="grid grid-cols-4 md:grid-cols-8 gap-3 w-full">
                     {[
-                      { l: "RSI", v: aiRaw.momentum?.rsi, c: aiRaw.momentum?.rsi < 30 ? "text-emerald-400" : aiRaw.momentum?.rsi > 70 ? "text-rose-400" : "text-slate-400" },
+                      { l: "RSI", v: aiRaw.momentum?.rsi, c: aiRaw.momentum?.rsi < 30 ? "text-emerald-400" : aiRaw.momentum?.rsi > 70 ? "text-rose-400" : "text-white" },
                       { l: "Supertrend", v: aiRaw.trend?.supertrend, c: aiRaw.trend?.supertrendBull ? "text-emerald-400" : "text-rose-400" },
-                      { l: "Balina", v: aiRaw.volume?.isWhale ? (aiRaw.volume?.whaleBuy ? "ALIYOR" : "SATIYOR") : "Nötr", c: aiRaw.volume?.whaleBuy ? "text-emerald-400" : aiRaw.volume?.whaleSell ? "text-rose-400" : "text-slate-400" },
-                      { l: "BB", v: aiRaw.volatility?.bbSqueeze ? "SIKIŞMA" : "Normal", c: aiRaw.volatility?.bbSqueeze ? "text-amber-400" : "text-slate-400" },
+                      { l: "Balina", v: aiRaw.volume?.isWhale ? (aiRaw.volume?.whaleBuy ? "ALIYOR" : "SATIYOR") : "Nötr", c: aiRaw.volume?.whaleBuy ? "text-emerald-400" : aiRaw.volume?.whaleSell ? "text-rose-400" : "text-slate-200" },
+                      { l: "BB", v: aiRaw.volatility?.bbSqueeze ? "SIKIŞMA" : "Normal", c: aiRaw.volatility?.bbSqueeze ? "text-amber-400" : "text-slate-200" },
                       { l: "F4 Gücü", v: aiRaw.dashboardState?.signal?.f4PowerLoss ? `${(100 - aiRaw.dashboardState.signal.f4PowerLoss).toFixed(0)}%` : "---", c: (aiRaw.dashboardState?.signal?.f4PowerLoss || 0) > 40 ? "text-rose-400" : "text-emerald-400" },
                       { l: "Capital", v: aiRaw.dashboardState?.signal?.capitalPhase || "---", c: aiRaw.dashboardState?.signal?.capitalPhase === "GİRİŞ" ? "text-emerald-400" : "text-rose-400" },
                       { l: "VPA Pressure", v: aiRaw.dashboardState?.signal?.vpa?.netPressure?.toFixed(1) || "---", c: (aiRaw.dashboardState?.signal?.vpa?.netPressure || 50) > 50 ? "text-emerald-400" : "text-rose-400" },
                       { l: "Likidite", v: aiRaw.dashboardState?.signal?.liquidityZone || "YOK", c: aiRaw.dashboardState?.signal?.liquidityZone?.includes("BOĞA") ? "text-emerald-400" : "text-rose-400" }
                     ].map(ch => (
-                      <div key={ch.l} className="flex flex-col items-center justify-center p-3 bg-slate-950/40 border border-white/5 rounded-xl text-center">
-                        <span className="text-[10px] text-slate-500 font-black uppercase mb-1.5">{ch.l}</span>
+                      <div key={ch.l} className="flex flex-col items-center justify-center p-3 bg-slate-900/60 border border-white/10 rounded-xl text-center shadow-inner">
+                        <span className="text-[10px] text-slate-300 font-black uppercase mb-1.5">{ch.l}</span>
                         <span className={`text-sm font-black ${ch.c}`}>{ch.v}</span>
                       </div>
                     ))}
@@ -1682,23 +1699,13 @@ export const MatrixHorizon = ({
       </div>
     </div>
 
-    {/* ─── MONEY FLOW SANKEY — HER ZAMAN GÖRÜNÜR, TAM GENİŞLİKTE ─── */}
-    <div className="w-full px-6 pb-6">
-      <LiquidityPulseLens 
-        btcDom={btcDom} 
-        ethDom={ethDom} 
-        othersDom={othersDom} 
-        paxg={paxg} 
-        marketFlow={marketFlow} 
-        isExpanded={isSectionExpanded}
-      />
-    </div>
+    {/* Placeholder for Sankey/Flow handled above in the new top-level sections */}
   </div>
   );
 }
 
 // ─── MONEY FLOW SANKEY DİYAGRAMI ─────────────────────────────────────────────
-function LiquidityPulseLens({
+export function LiquidityPulseLens({
   btcDom, ethDom, othersDom, paxg, marketFlow,
 }: any) {
   const [hovered, setHovered] = React.useState<string | null>(null);
@@ -2158,7 +2165,17 @@ function LiquidityPulseLens({
   );
 }
 
+// ─── MULTI-EXCHANGE REAL-TIME FLOW ──────────────────────────────────────────
 
+// Tüm desteklenen borsalar (sjoerd.tech API'den alındı)
+
+
+
+// ─── COMPONENT ─────────────────────────────────────────────────────────────
+
+
+
+export { MultiExchangeFlowChart } from "@/components/matrix-v5/MakerTakerChart";
 
 function LensCard({ label, value, unit, change, trend, color, barColor }: any) {
   return (
@@ -2238,14 +2255,14 @@ function CommandBar({
   return (
     <div 
       className={cn(
-        "relative z-20 flex flex-col lg:flex-row items-center justify-between py-2 px-0 gap-3 border-b border-slate-800/40 bg-slate-950/20 hover:bg-slate-900/40 active:scale-100 transition-colors backdrop-blur-sm font-mono cursor-pointer select-none",
+        "relative z-20 flex flex-col lg:flex-row items-center justify-between py-2 px-2 gap-3 border-b border-slate-800/40 bg-slate-950/20 hover:bg-slate-900/40 active:scale-100 transition-colors backdrop-blur-sm font-mono cursor-pointer select-none",
         isSectionExpanded ? "mb-0" : "mb-0"
       )}
       onClick={() => setIsSectionExpanded(!isSectionExpanded)}
     >
       {/* GROUP 1: SECTION TITLE & ASSETS */}
       <div className="flex-1 flex items-center gap-2 min-w-0 w-full overflow-hidden">
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-transparent shrink-0">
+        <div className="flex items-center gap-2 px-2 py-1.5 bg-transparent shrink-0">
           <Layers className="w-4 h-4 text-cyan-400" />
           <h2 className="text-[10px] font-black tracking-[0.2em] text-cyan-100 uppercase hidden xl:block">
             MATRIX SMART
@@ -2467,7 +2484,7 @@ function CommandBar({
             )}
           >
             {isSectionExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            <span className="hidden sm:inline">{isSectionExpanded ? "GİZLE" : "GÖSTER"}</span>
+            <span className="">{isSectionExpanded ? "GİZLE" : "GÖSTER"}</span>
           </button>
         </div>
       </div>

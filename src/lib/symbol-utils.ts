@@ -36,7 +36,7 @@ export function normalizeSymbol(symbol: string): string {
 }
 
 function cleanSlashesAndSpaces(s: string): string {
-  return s.replace(/[\/\s]/g, "").toUpperCase();
+  return s.replace(/[\/\s-]/g, "").toUpperCase();
 }
 
 function deduplicateSuffixes(s: string): string {

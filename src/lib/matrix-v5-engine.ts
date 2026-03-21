@@ -2121,8 +2121,16 @@ export class MatrixV5Engine {
     const f4ContinuationBuy = isStrongBull && (stochRsi.k > 50 || earlyReversal === "UP");
     const f4ContinuationSell = isStrongBear && (stochRsi.k < 50 || earlyReversal === "DOWN");
 
-    const f4EarlyBuy = (f4Slope < 0 && f4PowerLoss >= buySqueezeThreshold) || f4AnticipatoryBuy || f4ContinuationBuy;
-    const f4EarlySell = (f4Slope > 0 && f4PowerLoss >= sellSqueezeThreshold) || f4AnticipatorySell || f4ContinuationSell;
+    let f4EarlyBuy = (f4Slope < 0 && f4PowerLoss >= buySqueezeThreshold) || f4AnticipatoryBuy || f4ContinuationBuy;
+    let f4EarlySell = (f4Slope > 0 && f4PowerLoss >= sellSqueezeThreshold) || f4AnticipatorySell || f4ContinuationSell;
+
+    // MATRIX HORIZON FAZ 4: Aşırı dip/tepe koruması (Dibi satma, tepeyi alma)
+    if (f4Value < -70) {
+      f4EarlySell = false;
+    }
+    if (f4Value > 70) {
+      f4EarlyBuy = false;
+    }
 
     
     // Confirmed signals are pure trend changes (color changes of the F4 line).
@@ -2178,7 +2186,8 @@ export class MatrixV5Engine {
     if (isF4Priority && saeResult.finalDecision !== "NO_TRADE") {
         finalAiScore = 100;
     } else if (saeResult.finalDecision === "NO_TRADE") {
-        finalAiScore = 0;
+        // [MODIFIED] Keep the calculated score even if no trade is recommended
+        // finalAiScore remains as calculated on line 2175
     }
 
     let tradeSignal: "BUY" | "SELL" | null = null;
@@ -2189,12 +2198,20 @@ export class MatrixV5Engine {
 
     if (isF4Buy && finalAiScore >= currentMinAi && !this.buyFired) {
         tradeSignal = "BUY";
+        systemDecision = "GO_LONG"; // Sync decision
         this.buyFired = true;
         this.lastSignalBarIndex = barIndex;
     } else if (isF4Sell && finalAiScore >= currentMinAi && !this.sellFired) {
         tradeSignal = "SELL";
+        systemDecision = "GO_SHORT"; // Sync decision
         this.sellFired = true;
         this.lastSignalBarIndex = barIndex;
+    }
+
+    if (tradeSignal === "BUY") {
+        systemDecision = "GO_LONG";
+    } else if (tradeSignal === "SELL") {
+        systemDecision = "GO_SHORT";
     }
 
     return { systemDecision, tradeSignal, finalAiScore };
@@ -2230,7 +2247,7 @@ export class MatrixV5Engine {
 
     const capital = this.calculateCapitalFlow(currentVolume, volSMA, atrVal, atrSMA, trendStrength, slope);
     const bullIndicators = [slope > 0, macdBull, st.bull, rsi > 50, adx.diPlus > adx.diMinus].filter(Boolean).length;
-    const mtfConsensusStr = `${bullIndicators}/5 ${bullIndicators >= 4 ? "GÜÇLÜ BOĞA" : bullIndicators <= 1 ? "GÜÇLÜ AYI" : bullIndicators >= 3 ? "BOĞA" : "KARIŞIK"}`;
+    const mtfConsensusStr = `${bullIndicators}/5 ${bullIndicators >= 4 ? "GÜÇLÜ UYUM" : bullIndicators <= 1 ? "GÜÇLÜ AYI" : bullIndicators >= 3 ? "BOĞA UYUM" : "KARIŞIK"}`;
 
     const components: AiScoreComponents = {
       whaleConfirmed: isWhale && !fakeBreakoutUp && !fakeBreakoutDown ? 15 : 0,

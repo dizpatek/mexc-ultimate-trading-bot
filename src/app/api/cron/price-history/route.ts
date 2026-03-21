@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 /**
  * Price History Tracking Cron Job
  * Tracks historical price data for portfolio assets
- * Runs hourly via Vercel Cron
+ * Runs hourly via Northflank Cron
  */
 
 export async function GET(request: Request) {

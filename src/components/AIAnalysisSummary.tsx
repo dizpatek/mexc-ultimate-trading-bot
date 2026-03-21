@@ -62,7 +62,7 @@ export const AIAnalysisSummary = ({
     const summaryText = {
       ozet: `${signal.symbol} şu anda ${isSmcBullish ? "boğa" : "ayı"} trendinde, ${signal.marketPhaseText?.toLowerCase() || "konsolidasyon"} fazında ve ${signal.mtfConsensus || "5/5 MTF"} ${isSmcBullish ? "GÜÇLÜ BOĞA" : "GÜÇLÜ AYI"} uzlaşısı ile teknik olarak yukarı yönlü bir eğilimde.`,
       senaryo: `AI, F4’te %${f4Power} güç kaybı ve RGM’de ${rgmStatus} ile ${signal.f4PowerLoss && signal.f4PowerLoss > 0.8 ? "düşüşün yorulduğunu" : "akümülasyonun sürdüğünü"}, kademeli bir toparlanma ihtimalinin arttığını okuyor; kısa vadeli bias ${signal.adm?.bias || "yukarı"}.`,
-      risk: `Genel piyasa ${signal.marketRegime || "Risk-On"}, haber modu nötr; yine de BOS aşağı kırılırsa bu senaryo bozulur. Ortalama bir risk profili için portföyün %1–3’üyle, max 5–10x kaldıraç ve yaklaşık %2 stop mesafesiyle kademeli long düşünülebilir. Bu otomatik bir AI senaryosudur, yatırım tavsiyesi değildir ve sonuç garanti edilmez.`
+      risk: `Genel piyasa ${signal.marketRegime || "Risk-On"}, haber modu nötr; yine de BOS aşağı kırılırsa bu senaryo bozulur. Ortalama bir risk profili için portföyün %1–3’üyle, max 5–10x kaldıraç ve yaklaşık %2 stop mesafesiyle kademeli long düşünülebilir. Bu otomatik bir YZ senaryosudur, yatırım tavsiyesi değildir ve sonuç garanti edilmez.`
     };
 
     const scenarios = [
@@ -75,7 +75,7 @@ export const AIAnalysisSummary = ({
       confidence: conf,
       riskLevel: signal.marketRegime === "RISK_OFF" ? "Yüksek" : "Düşük",
       trendProbability: isSmcBullish ? "Yükseliş" : "Düşüş",
-      summaryTitle: "AI KOKPİT ÖZETİ",
+      summaryTitle: "YZ KOKPİT ÖZETİ",
       summaryText,
       technical,
       macro,
@@ -171,8 +171,8 @@ export const AIAnalysisSummary = ({
 
 const MetricItem = ({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: string; color: string; }) => (
   <div className="flex flex-col gap-1 p-1.5 rounded-xl bg-slate-950/40 border border-white/5 items-center text-center">
-    <div className="text-slate-500">{icon}</div>
-    <span className="text-[7px] font-black text-slate-500 uppercase tracking-tighter">{label}</span>
+    <div className="text-slate-400">{icon}</div>
+    <span className="text-[7px] font-black text-slate-400 uppercase tracking-tighter">{label}</span>
     <div className={cn("text-[8px] font-black truncate", color)}>{value}</div>
   </div>
 );

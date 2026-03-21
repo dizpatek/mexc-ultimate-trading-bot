@@ -1,5 +1,5 @@
 @import url("https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
-@import url('https://fonts.cdnfonts.com/css/revenant');
+@import url("https://fonts.cdnfonts.com/css/revenant");
 
 @tailwind base;
 @tailwind components;
@@ -244,4 +244,79 @@ body {
   100% {
     transform: translateX(-50%);
   }
+}
+
+/* Matrix Login Specific Styles */
+@keyframes matrix-glitch-scan {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 100% 100%;
+  }
+}
+.animate-scanline-fast {
+  animation: matrix-glitch-scan 10s linear infinite;
+}
+
+@keyframes matrix-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-4px);
+  }
+  75% {
+    transform: translateX(4px);
+  }
+}
+.animate-shake {
+  animation: matrix-shake 0.2s ease-in-out infinite;
+}
+
+@keyframes rgb-border {
+  0% {
+    background: conic-gradient(from 0deg, #0f0, #f00, #00f, #0f0);
+  }
+  50% {
+    background: conic-gradient(from 180deg, #0f0, #f00, #00f, #0f0);
+  }
+  100% {
+    background: conic-gradient(from 360deg, #0f0, #f00, #00f, #0f0);
+  }
+}
+.animate-rgb-border {
+  animation: rgb-border 4s linear infinite;
+}
+
+@keyframes rgb-text {
+  0% {
+    color: #0f0;
+    text-shadow: 0 0 5px #0f0;
+  }
+  33% {
+    color: #f00;
+    text-shadow: 0 0 5px #f00;
+  }
+  66% {
+    color: #00f;
+    text-shadow: 0 0 5px #00f;
+  }
+  100% {
+    color: #0f0;
+    text-shadow: 0 0 5px #0f0;
+  }
+}
+.animate-rgb-text {
+  animation: rgb-text 3s linear infinite;
+}
+
+.matrix-font {
+  font-family: "Revenant", sans-serif;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+}
+
+.perspective-1000 {
+  perspective: 1000px;
 }

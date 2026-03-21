@@ -66,6 +66,72 @@ async function updateEnv(projectId, serviceId, variables) {
   }
 }
 
+async function getStatus(projectId, serviceId) {
+  console.log(`\n--- 🛡️ NORTHFLANK STATUS: ${projectId} / ${serviceId} ---`);
+  
+  // 1. Service Details & Integrated Status
+  const service = await nfRequest(`/projects/${projectId}/services/${serviceId}`);
+  if (service?.data) {
+    const s = service.data;
+    console.log(`📡 Service: ${s.name} (Type: ${s.serviceType})`);
+    
+    if (s.status) {
+      const buildSt = s.status.build || {};
+      const deploySt = s.status.deployment || {};
+      console.log(`\n🏗️ Build Status: ${buildSt.status || 'N/A'}`);
+      console.log(`🚀 Deploy Status: ${deploySt.status || 'N/A'}`);
+      if (deploySt.activeRelease) {
+          console.log(`📌 Active Release ID: ${deploySt.activeRelease.id}`);
+      }
+    }
+  } else {
+    console.error('❌ Service not found or API error.');
+    return;
+  }
+
+  // 2. Build History (Singular 'build' endpoint for service-specific builds)
+  const buildData = await nfRequest(`/projects/${projectId}/services/${serviceId}/build`);
+  if (buildData?.data?.builds) {
+    const buildList = buildData.data.builds.slice(0, 5);
+    console.log(`\n🐳 Recent Builds:`);
+    buildList.forEach(b => {
+      const statusIcon = b.status === 'success' ? '✅' : b.status === 'failed' ? '❌' : '⏳';
+      console.log(`   - ${statusIcon} ${b.id.slice(0,8)}... | Status: ${b.status} | Created: ${b.createdAt} | Branch: ${b.branch || 'main'}`);
+    });
+  }
+
+  // 3. Deployment History (Singular 'deployment' endpoint)
+  const deployData = await nfRequest(`/projects/${projectId}/services/${serviceId}/deployment`);
+  if (deployData?.data?.deployments) {
+    const depList = deployData.data.deployments.slice(0, 3);
+    console.log(`\n📦 Recent Deployments:`);
+    depList.forEach(d => console.log(`   - ID: ${d.id.slice(0, 8)}... | Status: ${d.status} | Created: ${d.createdAt}`));
+  }
+}
+
+async function getLogs(projectId, serviceId) {
+  console.log(`\n--- 📜 RECENT LOGS: ${serviceId} ---`);
+  const logs = await nfRequest(`/projects/${projectId}/services/${serviceId}/logs`);
+  if (logs?.data?.logs) {
+    logs.data.logs.slice(-20).forEach(log => {
+      console.log(`[${log.timestamp.split('T')[1].split('.')[0]}] ${log.message}`);
+    });
+  } else {
+    console.error('❌ Could not fetch logs:', logs?.error || 'No logs available');
+  }
+}
+
+async function triggerBuild(projectId, serviceId) {
+  console.log(`\n🚀 Triggering NEW BUILD for ${serviceId}...`);
+  const response = await nfRequest(`/projects/${projectId}/services/${serviceId}/build`, 'POST');
+  if (response?.data) {
+    console.log('✅ Build triggered successfully!');
+    console.log(`📡 New Build ID: ${response.data.id}`);
+  } else {
+    console.error('❌ Failed to trigger build:', response?.error || 'Unknown Error');
+  }
+}
+
 // Simple CLI handling
 const [,, command, arg1, arg2] = process.argv;
 
@@ -77,6 +143,18 @@ const [,, command, arg1, arg2] = process.argv;
     case 'list-services':
       if (!arg1) return console.log('Usage: node deploy.mjs list-services <projectId>');
       await listServices(arg1);
+      break;
+    case 'status':
+      if (!arg1 || !arg2) return console.log('Usage: node deploy.mjs status <projectId> <serviceId>');
+      await getStatus(arg1, arg2);
+      break;
+    case 'logs':
+      if (!arg1 || !arg2) return console.log('Usage: node deploy.mjs logs <projectId> <serviceId>');
+      await getLogs(arg1, arg2);
+      break;
+    case 'deploy-now':
+      if (!arg1 || !arg2) return console.log('Usage: node deploy.mjs deploy-now <projectId> <serviceId>');
+      await triggerBuild(arg1, arg2);
       break;
     case 'update-env':
       if (!arg1 || !arg2) return console.log('Usage: node deploy.mjs update-env <projectId> <serviceId>');
@@ -102,6 +180,9 @@ Northflank Deploy Utility
 Available commands:
   list-projects
   list-services <projectId>
+  status <projectId> <serviceId>
+  deploy-now <projectId> <serviceId>
+  logs <projectId> <serviceId>
   update-env <projectId> <serviceId>
       `);
       break;

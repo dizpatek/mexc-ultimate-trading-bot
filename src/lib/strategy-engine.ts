@@ -285,11 +285,12 @@ async function runPilotCycle(
     await PilotExecutor.ensureReEntryMapLoaded(userId);
 
     const activeSmartTrades = await getActiveSmartTrades(userId, mode);
-    const activeOrderSymbols = activeSmartTrades.map(t => t.symbol);
+    const activeOrderSymbols = activeSmartTrades.map(t => t.symbol.replace("/", ""));
+    const reEntrySymbols = PilotExecutor.getReEntrySymbols(userId).map((s: string) => s.replace("/", ""));
     
     // SCAN RANGE: Even if pilot_only_holdings is ON, we include a minimal set of Top Assets 
-    // to ensure the bot can discover new entry opportunities as requested by the user.
-    let assetsToScan = [...holdingPairs];
+    // AND Re-Entry candidates AND Active SmartTrade symbols.
+    let assetsToScan = Array.from(new Set([...holdingPairs, ...activeOrderSymbols, ...reEntrySymbols]));
     const topAssetsCount = botConfig.pilot_only_holdings ? 0 : 60; // P4.2: Strict isolation if true
     
     if (topAssetsCount > 0) {
@@ -298,7 +299,7 @@ async function runPilotCycle(
       assetsToScan = Array.from(new Set([...assetsToScan, ...topSymbols]));
       console.log(`[PilotEngine] 🌐 Scan set prepared with Discovery: ${assetsToScan.length} assets.`);
     } else {
-      console.log(`[PilotEngine] 🛡 Portfolio Mode Active: Scanning ${assetsToScan.length} held assets only.`);
+      console.log(`[PilotEngine] 🛡 Portfolio Mode Active: Scanning ${assetsToScan.length} assets (Held + Active + Re-Entry).`);
     }
 
     const finalCoins = assetsToScan.filter((s) => 
@@ -312,12 +313,13 @@ async function runPilotCycle(
 
     console.log(`[PilotEngine] 🔍 Monitoring ${finalCoins.length} assets.`);
 
-    // P4.2: Hybrid Multi-Timeframe Scanning
-    // We scan 1m for ultra-fast "Early" signals and the configured pilot_timeframe for trend signals.
+    // P4.2: Hybrid Multi-Timeframe Scanning (Restored for Signal Flow UI visibility)
+    // We scan 1m for early visual signals in the UI, and the pilot_timeframe for actual entry logic.
     let mainTf = botConfig.pilot_timeframe || "4h";
     if (mainTf.toLowerCase() === "1mo") mainTf = "1M";
     
-    // Timeframes to scan: Always include 1m if Scalp mode or if user specifically needs fast signals
+    // Always include 1m to ensure the "Signal Flow" doesn't go empty, 
+    // but the PilotExecutor will prevent actual trade entry for 1m if not configured.
     const timeframesToScan = (mainTf === "1m") ? ["1m"] : ["1m", mainTf];
 
     console.log(
@@ -335,10 +337,14 @@ async function runPilotCycle(
     const holdingsMap = new Map<string, any>();
     for (const h of holdings) {
       if (h.asset) {
-        holdingsMap.set(`${h.asset}USDT`, h);
-        holdingsMap.set(h.asset, h); // Enables lookups like .get("USDT")
+        const assetKey = h.asset.toUpperCase();
+        holdingsMap.set(`${assetKey}USDT`, h);
+        holdingsMap.set(assetKey, h);
       }
-      if (h.symbol) holdingsMap.set(h.symbol.replace("/", ""), h);
+      if (h.symbol) {
+        const symKey = h.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+        holdingsMap.set(symKey, h);
+      }
     }
 
     // Fetch recent signals to prevent duplicate rapid-fire trades
@@ -392,7 +398,7 @@ async function processPilotChunk(
   // This restores the speed of concurrent network requests while maintaining thread-safe deduplication.
   const analysisResults = await Promise.allSettled(
     chunk.map(async (symbol) => {
-      const symbolLockId = `pilot_lock_${symbol}`;
+      const symbolLockId = `pilot_lock_${userId}_${symbol}`;
       const symbolOwner = `worker_${process.pid}_${Date.now()}`;
       
       const symbolLocked = await acquireLock(symbolLockId, symbolOwner, 30000);

@@ -26,6 +26,7 @@ import {
   Cpu,
   Coins
 } from "lucide-react";
+import { AdminArsenal } from "@/components/admin/AdminArsenal";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -274,42 +275,12 @@ export default function SettingsPage() {
             )}
           </div>
 
-          {/* Admin Modules */}
+          {/* Zirve Admin Arsenal */}
           {(user?.is_admin || user?.id === 1) && (
-            <>
-              {/* User List Management - Fits in 1 col */}
-              <div className="stat-card border-primary/10 h-full">
-                <h3 className="text-sm font-black mb-6 uppercase tracking-widest text-primary/70">
-                  Intelligence Units
-                </h3>
-                <div className="space-y-2 max-h-[150px] overflow-y-auto custom-scrollbar">
-                  {users.map((u) => (
-                    <div
-                      key={u.id}
-                      className="flex items-center justify-between p-3 bg-white/[0.02] border border-white/5 rounded-lg hover:bg-white/[0.04] transition-all"
-                    >
-                      <div>
-                        <p className="font-bold text-xs tracking-tight">
-                          {u.username.toUpperCase()}
-                        </p>
-                        <p className="text-[9px] text-muted-foreground font-mono">
-                          {u.email}
-                        </p>
-                      </div>
-                      {u.id !== 1 && !u.is_admin && (
-                        <button
-                          onClick={() => handleDeleteUser(u.id)}
-                          className="text-[9px] font-black text-red-500/50 hover:text-red-500 transition-colors uppercase"
-                        >
-                          KILL
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-            </>
+            <div className="col-span-full space-y-8 mt-12 animate-in fade-in slide-in-from-bottom-8 duration-1000">
+              <div className="h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent mb-12" />
+              <AdminArsenal />
+            </div>
           )}
         </div>
       </main>

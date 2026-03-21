@@ -1,4 +1,4 @@
-// Global market data utility
+import { api } from "@/services/api";
 import axios from "axios";
 
 export interface GlobalMarketData {
@@ -27,8 +27,8 @@ export async function fetchGlobalMarketData(): Promise<GlobalMarketData> {
 
   try {
     const [cgRes, paxgRes] = await Promise.all([
-      axios.get("/api/market/global", { timeout: 5000 }),
-      axios.get("https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT", { timeout: 3000 }).catch(() => ({ data: { price: _lastKnownPaxgPrice } }))
+      api.get("/market/global", { timeout: 12000 }),
+      axios.get("https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT", { timeout: 5000 }).catch(() => ({ data: { price: _lastKnownPaxgPrice } }))
     ]);
 
     const data = cgRes.data;

@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useAuth } from "./useAuth";
 import { api } from "@/services/api";
 import { AxiosError } from "axios";
 import { normalizeSymbol, extractBaseAsset } from "@/lib/symbol-utils";
@@ -20,6 +21,7 @@ export interface LogEntry {
   assetSymbol?: string;
   timeframe?: string;
   strategyName?: string;
+  userId?: number;
   meta?: {
     aiScore?: number;
     regime?: string;
@@ -32,6 +34,8 @@ export interface LogEntry {
     f4Power?: number;
     f4PowerLoss?: number;
     insight?: string;
+    scanTimeframe?: string;
+    pilotTimeframe?: string;
   };
 }
 
@@ -180,13 +184,17 @@ function formatLogMessage(sig: any, suffix: string): string {
     const act = sig.type.replace("SCANNER_", "");
     return `🔭 TARAMA [${act}]: ${sig.symbol} @ ${sig.price}`;
   }
-  return `🎯 AI: ${sig.symbol}`;
+  const side = sig.side || (sig.type?.includes("BUY") ? "BUY" : sig.type?.includes("SELL") ? "SELL" : "");
+  const sideLabel = side === "BUY" ? " (AL)" : side === "SELL" ? " (SAT)" : "";
+  const sideIcon = side === "BUY" ? "🟢" : side === "SELL" ? "🔴" : "🎯";
+  
+  return `${sideIcon} YZ: ${sig.symbol}${sideLabel}`;
 }
 
 /**
  * Robustly parses a raw log entry from the database into a LogEntry object.
  */
-export function parseLogEntry(sig: any, isTestMode: boolean = true): LogEntry {
+export function parseLogEntry(sig: any, currentUserId?: number): LogEntry {
   const isTrade = ["BUY", "SELL", "STOP_LOSS", "TAKE_PROFIT"].includes(
     sig.type,
   );
@@ -202,9 +210,20 @@ export function parseLogEntry(sig: any, isTestMode: boolean = true): LogEntry {
   const metaData = metaDataFromExec || metaDataFromDetail || {};
 
   if (sig.executed) {
-    metaData.veto = "✅ İŞLEME GİRİLDİ (Order Pipeline Sync)";
+    const isOwn = currentUserId && Number(sig.signal_user_id) === Number(currentUserId);
+    if (isOwn) {
+        metaData.veto = "✅ İŞLEME GİRİLDİ (Order Pipeline Sync)";
+    } else {
+        // Strict Isolation: If not own, mark as external to avoid confusion (API should ideally hide these anyway)
+        metaData.veto = "🌐 DİĞER KULLANICI / SİSTEM İŞLEMİ";
+    }
   } else if (sig.veto_reason) {
-    metaData.veto = sig.veto_reason;
+    const isOwn = currentUserId && Number(sig.signal_user_id) === Number(currentUserId);
+    if (isOwn) {
+        metaData.veto = sig.veto_reason;
+    } else {
+        metaData.veto = "🔍 DİĞER KULLANICI ANALİZİ";
+    }
   } else if (execMessage) {
     metaData.veto = execMessage;
   }
@@ -231,10 +250,10 @@ export function parseLogEntry(sig: any, isTestMode: boolean = true): LogEntry {
     finalDetail || "",
   );
   const displayMessage = formatLogMessage(sig, tfSuffix);
+  // Standardize timeframe strings for UI consistency
   let finalTimeframe = parsedTf || sig.timeframe || "";
-
-  // Normalize 1M (Month) to 1Mo to distinguish from 1m (Minute)
   if (finalTimeframe === "1M") finalTimeframe = "1Mo";
+  else if (finalTimeframe) finalTimeframe = finalTimeframe.toLowerCase();
 
   return {
     id: sig.id,
@@ -255,6 +274,7 @@ export function parseLogEntry(sig: any, isTestMode: boolean = true): LogEntry {
       sig.strategy_name ||
       (Object.keys(metaData).length > 0 ? "MATRIX_V5" : undefined),
     meta: Object.keys(metaData).length > 0 ? metaData : undefined,
+    userId: sig.signal_user_id ? Number(sig.signal_user_id) : undefined,
     sentiment: [
       "BUY",
       "SCANNER_BUY",
@@ -292,6 +312,7 @@ export function useCombatLogs(
   timeframe: string = "4h",
   enabled: boolean = true,
 ) {
+  const { user } = useAuth();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [scanStatus, setScanStatus] = useState<"idle" | "scanning" | "done">(
     "idle",
@@ -303,22 +324,30 @@ export function useCombatLogs(
   const fetchLogs = useCallback(async () => {
     const token =
       typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    if (!token || !enabled) {
-      setIsLoading(false);
+    if (!token || !enabled || !user?.id) {
+      if (!enabled || !token) setIsLoading(false);
       return;
     }
 
     try {
       // P3.2 Fix: Fetch ALL signals regardless of current UI timeframe
       // This ensures we keep history when switching views
-      const response = await api.get(`/logs/signals?timeframe=all`);
+      const response = await api.get(`/logs/signals?timeframe=${timeframe || "1m"}`);
       const data = response.data;
       setError(null);
 
       if (Array.isArray(data)) {
-        const formattedLogs: LogEntry[] = data.map((sig: any) =>
-          parseLogEntry(sig, true),
-        );
+        const formattedLogs: LogEntry[] = data
+          .map((sig: any) => parseLogEntry(sig, user.id))
+          .filter((log) => {
+            // Hide any signals (AI, Execution, F4) that don't belong to the current user
+            // to ensure strict privacy and prevent "BAŞKA KULLANICI" confusion.
+            // SYSTEM logs with userId=null are kept for engine status visibility.
+            if (log.type !== "SYSTEM" && log.userId && log.userId !== user.id) {
+              return false;
+            }
+            return true;
+          });
         setLogs(formattedLogs.slice(0, 1000)); // cap to keep filtering cost bounded
       }
     } catch (err) {
@@ -330,7 +359,7 @@ export function useCombatLogs(
     } finally {
       setIsLoading(false);
     }
-  }, [timeframe]);
+  }, [timeframe, user?.id, enabled]);
 
   const triggerScan = useCallback(
     async (isManual: boolean = false) => {
@@ -465,15 +494,11 @@ export function deduplicateSystemLogs(logs: LogEntry[]): LogEntry[] {
     .sort((a, b) => b.timestamp - a.timestamp);
 }
 
-const ALWAYS_VISIBLE_BASES = new Set([
-  "BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOGE", "AVAX", "LINK", "DOT", "POL"
-]);
-
 export function filterSignalsByHoldings(
   tradeLogs: LogEntry[],
   holdings: { symbol: string }[] | null | undefined,
 ): LogEntry[] {
-  // P3.1 Fix: If holdings are null (loading state), don't fallback to all logs
+  // If holdings are null (loading state), don't fallback to all logs
   if (holdings === null || holdings === undefined) return [];
 
   const heldBases = new Set(
@@ -481,12 +506,9 @@ export function filterSignalsByHoldings(
       .filter((h) => h.symbol !== "USDT" && h.symbol !== "USDC")
       .map((h) => extractBaseAsset(h.symbol)),
   );
-  
-  // Add always visible bases to the set to ensure user sees major market updates
-  ALWAYS_VISIBLE_BASES.forEach(base => heldBases.add(base));
 
   return tradeLogs.filter((l) => {
-    if (!l.assetSymbol) return false;
+    if (!l.assetSymbol) return true; // Keep system/generic logs
     // Always include global signals as they are relevant to everyone
     if (l.assetSymbol === "GLOBAL") return true;
 

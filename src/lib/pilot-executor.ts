@@ -22,6 +22,7 @@ interface ReEntryRecord {
 // P4.2: Structured for multi-user compatibility
 const pilotReEntryMap = new Map<number, Map<string, ReEntryRecord>>();
 const initializedUsers = new Set<number>();
+const lastLoadTimeMap = new Map<number, number>(); // userId -> timestamp
 
 /**
  * Load re-entry records from the DB into the in-memory map.
@@ -29,7 +30,11 @@ const initializedUsers = new Set<number>();
  * Queries closed pilot_auto TRADE orders that haven't been re-entered.
  */
 async function loadReEntryMapFromDB(userId: number): Promise<void> {
-  if (initializedUsers.has(userId)) return;
+  const now = Date.now();
+  const lastLoad = lastLoadTimeMap.get(userId) || 0;
+  
+  // Throttle: Only reload from DB once every 60 seconds to keep it fresh without overhead
+  if (initializedUsers.has(userId) && (now - lastLoad < 60000)) return;
   try {
     // Find closed pilot_auto BUY trades (TRADE mode) with exit data
     // that don't have a newer FILLED/PENDING order for the same symbol
@@ -74,10 +79,12 @@ async function loadReEntryMapFromDB(userId: number): Promise<void> {
     }
 
     initializedUsers.add(userId);
+    lastLoadTimeMap.set(userId, now);
     console.log(`[Pilot] ♻️ Re-entry map initialized for User ${userId}: ${userMap.size} symbols ready.`);
   } catch (err) {
     console.error(`[Pilot] Failed to load re-entry map for user ${userId} from DB:`, err);
     initializedUsers.add(userId); // Mark as attempt made
+    lastLoadTimeMap.set(userId, now);
   }
 }
 
@@ -97,6 +104,7 @@ export function registerPilotReEntry(userId: number, symbol: string, usdtProceed
   });
   console.log(`[Pilot] ♻️ RE-ENTRY REGISTERED: ${symbol} | User: ${userId} | USDT: $${usdtProceeds.toFixed(2)}`);
 }
+
 
 /**
  * Consume (and remove) a re-entry record for a symbol.
@@ -147,7 +155,9 @@ function hasReEntry(userId: number, symbol: string): boolean {
  */
 function normalizeSymbol(symbol: string): string {
   if (!symbol) return "";
-  let s = symbol.toUpperCase().replace(/\//g, "");
+  // P4.2: Strips all non-alphanumeric characters to handle hyphen, slash, etc.
+  let s = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  // Handle double USDT suffixes (e.g. BTCUSDTUSDT -> BTCUSDT)
   if (s.endsWith("USDTUSDT")) {
     s = s.replace("USDTUSDT", "USDT");
   }
@@ -155,6 +165,14 @@ function normalizeSymbol(symbol: string): string {
 }
 
 export class PilotExecutor {
+  /**
+   * Get all symbols that are eligible for re-entry for a specific user.
+   */
+  static getReEntrySymbols(userId: number): string[] {
+    const userMap = pilotReEntryMap.get(userId);
+    if (!userMap) return [];
+    return Array.from(userMap.keys());
+  }
   /**
    * Ensure the re-entry map is loaded from DB before processing signals.
    * Must be called before calculateAllocation.
@@ -188,8 +206,9 @@ export class PilotExecutor {
       targetQty = Math.min(targetQty, free);
     }
 
-    // Standardized threshold (0.0001) to ensure small positions can be managed
-    const hasHolding = targetQty > 0.0001;
+    // P4.2: hasHolding should be based on real total balance, not just target trade qty.
+    // Standardized threshold (0.00001) to ensure small but tradable positions are detected.
+    const hasHolding = totalQty > 0.00001;
     
     // RE-ENTRY CHECK: If we don't hold the asset but have a re-entry record, it's a re-entry buy
     const isReEntry = !hasHolding && signalType === "BUY" && hasReEntry(userId, symbolKey);
@@ -446,11 +465,12 @@ export class PilotExecutor {
     mode: TradingMode, 
     scanTimeframe: string, 
     aiScore: number,
+    botConfig: BotConfig, // Added
     recentSignals: any[],
     activeSmartTrades?: any[],
     vetoReason?: string
   }) {
-    const { userId, symbol, signal, timestamp, executed, executionResult, mode, scanTimeframe, aiScore } = p;
+    const { userId, symbol, signal, timestamp, executed, executionResult, mode, scanTimeframe, aiScore, botConfig } = p;
     let finalVetoReason: string | undefined = p.vetoReason;
     
     if (!finalVetoReason && signal.reason && signal.reason.includes("🛑")) {
@@ -483,7 +503,11 @@ export class PilotExecutor {
       price: signal.price || 0,
       timestamp: timestamp, 
       executed,
-      execution_result: mergedResult,
+      execution_result: { 
+        ...mergedResult,
+        scanTimeframe,
+        pilotTimeframe: botConfig.pilot_timeframe || "4h"
+      },
       trading_mode: mode,
       veto_reason: finalVetoReason,
       payload: signal
@@ -542,6 +566,18 @@ export class PilotExecutor {
   }) {
     const { symbol, signal, scanTimeframe, botConfig, userId, mode, holdingsMap, recentSignals, activeSmartTrades } = params;
     const timestamp = Date.now();
+    
+    // P4.2: Timeframe Isolation Guard (Updated to allow UI logging while preventing trades)
+    // Only allow trade execution if the scanTimeframe matches the user's pilot config.
+    const pilotTf = botConfig.pilot_timeframe || "4h";
+    const timeframeMismatch = scanTimeframe !== pilotTf;
+    let tfVetoReason: string | undefined = undefined;
+    
+    if (timeframeMismatch) {
+      tfVetoReason = `Otopilot Zaman Dilimi Uyuşmazlığı (İzleme: ${scanTimeframe}, Pilot: ${pilotTf})`;
+      console.log(`[Pilot] \ud83d\udee1 Signal captured for UI but trade execution blocked: ${symbol} (${scanTimeframe})`);
+      // We do NOT return early anymore, we let it flow to recordSignalResult
+    }
 
     // 1. Deduplication check
     const recentExecuted = recentSignals.find(s => 
@@ -551,28 +587,46 @@ export class PilotExecutor {
 
     // 2. Matrix vs Hedge Logic
     const activeForSymbol = activeSmartTrades.filter(t => normalizeSymbol(t.symbol) === normalizeSymbol(symbol));
-    const buyTrade = activeForSymbol.find(t => t.meta?.mode === "TRADE");
-    const sellTrade = activeForSymbol.find(t => t.meta?.mode === "COVER");
+    const buyTradeForSymbol = activeForSymbol.find(t => t.meta?.mode === "TRADE");
+    const sellTradeForSymbol = activeForSymbol.find(t => t.meta?.mode === "COVER");
+
+    // Rule 4: Hedge mode global limit (Max 1 Long, Max 1 Short across ALL symbols)
+    const globalBuyTrade = activeSmartTrades.find(t => t.meta?.mode === "TRADE");
+    const globalSellTrade = activeSmartTrades.find(t => t.meta?.mode === "COVER");
 
     const pilotMode = botConfig.pilot_mode || "matrix";
 
     if (signal.signal === "BUY") {
-      if (buyTrade) {
-        console.log(`[Pilot] \ud83d\udee1 ${symbol} için zaten aktif bir ALIM (TRADE) işlemi var. Sinyal atlanıyor.`);
+      // Matrix Mode: Only check the current symbol
+      if (pilotMode === "matrix" && buyTradeForSymbol) {
+        console.log(`[Pilot] 🛡️ ${symbol} için zaten aktif bir ALIM (TRADE) işlemi var. Sinyal atlanıyor.`);
         return;
       }
-      if (sellTrade && pilotMode === "matrix") {
-        console.log(`[Pilot] \u21aa\ufe0f ${symbol} Matrix Modu: Aktif SATIŞ (COVER) kapatılıyor...`);
-        await this.closeSmartTrade(sellTrade, userId, mode);
+      // Hedge Mode: Check across ALL symbols (Rule 4)
+      if (pilotMode === "hedge" && globalBuyTrade) {
+        console.log(`[Pilot] 🛡️ Hedge Modu: Halihazırda aktif bir ALIM (TRADE) işlemi var (${globalBuyTrade.symbol}). Yeni işlem açılmıyor.`);
+        return;
+      }
+      
+      if (sellTradeForSymbol && pilotMode === "matrix") {
+        console.log(`[Pilot] ↪️ ${symbol} Matrix Modu: Aktif SATIŞ (COVER) kapatılıyor...`);
+        await this.closeSmartTrade(sellTradeForSymbol, userId, mode);
       }
     } else if (signal.signal === "SELL") {
-      if (sellTrade) {
-        console.log(`[Pilot] \ud83d\udee1 ${symbol} için zaten aktif bir SATIŞ (COVER) işlemi var. Sinyal atlanıyor.`);
+      // Matrix Mode: Only check the current symbol
+      if (pilotMode === "matrix" && sellTradeForSymbol) {
+        console.log(`[Pilot] 🛡️ ${symbol} için zaten aktif bir SATIŞ (COVER) işlemi var. Sinyal atlanıyor.`);
         return;
       }
-      if (buyTrade && pilotMode === "matrix") {
-        console.log(`[Pilot] \u21aa\ufe0f ${symbol} Matrix Modu: Aktif ALIŞ (TRADE) kapatılıyor...`);
-        await this.closeSmartTrade(buyTrade, userId, mode);
+      // Hedge Mode: Check across ALL symbols (Rule 4)
+      if (pilotMode === "hedge" && globalSellTrade) {
+        console.log(`[Pilot] 🛡️ Hedge Modu: Halihazırda aktif bir SATIŞ (COVER) işlemi var (${globalSellTrade.symbol}). Yeni işlem açılmıyor.`);
+        return;
+      }
+
+      if (buyTradeForSymbol && pilotMode === "matrix") {
+        console.log(`[Pilot] ↪️ ${symbol} Matrix Modu: Aktif ALIŞ (TRADE) kapatılıyor...`);
+        await this.closeSmartTrade(buyTradeForSymbol, userId, mode);
       }
     }
 
@@ -592,7 +646,10 @@ export class PilotExecutor {
 
     // 4. Execution Routing
     const cleanSymbol = normalizeSymbol(symbol);
-    if (!alloc.hasHolding && !alloc.isNewBuy && !alloc.isReEntry) {
+    if (timeframeMismatch) {
+      // P4.2: Skip execution but proceed to logging
+      executionResult = { message: tfVetoReason };
+    } else if (!alloc.hasHolding && !alloc.isNewBuy && !alloc.isReEntry) {
       const skipMsg = botConfig.pilot_only_holdings 
         ? "Portföyü Tara aktif olduğu için ve varlık bulunmadığı için atlandı." 
         : "Varlık bakiyesi yetersiz olduğu için atlandı.";
@@ -692,6 +749,7 @@ export class PilotExecutor {
       executionResult,
       mode,
       scanTimeframe,
+      botConfig, // Added
       aiScore,
       recentSignals,
       activeSmartTrades,

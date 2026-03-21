@@ -7,12 +7,13 @@ import { fetchKlines } from "@/lib/mexc";
 import { getSessionUser } from "@/lib/auth-utils";
 import { logSystemEvent } from "@/lib/db";
 import { resolveTradeMode } from "@/lib/db";
-// Local fallback for waitUntil (avoids build error in non-vercel environments)
+// Local fallback for waitUntil (avoids build error in non-serverless environments)
 const waitUntil = (promise: Promise<any>) => {
   promise.catch(err => console.error("[WaitUntil] Async task error:", err));
 };
 import { evaluateRisk } from "@/lib/engine/risk-management";
 import { fetchFundingRate } from "@/lib/market-data";
+import { getMtfConsensus } from "@/lib/mtf-engine";
 
 const engine = new MatrixV5Engine({});
 
@@ -54,13 +55,18 @@ export async function GET(request: NextRequest) {
 
   // Attempt to pre-fetch the user ID specifically for system logs (so we don't fetch twice)
   let sessionUid: number | null = null;
+  console.log(`[IndicatorAPI/V5] Request received for ${symbolUpper} (${interval})`);
+  
   try {
     const user = await getSessionUser(request);
     if (user && user.id) {
       sessionUid = Number(user.id);
+      console.log(`[IndicatorAPI/V5] Identified user ID: ${sessionUid}`);
+    } else {
+      console.log(`[IndicatorAPI/V5] Anonymous request, using fallback ID 1`);
     }
-  } catch {
-    /* ignore session errors in api path */
+  } catch (err) {
+    console.warn(`[IndicatorAPI/V5] Session fetch failed, bypassing:`, err instanceof Error ? err.message : err);
   }
 
   try {
@@ -106,6 +112,12 @@ export async function GET(request: NextRequest) {
       isNaN(btcDominance) ? 50 : btcDominance,
       isNaN(usdtDominance) ? 5 : usdtDominance
     );
+
+    // Step 2.6: Real MTF Integration (V5.6 Enhancement)
+    const mtfResult = await getMtfConsensus(fetchSymbol, interval, result.indicatorBullCount);
+    result.mtfConsensus = mtfResult.verdictText;
+    result.mtfWeightedScore = mtfResult.score;
+    result.mtfBullCount = mtfResult.bullCount;
 
     // Step 3.5: Log significant findings to DB buffer (Fire and Forget)
     if (

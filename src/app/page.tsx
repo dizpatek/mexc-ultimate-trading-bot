@@ -5,15 +5,19 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { useHoldings } from "@/hooks/usePortfolio";
 import { Header } from "@/components/Header";
-import { CombatLog } from "@/components/CombatLog";
-import { IntelligenceHub } from "@/components/IntelligenceHub";
-import { SmartOperationCenter } from "@/components/SmartOperationCenter";
 import { UnifiedControlStrip } from "@/components/UnifiedControlStrip";
 import { MatrixHorizon } from "@/components/matrix-horizon/MatrixHorizon";
-import { MatrixPortfolio } from "@/components/MatrixPortfolio";
 import { ActiveSmartTrades } from "@/components/ActiveSmartTrades";
 import { HorizonLayout } from "@/components/matrix-horizon/HorizonLayout";
 import { HorizonCard } from "@/components/matrix-horizon/HorizonCard";
+import { MatrixPortfolio } from "@/components/MatrixPortfolio";
+import { SmartOperationCenter } from "@/components/SmartOperationCenter";
+import { CombatLog } from "@/components/CombatLog";
+import { IntelligenceHub } from "@/components/IntelligenceHub";
+import { MoneyFlowSection } from "@/components/matrix-v5/MoneyFlow";
+import { PilotPipeline3D } from "@/components/PilotPipeline3D";
+import { ExchangeFlow } from "@/components/matrix-v5/ExchangeFlow";
+import { fetchGlobalMarketData, GlobalMarketData } from "@/lib/market-data";
 import { useCombatLogs } from "@/hooks/useCombatLogs";
 import { useNewsData } from "@/hooks/useNewsData";
 import { useNewsAnalytics } from "@/hooks/useNewsAnalytics";
@@ -44,6 +48,7 @@ export default function Dashboard() {
     usdt: 0,
   });
   const [isBottomSectionExpanded, setIsBottomSectionExpanded] = useState(false);
+  const [globalMarketData, setGlobalMarketData] = useState<GlobalMarketData | null>(null);
 
   // Lifted Hooks for Unified Header & Performance
   const { timeframe } = useTimeframe();
@@ -93,13 +98,34 @@ export default function Dashboard() {
     }
   }, [user, loading, router]);
 
+  // Centralized Global Market Data Polling
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetchGlobalMarketData();
+        setGlobalMarketData(res);
+      } catch (err) {
+        console.warn("[Dashboard] Global data fetch failed", err);
+      }
+    };
+    load();
+    const id = setInterval(load, 20000); // 20s interval
+    return () => clearInterval(id);
+  }, []);
+
   // Centralized Signal Polling (Anti-Explosion)
   const activeSymbols = useMemo(() => {
-    if (!holdings) return [];
-    return holdings
-      .filter((h) => h.symbol !== "USDT" && h.symbol !== "USDC")
-      .map((h) => (h.symbol.endsWith("USDT") ? h.symbol : `${h.symbol}USDT`));
-  }, [holdings]);
+    const symbolsInHoldings = holdings
+      ? holdings
+          .filter((h) => h.symbol !== "USDT" && h.symbol !== "USDC")
+          .map((h) => (h.symbol.endsWith("USDT") ? h.symbol : `${h.symbol}USDT`))
+      : [];
+    
+    // Merge with active symbol to ensure dashboard always has data for current selection
+    // Also include common leaders if not present
+    const base = Array.from(new Set([...symbolsInHoldings, activeSymbol, "BTCUSDT", "ETHUSDT"]));
+    return base;
+  }, [holdings, activeSymbol]);
 
   useEffect(() => {
     if (activeSymbols.length > 0) {
@@ -136,8 +162,20 @@ export default function Dashboard() {
           <MatrixHorizon 
             isManaged={true} 
             signalDataMap={signalsData.signalDataMap}
+            globalMarketData={globalMarketData}
           />
         </div>
+
+        {/* PILOT PIPELINE 3D (Ezzstar Style - New Dashboard Standard) */}
+        <div className="w-full relative min-h-[500px] mb-4 mt-1 overflow-visible">
+          <PilotPipeline3D />
+        </div>
+
+        {/* MONEY FLOW (Legacy Section - Keeping for data depth) */}
+        <MoneyFlowSection globalMarketData={globalMarketData} />
+
+        {/* EXCHANGE FLOW & MAKER TAKER (Main Menu Section) */}
+        <ExchangeFlow />
 
         {/* SMART TRADE OPERATION CENTER & ASSET LIST */}
         <div className="w-full flex flex-col gap-2">
@@ -227,7 +265,7 @@ export default function Dashboard() {
                      onClick={(e) => { e.stopPropagation(); setIsBottomSectionExpanded(!isBottomSectionExpanded); }}
                   >
                     {isBottomSectionExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                    <span className="hidden sm:inline">{isBottomSectionExpanded ? "GİZLE" : "GÖSTER"}</span>
+                    <span className="">{isBottomSectionExpanded ? "GİZLE" : "GÖSTER"}</span>
                   </button>
                 </div>
               </div>

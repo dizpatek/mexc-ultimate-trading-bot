@@ -1,0 +1,802 @@
+[
+  {
+    "id": 102479,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774024378315"
+  },
+  {
+    "id": 102478,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774024378315"
+  },
+  {
+    "id": 102477,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 20 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774024378315"
+  },
+  {
+    "id": 102474,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774024378315"
+  },
+  {
+    "id": 102473,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774024378315"
+  },
+  {
+    "id": 102470,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 18 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774024378315"
+  },
+  {
+    "id": 102468,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "Sinyal geldi [XRPUSDT]",
+    "details": "Portföyü Tara aktif olduğu için ve varlık bulunmadığı için atlandı. | AI Skoru: 100 | Portföy Ayarı: Sadece Portföy",
+    "timestamp": "1774024378315"
+  },
+  {
+    "id": 102464,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774024378315"
+  },
+  {
+    "id": 102463,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774024378315"
+  },
+  {
+    "id": 102462,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 20 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774023658284"
+  },
+  {
+    "id": 102461,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774023658284"
+  },
+  {
+    "id": 102459,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774023658284"
+  },
+  {
+    "id": 102455,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 20 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774023657228"
+  },
+  {
+    "id": 102454,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774023657228"
+  },
+  {
+    "id": 102451,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774023657228"
+  },
+  {
+    "id": 102444,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 20 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774023657228"
+  },
+  {
+    "id": 102443,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774023657228"
+  },
+  {
+    "id": 102441,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774023657228"
+  },
+  {
+    "id": 102435,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774022847381"
+  },
+  {
+    "id": 102433,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774022847381"
+  },
+  {
+    "id": 102431,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 20 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774022847381"
+  },
+  {
+    "id": 102429,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774022847381"
+  },
+  {
+    "id": 102427,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774022847381"
+  },
+  {
+    "id": 102424,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 19 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774022847381"
+  },
+  {
+    "id": 102423,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "Sinyal geldi [XRPUSDT]",
+    "details": "Portföyü Tara aktif olduğu için ve varlık bulunmadığı için atlandı. | AI Skoru: 100 | Portföy Ayarı: Sadece Portföy",
+    "timestamp": "1774022847381"
+  },
+  {
+    "id": 102421,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774022847381"
+  },
+  {
+    "id": 102418,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774022847381"
+  },
+  {
+    "id": 102415,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 20 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774022593285"
+  },
+  {
+    "id": 102413,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774022593285"
+  },
+  {
+    "id": 102410,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774022592236"
+  },
+  {
+    "id": 102408,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 19 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774022592236"
+  },
+  {
+    "id": 102406,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "Sinyal geldi [XRPUSDT]",
+    "details": "Portföyü Tara aktif olduğu için ve varlık bulunmadığı için atlandı. | AI Skoru: 100 | Portföy Ayarı: Sadece Portföy",
+    "timestamp": "1774022579861"
+  },
+  {
+    "id": 102405,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774022579861"
+  },
+  {
+    "id": 102403,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774022579861"
+  },
+  {
+    "id": 102401,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 20 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774022579861"
+  },
+  {
+    "id": 102399,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774022579861"
+  },
+  {
+    "id": 102398,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774022579861"
+  },
+  {
+    "id": 102388,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774021951936"
+  },
+  {
+    "id": 102385,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774021951936"
+  },
+  {
+    "id": 102383,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "Sinyal geldi [LINKUSDT]",
+    "details": "Portföyü Tara aktif olduğu için ve varlık bulunmadığı için atlandı. | AI Skoru: 100 | Portföy Ayarı: Sadece Portföy",
+    "timestamp": "1774021684206"
+  },
+  {
+    "id": 102380,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774021684206"
+  },
+  {
+    "id": 102377,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774021684206"
+  },
+  {
+    "id": 102373,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 20 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774021684206"
+  },
+  {
+    "id": 102370,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774021684206"
+  },
+  {
+    "id": 102367,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774021684206"
+  },
+  {
+    "id": 102361,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 20 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774021251253"
+  },
+  {
+    "id": 102360,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774021251253"
+  },
+  {
+    "id": 102356,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774021251253"
+  },
+  {
+    "id": 102344,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 18 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774021250157"
+  },
+  {
+    "id": 102343,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "Sinyal geldi [XRPUSDT]",
+    "details": "Portföyü Tara aktif olduğu için ve varlık bulunmadığı için atlandı. | AI Skoru: 100 | Portföy Ayarı: Sadece Portföy",
+    "timestamp": "1774021250157"
+  },
+  {
+    "id": 102340,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774021250157"
+  },
+  {
+    "id": 102331,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774021250157"
+  },
+  {
+    "id": 102323,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774021070623"
+  },
+  {
+    "id": 102312,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774021070623"
+  },
+  {
+    "id": 102305,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 20 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774020981195"
+  },
+  {
+    "id": 102304,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774020981195"
+  },
+  {
+    "id": 102297,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774020981195"
+  },
+  {
+    "id": 102288,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 19 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774020980095"
+  },
+  {
+    "id": 102285,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774020980095"
+  },
+  {
+    "id": 102278,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774020980095"
+  },
+  {
+    "id": 102270,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 20 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774020801987"
+  },
+  {
+    "id": 102267,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774020801987"
+  },
+  {
+    "id": 102256,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774020801987"
+  },
+  {
+    "id": 102252,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 16 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774020801987"
+  },
+  {
+    "id": 102251,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "Sinyal geldi [LINKUSDT]",
+    "details": "Portföyü Tara aktif olduğu için ve varlık bulunmadığı için atlandı. | AI Skoru: 100 | Portföy Ayarı: Sadece Portföy",
+    "timestamp": "1774020801987"
+  },
+  {
+    "id": 102248,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774020710414"
+  },
+  {
+    "id": 102240,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774020710414"
+  },
+  {
+    "id": 102233,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 16 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774020710414"
+  },
+  {
+    "id": 102232,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "Sinyal geldi [LINKUSDT]",
+    "details": "Portföyü Tara aktif olduğu için ve varlık bulunmadığı için atlandı. | AI Skoru: 100 | Portföy Ayarı: Sadece Portföy",
+    "timestamp": "1774020710414"
+  },
+  {
+    "id": 102231,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "Sinyal geldi [ADAUSDT], Satış (COVER) modunda çıkış yapılıyor.",
+    "details": "AI Skoru: 100.",
+    "timestamp": "1774020710414"
+  },
+  {
+    "id": 102230,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "POSITIVE",
+    "details": "🎯 MATRIX V5 SİNYALİ: ADAUSDT [GO_SHORT]: AI Skoru: 100 | AŞAĞI 📉",
+    "timestamp": "1774020710414"
+  },
+  {
+    "id": 102216,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774020621150"
+  },
+  {
+    "id": 102226,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774020621150"
+  },
+  {
+    "id": 102200,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774020620058"
+  },
+  {
+    "id": 102209,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774020620058"
+  },
+  {
+    "id": 102211,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 20 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774020620058"
+  },
+  {
+    "id": 102175,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 18 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774020443215"
+  },
+  {
+    "id": 102184,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774020443215"
+  },
+  {
+    "id": 102190,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774020443215"
+  },
+  {
+    "id": 102193,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "Sinyal geldi [DOTUSDT]",
+    "details": "Portföyü Tara aktif olduğu için ve varlık bulunmadığı için atlandı. | AI Skoru: 100 | Portföy Ayarı: Sadece Portföy",
+    "timestamp": "1774020443215"
+  },
+  {
+    "id": 102194,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 19 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774020443215"
+  },
+  {
+    "id": 102162,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774020351126"
+  },
+  {
+    "id": 102171,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774020351126"
+  },
+  {
+    "id": 102152,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774020350040"
+  },
+  {
+    "id": 102155,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774020350040"
+  },
+  {
+    "id": 102156,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 20 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774020350040"
+  },
+  {
+    "id": 102131,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774020175883"
+  },
+  {
+    "id": 102134,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774020175883"
+  },
+  {
+    "id": 102135,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 20 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774020175883"
+  },
+  {
+    "id": 102118,
+    "user_id": 9,
+    "level": "INFO",
+    "message": "Matrix Engine Online",
+    "details": "Kullanıcı oturumu başlatıldı, tüm modüller senkronize ediliyor.",
+    "timestamp": "1774020002619"
+  },
+  {
+    "id": 102116,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774019901885"
+  },
+  {
+    "id": 102097,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774019900828"
+  },
+  {
+    "id": 102100,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 16 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774019900828"
+  },
+  {
+    "id": 102113,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774019900828"
+  },
+  {
+    "id": 102094,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774019810789"
+  },
+  {
+    "id": 102067,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774019720599"
+  },
+  {
+    "id": 102074,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774019720599"
+  },
+  {
+    "id": 102075,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "SIGNAL_ANALYSIS",
+    "details": "SIGNAL_ANALYSIS: 20 varlık analiz edildi: Uygun sinyal yok.",
+    "timestamp": "1774019720599"
+  },
+  {
+    "id": 102042,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "STRATEGY_CYCLE_START",
+    "details": "Bağlantılar tazeleniyor ve analiz döngüsü başlatıldı. (Kullanıcı: 9, Mod: test)",
+    "timestamp": "1774019631043"
+  },
+  {
+    "id": 102053,
+    "user_id": 9,
+    "level": "SYSTEM",
+    "message": "PILOT_SCAN",
+    "details": "10 varlık pilot taramasında (1m, 15m).",
+    "timestamp": "1774019631043"
+  }
+]

@@ -3,6 +3,7 @@ import { MatrixV5Engine } from "@/lib/matrix-v5-engine";
 import { fetchKlines } from "@/lib/mexc";
 import { getBotConfig, resolveTradeMode } from "@/lib/db";
 import { fetchFundingRate } from "@/lib/market-data";
+import { getMtfConsensus } from "@/lib/mtf-engine";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,12 @@ export async function POST(request: NextRequest) {
             fundingRate || 0,
             { tradeMode }
           );
+
+          // Step 2.6: Real MTF Integration (V5.6 Enhancement for Bulk)
+          const mtfResult = await getMtfConsensus(symbolUpper, intervalVal, result.indicatorBullCount);
+          result.mtfConsensus = mtfResult.verdictText;
+          result.mtfWeightedScore = mtfResult.score;
+          result.mtfBullCount = mtfResult.bullCount;
 
           return {
             symbol: symbol.toUpperCase().replace("/", ""),

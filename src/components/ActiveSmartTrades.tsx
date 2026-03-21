@@ -419,7 +419,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                             )}>
                               <span className="text-[9px] font-black">{tf}</span>
                               <span className="text-[8px] font-bold">
-                                {hasBuy ? (isShort ? "TERS/AL" : "AL") : (hasSell ? (!isShort ? "TERS/SAT" : "SAT") : "-")}
+                                {hasBuy ? (isShort ? "MAKRO: AL" : "AL") : (hasSell ? (!isShort ? "MAKRO: SAT" : "SAT") : "-")}
                               </span>
                             </div>
                           );

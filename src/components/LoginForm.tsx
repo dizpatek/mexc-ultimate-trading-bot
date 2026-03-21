@@ -258,7 +258,7 @@ const LoginForm: React.FC = () => {
       onMouseLeave={handleMouseLeave}
     >
       <MatrixRainCanvas />
-      <div className="absolute inset-0 pointer-events-none z-10 opacity-20 animate-scanline" 
+      <div className="absolute inset-0 pointer-events-none z-10 opacity-20 animate-scanline-fast" 
            style={{ background: "linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%)", backgroundSize: "100% 4px" }} />
 
       <motion.div 
@@ -455,31 +455,6 @@ const LoginForm: React.FC = () => {
           </div>
           <span>CODE: {code}</span>
       </div>
-
-      <style jsx global>{`
-        .perspective-1000 { perspective: 1000px; }
-        @keyframes scanline { 0% { background-position: 0 0; } 100% { background-position: 100% 100%; } }
-        .animate-scanline { animation: scanline 10s linear infinite; }
-        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
-        .animate-shake { animation: shake 0.2s ease-in-out infinite; }
-        @keyframes rgb-border {
-          0% { background: conic-gradient(from 0deg, #0F0, #F00, #00F, #0F0); }
-          50% { background: conic-gradient(from 180deg, #0F0, #F00, #00F, #0F0); }
-          100% { background: conic-gradient(from 360deg, #0F0, #F00, #00F, #0F0); }
-        }
-        .animate-rgb-border { animation: rgb-border 4s linear infinite; }
-        @keyframes rgb-text {
-          0% { color: #0F0; text-shadow: 0 0 5px #0F0; }
-          33% { color: #F00; text-shadow: 0 0 5px #F00; }
-          66% { color: #00F; text-shadow: 0 0 5px #00F; }
-          100% { color: #0F0; text-shadow: 0 0 5px #0F0; }
-        }
-        .animate-rgb-text { animation: rgb-text 3s linear infinite; }
-        .matrix-font {
-          font-family: 'Revenant', sans-serif;
-          text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
-        }
-      `}</style>
     </div>
   );
 };

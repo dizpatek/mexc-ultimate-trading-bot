@@ -25,7 +25,7 @@ if (connectionString) {
 }
 
 /**
- * Tagged template literal for SQL queries, compatible with @vercel/postgres
+ * Tagged template literal for SQL queries, compatible with Northflank PostgreSQL
  */
 export async function sql(
   strings: TemplateStringsArray,
@@ -36,7 +36,7 @@ export async function sql(
     "",
   );
 
-  // Automatic JSON serialization for objects/arrays to match Vercel driver flavor
+  // Automatic JSON serialization for objects/arrays to match pg driver flavor
   const sanitizedValues = values.map((v) =>
     typeof v === "object" && v !== null && !(v instanceof Date)
       ? JSON.stringify(v)

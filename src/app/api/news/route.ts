@@ -9,7 +9,10 @@ export async function GET(request: Request) {
     const user = await getSessionUser(request);
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const news = await fetchAndProcessNews();
+    const { searchParams } = new URL(request.url);
+    const force = searchParams.get("force") === "true";
+
+    const news = await fetchAndProcessNews(force);
     return NextResponse.json(news);
   } catch (error) {
     console.error("API Route Error fetching news:", error);

@@ -46,6 +46,16 @@ export interface Trade {
   created_at: number;
 }
 
+export interface MarketTrade {
+  symbol: string;
+  exchange: string;
+  t: number;
+  p: number;
+  q: number;
+  side: number;
+  usd: number;
+}
+
 export interface Strategy {
   id: number;
   user_id: number;
@@ -120,6 +130,7 @@ export interface BotConfig {
   short_squeeze_threshold: number;
   min_power_loss: number;
   trade_freshness_bars: number;
+  fibo_length: number;
   scalp_length?: number;
   scalp_volume_multiplier?: number;
   swing_length?: number;
@@ -276,6 +287,94 @@ export async function getTradeHistoryBySymbol(
   const { rows } =
     await sql`SELECT * FROM trade_history WHERE user_id = ${userId} AND symbol = ${symbol} ORDER BY created_at DESC LIMIT ${limit}`;
   return rows;
+}
+
+// --- MARKET DATA CACHING ---
+export async function getMarketTrades(symbol: string, exchange: string, from: number, to: number): Promise<MarketTrade[]> {
+  const { rows } = await sql`
+        SELECT symbol, exchange, t, p, q, side, usd 
+        FROM market_trades 
+        WHERE symbol = ${symbol} AND exchange = ${exchange} AND t >= ${from} AND t <= ${to} 
+        ORDER BY t ASC
+    `;
+  return rows.map(r => ({
+    symbol: r.symbol as string,
+    exchange: r.exchange as string,
+    t: Number(r.t),
+    p: Number(r.p),
+    q: Number(r.q),
+    side: Number(r.side),
+    usd: Number(r.usd)
+  }));
+}
+
+export async function insertMarketTrades(trades: MarketTrade[]) {
+  if (trades.length === 0) return;
+  
+  // P4.3: CHUNK the bulk insert to prevent Postgres bind parameter limits (Max ~65k)
+  const CHUNK_SIZE = 1000;
+  for (let i = 0; i < trades.length; i += CHUNK_SIZE) {
+    const chunk = trades.slice(i, i + CHUNK_SIZE);
+    const query = `
+      INSERT INTO market_trades (symbol, exchange, t, p, q, side, usd)
+      VALUES ${chunk.map((_, j) => `($${j*7+1}, $${j*7+2}, $${j*7+3}, $${j*7+4}, $${j*7+5}, $${j*7+6}, $${j*7+7})`).join(',')}
+      ON CONFLICT (symbol, exchange, t, p, q, side) DO NOTHING
+    `;
+    const values = chunk.flatMap(tr => [tr.symbol, tr.exchange, tr.t, tr.p, tr.q, tr.side, tr.usd]);
+    await pool.query(query, values);
+  }
+}
+
+// --- NEWS ---
+export async function getRecentNews(limit = 200, hours = 24): Promise<any[]> {
+  const cutoff = Math.floor(Date.now() / 1000) - (hours * 3600);
+  const { rows } = await sql`
+        SELECT * FROM news 
+        WHERE published_on > ${cutoff} 
+        ORDER BY published_on DESC 
+        LIMIT ${limit}
+    `;
+  return rows.map(r => ({
+    id: r.id,
+    title: r.title,
+    translatedTitle: r.translated_title,
+    excerpt: r.excerpt,
+    source: r.source,
+    time: r.time,
+    url: r.url,
+    imageUrl: r.image_url,
+    publishedOn: Number(r.published_on)
+  }));
+}
+
+export async function insertNewsBulk(news: any[]) {
+  if (news.length === 0) return;
+  
+  // P4.3: DE-DUPLICATE within the incoming array by both ID and URL to avoid 
+  // "ON CONFLICT DO UPDATE command cannot affect row a second time" in Postgres.
+  const uniqueById = new Map(news.map(n => [n.id, n]));
+  const uniqueByUrl = new Map(Array.from(uniqueById.values()).map(n => [n.url, n]));
+  const uniqueNews = Array.from(uniqueByUrl.values());
+  
+  const query = `
+    INSERT INTO news (id, title, translated_title, excerpt, source, time, url, image_url, published_on, created_at)
+    VALUES ${uniqueNews.map((_, i) => `($${i*10+1}, $${i*10+2}, $${i*10+3}, $${i*10+4}, $${i*10+5}, $${i*10+6}, $${i*10+7}, $${i*10+8}, $${i*10+9}, $${i*10+10})`).join(',')}
+    ON CONFLICT (id) DO UPDATE SET
+      title = EXCLUDED.title,
+      translated_title = EXCLUDED.translated_title,
+      excerpt = EXCLUDED.excerpt,
+      time = EXCLUDED.time,
+      published_on = EXCLUDED.published_on
+  `;
+  
+  const now = Date.now();
+  const values = uniqueNews.flatMap(n => [
+    n.id, n.title, n.translatedTitle || null, n.excerpt || null, 
+    n.source, n.time || null, n.url, n.imageUrl || null, 
+    n.publishedOn, now
+  ]);
+  
+  await pool.query(query, values);
 }
 
 // --- PORTFOLIO ---
@@ -644,6 +743,7 @@ export async function getBotConfig(userId: number): Promise<BotConfig> {
     swing_length: parseInt(String(rows[0].swing_length ?? 10)),
     swing_volume_multiplier: parseFloat(String(rows[0].swing_volume_multiplier ?? 1.2)),
     trade_freshness_bars: parseInt(String(rows[0].trade_freshness_bars ?? 5)),
+    fibo_length: parseInt(String(rows[0].fibo_length ?? 20)),
   } as unknown as BotConfig;
 }
 

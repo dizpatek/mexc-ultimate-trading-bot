@@ -219,8 +219,8 @@ export const MatrixDashboard = () => {
         setOthersVal(marketData.othersd?.value ?? 0);
         setMarketFlow(marketData.flow ?? "—");
       }
-    } catch {
-      /* ignore */
+    } catch (err) {
+      console.error("[MatrixDashboard] Refresh failed:", err);
     }
     setLoading(false);
   }, []);

@@ -8,11 +8,12 @@ export const revalidate = 60; // Cache for 60 seconds
 export async function GET(request: Request) {
   try {
     const user = await getSessionUser(request);
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Remove hard 401 for global market data to allow guest/fallback viewing
+    // if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const response = await axios.get(
       "https://api.coingecko.com/api/v3/global",
       {
-        timeout: 10000,
+        timeout: 15000,
       }
     );
 

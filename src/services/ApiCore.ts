@@ -165,7 +165,7 @@ class PortfolioKernel extends Kernel<{
   trades: Trade[];
 }> {
   constructor() {
-    super(15000); // Reduced from 5s to 15s to save Vercel usage limits
+    super(15000); // Reduced from 5s to 15s to save cloud usage limits
   }
 
   protected async fetch() {

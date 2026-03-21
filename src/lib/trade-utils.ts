@@ -122,23 +122,30 @@ export function calculateMtfVerdict(
   side: "BUY" | "SELL" = "BUY"
 ) {
   // If we are LONG (BUY), bullish is good. If we are SHORT (SELL), bearish is good.
-  const bullCountRaw = allTfs.filter(
-    (d) =>
-      d &&
-      (d.trend === "BULLISH" ||
-        d.signal === "BUY" ||
-        d.f4EarlyBuy ||
-        d.f4ConfirmedBuy),
-  ).length;
-  
-  const bearCountRaw = allTfs.filter(
-    (d) =>
-      d &&
-      (d.trend === "BEARISH" ||
-        d.signal === "SELL" ||
-        d.f4EarlySell ||
-        d.f4ConfirmedSell),
-  ).length;
+  // P5.6: Enhanced MTF Weighted Scoring (Synced with mtf-engine.ts)
+  let mtfBullScore = 0;
+  let totalTfs = 0;
+
+  allTfs.forEach(d => {
+    if (!d) return;
+    totalTfs++;
+    
+    // Check if d.bullWeight exists (new centralized format) or calculate it
+    if (typeof (d as any).bullWeight === 'number') {
+      mtfBullScore += (d as any).bullWeight;
+    } else {
+      // Legacy fallback: Calculate a weight from available flags
+      let weight = 0.5; // Neutral start
+      if (d.f4ConfirmedBuy || d.f4EarlyBuy) weight = 0.9;
+      else if (d.f4ConfirmedSell || d.f4EarlySell) weight = 0.1;
+      else if (d.signal === "BUY" || d.trend === "BULLISH") weight = 0.75;
+      else if (d.signal === "SELL" || d.trend === "BEARISH") weight = 0.25;
+      mtfBullScore += weight;
+    }
+  });
+
+  const bullCountRaw = mtfBullScore;
+  const bearCountRaw = totalTfs - mtfBullScore;
 
   // Context-aware scoring
   const goodCount = side === "BUY" ? bullCountRaw : bearCountRaw;
@@ -161,8 +168,8 @@ export function calculateMtfVerdict(
       verdictText = "AL";
       verdictColor = "text-emerald-300";
     } else if (bearPct >= 70) {
-      verdictText = "TEHLİKE / SAT";
-      verdictColor = "text-rose-500 font-bold underline";
+      verdictText = "TERS TREND (SAT)";
+      verdictColor = "text-orange-500 font-black animate-pulse bg-orange-500/10 px-1 rounded";
     } else if (bearPct >= 55) {
       verdictText = "ZAYIF / AYI";
       verdictColor = "text-rose-300";
@@ -176,8 +183,8 @@ export function calculateMtfVerdict(
       verdictText = "SAT";
       verdictColor = "text-rose-300";
     } else if (bullPct >= 70) {
-      verdictText = "TEHLİKE / AL";
-      verdictColor = "text-emerald-500 font-bold underline";
+      verdictText = "TERS TREND (AL)";
+      verdictColor = "text-orange-500 font-black animate-pulse bg-orange-500/10 px-1 rounded";
     } else if (bullPct >= 55) {
       verdictText = "ZAYIF / BOĞA";
       verdictColor = "text-emerald-300";

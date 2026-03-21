@@ -109,8 +109,9 @@ const NewsTicker = ({ items }: { items: NewsItem[] }) => {
     [items],
   );
 
-  if (highImpact.length === 0) return null;
-  if (highImpact.length === 0) return null;
+  // P4.2: Show ticker if there are ANY items, but prioritize high impact
+  const displayItems = highImpact.length > 0 ? highImpact : items.slice(0, 5);
+  if (displayItems.length === 0) return null;
 
   return (
     <div className="relative overflow-hidden bg-gradient-to-r from-amber-950/40 via-amber-900/20 to-amber-950/40 border-b border-amber-500/20 py-1.5">
@@ -121,7 +122,7 @@ const NewsTicker = ({ items }: { items: NewsItem[] }) => {
           <span className="text-[10px] uppercase tracking-[0.2em]">FLAŞ</span>
         </div>
 
-        <Ticker items={highImpact} speed="15s" gap="gap-8">
+        <Ticker items={displayItems} speed="15s" gap="gap-8">
           {(item: NewsItem, idx) => (
             <span
               key={`${item.id}-${idx}`}
@@ -524,7 +525,7 @@ export const IntelligenceHub = ({
                <button
                 onClick={(e) => { 
                   e.stopPropagation(); 
-                  fetchNews();
+                  fetchNews(true);
                 }}
                 className="p-1.5 rounded-lg border border-slate-800 text-slate-500 hover:text-white transition-all"
                 title="Yenile"
@@ -540,7 +541,7 @@ export const IntelligenceHub = ({
                  onClick={(e) => { e.stopPropagation(); setIsSectionExpanded(!isSectionExpanded); }}
               >
                 {isSectionExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                <span className="hidden sm:inline">{isSectionExpanded ? "GİZLE" : "GÖSTER"}</span>
+                <span className="">{isSectionExpanded ? "GİZLE" : "GÖSTER"}</span>
               </button>
             </div>
           </div>
@@ -641,7 +642,7 @@ export const IntelligenceHub = ({
                 {error}
               </span>
               <button
-                onClick={fetchNews}
+                onClick={() => fetchNews(true)}
                 className="text-xs font-black text-blue-400 border-b border-blue-400/30 pb-0.5 hover:text-blue-300 transition-colors"
               >
                 YENİDEN DENE
@@ -657,9 +658,9 @@ export const IntelligenceHub = ({
               ))}
             </div>
           ) : (
-            intel.map((item) => (
+            Array.from(new Map(intel.map(it => [it.id, it])).values()).map((item, idx) => (
               <NewsItemRow
-                key={item.id}
+                key={`${item.id}-${idx}`}
                 item={item}
                 isHeld={!!holdings?.find((h) => h.symbol === item.relatedAsset)}
                 handleNewsTrade={handleNewsTrade}

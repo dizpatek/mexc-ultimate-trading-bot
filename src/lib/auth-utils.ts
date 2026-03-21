@@ -7,7 +7,7 @@ import {
   getUserByUsername,
 } from "./db";
 
-const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-it";
+const JWT_SECRET = process.env.JWT_SECRET || "mexc-ultimate-secret-key-2026";
 
 interface User {
   id: number;
@@ -51,7 +51,8 @@ export function generateToken(user: User): string {
 export function verifyToken(token: string): JwtPayload | null {
   try {
     return jwt.verify(token, JWT_SECRET) as JwtPayload;
-  } catch {
+  } catch (err: any) {
+    console.error(`[Auth] verifyToken Failed: ${err.message}`);
     return null;
   }
 }
@@ -161,6 +162,7 @@ export async function getSessionUser(request: Request) {
       return result.user;
     }
 
+    console.warn(`[Auth] getSessionUser: getCurrentUser failed for token slice: ${token.substring(0, 10)}... Reason: ${result.message}`);
     return null;
   } catch (error) {
     console.error("[Auth] getSessionUser Error:", error);

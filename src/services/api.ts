@@ -8,12 +8,9 @@ const api = axios.create({
   baseURL: API_BASE_URL,
 });
 
-// Simple Request Throttler to prevent "API Explosions"
-let lastRequestTime = 0;
-const MIN_REQUEST_GAP = 200; // 5 req/sec staggered
-
 api.interceptors.request.use(async (config) => {
-  // Only throttle background polling (GET requests)
+  // Throttler disabled to prevent development environment timeouts
+  /*
   if (config.method === "get" || config.method === "GET") {
     const now = Date.now();
     const timeSinceLast = now - lastRequestTime;
@@ -25,6 +22,7 @@ api.interceptors.request.use(async (config) => {
       lastRequestTime = now;
     }
   }
+  */
   
   if (typeof window !== "undefined") {
     const token = localStorage.getItem("token");
@@ -57,7 +55,7 @@ api.interceptors.response.use(
         }
       }
     } else if (error.code === "ECONNABORTED") {
-      console.error("[API] Request timeout. Server may be busy.");
+      console.warn("[API] Request timeout. Server may be busy.");
     }
     return Promise.reject(error);
   }

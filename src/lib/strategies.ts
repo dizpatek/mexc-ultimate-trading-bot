@@ -1,5 +1,5 @@
 import { getKlines } from "./mexc";
-import { calculateRSI, calculateMACD, calculateSMA } from "./indicators";
+import { calculateRSI, calculateMACD, calculateSMA, getLatestIndicators } from "./indicators";
 import { getBotConfig, resolveTradeMode } from "./db";
 
 // Simple logger replacement to avoid dependency on winston for now
@@ -9,10 +9,7 @@ const logger = {
   info: (msg: string, meta?: Record<string, unknown>) => console.log(msg, meta),
 };
 
-// P4.3: Cache for MTF checks to avoid reaching API limits during bulk scans
-const mtfResultsCache = new Map<string, { result: number | null; timestamp: number }>();
-const pendingRequests = new Map<string, Promise<number | null>>();
-const MTF_CACHE_TTL = 30000; // 30 seconds
+import { getMtfConsensus } from "./mtf-engine";
 
 
 export interface StrategySignal {
@@ -251,8 +248,6 @@ export class MatrixV5Strategy extends BaseStrategy {
     this.engine = new MatrixV5Engine({
       f4Length: this.parameters.f4Length ? Number(this.parameters.f4Length) : undefined,
       f4Multiplier: this.parameters.f4_multiplier ? Number(this.parameters.f4_multiplier) : 1.0,
-      scalpF4Multiplier: this.parameters.scalp_f4_multiplier ? Number(this.parameters.scalp_f4_multiplier) : 3.7,
-      swingF4Multiplier: this.parameters.swing_f4_multiplier ? Number(this.parameters.swing_f4_multiplier) : 1.2,
       whaleVolumeMultiplier: this.parameters.whaleVolumeMultiplier ? Number(this.parameters.whaleVolumeMultiplier) : undefined,
       mtfThreshold: this.parameters.mtfThreshold ? Number(this.parameters.mtfThreshold) : 80,
       f4SlopeThreshold: 0.01,
@@ -320,7 +315,8 @@ export class MatrixV5Strategy extends BaseStrategy {
       let mtfVerdictText = "ATLANDI";
 
       if (originalSignal) {
-        const consensus = await this.getMtfConsensus(timeframeStr, result);
+        const engineBullCount = result.indicatorBullCount ?? result.mtfBullCount ?? 0;
+        const consensus = await getMtfConsensus(this.symbol, timeframeStr, engineBullCount);
         mtfScore = consensus.score;
         mtfVerdictText = consensus.verdictText;
 
@@ -378,41 +374,6 @@ export class MatrixV5Strategy extends BaseStrategy {
   }
 
   /**
-   * Calculates MTF Consensus score by scanning multiple timeframes.
-   */
-  private async getMtfConsensus(currentTimeframe: string, engineResult: any): Promise<{ score: number; verdictText: string }> {
-    const tfsToScan: ("15m" | "1h" | "4h" | "1d")[] = ["15m", "1h", "4h", "1d"];
-    const tfsToFetch = tfsToScan.filter((tf) => tf !== currentTimeframe);
-
-    const engineBullCount = (engineResult as any).indicatorBullCount ?? (engineResult as any).mtfBullCount ?? 0;
-    // Granular scoring: Convert 0-5 bull count to a base score (e.g. 1/5 = 0.2)
-    let mtfBullScore = engineBullCount / 5;
-    let mtfTotal = 1;
-
-    try {
-      const mtfResults = await Promise.all(
-        tfsToFetch.map(async (tf) => {
-          return await this.performLiteMtfCheck(tf);
-        })
-      );
-
-      for (const res of mtfResults) {
-        if (res !== null) {
-          // performLiteMtfCheck returns 1 (bull) or 0 (bear)
-          mtfBullScore += res;
-          mtfTotal++;
-        }
-      }
-    } catch (err) {
-      console.error(`[MTF-Lite] Parallel check failed for ${this.symbol}:`, err);
-    }
-
-    const score = mtfTotal > 0 ? (mtfBullScore / mtfTotal) * 100 : 50;
-    const verdictText = `${mtfBullScore.toFixed(1)}/${mtfTotal} TF Sinyal`;
-    return { score, verdictText };
-  }
-
-  /**
    * Applies Multi-Timeframe Veto logic based on consensus score.
    */
   private applyMtfVeto(
@@ -440,58 +401,21 @@ export class MatrixV5Strategy extends BaseStrategy {
         reasonExtension = ` | 🛑 MTF Short Veto: Ayı Gücü (%${bearPower}) yetersiz. (Gerekli: %${bearRequired}+, ${mtfVerdictText})`;
         finalSignal = null;
       } else if (isEarly) {
-        reasonExtension = ` | ⚡ Erken Giriş Onayı (MTF ${mtfVerdictText})`;
+        // [STRICT] If it's early but trend is strongly opposite, veto it anyway
+        if (signal === "BUY" && mtfScore < 50) {
+          reasonExtension = ` | 🛑 MTF Trend Veto: Erken sinyal ama trend AYI/ZAYIF (%${mtfScore.toFixed(0)}), LONG iptal.`;
+          finalSignal = null;
+        } else if (signal === "SELL" && mtfScore > 50) {
+          reasonExtension = ` | 🛑 MTF Trend Veto: Erken sinyal ama trend BOĞA/GÜÇLÜ (%${mtfScore.toFixed(0)}), SHORT iptal.`;
+          finalSignal = null;
+        } else {
+          reasonExtension = ` | ⚡ Erken Giriş Onayı (MTF ${mtfVerdictText})`;
+        }
       }
     } else {
       reasonExtension = ` | ℹ️ MTF Check: ${mtfVerdictText} (Veto Devre Dışı)`;
     }
     return { signal: finalSignal, reasonExtension };
-  }
-
-  /**
-   * P4.2: Separating lite trend detection logic for better quality.
-   * Optimized with request deduplication to prevent rate-limit flooding.
-   */
-  private async performLiteMtfCheck(tf: string): Promise<number | null> {
-    const cacheKey = `${this.symbol}_${tf}`;
-    
-    // 1. Check Memory Cache
-    const cached = mtfResultsCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < MTF_CACHE_TTL) {
-      return cached.result;
-    }
-
-    // 2. Check for Pending Request (Deduplication)
-    const existingPromise = pendingRequests.get(cacheKey);
-    if (existingPromise) return existingPromise;
-
-    // 3. Perform Fetch with Lock
-    const fetchPromise = (async () => {
-      try {
-        const klines = await getKlines(this.symbol, tf, 50);
-        if (klines && klines.length >= 50) {
-          const closes = klines.map((k: any) => parseFloat(String(k[4])));
-          const lastClose = closes[closes.length - 1];
-          const ema20 = closes.slice(-20).reduce((a: number, b: number) => a + b, 0) / 20;
-          const ema50 = closes.slice(-50).reduce((a: number, b: number) => a + b, 0) / 50;
-          
-          let result = 0;
-          if (lastClose > ema20) result += 0.5;
-          if (lastClose > ema50) result += 0.5;
-          
-          mtfResultsCache.set(cacheKey, { result, timestamp: Date.now() });
-          return result;
-        }
-      } catch (e) {
-        console.warn(`[MTF-Lite] Fetch error for ${this.symbol} on ${tf}:`, e);
-      } finally {
-        pendingRequests.delete(cacheKey);
-      }
-      return null;
-    })();
-
-    pendingRequests.set(cacheKey, fetchPromise);
-    return fetchPromise;
   }
 }
 

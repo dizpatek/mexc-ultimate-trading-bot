@@ -45,18 +45,19 @@ export async function GET(request: Request) {
             (
                 SELECT 
                     s.id::text,
-                    COALESCE(st.name, 'Pilot ON') as strategy_name,
-                    COALESCE(s.symbol, st.symbol, 'Global') as symbol,
-                    s.signal_type as type,
+                    s.user_id::integer as signal_user_id,
+                    COALESCE(st.name, 'Pilot ON')::text as strategy_name,
+                    COALESCE(s.symbol, st.symbol, 'Global')::text as symbol,
+                    s.signal_type::text as type,
                     s.price::text as price,
                     s.timestamp,
                     s.executed,
-                    s.execution_result::text as detail,
-                    s.timeframe as timeframe,
-                    s.veto_reason
+                    COALESCE(s.execution_result::text, '')::text as detail,
+                    COALESCE(s.timeframe, '')::text as timeframe,
+                    s.veto_reason::text as veto_reason
                 FROM strategy_signals s
                 LEFT JOIN strategies st ON s.strategy_id = st.id
-                WHERE (s.user_id = ${user!.id})
+                WHERE s.user_id = ${user!.id}
                 AND (
                     ${timeframe} = 'all' OR 
                     s.timeframe = ${timeframe} OR 
@@ -69,16 +70,17 @@ export async function GET(request: Request) {
             UNION ALL
             (
                 SELECT 
-                    'sys-' || id::text as id,
-                    'Sistem' as strategy_name,
-                    'SYSTEM' as symbol,
-                    level as type,
-                    '---' as price,
+                    ('sys-' || id)::text as id,
+                    user_id::integer as signal_user_id,
+                    'Sistem'::text as strategy_name,
+                    'SYSTEM'::text as symbol,
+                    level::text as type,
+                    '---'::text as price,
                     timestamp,
                     true as executed,
-                    message || ': ' || COALESCE(details, '') as detail,
-                    'SYSTEM' as timeframe,
-                    NULL as veto_reason
+                    (message || ': ' || COALESCE(details, ''))::text as detail,
+                    'SYSTEM'::text as timeframe,
+                    NULL::text as veto_reason
                 FROM system_logs
                 WHERE (user_id = ${user!.id} OR user_id IS NULL)
                 AND timestamp > ${fortyEightHoursAgo}

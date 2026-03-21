@@ -16,6 +16,8 @@ export async function ensureTablesExist(): Promise<boolean> {
         await createTradeTables();
         await createPortfolioTables();
         await createBotTables();
+        await createMarketDataTables();
+        await createNewsTable();
         await runSchemaMigrations();
         await createDefaultConfigs();
         await createIndexes();
@@ -286,15 +288,15 @@ async function runSchemaMigrations() {
   }
 
   // Strategy signals migrations
-  await sql`ALTER TABLE strategy_signals ALTER COLUMN strategy_id DROP NOT NULL;`.catch(
-    () => {},
-  );
-  await sql`ALTER TABLE strategy_signals ADD COLUMN IF NOT EXISTS symbol TEXT;`.catch(
-    () => {},
-  );
-  await sql`ALTER TABLE strategy_signals ALTER COLUMN price DROP NOT NULL;`.catch(
-    () => {},
-  );
+  try {
+    await sql`ALTER TABLE strategy_signals ALTER COLUMN strategy_id DROP NOT NULL;`;
+    await sql`ALTER TABLE strategy_signals ADD COLUMN IF NOT EXISTS symbol TEXT;`;
+    await sql`ALTER TABLE strategy_signals ADD COLUMN IF NOT EXISTS side TEXT;`;
+    await sql`ALTER TABLE strategy_signals ADD COLUMN IF NOT EXISTS payload JSONB;`;
+    await sql`ALTER TABLE strategy_signals ALTER COLUMN price DROP NOT NULL;`;
+  } catch (err) {
+    console.warn("[DB-Init] strategy_signals migration warning:", err);
+  }
 
   // DCA bot migrations
   try {
@@ -471,4 +473,43 @@ async function createIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_system_logs_timestamp ON system_logs(timestamp);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_system_logs_user_id ON system_logs(user_id);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_strategies_user_id ON strategies(user_id);`;
+}
+
+async function createMarketDataTables() {
+  // 16. Market Trades Table (For Caching sjoerd.tech data)
+  await sql`
+        CREATE TABLE IF NOT EXISTS market_trades (
+            id SERIAL PRIMARY KEY,
+            symbol TEXT NOT NULL,
+            exchange TEXT NOT NULL,
+            t BIGINT NOT NULL,
+            p NUMERIC NOT NULL,
+            q NUMERIC NOT NULL,
+            side INTEGER NOT NULL,
+            usd NUMERIC NOT NULL,
+            created_at BIGINT,
+            UNIQUE(symbol, exchange, t, p, q, side)
+        );
+    `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_market_trades_t ON market_trades(t);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_market_trades_lookup ON market_trades(symbol, exchange, t);`;
+}
+
+async function createNewsTable() {
+  // 17. News Table (For Persistent Intelligence Hub)
+  await sql`
+        CREATE TABLE IF NOT EXISTS news (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            translated_title TEXT,
+            excerpt TEXT,
+            source TEXT NOT NULL,
+            time TEXT,
+            url TEXT UNIQUE NOT NULL,
+            image_url TEXT,
+            published_on BIGINT NOT NULL,
+            created_at BIGINT NOT NULL
+        );
+    `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_news_published_on ON news(published_on DESC);`;
 }

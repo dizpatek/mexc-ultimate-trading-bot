@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 // Rate limit: max 1 scan per 30 seconds per user
 // Rate limit map: userId -> lastScanTime
-// NOTE: In a multi-instance or serverless environment (like Vercel), this Map is per-instance.
+// NOTE: In a multi-instance or serverless environment, this Map is per-instance.
 // For production consistency and memory safety, a distributed cache like Redis should be used.
 const scanRateMap = new Map<number, number>();
 const SCAN_COOLDOWN_MS = 25000;
@@ -18,28 +18,38 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Rate limiting per user
+    // P4.2: Intelligent Rate Limiting per user + per timeframe
+    const { searchParams } = new URL(request.url);
+    const targetTimeframe = searchParams.get("timeframe") || "1h";
     const userId = Number(user.id);
-    const now = Date.now(); // Define 'now' for consistent time checks
-    const lastScan = scanRateMap.get(userId) || 0;
-    if (lastScan && now - lastScan < SCAN_COOLDOWN_MS) {
+    const now = Date.now();
+    
+    const scanMapKey = `${userId}_${targetTimeframe}`;
+    const lastScan = scanRateMap.get(userId) || 0; // Global limit for safety
+    const lastTfScan = (scanRateMap as any).get(scanMapKey) || 0; // Specific TF limit
+
+    // Allow scan if it's a DIFFERENT timeframe, even if global cooldown is active
+    // But still enforce a minimal global cooldown of 3s to prevent spam
+    if (lastScan && now - lastScan < 3000) {
+       return NextResponse.json({ error: "Lütfen bekleyin...", retryAfterMs: 3000 - (now - lastScan)}, { status: 429 });
+    }
+
+    if (lastTfScan && now - lastTfScan < SCAN_COOLDOWN_MS) {
       return NextResponse.json(
         {
-          error: "Rate limit exceeded. Please wait 30 seconds between scans.",
-          retryAfterMs: SCAN_COOLDOWN_MS - (now - lastScan),
+          error: "Bu periyot için tarama limiti doldu. Lütfen bekleyin.",
+          retryAfterMs: SCAN_COOLDOWN_MS - (now - lastTfScan),
         },
         { status: 429 },
       );
     }
 
     // --- Memory management: Cleanup old entries if map grows too large (P4.2 fix) ---
-    if (scanRateMap.size > 1000) {
-      const cleanupThreshold = now - 3600000; // 1 hour ago
-      for (const [uid, ts] of scanRateMap.entries()) {
-        if (ts < cleanupThreshold) scanRateMap.delete(uid);
-      }
+    if (scanRateMap.size > 2000) {
+      scanRateMap.clear();
     }
-    scanRateMap.set(userId, now); // Use 'now' for setting the current scan time
+    scanRateMap.set(userId, now); 
+    (scanRateMap as any).set(scanMapKey, now);
 
     // Get mode from cookies
     const { cookies } = await import("next/headers");
@@ -65,9 +75,6 @@ export async function GET(request: Request) {
         );
       }
     }
-
-    const { searchParams } = new URL(request.url);
-    const targetTimeframe = searchParams.get("timeframe") || undefined;
 
     const { getBotConfig } = await import("@/lib/db");
     const botConfig = await getBotConfig(userId);

@@ -113,7 +113,7 @@ export const MatrixPortfolio: React.FC<MatrixPortfolioProps> = ({
     if (activeSymbols.length > 0) {
       fetchIntervalForSymbols(activeSymbols, interval);
     }
-  }, [activeSymbols.length, interval, fetchIntervalForSymbols, activeSymbols, isManaged]);
+  }, [activeSymbols.join(','), interval, fetchIntervalForSymbols, isManaged]);
 
   const setTradeAmountToMax = useCallback(
     (symbol: string, side: "BUY" | "SELL") => {

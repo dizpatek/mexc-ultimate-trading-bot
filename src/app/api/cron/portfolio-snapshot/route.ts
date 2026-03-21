@@ -6,8 +6,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * Portfolio Snapshot Cron Job
- * This endpoint is called by Vercel Cron to create portfolio snapshots
- * Configured in vercel.json
+ * This endpoint is called by Northflank Cron to create portfolio snapshots
+ * Configured in cron dashboard
  */
 
 export async function GET(request: Request) {

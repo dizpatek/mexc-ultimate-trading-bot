@@ -36,10 +36,11 @@ export function useNewsData(enabled: boolean = true) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchNews = useCallback(async () => {
+  const fetchNews = useCallback(async (force = false) => {
     try {
       setLoading(true);
-      const res = await api.get("/news");
+      const url = force ? "/news?force=true" : "/news";
+      const res = await api.get(url);
       const data = res.data;
 
       if (Array.isArray(data)) {

@@ -34,6 +34,10 @@ export async function POST(request: Request) {
         RETURNING *
       `;
       user = insertResult.rows[0] as unknown as User;
+
+      // 3. Initialize multi-tenant defaults for the new Google user
+      const { initializeUserSettings } = await import("@/lib/db");
+      await initializeUserSettings(user.id);
     }
 
     if (!user) {

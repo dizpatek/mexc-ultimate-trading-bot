@@ -17,8 +17,9 @@ export function buildInsight(signalType: string | null | undefined, indicators: 
 
   // If signal type is missing/none but we have high AI score or F4 data, infer the direction
   if (!isBuy && !isSell && !isWhale && (aiScore > 50 || Math.abs(f4) > 5)) {
-    if (f4 > 0) isBuy = true;
-    else if (f4 < 0) isSell = true;
+    if (f4 > 7) isBuy = true; // Still trending up
+    else if (f4 < -7) isSell = true; // Still trending down
+    // Note: Close to zero or extreme ends should be handled by specific signals, not default inference
   }
 
   if (!isBuy && !isSell && !isWhale) return undefined;
@@ -35,12 +36,18 @@ export function buildInsight(signalType: string | null | undefined, indicators: 
     if (f4 < 0) {
       return `DİP YAKALAMA (Reversal Buy): F4 yönü eksi/aşağı gözüküyor (${Math.round(f4)}%) ancak satıcılar yorulduğu için düşüş trendi %${Math.round(loss)} güç kaybetti. Motor dönüşü sezip YUKARI fırsatı görüyor. Otopilot onayı bekleniyor.`;
     } else {
+      if (loss >= 85) {
+        return `YÜKSELİŞ DOYUMU: F4 pozitif bölgede (${Math.round(f4)}%) ancak yükseliş trendi %${Math.round(loss)} gibi çok yüksek bir güç kaybına ulaştı. Yeni alım (Long) riskli olabilir, düzeltme bekliyor.`;
+      }
       return `TREND TAKİBİ: F4 zaten güçlü pozitif bölgede (${Math.round(f4)}%). Motor, mevcut yükselişin YUKARI devamını öngörüyor. Otopilot onayı bekleniyor.`;
     }
   } else if (isSell) {
     if (f4 > 0) {
       return `ZİRVE DÜZELTMESİ (Reversal Sell): F4 artıda/yukarıda (${Math.round(f4)}%) ancak alıcılar tükendiği için yükseliş trendi %${Math.round(loss)} güç kaybetti. Motor düzeltme sezip AŞAĞI fırsat görüyor. Otopilot onayı bekleniyor.`;
     } else {
+      if (loss >= 85) {
+        return `DÜŞÜŞ DOYUMU: F4 negatif bölgede (${Math.round(f4)}%) ancak düşüş trendi %${Math.round(loss)} gibi çok yüksek bir güç kaybına ulaştı. Açığa satış (Short) için çok geç olabilir, tepki bekliyor.`;
+      }
       return `DÜŞÜŞ TRENDİ: F4 halihazırda negatif bölgede (${Math.round(f4)}%). Motor düşüşün AŞAĞI devamını öngörüyor. Otopilot onayı bekleniyor.`;
     }
   }

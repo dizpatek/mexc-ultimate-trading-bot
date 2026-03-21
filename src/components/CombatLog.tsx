@@ -76,28 +76,24 @@ export const CombatLog = ({
   const tradeLogs = useMemo(
     () =>
       logs.filter((l: LogEntry) => {
+        // 1. Exclude SYSTEM logs from the Combat tab (Signal Flow)
+        // These are correctly displayed in the Intelligence (System Console) tab.
         if (l.type === "SYSTEM") return false;
-        // Filter by specific timeframe if available, otherwise consider it Global
-        if (
-          l.timeframe &&
-          l.timeframe.toLowerCase() !== "global" &&
-          l.timeframe.toLowerCase() !== "system" &&
-          l.timeframe.toLowerCase() !== timeframe.toLowerCase()
-        ) {
-          return false;
-        }
+        
+        // UI Sideframe Sync: API already filters by timeframe, 
+        // but we show all returned strategy logs just in case to avoid UI-filtering data loss.
         return true;
       }),
-    [logs, timeframe],
+    [logs],
   );
 
   const filteredTradeLogs = useMemo(() => {
-    // Determine filter mode based on bot config (pilot_only_holdings)
-    // If setting is ON, we only show held assets. Otherwise, show ALL.
-    const effectiveFilter = config?.pilot_only_holdings ? "ASSETS" : "ALL";
-    
-    if (effectiveFilter === "ALL") return tradeLogs;
-    return filterSignalsByHoldings(tradeLogs, holdings ?? undefined);
+    // P4.2: Robust Fallback Filter. 
+    // If holdings haven't loaded or config is disabled, show everything.
+    if (!config?.pilot_only_holdings || !holdings || holdings.length === 0) {
+      return tradeLogs;
+    }
+    return filterSignalsByHoldings(tradeLogs, holdings);
   }, [tradeLogs, config?.pilot_only_holdings, holdings]);
 
   const systemLogs = useMemo(() => {
@@ -555,6 +551,12 @@ const LogLine = ({
                 F4
               </span>
             )}
+            {/* TIMEFRAME BADGE (Moved to header for prominence) */}
+            {log.timeframe && (
+              <span className="text-[8px] bg-slate-800 border border-slate-700 text-slate-400 font-bold px-1 rounded flex items-center gap-0.5">
+                <Clock size={8} className="opacity-60" /> {log.timeframe}
+              </span>
+            )}
             {isHeld && (
               <Target size={10} className="text-blue-500 animate-pulse" />
             )}
@@ -586,12 +588,7 @@ const LogLine = ({
             </span>
           )}
 
-          {/* Timeframe Badge (Fallback if not in message) */}
-          {log.timeframe && (
-            <span className="text-[9px] bg-slate-800/60 border border-slate-700/50 text-slate-400 font-bold px-1.5 py-0.5 rounded flex items-center gap-1">
-               <Clock size={9} /> {log.timeframe}
-            </span>
-          )}
+          {/* Timeframe Badge is now moved to correctly group with AI metrics below */}
 
           {/* F4 POWER BADGE (GIGA MASTER) */}
           {log.meta?.f4Power !== undefined && (
@@ -622,7 +619,7 @@ const LogLine = ({
               log.meta.aiScore >= 50 ? "bg-amber-500/10 border-amber-500/30 text-amber-400" :
               "bg-rose-500/10 border-rose-500/30 text-rose-400"
             )}>
-              AI: {Math.round(log.meta.aiScore)}
+              YZ: {Math.round(log.meta.aiScore)}
             </span>
           )}
 
@@ -640,14 +637,7 @@ const LogLine = ({
             </span>
           )}
 
-          {/* PREDICTION */}
-          {log.meta?.prediction && (
-            <span className="text-[9px] bg-slate-800/80 border border-slate-700 text-slate-300 font-bold px-1.5 py-0.5 rounded flex items-center gap-1">
-              {log.meta.prediction}
-            </span>
-          )}
-
-          {/* STATUS / VETO REASON */}
+          {/* STATUS / VETO REASON (Restored for the 'shane' look) */}
           {log.meta?.veto && (
             <span className={cn(
               "text-[9px] italic px-1.5 py-0.5 rounded flex items-center gap-1 border-dashed border",
@@ -659,6 +649,8 @@ const LogLine = ({
               {log.meta.veto}
             </span>
           )}
+
+          {/* Timeframe moved to header above */}
 
           {/* RAW DETAILS (Fallback) */}
           {log.details && !log.meta?.veto && (

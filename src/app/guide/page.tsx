@@ -9,6 +9,7 @@ import { HologramCard } from "@/components/HologramCard";
 import { GUIDE_SECTIONS, type GuideSection } from "@/config/guide-data";
 import { ArrowLeft, Shield, Terminal, Search } from "lucide-react";
 import { MatrixLogo } from "@/components/MatrixLogo";
+import { PilotPipeline3D } from "@/components/PilotPipeline3D";
 
 const GuidePageContent = () => {
   const router = useRouter();
@@ -78,7 +79,25 @@ const GuidePageContent = () => {
               )}
             </div>
           </div>
+        </div>
 
+        {/* 3D PIPELINE VISUALIZATION SECTION - FULL WIDTH BREAKOUT */}
+        {!searchTerm && (
+          <div className="mb-32 animate-in fade-in zoom-in duration-1000 delay-300">
+            <div className="max-w-[1400px] mx-auto px-6 mb-8">
+              <div className="flex items-center gap-4">
+                <div className="h-[1px] flex-1 bg-white/5" />
+                <h2 className="text-xs font-black text-slate-500 uppercase tracking-[0.5em] whitespace-nowrap">
+                  Core Engine Architectural Pipeline
+                </h2>
+                <div className="h-[1px] flex-1 bg-white/5" />
+              </div>
+            </div>
+            <PilotPipeline3D />
+          </div>
+        )}
+
+        <div className="container mx-auto px-6 relative z-10 max-w-[1400px]">
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 transition-all duration-500">
             {filteredSections.length > 0 ? (
               filteredSections.map((section: GuideSection, idx: number) => (

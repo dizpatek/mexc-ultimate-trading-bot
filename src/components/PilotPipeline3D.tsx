@@ -48,7 +48,7 @@ const STATIONS: Station[] = [
     y: 50,
     phaseLabelPos: { x: 50, y: 70 },
     workers: [
-      { emoji: "🤖", label: "Scanner", posX: -15, posY: 90 },
+      { emoji: "🤖", label: "Scanner", posX: -15, posY: 100 },
     ],
     checkpoints: ["ensureReEntryMapLoaded", "getActiveSmartTrades", "assetsToScan: top60 + holdings", "processPilotChunk(BATCH)"],
   },
@@ -62,10 +62,10 @@ const STATIONS: Station[] = [
     accentColor: "#3b82f6",
     glowColor: "rgba(59,130,246,0.7)",
     x: 24,
-    y: 48,
+    y: 50,
     phaseLabelPos: { x: -40, y: 80 },
     workers: [
-      { emoji: "🧠", label: "AI Scorer", posX: 140, posY: 70 },
+      { emoji: "🧠", label: "AI Scorer", posX: 140, posY: 80 },
     ],
     checkpoints: ["F4 Power Analysis", "SMC: Market Structure", "GIGA MASTER Score", "MTF Consensus (1m-4h)"],
   },
@@ -79,10 +79,10 @@ const STATIONS: Station[] = [
     accentColor: "#f59e0b",
     glowColor: "rgba(245,158,11,0.7)",
     x: 40,
-    y: 52,
+    y: 50,
     phaseLabelPos: { x: -60, y: 70 },
     workers: [
-      { emoji: "🚔", label: "TF Isolator", posX: -25, posY: 85 },
+      { emoji: "🚔", label: "TF Isolator", posX: -15, posY: 100 },
     ],
     checkpoints: ["TF Match: scan vs pilot", "Deduplication: Recent trades", "Matrix/Hedge Mode Vetoes", "Trend Flipping: EXIT check"],
   },
@@ -99,7 +99,7 @@ const STATIONS: Station[] = [
     y: 50,
     phaseLabelPos: { x: -60, y: 80 },
     workers: [
-      { emoji: "💰", label: "Balance Calc", posX: -30, posY: 90 },
+      { emoji: "💰", label: "Balance Calc", posX: -15, posY: 105 },
     ],
     checkpoints: ["Free USDT Check", "Pilot Allocation %", "Re-Entry Proceeds Detect", "Risk/Reward >= 1.5x Validate"],
   },
@@ -113,10 +113,10 @@ const STATIONS: Station[] = [
     accentColor: "#10b981",
     glowColor: "rgba(16,185,129,0.7)",
     x: 72,
-    y: 49,
+    y: 50,
     phaseLabelPos: { x: 90, y: 80 },
     workers: [
-      { emoji: "🚀", label: "Market Buy", posX: -25, posY: 90 },
+      { emoji: "🚀", label: "Market Buy", posX: -15, posY: 100 },
     ],
     checkpoints: ["executeNewBuy()", "executeReEntryBuy()", "executeCover()", "Position Adoption (useExisting)"],
   },
@@ -130,17 +130,17 @@ const STATIONS: Station[] = [
     accentColor: "#06b6d4",
     glowColor: "rgba(6,182,212,0.7)",
     x: 88,
-    y: 51,
+    y: 50,
     phaseLabelPos: { x: 90, y: 60 },
     workers: [
-      { emoji: "📝", label: "Signal Archivery", posX: -20, posY: 90 },
+      { emoji: "📝", label: "Signal Archivery", posX: -15, posY: 100 },
     ],
     checkpoints: ["Record Veto Reason", "Build CombatLog Insights", "Store strategy_signals", "UI Signal Card Notification"],
   },
 ];
 
 // Road path: Straight horizontal flow with slight wave, centered at y=200 in a 1200x400 viewbox
-const ROAD_PATH = "M 50,200 Q 600,180 1150,200";
+const ROAD_PATH = "M 50,200 Q 600,185 1150,200";
 
 const IslandPlatform = ({ station, isActive }: { station: Station; isActive: boolean }) => (
   <motion.div
@@ -163,7 +163,7 @@ const IslandPlatform = ({ station, isActive }: { station: Station; isActive: boo
           background: "linear-gradient(135deg, rgba(30,41,59,0.9), rgba(0,0,0,1))",
           transform: "rotateX(55deg) rotateZ(45deg)",
           border: `2px solid ${station.accentColor}44`,
-          boxShadow: `0 0 30px ${station.glowColor.replace("0.7", "0.2")}, inset 0 0 15px ${station.accentColor}33`,
+          boxShadow: `0 0 40px ${station.glowColor.replace("0.7", "0.2")}, inset 0 0 20px ${station.accentColor}33`,
         }}
       />
       <div
@@ -190,8 +190,8 @@ const StationNode = ({ station, index, isActive, onClick }: { station: Station; 
       style={{
         left: `${station.x}%`,
         top: `${station.y}%`,
-        width: "160px",
-        height: "160px",
+        width: "180px",
+        height: "180px",
         transform: "translate(-50%, -50%)",
         zIndex: isActive ? 1000 : 30 + index,
       }}
@@ -200,10 +200,10 @@ const StationNode = ({ station, index, isActive, onClick }: { station: Station; 
         <IslandPlatform station={station} isActive={isActive} />
       </div>
 
-      {/* Building Image - MUST SIT ON TOP OF PLATFORM */}
+      {/* Building Image - MUST SIT ON TOP OF PLATFORM (y: offset positive to seat) */}
       <motion.div
         initial={{ y: 0, opacity: 0 }}
-        animate={{ y: -35, opacity: 1 }}
+        animate={{ y: 25, opacity: 1 }} // Moved DOWN to seat on the platform center
         transition={{ delay: 0.1 + index * 0.05, duration: 0.6 }}
         className="relative z-40 w-full h-full flex flex-col items-center justify-center"
       >
@@ -212,7 +212,7 @@ const StationNode = ({ station, index, isActive, onClick }: { station: Station; 
           alt={station.title}
           width={220}
           height={220}
-          className="w-[100%] h-auto object-contain transition-all duration-500"
+          className="w-[95%] h-auto object-contain transition-all duration-500"
           style={{
             filter: isActive
               ? `drop-shadow(0 0 35px ${station.glowColor})`
@@ -221,11 +221,11 @@ const StationNode = ({ station, index, isActive, onClick }: { station: Station; 
           }}
         />
         {/* Docking Shadow */}
-        <div className="w-[80px] h-[10px] bg-black/50 blur-lg rounded-[50%] absolute bottom-4 opacity-80" />
+        <div className="w-[100px] h-[15px] bg-black/50 blur-lg rounded-[50%] absolute bottom-12 opacity-80" />
       </motion.div>
 
       {/* Small title box */}
-      <div className="absolute top-[90%] left-1/2 -translate-x-1/2 text-center pointer-events-none z-50 whitespace-nowrap bg-slate-900/80 backdrop-blur-md px-3 py-1 rounded-lg border border-white/5 shadow-xl">
+      <div className="absolute top-[95%] left-1/2 -translate-x-1/2 text-center pointer-events-none z-50 whitespace-nowrap bg-slate-900/90 backdrop-blur-md px-3 py-1 rounded-lg border border-white/10 shadow-xl">
         <h4 className="text-[10px] font-black text-white uppercase tracking-wider">{station.title}</h4>
       </div>
 
@@ -240,7 +240,7 @@ const StationNode = ({ station, index, isActive, onClick }: { station: Station; 
       <AnimatePresence>
         {isActive && (
           <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
-            className="absolute left-1/2 -translate-x-1/2 bottom-[110%] w-[240px] bg-slate-950/98 border border-white/10 rounded-xl p-4 shadow-4xl backdrop-blur-xl z-[150]">
+            className="absolute left-1/2 -translate-x-1/2 bottom-[115%] w-[250px] bg-slate-950/98 border border-white/10 rounded-xl p-4 shadow-4xl backdrop-blur-xl z-[150]">
             <div className="text-[10px] font-black text-white uppercase tracking-widest mb-3 flex items-center gap-2">
               <div className="w-2 h-2 rounded-full" style={{ background: station.accentColor }} />
               {station.phaseNum} LOGİK
@@ -296,25 +296,46 @@ export const PilotPipeline3D = () => {
                 <stop offset="100%" stopColor="#06b6d4" />
               </linearGradient>
             </defs>
-            <path d={ROAD_PATH} stroke="url(#flowPath)" strokeWidth="40" fill="none" opacity="0.05" filter="blur(20px)" />
-            <path d={ROAD_PATH} stroke="rgba(15,23,42,0.8)" strokeWidth="18" fill="none" strokeLinecap="round" />
-            <path d={ROAD_PATH} stroke="url(#flowPath)" strokeWidth="1" fill="none" opacity="0.3" />
-            <motion.path d={ROAD_PATH} stroke="rgba(255,255,255,0.4)" strokeWidth="0.5" fill="none" strokeDasharray="10 40"
-              animate={{ strokeDashoffset: [-100, 0] }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }} />
-          </svg>
+            <path d={ROAD_PATH} stroke="url(#flowPath)" strokeWidth="45" fill="none" opacity="0.08" filter="blur(25px)" />
+            <path d={ROAD_PATH} stroke="rgba(15,23,42,0.9)" strokeWidth="22" fill="none" strokeLinecap="round" />
+            <path d={ROAD_PATH} stroke="url(#flowPath)" strokeWidth="1.5" fill="none" opacity="0.4" />
+            
+            {/* Energy flow - INSIDE SVG to guarantee sync */}
+            <motion.path d={ROAD_PATH} stroke="rgba(255,255,255,0.4)" strokeWidth="0.8" fill="none" strokeDasharray="15 45"
+              animate={{ strokeDashoffset: [-120, 0] }} transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }} />
 
-          {/* 🚗 SIGNAL VEHICLE - MOVES ON ROAD */}
-          <motion.div className="absolute z-[110] pointer-events-none" 
-            style={{ 
-               offsetPath: `path("${ROAD_PATH}")`, 
-               left: 0, top: 0, width: "100%", height: "100%" 
-            }}
-            animate={{ offsetDistance: ["0%", "100%"] }} transition={{ duration: 15, repeat: Infinity, ease: "linear" }}>
-            <div className="relative w-12 h-12 flex items-center justify-center">
-              <div className="absolute w-10 h-10 bg-cyan-500/20 blur-xl rounded-full" />
-              <img src="/pipeline/signal-vehicle.png" alt="Signal" className="relative w-12 h-12 object-contain" />
-            </div>
-          </motion.div>
+            {/* 🚗 SIGNAL VEHICLE - NOW INSIDE SVG TO SYNC COORDINATES */}
+            <motion.path
+                d={ROAD_PATH}
+                fill="none"
+                stroke="transparent"
+                initial={{ pathLength: 0 }}
+              />
+              <motion.g
+                animate={{
+                  offsetDistance: ["0%", "100%"]
+                }}
+                transition={{
+                  duration: 20,
+                  repeat: Infinity,
+                  ease: "linear",
+                }}
+                style={{ offsetPath: `path("${ROAD_PATH}")` }}
+              >
+                <foreignObject width="100" height="100" x="-50" y="-50">
+                  <div className="flex items-center justify-center w-full h-full">
+                    <div className="relative">
+                      <div className="absolute inset-0 bg-cyan-500/30 blur-xl rounded-full scale-150" />
+                      <img 
+                        src="/pipeline/signal-vehicle.png" 
+                        alt="Vehicle" 
+                        className="w-16 h-16 object-contain filter drop-shadow(0 0 15px cyan)"
+                      />
+                    </div>
+                  </div>
+                </foreignObject>
+              </motion.g>
+          </svg>
 
           {/* Station Nodes */}
           {STATIONS.map((station, idx) => (

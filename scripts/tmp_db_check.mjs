@@ -1,4 +1,4 @@
-import { pool } from './src/lib/postgres.js';
+import { pool } from '../src/lib/postgres.js';
 
 async function checkSchema() {
   try {

@@ -167,7 +167,7 @@ export default function Dashboard() {
         </div>
 
         {/* PILOT PIPELINE 3D (Ezzstar Style - New Dashboard Standard) */}
-        <div className="w-full relative min-h-[500px] mb-4 mt-1 overflow-visible">
+        <div className="w-full relative min-h-[400px] mb-2 mt-1 overflow-visible">
           <PilotPipeline3D />
         </div>
 

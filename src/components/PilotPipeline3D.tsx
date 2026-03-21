@@ -44,8 +44,8 @@ const STATIONS: Station[] = [
     image: "/pipeline/station-scanner.png",
     accentColor: "#a855f7",
     glowColor: "rgba(168,85,247,0.7)",
-    x: 8,
-    y: 50,
+    x: 6,
+    y: 42,
     phaseLabelPos: { x: 50, y: 70 },
     workers: [
       { emoji: "🤖", label: "Scanner", posX: -15, posY: 100 },
@@ -62,10 +62,10 @@ const STATIONS: Station[] = [
     accentColor: "#3b82f6",
     glowColor: "rgba(59,130,246,0.7)",
     x: 24,
-    y: 50,
+    y: 42,
     phaseLabelPos: { x: -40, y: 80 },
     workers: [
-      { emoji: "🧠", label: "AI Scorer", posX: 140, posY: 80 },
+      { emoji: "🧠", label: "AI Scorer", posX: -15, posY: 100 },
     ],
     checkpoints: ["F4 Power Analysis", "SMC: Market Structure", "GIGA MASTER Score", "MTF Consensus (1m-4h)"],
   },
@@ -78,8 +78,8 @@ const STATIONS: Station[] = [
     image: "/pipeline/station-guard.png",
     accentColor: "#f59e0b",
     glowColor: "rgba(245,158,11,0.7)",
-    x: 40,
-    y: 50,
+    x: 42,
+    y: 42,
     phaseLabelPos: { x: -60, y: 70 },
     workers: [
       { emoji: "🚔", label: "TF Isolator", posX: -15, posY: 100 },
@@ -95,8 +95,8 @@ const STATIONS: Station[] = [
     image: "/pipeline/station-allocate.png",
     accentColor: "#f43f5e",
     glowColor: "rgba(244,63,94,0.7)",
-    x: 56,
-    y: 50,
+    x: 60,
+    y: 42,
     phaseLabelPos: { x: -60, y: 80 },
     workers: [
       { emoji: "💰", label: "Balance Calc", posX: -15, posY: 105 },
@@ -112,8 +112,8 @@ const STATIONS: Station[] = [
     image: "/pipeline/station-execute.png",
     accentColor: "#10b981",
     glowColor: "rgba(16,185,129,0.7)",
-    x: 72,
-    y: 50,
+    x: 78,
+    y: 42,
     phaseLabelPos: { x: 90, y: 80 },
     workers: [
       { emoji: "🚀", label: "Market Buy", posX: -15, posY: 100 },
@@ -129,8 +129,8 @@ const STATIONS: Station[] = [
     image: "/pipeline/station-audit.png",
     accentColor: "#06b6d4",
     glowColor: "rgba(6,182,212,0.7)",
-    x: 88,
-    y: 50,
+    x: 96,
+    y: 42,
     phaseLabelPos: { x: 90, y: 60 },
     workers: [
       { emoji: "📝", label: "Signal Archivery", posX: -15, posY: 100 },
@@ -139,8 +139,8 @@ const STATIONS: Station[] = [
   },
 ];
 
-// Road path: Straight horizontal flow with slight wave, centered at y=200 in a 1200x400 viewbox
-const ROAD_PATH = "M 50,200 Q 600,185 1150,200";
+// Road path: Straight horizontal flow with slight wave, shifted up by approx 30px (y=170 in 400 height)
+const ROAD_PATH = "M 50,170 Q 600,155 1150,170";
 
 const IslandPlatform = ({ station, isActive }: { station: Station; isActive: boolean }) => (
   <motion.div

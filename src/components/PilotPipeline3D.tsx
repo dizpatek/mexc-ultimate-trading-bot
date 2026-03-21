@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useMotionValue, useTransform, useAnimationFrame, animate } from "framer-motion";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
 
@@ -44,13 +44,13 @@ const STATIONS: Station[] = [
     image: "/pipeline/station-scanner.png",
     accentColor: "#a855f7",
     glowColor: "rgba(168,85,247,0.7)",
-    x: 6,
+    x: 4.2,
     y: 42,
     phaseLabelPos: { x: 50, y: 70 },
     workers: [
       { emoji: "🤖", label: "Scanner", posX: -15, posY: 100 },
     ],
-    checkpoints: ["ensureReEntryMapLoaded", "getActiveSmartTrades", "assetsToScan: top60 + holdings", "processPilotChunk(BATCH)"],
+    checkpoints: ["Re-Entry Haritasını Yükle", "Aktif Emirleri Getir", "Top 60 Varlık Taraması", "Pilot Batch İşleme"],
   },
   {
     id: "analyze",
@@ -59,15 +59,15 @@ const STATIONS: Station[] = [
     title: "ANALİZ",
     codeRef: "MatrixV5.analyze()",
     image: "/pipeline/station-intelligence.png",
-    accentColor: "#3b82f6",
-    glowColor: "rgba(59,130,246,0.7)",
-    x: 24,
+    accentColor: "#00f3ff",
+    glowColor: "rgba(0,243,255,0.8)",
+    x: 22.5,
     y: 42,
     phaseLabelPos: { x: -40, y: 80 },
     workers: [
       { emoji: "🧠", label: "AI Scorer", posX: -15, posY: 100 },
     ],
-    checkpoints: ["F4 Power Analysis", "SMC: Market Structure", "GIGA MASTER Score", "MTF Consensus (1m-4h)"],
+    checkpoints: ["F4 Güç Analizi", "SMC: Pazar Yapısı", "GIGA MASTER Skoru", "MTF Konsensüs (1m-4s)"],
   },
   {
     id: "guard",
@@ -78,13 +78,13 @@ const STATIONS: Station[] = [
     image: "/pipeline/station-guard.png",
     accentColor: "#f59e0b",
     glowColor: "rgba(245,158,11,0.7)",
-    x: 42,
+    x: 40.8,
     y: 42,
     phaseLabelPos: { x: -60, y: 70 },
     workers: [
       { emoji: "🚔", label: "TF Isolator", posX: -15, posY: 100 },
     ],
-    checkpoints: ["TF Match: scan vs pilot", "Deduplication: Recent trades", "Matrix/Hedge Mode Vetoes", "Trend Flipping: EXIT check"],
+    checkpoints: ["TF Eşleşme Kontrolü", "Mükerrer İşlem Önleme", "Hedge Mod Veto Filtresi", "Trend Dönüş Tespiti"],
   },
   {
     id: "allocate",
@@ -95,13 +95,13 @@ const STATIONS: Station[] = [
     image: "/pipeline/station-allocate.png",
     accentColor: "#f43f5e",
     glowColor: "rgba(244,63,94,0.7)",
-    x: 60,
+    x: 59.2,
     y: 42,
     phaseLabelPos: { x: -60, y: 80 },
     workers: [
       { emoji: "💰", label: "Balance Calc", posX: -15, posY: 105 },
     ],
-    checkpoints: ["Free USDT Check", "Pilot Allocation %", "Re-Entry Proceeds Detect", "Risk/Reward >= 1.5x Validate"],
+    checkpoints: ["Boş USDT Bakiyesi", "Pilot Tahsis Oranı", "Maliyet Düşürme Tespiti", "Risk/Ödül >= 1.5x Onayı"],
   },
   {
     id: "execute",
@@ -112,13 +112,13 @@ const STATIONS: Station[] = [
     image: "/pipeline/station-execute.png",
     accentColor: "#10b981",
     glowColor: "rgba(16,185,129,0.7)",
-    x: 78,
+    x: 77.5,
     y: 42,
     phaseLabelPos: { x: 90, y: 80 },
     workers: [
       { emoji: "🚀", label: "Market Buy", posX: -15, posY: 100 },
     ],
-    checkpoints: ["executeNewBuy()", "executeReEntryBuy()", "executeCover()", "Position Adoption (useExisting)"],
+    checkpoints: ["Yeni Alım Emri", "Kademeli Alım Girişi", "Kapatma Emri (Cover)", "Pozisyon Adaptasyonu"],
   },
   {
     id: "audit",
@@ -129,54 +129,107 @@ const STATIONS: Station[] = [
     image: "/pipeline/station-audit.png",
     accentColor: "#06b6d4",
     glowColor: "rgba(6,182,212,0.7)",
-    x: 96,
+    x: 95.8,
     y: 42,
     phaseLabelPos: { x: 90, y: 60 },
     workers: [
       { emoji: "📝", label: "Signal Archivery", posX: -15, posY: 100 },
     ],
-    checkpoints: ["Record Veto Reason", "Build CombatLog Insights", "Store strategy_signals", "UI Signal Card Notification"],
+    checkpoints: ["Veto Nedenini Kaydet", "CombatLog İçgörüsü", "Sinyal Arşivleme", "UI Bildirim Gönderimi"],
   },
 ];
 
-// Road path: Straight horizontal flow with slight wave, shifted up by approx 30px (y=170 in 400 height)
-const ROAD_PATH = "M 50,170 Q 600,155 1150,170";
+// ══ CONSTANTS ══
+const ROAD_PATH = "M 50,225 Q 600,210 1150,225";
 
-const IslandPlatform = ({ station, isActive }: { station: Station; isActive: boolean }) => (
+const CyberPodium = ({ station, isActive }: { station: Station; isActive: boolean }) => (
   <motion.div
     initial={{ opacity: 0, scale: 0.5 }}
     animate={{ opacity: 1, scale: 1 }}
-    transition={{ duration: 0.8, ease: "easeOut" }}
-    className="absolute pointer-events-none"
-    style={{
-      left: `${station.x}%`,
-      top: `${station.y}%`,
-      transform: "translate(-50%, -50%)",
-      zIndex: 5,
-    }}
+    transition={{ duration: 1, ease: "easeOut" }}
+    className="absolute inset-0 flex items-center justify-center pointer-events-none"
+    style={{ zIndex: 5 }}
   >
-    {/* Isometric Square Platform - Slightly smaller */}
-    <div className="relative" style={{ width: "160px", height: "80px" }}>
+    <div className="relative flex items-center justify-center" style={{ width: "160px", height: "160px" }}>
+      {/* 1. LAYER: 3D DEPTH WALLS (Futuristic Neon Side) */}
       <div
         className="absolute inset-0 transition-all duration-700"
         style={{
-          background: "linear-gradient(135deg, rgba(30,41,59,0.9), rgba(0,0,0,1))",
-          transform: "rotateX(55deg) rotateZ(45deg)",
-          border: `2px solid ${station.accentColor}44`,
-          boxShadow: `0 0 40px ${station.glowColor.replace("0.7", "0.2")}, inset 0 0 20px ${station.accentColor}33`,
+          background: `linear-gradient(135deg, ${station.accentColor}22, #000)`,
+          clipPath: "polygon(50% 10%, 98% 30%, 98% 80%, 50% 100%, 2% 80%, 2% 30%)",
+          transform: "rotateX(60deg) rotateZ(45deg) translateY(12px)",
+          border: `2px solid ${station.accentColor}66`,
+          boxShadow: `0 0 25px ${station.accentColor}44`,
         }}
       />
+
+      {/* 2. LAYER: GLASS TOP SURFACE */}
       <div
-        className={cn(
-          "absolute inset-0 transition-opacity duration-500",
-          isActive ? "opacity-100" : "opacity-40"
-        )}
+        className="absolute inset-0 transition-all duration-700 backdrop-blur-sm"
         style={{
-          borderBottom: `3px solid ${station.accentColor}`,
-          borderRight: `3px solid ${station.accentColor}`,
-          transform: "rotateX(55deg) rotateZ(45deg) translate(2px, 2px)",
-          filter: `drop-shadow(0 0 10px ${station.accentColor})`,
+          background: "linear-gradient(135deg, rgba(15,23,42,0.6), rgba(0,0,0,0.9))",
+          clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)",
+          transform: "rotateX(60deg) rotateZ(45deg)",
+          border: `2px solid ${station.accentColor}`,
+          boxShadow: `inset 0 0 30px ${station.accentColor}33, 0 0 20px ${station.glowColor}`,
         }}
+      />
+      
+      {/* 3. LAYER: CENTER ENERGY CORE (Pulsing) */}
+      <motion.div
+        animate={{ 
+          opacity: isActive ? [0.6, 1, 0.6] : 0.3,
+          scale: isActive ? [0.95, 1.1, 0.95] : 1
+        }}
+        transition={{ duration: 1.5, repeat: Infinity }}
+        className="absolute w-[90px] h-[90px]"
+        style={{
+          background: `radial-gradient(circle, ${station.accentColor} 0%, transparent 80%)`,
+          clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)",
+          transform: "rotateX(60deg) rotateZ(45deg) translateZ(8px)",
+          filter: `blur(6px) drop-shadow(0 0 20px ${station.accentColor})`,
+        }}
+      />
+
+      {/* 4. LAYER: ORBITAL FLOATING RING */}
+      <motion.div
+        animate={{ 
+          rotateZ: -360,
+          y: [-2, 2, -2]
+        }}
+        transition={{ 
+          rotateZ: { duration: 12, repeat: Infinity, ease: "linear" },
+          y: { duration: 3, repeat: Infinity, ease: "easeInOut" }
+        }}
+        className="absolute w-[180px] h-[180px] border-[1px] border-dashed rounded-full"
+        style={{
+          borderColor: isActive ? station.accentColor : `${station.accentColor}88`,
+          transform: "rotateX(78deg) translateZ(50px)",
+          boxShadow: isActive 
+            ? `0 0 30px ${station.accentColor}, inset 0 0 30px ${station.accentColor}`
+            : `0 0 15px ${station.accentColor}44, inset 0 0 15px ${station.accentColor}44`,
+        }}
+      />
+
+      {/* 5. ACTIVE GLOW / BEAM (Lights up when capsule arrives) */}
+      <motion.div
+        initial={false}
+        animate={{ 
+          opacity: isActive ? 1 : 0,
+          scale: isActive ? 1.5 : 0.8
+        }}
+        className="absolute bottom-[40px] w-[6px] h-[150px]"
+        style={{ 
+          background: `linear-gradient(to top, transparent, ${station.accentColor}, transparent)`,
+          filter: `blur(10px) drop-shadow(0 0 20px ${station.accentColor})`,
+        }} 
+      />
+      {/* Ground Flare */}
+      <motion.div
+        animate={{ opacity: isActive ? [0.4, 0.8, 0.4] : 0 }}
+        transition={{ repeat: Infinity, duration: 1 }}
+        className="absolute w-[200px] h-[60px] blur-3xl -bottom-10"
+        style={{ background: station.accentColor }}
       />
     </div>
   </motion.div>
@@ -193,26 +246,24 @@ const StationNode = ({ station, index, isActive, onClick }: { station: Station; 
         width: "180px",
         height: "180px",
         transform: "translate(-50%, -50%)",
-        zIndex: isActive ? 1000 : 30 + index,
+        zIndex: isActive ? 450 : 30 + index, 
       }}
     >
-      <div className="absolute inset-0">
-        <IslandPlatform station={station} isActive={isActive} />
-      </div>
+      <CyberPodium station={station} isActive={isActive} />
 
-      {/* Building Image - MUST SIT ON TOP OF PLATFORM (y: offset positive to seat) */}
+      {/* Building Image - MUST SIT ON TOP OF PODIUM */}
       <motion.div
         initial={{ y: 0, opacity: 0 }}
-        animate={{ y: 25, opacity: 1 }} // Moved DOWN to seat on the platform center
+        animate={{ y: -85, opacity: 1 }} // Moved UP significantly to sit ON TOP of the 3D stand
         transition={{ delay: 0.1 + index * 0.05, duration: 0.6 }}
         className="relative z-40 w-full h-full flex flex-col items-center justify-center"
       >
         <Image
           src={station.image}
           alt={station.title}
-          width={220}
-          height={220}
-          className="w-[95%] h-auto object-contain transition-all duration-500"
+          width={180}
+          height={180}
+          className="w-[80%] h-auto object-contain transition-all duration-500"
           style={{
             filter: isActive
               ? `drop-shadow(0 0 35px ${station.glowColor})`
@@ -236,41 +287,54 @@ const StationNode = ({ station, index, isActive, onClick }: { station: Station; 
         </div>
       ))}
 
-      {/* Detail Tooltip */}
-      <AnimatePresence>
-        {isActive && (
-          <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
-            className="absolute left-1/2 -translate-x-1/2 bottom-[115%] w-[250px] bg-slate-950/98 border border-white/10 rounded-xl p-4 shadow-4xl backdrop-blur-xl z-[150]">
-            <div className="text-[10px] font-black text-white uppercase tracking-widest mb-3 flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full" style={{ background: station.accentColor }} />
-              {station.phaseNum} LOGİK
-            </div>
-            {station.checkpoints.map((cp, i) => (
-              <div key={i} className="flex items-start gap-2 mb-2 text-slate-400">
-                <span className="text-[9px] font-mono opacity-30 mt-0.5">0{i+1}</span>
-                <span className="text-[10px] font-bold leading-tight">{cp}</span>
-              </div>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Detail Tooltip - ALWAYS OPEN & UNDER THE STAND */}
+      <div 
+        className="absolute left-1/2 -translate-x-1/2 top-[125%] w-[220px] bg-slate-950/80 border border-white/5 rounded-xl p-3 shadow-4xl backdrop-blur-md z-[150]"
+      >
+        <div className="text-[11px] font-black text-white uppercase tracking-widest mb-2 flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full" style={{ background: station.accentColor }} />
+          {station.phaseNum.replace("PHASE", "AŞAMA")} {station.phase === "GUARD" ? "FİLTRE" : "MANTIK"}
+        </div>
+        {station.checkpoints.map((cp, i) => (
+          <div key={i} className="flex items-start gap-2 mb-1.5 text-slate-400">
+            <span className="text-[10px] font-mono opacity-30 mt-0.5">0{i+1}</span>
+            <span className="text-[11px] font-bold leading-tight">
+              {cp}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
 
 export const PilotPipeline3D = () => {
-  const [activeId, setActiveId] = useState<string | null>(STATIONS[0].id);
+  const [progress, setProgress] = useState(0);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // ══ SYNC TIMER ══
+    // Drives the capsule's 15s path animation and the progress state
+    const controls = animate(0, 100, {
+      duration: 15,
+      repeat: Infinity,
+      ease: "linear",
+      onUpdate: (latest) => setProgress(latest),
+    });
+    return controls.stop;
+  }, []);
 
   return (
-    <div className="relative w-full overflow-hidden bg-transparent min-h-[380px] lg:min-h-[440px]">
-      {/* Dynamic BG */}
+    <div className="relative w-full overflow-hidden bg-transparent min-h-[400px] lg:min-h-[460px]">
+      {/* 1. Dynamic Background */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-[300px] bg-blue-900/5 blur-[150px] opacity-20" />
         <div className="absolute inset-0 opacity-[0.02] bg-[linear-gradient(#fff_1px,transparent_1px),linear-gradient(90deg,#fff_1px,transparent_1px)] bg-[length:40px_40px]" />
       </div>
 
-      <div className="relative z-10 px-4 py-6 max-w-[1240px] mx-auto">
-        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="mb-8 flex items-center justify-between">
+      <div className="relative z-10 px-4 pt-3 pb-8 max-w-[1240px] mx-auto">
+        {/* Header */}
+        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="mb-4 flex items-center justify-between">
           <div className="flex items-baseline gap-4">
             <h2 className="text-lg md:text-xl font-black italic text-white uppercase tracking-tighter">
               PILOT <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-500 to-cyan-400">PIPELINE</span>
@@ -278,7 +342,6 @@ export const PilotPipeline3D = () => {
             <div className="h-px w-8 bg-slate-800" />
             <span className="text-slate-500 text-[8px] font-black tracking-[0.4em] uppercase opacity-60">SYSTEM FLOW V5.1</span>
           </div>
-          
           <div className="flex gap-6 font-black text-[8px] uppercase tracking-[0.4em] text-slate-700 hidden sm:flex">
              <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" /><span>Link: OK</span></div>
              <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 bg-cyan-500 rounded-full" /><span>99.9% PRECISE</span></div>
@@ -287,60 +350,83 @@ export const PilotPipeline3D = () => {
 
         {/* ═══ MAP VIEWPORT ═══ */}
         <div className="relative w-full" style={{ aspectRatio: "24/8" }}>
-          {/* Cyber Highway Road SVG - Center aligned with 3:1 axis */}
-          <svg className="absolute inset-0 w-full h-full" viewBox="0 0 1200 400" preserveAspectRatio="none" style={{ zIndex: 10 }}>
+          {/* Cyber Highway Road SVG - NOW ON TOP LAYER (z-index: 500) */}
+          <svg className="absolute inset-0 w-full h-full" viewBox="0 0 1200 400" preserveAspectRatio="none" style={{ zIndex: 500 }}>
             <defs>
-              <linearGradient id="flowPath" x1="0%" y1="0%" x2="100%" y2="0%">
+              <linearGradient id="cyberFlow" x1="0%" y1="0%" x2="100%" y2="0%">
                 <stop offset="0%" stopColor="#a855f7" />
                 <stop offset="50%" stopColor="#3b82f6" />
                 <stop offset="100%" stopColor="#06b6d4" />
               </linearGradient>
             </defs>
-            <path d={ROAD_PATH} stroke="url(#flowPath)" strokeWidth="45" fill="none" opacity="0.08" filter="blur(25px)" />
-            <path d={ROAD_PATH} stroke="rgba(15,23,42,0.9)" strokeWidth="22" fill="none" strokeLinecap="round" />
-            <path d={ROAD_PATH} stroke="url(#flowPath)" strokeWidth="1.5" fill="none" opacity="0.4" />
-            
-            {/* Energy flow - INSIDE SVG to guarantee sync */}
-            <motion.path d={ROAD_PATH} stroke="rgba(255,255,255,0.4)" strokeWidth="0.8" fill="none" strokeDasharray="15 45"
-              animate={{ strokeDashoffset: [-120, 0] }} transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }} />
 
-            {/* 🚗 SIGNAL VEHICLE - NOW INSIDE SVG TO SYNC COORDINATES */}
-            <motion.path
-                d={ROAD_PATH}
-                fill="none"
-                stroke="transparent"
-                initial={{ pathLength: 0 }}
-              />
-              <motion.g
-                animate={{
-                  offsetDistance: ["0%", "100%"]
-                }}
-                transition={{
-                  duration: 20,
-                  repeat: Infinity,
-                  ease: "linear",
-                }}
-                style={{ offsetPath: `path("${ROAD_PATH}")` }}
-              >
-                <foreignObject width="100" height="100" x="-50" y="-50">
-                  <div className="flex items-center justify-center w-full h-full">
-                    <div className="relative">
-                      <div className="absolute inset-0 bg-cyan-500/30 blur-xl rounded-full scale-150" />
-                      <img 
-                        src="/pipeline/signal-vehicle.png" 
-                        alt="Vehicle" 
-                        className="w-16 h-16 object-contain filter drop-shadow(0 0 15px cyan)"
-                      />
-                    </div>
-                  </div>
-                </foreignObject>
-              </motion.g>
+            {/* 1. Underlying Glow */}
+            <path d={ROAD_PATH} stroke="url(#cyberFlow)" strokeWidth="50" fill="none" opacity="0.1" filter="blur(30px)" />
+            
+            {/* 2. Main High-Tech Road Foundation */}
+            <path d={ROAD_PATH} stroke="#0f172a" strokeWidth="24" fill="none" strokeLinecap="round" opacity="0.9" />
+            <path d={ROAD_PATH} stroke="url(#cyberFlow)" strokeWidth="2" fill="none" opacity="0.4" />
+
+            {/* 3. Lateral Data Rails (Dotted) */}
+            <path d={ROAD_PATH} stroke="rgba(255,255,255,0.05)" strokeWidth="18" fill="none" strokeDasharray="1 8" />
+
+            {/* 4. Moving Energy Packets */}
+            <motion.path d={ROAD_PATH} stroke="url(#cyberFlow)" strokeWidth="1.2" fill="none" strokeDasharray="30 180"
+              animate={{ strokeDashoffset: [-1200, 0] }} transition={{ duration: 3, repeat: Infinity, ease: "linear" }} />
+            
+            <motion.path d={ROAD_PATH} stroke="white" strokeWidth="0.5" fill="none" strokeDasharray="2 60"
+              animate={{ strokeDashoffset: [-600, 0] }} transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }} />
+
+            {/* 🚗 SIGNAL CAPSULE - V2 RIGHTWARD ORIENTED */}
+            <motion.g
+              initial={{ offsetDistance: "0%" }}
+              animate={{ offsetDistance: "100%" }}
+              transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
+              style={{ offsetPath: `path("${ROAD_PATH}")` }}
+            >
+              <foreignObject width="100" height="100" x="-50" y="-50">
+                <div className="flex items-center justify-center w-full h-full relative">
+                  <motion.div
+                    animate={{ scale: [1, 1.1, 1] }} 
+                    transition={{ repeat: Infinity, duration: 2 }}
+                    className="relative"
+                  >
+                    <Image
+                      src="/pipeline/signal-capsule-v3.png"
+                      alt="Signal"
+                      width={80}
+                      height={80}
+                      className="w-16 h-16"
+                      style={{ transform: "none" }}
+                    />
+                  </motion.div>
+                </div>
+              </foreignObject>
+            </motion.g>
           </svg>
 
-          {/* Station Nodes */}
-          {STATIONS.map((station, idx) => (
-            <StationNode key={station.id} station={station} index={idx} isActive={activeId === station.id} onClick={() => setActiveId(activeId === station.id ? null : station.id)} />
-          ))}
+          {/* Stations - Positioned relative to the viewport */}
+          <div className="absolute inset-0">
+            {STATIONS.map((station, index) => {
+              // ══ PRECISION SYNC LOGIC ══
+              // Road Start: 50/1200 * 100 = 4.167%
+              // Road End: 1150/1200 * 100 = 95.833%
+              const roadStart_X = 4.167;
+              const roadWidth_X = 91.666;
+              const currentCapsuleX = roadStart_X + (progress * roadWidth_X / 100);
+              const isActive = Math.abs(station.x - currentCapsuleX) < 5; // Light up only when capsule is overhead
+
+              return (
+                <StationNode
+                  key={station.id}
+                  station={station}
+                  index={index}
+                  isActive={isActive}
+                  onClick={() => setActiveId(activeId === station.id ? null : station.id)}
+                />
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>

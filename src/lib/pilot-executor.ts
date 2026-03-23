@@ -729,13 +729,30 @@ export class PilotExecutor {
           executionResult = { ...(res as any), type: "SMART_TRADE_ADOPTED", source: "pilot_auto" };
         }
       } else if (signal.signal === "SELL" && alloc.hasHolding) {
-        await logSystemEvent(userId, "SYSTEM", 
-          `Sinyal geldi [${cleanSymbol}], Satış (COVER) modunda çıkış yapılıyor.`,
-          `AI Skoru: ${aiScore}.`
-        );
-        const result = await this.executeCover(symbol, botConfig, userId, mode, scanTimeframe, alloc.targetQty, signal);
-        executed = result.executed;
-        executionResult = result.data;
+        // MTF VETO GUARD: If MTF consensus strongly bullish (>= 70%), block COVER to prevent counter-trend traps
+        const mtfBullScore = typeof signal.indicators?.mtfScore === 'number' 
+          ? signal.indicators.mtfScore 
+          : typeof signal.indicators?.mtfConsensus === 'number'
+            ? signal.indicators.mtfConsensus
+            : 50;
+        
+        const MTF_VETO_THRESHOLD = 70; // % bull dominance to veto COVER
+        if (mtfBullScore >= MTF_VETO_THRESHOLD) {
+          const vetoMsg = `MTF Veto: %${Math.round(mtfBullScore)} MTF AL baskın, COVER açılmıyor (eşik: %${MTF_VETO_THRESHOLD}).`;
+          console.log(`[Pilot] 🛡️ ${cleanSymbol}: ${vetoMsg}`);
+          await logSystemEvent(userId, "SYSTEM", "TRADE_SKIPPED", 
+            `COVER VETO [${cleanSymbol}]: ${vetoMsg} | AI Skoru: ${aiScore}`
+          );
+          executionResult = { message: vetoMsg };
+        } else {
+          await logSystemEvent(userId, "SYSTEM", 
+            `Sinyal geldi [${cleanSymbol}], Satış (COVER) modunda çıkış yapılıyor.`,
+            `AI Skoru: ${aiScore} | MTF Bull: %${Math.round(mtfBullScore)} (Veto Eşiği: %${MTF_VETO_THRESHOLD}).`
+          );
+          const result = await this.executeCover(symbol, botConfig, userId, mode, scanTimeframe, alloc.targetQty, signal);
+          executed = result.executed;
+          executionResult = result.data;
+        }
       }
     }
 

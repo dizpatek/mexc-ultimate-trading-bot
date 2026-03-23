@@ -1141,7 +1141,7 @@ export const MatrixHorizon = ({
         {isSectionExpanded && (
           <div
             className={cn(
-              "col-span-1 lg:col-span-4 flex flex-col items-center justify-between relative min-h-[500px] transition-opacity duration-300 h-full",
+              "col-span-1 lg:col-span-4 flex flex-col items-center justify-between relative min-h-[500px] transition-opacity duration-300 h-full mt-[-20px]",
               isActionLoading ? "opacity-40 animate-pulse" : "opacity-100",
             )}
           >

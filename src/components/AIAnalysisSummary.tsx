@@ -88,23 +88,6 @@ export const AIAnalysisSummary = ({
 
   return (
     <div className="flex flex-col gap-2 px-3 py-3 bg-slate-900/40 border border-white/5 rounded-2xl animate-in fade-in slide-in-from-bottom-2 duration-500 h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-0.5 px-1 pt-1">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
-            <Brain className="w-4 h-4 text-cyan-400" />
-          </div>
-          <div>
-            <h3 className="text-[11px] font-black text-slate-100 uppercase tracking-tighter leading-none">
-              {metrics.summaryTitle}
-            </h3>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[8px] font-bold uppercase text-emerald-500/80">Canlı Bağlantı</span>
-            </div>
-          </div>
-        </div>
-      </div>
 
       {/* Metrics Row (Single Line 6 Cols) */}
       <div className="grid grid-cols-6 gap-1 mt-1">

@@ -160,3 +160,249 @@ export function getLatestIndicators(prices: number[]) {
     },
   };
 }
+
+/**
+ * OHLCV veri tipi — klines verisi için
+ */
+export interface OHLCVBar {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+/**
+ * MEXC kline dizisini OHLCV objesine dönüştür
+ * Format: [timestamp, open, high, low, close, volume]
+ */
+export function parseKlinesToOHLCV(klines: any[]): OHLCVBar[] {
+  return klines.map((k) => {
+    if (Array.isArray(k)) {
+      return {
+        open:   parseFloat(String(k[1])),
+        high:   parseFloat(String(k[2])),
+        low:    parseFloat(String(k[3])),
+        close:  parseFloat(String(k[4])),
+        volume: parseFloat(String(k[5])),
+      };
+    }
+    return {
+      open:   parseFloat(String(k.open   ?? 0)),
+      high:   parseFloat(String(k.high   ?? k.close ?? 0)),
+      low:    parseFloat(String(k.low    ?? k.close ?? 0)),
+      close:  parseFloat(String(k.close  ?? 0)),
+      volume: parseFloat(String(k.volume ?? 0)),
+    };
+  });
+}
+
+// ─── Ortak EMA yardımcı ─────────────────────────────────────────────────────
+function _ema(src: number[], len: number): number[] {
+  if (src.length < len) return [];
+  const mult = 2 / (len + 1);
+  const out: number[] = [];
+  let prev = src.slice(0, len).reduce((a, b) => a + b, 0) / len;
+  out.push(prev);
+  for (let i = len; i < src.length; i++) {
+    prev = (src[i] - prev) * mult + prev;
+    out.push(prev);
+  }
+  return out;
+}
+
+/**
+ * Pine Script F4 (Tillson T3) — orijinal formül
+ * e1..e6 = Nested EMA zinciri, giriş = (H+L+2*C)/4
+ * F4 = c1*e6 + c2*e5 + c3*e4 + c4*e3
+ * Boğa = F4 > F4[1] (pozitif eğim)
+ * Pine Script: satır 1501–1514
+ */
+export function calculateF4Signal(
+  bars: OHLCVBar[],
+  length: number = 14,
+  alpha: number = 0.7
+): boolean[] {
+  const src = bars.map(b => (b.high + b.low + 2 * b.close) / 4);
+
+  const c1 =  -(alpha ** 3);
+  const c2 =  3 * (alpha ** 2) + 3 * (alpha ** 3);
+  const c3 = -6 * (alpha ** 2) - 3 * alpha - 3 * (alpha ** 3);
+  const c4 =  1 + 3 * alpha + (alpha ** 3) + 3 * (alpha ** 2);
+
+  const e1 = _ema(src, length);
+  const e2 = _ema(e1,  length);
+  const e3 = _ema(e2,  length);
+  const e4 = _ema(e3,  length);
+  const e5 = _ema(e4,  length);
+  const e6 = _ema(e5,  length);
+
+  const minLen = Math.min(e3.length, e4.length, e5.length, e6.length);
+  const f4: number[] = [];
+  for (let i = 0; i < minLen; i++) {
+    f4.push(
+      c1 * e6[e6.length - minLen + i] +
+      c2 * e5[e5.length - minLen + i] +
+      c3 * e4[e4.length - minLen + i] +
+      c4 * e3[e3.length - minLen + i]
+    );
+  }
+
+  const signals: boolean[] = [];
+  for (let i = 1; i < f4.length; i++) signals.push(f4[i] > f4[i - 1]);
+  return signals;
+}
+
+/**
+ * Pine Script WaveTrend — orijinal formül
+ * ap=(H+L+C)/3, esa=EMA(ap,n1), d=EMA(|ap-esa|,n1)
+ * ci=(ap-esa)/(0.015*d), wt1=EMA(ci,n2), wt2=SMA(wt1,4)
+ * Boğa = wt1 > wt2 AND wt1 < 60
+ * Pine Script: satır 1517–1524
+ */
+export function calculateWaveTrendSignal(
+  bars: OHLCVBar[],
+  n1: number = 10,
+  n2: number = 21
+): boolean[] {
+  const ap = bars.map(b => (b.high + b.low + b.close) / 3);
+  const esa = _ema(ap, n1);
+
+  const apTrimmed = ap.slice(ap.length - esa.length);
+  const dInput    = apTrimmed.map((v, i) => Math.abs(v - esa[i]));
+  const d         = _ema(dInput, n1);
+
+  const minLen = Math.min(apTrimmed.length, d.length);
+  const ci = apTrimmed.slice(apTrimmed.length - minLen).map((v, i) => {
+    const esaV = esa[esa.length - minLen + i];
+    const dV   = d[d.length - minLen + i];
+    return dV > 0 ? (v - esaV) / (0.015 * dV) : 0;
+  });
+
+  const wt1 = _ema(ci, n2);
+
+  // SMA-4 of wt1 = wt2
+  const wt2: number[] = [];
+  for (let i = 3; i < wt1.length; i++)
+    wt2.push((wt1[i] + wt1[i-1] + wt1[i-2] + wt1[i-3]) / 4);
+
+  const wt1a = wt1.slice(wt1.length - wt2.length);
+  return wt2.map((w2, i) => wt1a[i] > w2 && wt1a[i] < 60);
+}
+
+/**
+ * Pine Script Supertrend — ATR tabanlı orijinal formül
+ * Boğa = fiyat supertrend üzerinde
+ * Pine Script: parametreler satır 224–225 (period=10, factor=3.0)
+ */
+export function calculateSupertrendSignal(
+  bars: OHLCVBar[],
+  period: number  = 10,
+  multiplier: number = 3.0
+): boolean[] {
+  if (bars.length < period + 2) return [];
+
+  // True Range
+  const tr: number[] = [];
+  for (let i = 1; i < bars.length; i++) {
+    tr.push(Math.max(
+      bars[i].high - bars[i].low,
+      Math.abs(bars[i].high - bars[i - 1].close),
+      Math.abs(bars[i].low  - bars[i - 1].close)
+    ));
+  }
+
+  // Wilder RMA (Rolling MA) for ATR
+  const atr: number[] = [];
+  let prev = tr.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  atr.push(prev);
+  for (let i = period; i < tr.length; i++) {
+    prev = (prev * (period - 1) + tr[i]) / period;
+    atr.push(prev);
+  }
+
+  const barsA = bars.slice(bars.length - atr.length);
+  const isBull: boolean[] = [];
+  let prevUp = 0, prevDn = 0, prevBull = true;
+
+  for (let i = 0; i < atr.length; i++) {
+    const hl2   = (barsA[i].high + barsA[i].low) / 2;
+    const rawUp = hl2 + multiplier * atr[i];
+    const rawDn = hl2 - multiplier * atr[i];
+
+    const prevClose = i > 0 ? barsA[i - 1].close : barsA[i].close;
+    const up = (rawUp < prevUp || prevClose > prevUp) ? rawUp : prevUp;
+    const dn = (rawDn > prevDn || prevClose < prevDn) ? rawDn : prevDn;
+
+    const bull: boolean = barsA[i].close > (prevBull ? up : dn)
+      ? true
+      : barsA[i].close < (prevBull ? up : dn)
+      ? false
+      : prevBull;
+
+    isBull.push(bull);
+    prevUp = up; prevDn = dn; prevBull = bull;
+  }
+  return isBull;
+}
+
+/**
+ * EMA Ribbon Sinyali
+ * Boğa = EMA8 > EMA21 > EMA55 (tam hizalanma)
+ * Pine Script: satır 1777
+ */
+export function calculateEmaRibbonSignal(closes: number[]): boolean[] {
+  if (closes.length < 56) return [];
+  const e8  = _ema(closes,  8);
+  const e21 = _ema(closes, 21);
+  const e55 = _ema(closes, 55);
+  const minLen = Math.min(e8.length, e21.length, e55.length);
+  const signals: boolean[] = [];
+  for (let i = 0; i < minLen; i++) {
+    signals.push(
+      e8[e8.length   - minLen + i] > e21[e21.length - minLen + i] &&
+      e21[e21.length - minLen + i] > e55[e55.length - minLen + i]
+    );
+  }
+  return signals;
+}
+
+/**
+ * Ichimoku Kumo (Bulut) Sinyali
+ * Boğa = fiyat hem Senkou A hem Senkou B üzerinde
+ * Pine Script: satır 1778 (v5_ichi_above_kumo)
+ */
+export function calculateIchimokuSignal(
+  bars: OHLCVBar[],
+  tenkan: number = 9,
+  kijun:  number = 26,
+  senkouB: number = 52,
+  disp:   number = 26
+): boolean[] {
+  const needed = Math.max(kijun, senkouB) + disp;
+  if (bars.length < needed + 1) return [];
+
+  const mid = (start: number, len: number): number => {
+    let maxH = -Infinity, minL = Infinity;
+    for (let i = start; i < start + len; i++) {
+      if (bars[i].high > maxH) maxH = bars[i].high;
+      if (bars[i].low  < minL) minL = bars[i].low;
+    }
+    return (maxH + minL) / 2;
+  };
+
+  const signals: boolean[] = [];
+  for (let i = needed; i < bars.length; i++) {
+    // Senkou lines hesaplama geçmişte disp kadar (cloud 26 bar ileriye taşınır,
+    // yani bugünkü fiyat için bulut disp bar önceki Tenkan/Kijun'dan türetilir)
+    const sIdx = i - disp;
+    if (sIdx < Math.max(tenkan, kijun, senkouB) - 1) { signals.push(false); continue; }
+
+    const senA = (mid(sIdx - tenkan + 1,  tenkan)  + mid(sIdx - kijun + 1, kijun)) / 2;
+    const senB = mid(sIdx - senkouB + 1, senkouB);
+
+    const price = bars[i].close;
+    signals.push(price > senA && price > senB);
+  }
+  return signals;
+}

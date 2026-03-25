@@ -383,6 +383,11 @@ async function runSchemaMigrations() {
   } catch {
     /* ignore */
   }
+  try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS f4_alpha NUMERIC DEFAULT 95`;
+  } catch {
+    /* ignore */
+  }
 
   // ADD timeframe_settings migration
   try {

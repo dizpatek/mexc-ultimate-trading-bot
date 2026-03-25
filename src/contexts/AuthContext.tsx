@@ -55,8 +55,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setUser(userData);
       window.dispatchEvent(new Event("api-auth-login"));
       return true;
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Login failed";
+    } catch (error: any) {
+      const dbMessage = error.response?.data?.message;
+      const message = dbMessage || (error instanceof Error ? error.message : "Login failed");
       throw new Error(message);
     }
   };
@@ -77,9 +78,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setUser(userData);
       window.dispatchEvent(new Event("api-auth-login"));
       return true;
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "Registration failed";
+    } catch (error: any) {
+      const dbMessage = error.response?.data?.message;
+      const message = dbMessage || (error instanceof Error ? error.message : "Registration failed");
       throw new Error(message);
     }
   };
@@ -97,8 +98,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setUser(userData);
       window.dispatchEvent(new Event("api-auth-login"));
       return true;
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Google Auth failed";
+    } catch (error: any) {
+      const dbMessage = error.response?.data?.message;
+      const message = dbMessage || (error instanceof Error ? error.message : "Google Auth failed");
       throw new Error(message);
     }
   };

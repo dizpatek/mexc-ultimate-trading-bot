@@ -665,7 +665,30 @@ export class PilotExecutor {
       await logSystemEvent(userId, "SYSTEM", "POSITIVE", `\ud83c\udfaf MATRIX V5 S\u0130NYAL\u0130: ${cleanSymbol} [${signal.signal === "BUY" ? "GO_LONG" : "GO_SHORT"}]: AI Skoru: ${aiScore} | ${signal.signal === "BUY" ? "YUKARI \ud83d\udcc8" : "A\u015eA\u011eI \ud83d\udcc9"}`);
 
       if (signal.signal === "BUY") {
-        if (alloc.isReEntry) {
+        // TRADE MTF VETO GUARD: Yeni ölçek [-100, +100]
+        // Pozitif = boğa, negatif = ayı, 0 = nötr
+        // mtfBullScore (eski 0-100) → mtfScore (yeni -100/+100) dönüşümü:
+        // eski 70 → yeni +40 | eski 30 → yeni -40 | eski 50 → yeni 0
+        const rawMtfScore = typeof signal.indicators?.mtfWeightedScore === 'number'
+          ? signal.indicators.mtfWeightedScore   // [-100,+100] yeni format
+          : typeof signal.indicators?.mtfScore === 'number'
+            ? signal.indicators.mtfScore           // [-100,+100] yeni format
+            : 0; // nötr varsayım
+        // Geriye dönük uyumluluk: eğer 0-100 arasındaysa dönüştür
+        const mtfScoreNorm = (rawMtfScore >= 0 && rawMtfScore <= 100 && !signal.indicators?.mtfScore)
+          ? (rawMtfScore - 50) * 2   // 0-100 → -100/+100 dönüşümü
+          : rawMtfScore;
+        
+        // DB'den okunan eşik (varsayılan: +20 → al sinyali için yeterince boğa)
+        const TRADE_LONG_THRESHOLD = botConfig.pilot_mtf_long_threshold ?? 20;
+        if (botConfig.pilot_mtf_veto && mtfScoreNorm < TRADE_LONG_THRESHOLD) {
+          const vetoMsg = `MTF Veto: Skor ${mtfScoreNorm > 0 ? '+' : ''}${Math.round(mtfScoreNorm)} (LONG için min +${TRADE_LONG_THRESHOLD} gerekli), LONG açılmıyor.`;
+          console.log(`[Pilot] 🛡️ ${cleanSymbol}: ${vetoMsg}`);
+          await logSystemEvent(userId, "SYSTEM", "TRADE_SKIPPED",
+            `TRADE VETO [${cleanSymbol}]: ${vetoMsg} | AI:${aiScore}`
+          );
+          executionResult = { message: vetoMsg };
+        } else if (alloc.isReEntry) {
           await logSystemEvent(userId, "SYSTEM", 
             `Sinyal geldi [${cleanSymbol}], Re-Entry (Geri Alım) modunda işleme giriliyor.`,
             `AI Skoru: ${aiScore}.`
@@ -729,25 +752,31 @@ export class PilotExecutor {
           executionResult = { ...(res as any), type: "SMART_TRADE_ADOPTED", source: "pilot_auto" };
         }
       } else if (signal.signal === "SELL" && alloc.hasHolding) {
-        // MTF VETO GUARD: If MTF consensus strongly bullish (>= 70%), block COVER to prevent counter-trend traps
-        const mtfBullScore = typeof signal.indicators?.mtfScore === 'number' 
-          ? signal.indicators.mtfScore 
-          : typeof signal.indicators?.mtfConsensus === 'number'
-            ? signal.indicators.mtfConsensus
-            : 50;
+        // COVER MTF VETO GUARD: Yeni ölçek [-100, +100]
+        // COVER için piyasa yeterince ayı olmalı (skor negatif olmalı)
+        const rawMtfScoreSell = typeof signal.indicators?.mtfWeightedScore === 'number'
+          ? signal.indicators.mtfWeightedScore
+          : typeof signal.indicators?.mtfScore === 'number'
+            ? signal.indicators.mtfScore
+            : 0;
+        // Geriye dönük uyumluluk: eski 0-100 → yeni -100/+100
+        const mtfScoreNormSell = (rawMtfScoreSell >= 0 && rawMtfScoreSell <= 100 && !signal.indicators?.mtfScore)
+          ? (rawMtfScoreSell - 50) * 2
+          : rawMtfScoreSell;
         
-        const MTF_VETO_THRESHOLD = 70; // % bull dominance to veto COVER
-        if (mtfBullScore >= MTF_VETO_THRESHOLD) {
-          const vetoMsg = `MTF Veto: %${Math.round(mtfBullScore)} MTF AL baskın, COVER açılmıyor (eşik: %${MTF_VETO_THRESHOLD}).`;
+        // DB'den okunan eşik (varsayılan: -20 → skor -20'den yukarıdaysa hala boğa, COVER riski)
+        const COVER_SHORT_THRESHOLD = -(botConfig.pilot_mtf_short_threshold ?? 20);
+        if (botConfig.pilot_mtf_veto && mtfScoreNormSell > COVER_SHORT_THRESHOLD) {
+          const vetoMsg = `MTF Short Veto: Skor ${mtfScoreNormSell > 0 ? '+' : ''}${Math.round(mtfScoreNormSell)} (COVER için max ${COVER_SHORT_THRESHOLD} gerekli), COVER açılmıyor.`;
           console.log(`[Pilot] 🛡️ ${cleanSymbol}: ${vetoMsg}`);
-          await logSystemEvent(userId, "SYSTEM", "TRADE_SKIPPED", 
-            `COVER VETO [${cleanSymbol}]: ${vetoMsg} | AI Skoru: ${aiScore}`
+          await logSystemEvent(userId, "SYSTEM", "TRADE_SKIPPED",
+            `COVER VETO [${cleanSymbol}]: ${vetoMsg} | AI:${aiScore}`
           );
           executionResult = { message: vetoMsg };
         } else {
           await logSystemEvent(userId, "SYSTEM", 
             `Sinyal geldi [${cleanSymbol}], Satış (COVER) modunda çıkış yapılıyor.`,
-            `AI Skoru: ${aiScore} | MTF Bull: %${Math.round(mtfBullScore)} (Veto Eşiği: %${MTF_VETO_THRESHOLD}).`
+            `AI Skoru: ${aiScore} | MTF Bull: %${Math.round(mtfScoreNormSell)} (Veto Eşiği: %${COVER_SHORT_THRESHOLD}).`
           );
           const result = await this.executeCover(symbol, botConfig, userId, mode, scanTimeframe, alloc.targetQty, signal);
           executed = result.executed;

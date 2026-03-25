@@ -157,35 +157,42 @@ export function calculateMtfVerdict(
   const bullPct = total > 0 ? Math.round((bullCountRaw / total) * 100) : 0;
   const bearPct = total > 0 ? Math.round((bearCountRaw / total) * 100) : 0;
 
+  // [-100, +100] MTF Birleşik Skoru
+  // 5 SAT → -100 | 5 AL → +100 | 3AL/2SAT → +20 | tam nötr → 0
+  const mtfScore = total > 0 
+    ? Math.round(((bullCountRaw - bearCountRaw) / total) * 100)
+    : 0;
+
+  // verdictText ve verdictColor basit bullPct/bearPct'e göre kalsın
   let verdictText = "NÖTR";
   let verdictColor = "text-amber-400";
   
   if (side === "BUY") {
-    if (bullPct >= 70) {
+    if (mtfScore >= 60) {
       verdictText = "GÜÇLÜ AL";
       verdictColor = "text-emerald-400";
-    } else if (bullPct >= 55) {
+    } else if (mtfScore >= 20) {
       verdictText = "AL";
       verdictColor = "text-emerald-300";
-    } else if (bearPct >= 70) {
+    } else if (mtfScore <= -60) {
       verdictText = "TERS TREND (SAT)";
       verdictColor = "text-orange-500 font-black animate-pulse bg-orange-500/10 px-1 rounded";
-    } else if (bearPct >= 55) {
+    } else if (mtfScore <= -20) {
       verdictText = "ZAYIF / AYI";
       verdictColor = "text-rose-300";
     }
   } else {
     // SELL / COVER Positioning
-    if (bearPct >= 70) {
+    if (mtfScore <= -60) {
       verdictText = "GÜÇLÜ SAT";
       verdictColor = "text-rose-400";
-    } else if (bearPct >= 55) {
+    } else if (mtfScore <= -20) {
       verdictText = "SAT";
       verdictColor = "text-rose-300";
-    } else if (bullPct >= 70) {
+    } else if (mtfScore >= 60) {
       verdictText = "TERS TREND (AL)";
       verdictColor = "text-orange-500 font-black animate-pulse bg-orange-500/10 px-1 rounded";
-    } else if (bullPct >= 55) {
+    } else if (mtfScore >= 20) {
       verdictText = "ZAYIF / BOĞA";
       verdictColor = "text-emerald-300";
     }
@@ -208,6 +215,7 @@ export function calculateMtfVerdict(
     goodPct,
     bullPct,
     bearPct,
+    mtfScore,          // ← YENİ: [-100, +100] birleşik skor
     dominantPct,
     sentimentColor,
     verdictText,

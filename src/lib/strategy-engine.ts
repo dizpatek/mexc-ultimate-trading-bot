@@ -416,6 +416,21 @@ async function processPilotChunk(
           return { symbol, skipped: "COOLDOWN" };
         }
 
+        // TF bazlı F4 çarpan seçimi:
+        // Scalp: 1m, 15m, 1h, 4h → scalp_f4_multiplier (daha agresif)
+        // Swing: 1d, 1w, 1M → swing_f4_multiplier (daha muhafazakâr)
+        const SCALP_TFS = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h"];
+        const isScalpTf = SCALP_TFS.includes(scanTimeframe);
+        const f4Multiplier = isScalpTf
+          ? (botConfig.scalp_f4_multiplier ?? 3.7)
+          : (botConfig.swing_f4_multiplier ?? 1.2);
+        // F4 alpha: DB'de 0-100 arası (örn. 95) → motora 0-1 arası (0.95) geçir
+        const f4Alpha = botConfig.f4_alpha ? botConfig.f4_alpha / 100 : 0.95;
+        // F4 length: TF'ye göre scalp_length veya swing_length kullan
+        const f4Length = isScalpTf
+          ? (botConfig.scalp_length ?? botConfig.f4_length ?? 11)
+          : (botConfig.swing_length ?? botConfig.f4_length ?? 10);
+
         const strategy = new MatrixV5Strategy(symbol, {
           timeframe: scanTimeframe,
           minAiScore: botConfig.ai_threshold || 65,
@@ -424,12 +439,16 @@ async function processPilotChunk(
           mtfThreshold: botConfig.pilot_mtf_threshold,
           mtfLongThreshold: botConfig.pilot_mtf_long_threshold,
           mtfShortThreshold: botConfig.pilot_mtf_short_threshold,
-          f4Length: botConfig.f4_length,
+          f4Length,
+          f4Multiplier,
+          f4Alpha,
           whaleVolumeMultiplier: botConfig.whale_multiplier,
           f4PowerLossThreshold: botConfig.f4_power_loss_threshold,
           f4LookbackBars: botConfig.f4_lookback_bars,
           f4SqueezeThreshold: botConfig.f4_squeeze_threshold,
           minPowerLoss: botConfig.min_power_loss,
+          longSqueezeThreshold: botConfig.long_squeeze_threshold ?? 20,
+          shortSqueezeThreshold: botConfig.short_squeeze_threshold ?? 20,
           fiboLength: botConfig.fibo_length
         });
 

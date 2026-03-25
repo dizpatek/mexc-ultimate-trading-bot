@@ -1,0 +1,10 @@
+import pg from 'pg';
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+const r = await pool.query(`SELECT column_name FROM information_schema.columns WHERE table_name='bot_configs' ORDER BY ordinal_position`);
+r.rows.forEach(row => console.log(row.column_name));
+await pool.end();

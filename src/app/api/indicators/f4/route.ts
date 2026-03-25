@@ -116,8 +116,9 @@ export async function GET(request: NextRequest) {
     // Step 2.6: Real MTF Integration (V5.6 Enhancement)
     const mtfResult = await getMtfConsensus(fetchSymbol, interval, result.indicatorBullCount);
     result.mtfConsensus = mtfResult.verdictText;
-    result.mtfWeightedScore = mtfResult.score;
+    result.mtfWeightedScore = mtfResult.mtfScore;  // [-100,+100] yeni ölçek
     result.mtfBullCount = mtfResult.bullCount;
+    // Not: mtfResult.score (0-100) geriye dönük uyumluluk için payload'a eklendi
 
     // Step 3.5: Log significant findings to DB buffer (Fire and Forget)
     if (

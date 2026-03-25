@@ -22,13 +22,36 @@ import {
  * Sonuç: 0-5 tamsayı veya 0.0-1.0 normalize skor.
  */
 
+/**
+ * TF Üst Hiyerarkisi:
+ * 1m grafikte işlem açıyorsan 15m, 1h, 4h, 1d'ye bakarsın.
+ * Pine Script'te MTF her zaman aktif TF'in üstündeki periyotları kapsar.
+ */
+const MTF_UPPER_TF_MAP: Record<string, string[]> = {
+  "1m":  ["15m", "1h", "4h", "1d"],
+  "3m":  ["15m", "1h", "4h", "1d"],
+  "5m":  ["15m", "1h", "4h", "1d"],
+  "15m": ["1h",  "4h", "1d"],
+  "30m": ["1h",  "4h", "1d"],
+  "1h":  ["4h",  "1d", "1w"],
+  "2h":  ["4h",  "1d", "1w"],
+  "4h":  ["1d",  "1w"],
+  "6h":  ["1d",  "1w"],
+  "8h":  ["1d",  "1w"],
+  "12h": ["1d",  "1w"],
+  "1d":  ["1w"],
+  "1w":  [],
+  "1M":  [],
+};
+
 // Cache for MTF checks to avoid reaching API limits
 const mtfResultsCache = new Map<string, { result: number | null; timestamp: number }>();
 const pendingRequests = new Map<string, Promise<number | null>>();
 const MTF_CACHE_TTL = 30_000; // 30 saniye
 
 export interface MtfConsensusResult {
-  score: number;       // 0-100 arası normalize boğa skoru
+  score: number;       // 0-100 arası normalize boğa skoru (geriye dönük uyumluluk)
+  mtfScore: number;    // [-100, +100] yeni standart: -100=5/5 SAT, +100=5/5 AL, 0=nötr
   verdictText: string;
   bullCount: number;   // ham boğa skoru (fraksiyonel, tüm TF'lerin ortalaması)
 }
@@ -97,8 +120,11 @@ export async function performLiteMtfCheck(
 
       const result = bullCount / 5; // 0.0 – 1.0
 
+      // Yeni ölçek: 5/5 AL=+100, 5/5 SAT=-100, 2.5/5 nötr=0
+      const mtfScoreSingle = ((bullCount - (5 - bullCount)) / 5) * 100;
+
       console.log(
-        `[MTF-Pine] ${symbol} @ ${tf}: F4=${f4Bull?1:0} WT=${wtBull?1:0} ST=${stBull?1:0} Ribbon=${ribbonBull?1:0} Ichi=${ichiBull?1:0} → ${bullCount}/5 (${(result*100).toFixed(0)}%)`
+        `[MTF-Pine] ${symbol} @ ${tf}: F4=${f4Bull?1:0} WT=${wtBull?1:0} ST=${stBull?1:0} Ribbon=${ribbonBull?1:0} Ichi=${ichiBull?1:0} | ${bullCount}/5 → MTF Skor: ${mtfScoreSingle > 0 ? '+' : ''}${mtfScoreSingle.toFixed(0)}`
       );
 
       mtfResultsCache.set(cacheKey, { result, timestamp: Date.now() });
@@ -127,9 +153,10 @@ export async function getMtfConsensus(
   currentTimeframe: string,
   engineBullCountOnCurrentTf: number
 ): Promise<MtfConsensusResult> {
-  // Üst zaman dilimleri: Pine Script genellikle 15m, 1h, 4h, 1d kullanır
-  const tfsToScan: string[] = ["15m", "1h", "4h", "1d"];
-  const tfsToFetch = tfsToScan.filter((tf) => tf !== currentTimeframe);
+  // Üst zaman dilimleri: aktif TF'in yukarısındaki periyotlar taranır
+  // Pine Script mantığı: 1m işlemde 1m MTF hesaplanmaz, üstler hesaplanır
+  const tfsToScan: string[] = MTF_UPPER_TF_MAP[currentTimeframe] ?? ["15m", "1h", "4h", "1d"];
+  const tfsToFetch = tfsToScan; // zaten üst TF'ler, currentTimeframe'i içermez
 
   // Mevcut TF'yi 5 bileşenlik sisteme normalize et (0-5 → 0.0-1.0)
   let mtfBullScore = Math.min(Math.max(engineBullCountOnCurrentTf, 0), 5) / 5;
@@ -150,18 +177,24 @@ export async function getMtfConsensus(
     console.error(`[MTF-Engine] Parallel check failed for ${symbol}:`, err);
   }
 
-  const score = mtfTotal > 0 ? (mtfBullScore / mtfTotal) * 100 : 50;
+  // [-100, +100] birleşik skor: her TF'nin (bull-bear)/5*100 değerinin ortalaması
+  const mtfScore = mtfTotal > 0 
+    ? Math.round(((mtfBullScore / mtfTotal) - 0.5) * 200)  // 0-1 ölçeği → -100/+100
+    : 0;
+  
+  const score = mtfTotal > 0 ? (mtfBullScore / mtfTotal) * 100 : 50; // Geriye dönük 0-100
 
-  // Metin: Pine Script techTrendScore mantığına paralel
+  // verdictText: yeni mtfScore (-100/+100) ölçeğine göre
   let verdictText: string;
-  if (score >= 80) verdictText = "GÜÇLÜ BOĞA 🟢";
-  else if (score >= 60) verdictText = "BOĞA 🟩";
-  else if (score >= 40) verdictText = "NÖTR ⬜";
-  else if (score >= 20) verdictText = "AYI 🟥";
+  if (mtfScore >= 60) verdictText = "GÜÇLÜ BOĞA 🟢";
+  else if (mtfScore >= 20) verdictText = "BOĞA 🟩";
+  else if (mtfScore > -20) verdictText = "NÖTR ⬜";
+  else if (mtfScore > -60) verdictText = "AYI 🟥";
   else verdictText = "GÜÇLÜ AYI 🔴";
 
   return {
-    score,
+    score,        // 0-100 (geriye dönük uyumluluk)
+    mtfScore,     // -100/+100 (yeni standart)
     verdictText,
     bullCount: mtfBullScore,
   };

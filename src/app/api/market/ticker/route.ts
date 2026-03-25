@@ -41,8 +41,8 @@ async function fetchFromMexc(url: string, cacheKey: string): Promise<unknown> {
   const promise = (async () => {
     const response = await fetch(url, {
       cache: "no-store",
-      // 3s hard timeout so we never block a user response for too long
-      signal: AbortSignal.timeout(3000),
+      // 6s hard timeout - MEXC bazen yavaş yanıt veriyor
+      signal: AbortSignal.timeout(6000),
     });
 
     if (!response.ok) {
@@ -116,18 +116,27 @@ export async function GET(req: NextRequest) {
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error";
+    console.warn("[ticker] Fetch error:", errorMessage);
 
     // On timeout/rate-limit, serve stale data if available
     const { searchParams } = new URL(req.url);
     const symbols = searchParams.get("symbols");
     const symbol = searchParams.get("symbol");
-    let cacheKey = symbol
-      ? `ticker:${symbol}`
-      : symbols
-        ? `ticker:bulk:${symbols}`
-        : "ticker:all";
+    
+    // Cache key'i success path ile aynı oluştur (sorted key)
+    let staleCacheKey = "ticker:all";
+    if (symbol) {
+      staleCacheKey = `ticker:${symbol}`;
+    } else if (symbols) {
+      try {
+        const parsed: string[] = JSON.parse(symbols);
+        staleCacheKey = `ticker:bulk:${parsed.slice().sort().join(",")}`;
+      } catch {
+        staleCacheKey = `ticker:bulk:${symbols}`;
+      }
+    }
 
-    const stale = cache.get(cacheKey);
+    const stale = cache.get(staleCacheKey);
     if (stale) {
       console.warn("[ticker] Serving stale cache on error:", errorMessage);
       return NextResponse.json(stale.data, {

@@ -246,6 +246,24 @@ export const buildOrchestraPrompt = (
       if (cleanSignal.smc.orderBlocks) cleanSignal.smc.orderBlocks = `[${cleanSignal.smc.orderBlocks.length} OBs]`;
       if (cleanSignal.smc.fvgs) cleanSignal.smc.fvgs = `[${cleanSignal.smc.fvgs.length} FVGs]`;
     }
+    // F4 Değer Normalizasyonu: ham fiyat değerleri (f4Value, f4ValuePrev5) AI'ya karışmasın
+    // f4PowerLoss: 0-100 arası güç kaybı. f4GucuPct = 100 - f4PowerLoss = mevcut güç
+    if (cleanSignal.f4PowerLoss !== undefined) {
+      const safeLoss = Math.max(0, Math.min(100, Number(cleanSignal.f4PowerLoss) || 0));
+      (cleanSignal as any).f4GucuPct = `%${(100 - safeLoss).toFixed(0)} (${safeLoss > 70 ? 'Güç_Kaybi_Kritik' : safeLoss > 40 ? 'Zayiflıyor' : 'Güçlü'})`;
+      delete (cleanSignal as any).f4PowerLoss; // ham sayı yerine açıklamalı format
+    }
+    // f4Power: [-100, 100] normalize momentum — doğrudan kullanılabilir
+    if (cleanSignal.f4Power !== undefined) {
+      const safeF4 = Math.max(-100, Math.min(100, Number(cleanSignal.f4Power) || 0));
+      (cleanSignal as any).f4MomentumNorm = `${safeF4 > 0 ? '+' : ''}${safeF4.toFixed(0)} (-100=güçlü aşağı, +100=güçlü yukarı)`;
+      delete (cleanSignal as any).f4Power;
+    }
+    // Ham fiyat değerlerini sil (AI bunları güç olarak yanlış yorumlayabilir)
+    delete (cleanSignal as any).f4Value;
+    delete (cleanSignal as any).f4ValuePrev5;
+    delete (cleanSignal as any).f4WholeSeries;
+
     dsText = `\nEKSTRA: CANLI KOKPİT (DASHBOARD) DURUMU:\n${JSON.stringify({
       Sinyal_Metrikleri: cleanSignal,
       Haber_Sosyal_Nabiz: dashboardState.sentiment || "Bilinmiyor",

@@ -293,7 +293,6 @@ export const DiagnosticsService = {
     return { success: true };
   },
 
-  // 14. Advanced Signal Station (Targeted)
   async triggerSignal(symbol: string, type: string, userId: number | 'ALL' = 14) {
     const targetIds = userId === 'ALL' 
        ? (await this.getAllUsers()).map((u: any) => u.id)
@@ -308,5 +307,53 @@ export const DiagnosticsService = {
       `;
     }
     return { success: true, targets: targetIds.length };
+  },
+
+  // 15. Trade Audit — Admin işlem analizi
+  async getTradeAudit(userId: number = 14) {
+    // Aktif SmartTrade işlemleri
+    const { rows: active } = await sql`
+      SELECT id, symbol, side, status, price as entry_price, qty, quote,
+             meta, created_at
+      FROM orders
+      WHERE user_id = ${userId}
+        AND status IN ('FILLED','PENDING','OPEN','ACTIVE','NEW')
+        AND meta::jsonb->>'smartTrade' = 'true'
+      ORDER BY created_at DESC
+    `;
+
+    // Son 40 kapalı işlem
+    const { rows: closed } = await sql`
+      SELECT id, symbol, side, status, price as entry_price, qty,
+             (meta::jsonb->>'exitPrice') as close_price,
+             (meta::jsonb->>'closedAt') as closed_ts,
+             meta
+      FROM orders
+      WHERE user_id = ${userId}
+        AND meta::jsonb->>'smartTrade' = 'true'
+        AND (
+          status IN ('CLOSED','CANCELLED','STOPPED','DONE')
+          OR (meta::jsonb->>'exitReason') IS NOT NULL
+        )
+      ORDER BY COALESCE((meta::jsonb->>'closedAt')::bigint, created_at) DESC
+      LIMIT 40
+    `;
+
+    // Sembol özeti
+    const { rows: bySymbol } = await sql`
+      SELECT symbol,
+             COUNT(*) as total_trades,
+             COUNT(CASE WHEN meta::jsonb->>'exitReason' ILIKE '%TP%' THEN 1 END) as tp_count,
+             COUNT(CASE WHEN meta::jsonb->>'exitReason' ILIKE '%SL%' THEN 1 END) as sl_count
+      FROM orders
+      WHERE user_id = ${userId}
+        AND meta::jsonb->>'smartTrade' = 'true'
+        AND (status IN ('CLOSED','DONE','STOPPED') OR (meta::jsonb->>'exitReason') IS NOT NULL)
+      GROUP BY symbol
+      ORDER BY total_trades DESC
+      LIMIT 12
+    `;
+
+    return { active, closed, bySymbol };
   }
 };

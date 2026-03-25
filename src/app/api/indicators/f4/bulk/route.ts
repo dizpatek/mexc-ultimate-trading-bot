@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
           // Step 2.6: Real MTF Integration (V5.6 Enhancement for Bulk)
           const mtfResult = await getMtfConsensus(symbolUpper, intervalVal, result.indicatorBullCount);
           result.mtfConsensus = mtfResult.verdictText;
-          result.mtfWeightedScore = mtfResult.score;
+          result.mtfWeightedScore = mtfResult.mtfScore;  // [-100,+100] yeni ölçek
           result.mtfBullCount = mtfResult.bullCount;
 
           return {

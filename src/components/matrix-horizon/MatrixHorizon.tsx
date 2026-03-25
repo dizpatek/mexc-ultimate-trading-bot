@@ -1486,7 +1486,7 @@ export const MatrixHorizon = ({
                 />
                 <Row
                   label="F4 GÜCÜ"
-                  value={`%${(100 - (signal?.f4PowerLoss ?? 0)).toFixed(0)}`}
+                  value={`%${(100 - Math.max(0, Math.min(100, signal?.f4PowerLoss ?? 0))).toFixed(0)}`}
                   cls={
                     (signal?.f4PowerLoss ?? 0) > 40
                       ? "text-rose-400"
@@ -1624,7 +1624,7 @@ export const MatrixHorizon = ({
                       { l: "Supertrend", v: aiRaw.trend?.supertrend, c: aiRaw.trend?.supertrendBull ? "text-emerald-400" : "text-rose-400" },
                       { l: "Balina", v: aiRaw.volume?.isWhale ? (aiRaw.volume?.whaleBuy ? "ALIYOR" : "SATIYOR") : "Nötr", c: aiRaw.volume?.whaleBuy ? "text-emerald-400" : aiRaw.volume?.whaleSell ? "text-rose-400" : "text-slate-200" },
                       { l: "BB", v: aiRaw.volatility?.bbSqueeze ? "SIKIŞMA" : "Normal", c: aiRaw.volatility?.bbSqueeze ? "text-amber-400" : "text-slate-200" },
-                      { l: "F4 Gücü", v: aiRaw.dashboardState?.signal?.f4PowerLoss ? `${(100 - aiRaw.dashboardState.signal.f4PowerLoss).toFixed(0)}%` : "---", c: (aiRaw.dashboardState?.signal?.f4PowerLoss || 0) > 40 ? "text-rose-400" : "text-emerald-400" },
+                      { l: "F4 Gücü", v: aiRaw.dashboardState?.signal?.f4PowerLoss != null ? `${(100 - Math.max(0, Math.min(100, Number(aiRaw.dashboardState.signal.f4PowerLoss)))).toFixed(0)}%` : "---", c: (aiRaw.dashboardState?.signal?.f4PowerLoss || 0) > 40 ? "text-rose-400" : "text-emerald-400" },
                       { l: "Capital", v: aiRaw.dashboardState?.signal?.capitalPhase || "---", c: aiRaw.dashboardState?.signal?.capitalPhase === "GİRİŞ" ? "text-emerald-400" : "text-rose-400" },
                       { l: "VPA Pressure", v: aiRaw.dashboardState?.signal?.vpa?.netPressure?.toFixed(1) || "---", c: (aiRaw.dashboardState?.signal?.vpa?.netPressure || 50) > 50 ? "text-emerald-400" : "text-rose-400" },
                       { l: "Likidite", v: aiRaw.dashboardState?.signal?.liquidityZone || "YOK", c: aiRaw.dashboardState?.signal?.liquidityZone?.includes("BOĞA") ? "text-emerald-400" : "text-rose-400" }
@@ -2505,49 +2505,49 @@ interface SettingsPanelProps {
 
 const ADVANCED_PRESETS: Record<string, any> = {
   "1M": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 70, pilot_mtf_long_threshold: 70, pilot_mtf_short_threshold: 30, pilot_trailing_buy: false, pilot_only_holdings: true,
+    pilot_mtf_veto: true, pilot_mtf_threshold: 70, pilot_mtf_long_threshold: 30, pilot_mtf_short_threshold: 30, pilot_trailing_buy: false, pilot_only_holdings: true,
     allocation: 3, tp: 1.2, sl: 0.6, ttp: 0.15, tsl: 0.20, cover_tp: 1.1, cover_sl: 0.50, cover_ttp: 0.13, cover_tsl: 0.18,
     ai_threshold: 72, whale_multiplier: 1.0, f4_multiplier: 3.7, 
     f4_length: 5, f4_lookback_bars: 15, f4_squeeze_threshold: 10, f4_power_loss_threshold: 85, min_power_loss: 85,
     scalp_length: 5, scalp_volume_multiplier: 4.0, swing_length: 8, swing_volume_multiplier: 1.0, f4_active: true
   },
   "15M": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 65, pilot_mtf_long_threshold: 65, pilot_mtf_short_threshold: 35, pilot_trailing_buy: false, pilot_only_holdings: true,
+    pilot_mtf_veto: true, pilot_mtf_threshold: 65, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20, pilot_trailing_buy: false, pilot_only_holdings: true,
     allocation: 5, tp: 1.0, sl: 0.55, ttp: 0.12, tsl: 0.18, cover_tp: 0.9, cover_sl: 0.40, cover_ttp: 0.10, cover_tsl: 0.15,
     ai_threshold: 65, whale_multiplier: 1.1, f4_multiplier: 3.2, 
     f4_length: 8, f4_lookback_bars: 20, f4_squeeze_threshold: 14, f4_power_loss_threshold: 87, min_power_loss: 87,
     scalp_length: 8, scalp_volume_multiplier: 3.5, swing_length: 9, swing_volume_multiplier: 1.1, f4_active: true
   },
   "1H": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 65, pilot_mtf_long_threshold: 65, pilot_mtf_short_threshold: 35, pilot_trailing_buy: true, pilot_only_holdings: true,
+    pilot_mtf_veto: true, pilot_mtf_threshold: 65, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20, pilot_trailing_buy: true, pilot_only_holdings: true,
     allocation: 10, tp: 1.2, sl: 0.65, ttp: 0.12, tsl: 0.22, cover_tp: 1.1, cover_sl: 0.45, cover_ttp: 0.11, cover_tsl: 0.20,
     ai_threshold: 65, whale_multiplier: 1.2, f4_multiplier: 2.7, 
     f4_length: 11, f4_lookback_bars: 30, f4_squeeze_threshold: 20, f4_power_loss_threshold: 90, min_power_loss: 90,
     scalp_length: 11, scalp_volume_multiplier: 3.0, swing_length: 10, swing_volume_multiplier: 1.2, f4_active: true
   },
   "4H": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 68, pilot_mtf_long_threshold: 68, pilot_mtf_short_threshold: 32, pilot_trailing_buy: true, pilot_only_holdings: true,
+    pilot_mtf_veto: true, pilot_mtf_threshold: 68, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20, pilot_trailing_buy: true, pilot_only_holdings: true,
     allocation: 12, tp: 2.0, sl: 1.0, ttp: 0.18, tsl: 0.28, cover_tp: 1.8, cover_sl: 0.65, cover_ttp: 0.16, cover_tsl: 0.25,
     ai_threshold: 68, whale_multiplier: 1.3, f4_multiplier: 2.0, 
     f4_length: 13, f4_lookback_bars: 40, f4_squeeze_threshold: 25, f4_power_loss_threshold: 88, min_power_loss: 88,
     scalp_length: 13, scalp_volume_multiplier: 2.5, swing_length: 12, swing_volume_multiplier: 1.3, f4_active: true
   },
   "1D": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 70, pilot_mtf_long_threshold: 70, pilot_mtf_short_threshold: 30, pilot_trailing_buy: true, pilot_only_holdings: true,
+    pilot_mtf_veto: true, pilot_mtf_threshold: 70, pilot_mtf_long_threshold: 30, pilot_mtf_short_threshold: 30, pilot_trailing_buy: true, pilot_only_holdings: true,
     allocation: 15, tp: 3.0, sl: 1.5, ttp: 0.28, tsl: 0.45, cover_tp: 2.7, cover_sl: 1.0, cover_ttp: 0.25, cover_tsl: 0.40,
     ai_threshold: 70, whale_multiplier: 1.4, f4_multiplier: 1.2, 
     f4_length: 16, f4_lookback_bars: 55, f4_squeeze_threshold: 30, f4_power_loss_threshold: 85, min_power_loss: 85,
     scalp_length: 16, scalp_volume_multiplier: 2.0, swing_length: 15, swing_volume_multiplier: 1.4, f4_active: true
   },
   "1W": {
-    pilot_mtf_veto: false, pilot_mtf_threshold: 75, pilot_mtf_long_threshold: 75, pilot_mtf_short_threshold: 25, pilot_trailing_buy: true, pilot_only_holdings: true,
+    pilot_mtf_veto: false, pilot_mtf_threshold: 75, pilot_mtf_long_threshold: 40, pilot_mtf_short_threshold: 40, pilot_trailing_buy: true, pilot_only_holdings: true,
     allocation: 20, tp: 6.0, sl: 3.0, ttp: 0.55, tsl: 0.90, cover_tp: 5.5, cover_sl: 2.0, cover_ttp: 0.50, cover_tsl: 0.80,
     ai_threshold: 75, whale_multiplier: 1.5, f4_multiplier: 1.1, 
     f4_length: 20, f4_lookback_bars: 80, f4_squeeze_threshold: 35, f4_power_loss_threshold: 80, min_power_loss: 80,
     scalp_length: 20, scalp_volume_multiplier: 1.8, swing_length: 18, swing_volume_multiplier: 1.5, f4_active: true
   },
   "1MO": {
-    pilot_mtf_veto: false, pilot_mtf_threshold: 80, pilot_mtf_long_threshold: 80, pilot_mtf_short_threshold: 20, pilot_trailing_buy: true, pilot_only_holdings: true,
+    pilot_mtf_veto: false, pilot_mtf_threshold: 80, pilot_mtf_long_threshold: 50, pilot_mtf_short_threshold: 50, pilot_trailing_buy: true, pilot_only_holdings: true,
     allocation: 25, tp: 12.0, sl: 6.0, ttp: 1.0, tsl: 1.6, cover_tp: 11.0, cover_sl: 4.0, cover_ttp: 0.9, cover_tsl: 1.4,
     ai_threshold: 80, whale_multiplier: 1.8, f4_multiplier: 1.0, 
     f4_length: 28, f4_lookback_bars: 120, f4_squeeze_threshold: 50, f4_power_loss_threshold: 75, min_power_loss: 75,
@@ -2678,26 +2678,32 @@ function SettingsPanel({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
             <div className="bg-slate-900/50 p-2 rounded-lg border border-white/5 space-y-1.5 hover:border-emerald-500/20 transition-colors">
               <div className="flex justify-between text-[8px] font-black text-slate-400 uppercase tracking-widest">
                 <span className="text-emerald-500/80">LONG EŞİĞİ</span>
-                <span className="text-emerald-500">{config.pilot_mtf_long_threshold ?? 70}%</span>
+                <span className="text-emerald-500">+{config.pilot_mtf_long_threshold ?? 20}</span>
               </div>
               <input 
-                type="range" min="50" max="100" step="5" 
-                value={config.pilot_mtf_long_threshold ?? 70} 
+                type="range" min="0" max="100" step="5" 
+                value={config.pilot_mtf_long_threshold ?? 20} 
                 onChange={(e) => saveConfig({ pilot_mtf_long_threshold: parseInt(e.target.value) })} 
                 className="w-full h-1 accent-emerald-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" 
               />
+              <div className="flex justify-between text-[7px] text-slate-600">
+                <span>0 (NÖTR)</span><span>+100 (TAM BOĞA)</span>
+              </div>
             </div>
             <div className="bg-slate-900/50 p-2 rounded-lg border border-white/5 space-y-1.5 hover:border-rose-500/20 transition-colors">
               <div className="flex justify-between text-[8px] font-black text-slate-400 uppercase tracking-widest">
                 <span className="text-rose-500/80">SHORT EŞİĞİ</span>
-                <span className="text-rose-500">{config.pilot_mtf_short_threshold ?? 30}%</span>
+                <span className="text-rose-500">−{config.pilot_mtf_short_threshold ?? 20}</span>
               </div>
               <input 
-                type="range" min="0" max="50" step="5" 
-                value={config.pilot_mtf_short_threshold ?? 30} 
+                type="range" min="0" max="100" step="5" 
+                value={config.pilot_mtf_short_threshold ?? 20} 
                 onChange={(e) => saveConfig({ pilot_mtf_short_threshold: parseInt(e.target.value) })} 
                 className="w-full h-1 accent-rose-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-rose-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" 
               />
+              <div className="flex justify-between text-[7px] text-slate-600">
+                <span>0 (NÖTR)</span><span>−100 (TAM AYI)</span>
+              </div>
             </div>
           </div>
         </div>

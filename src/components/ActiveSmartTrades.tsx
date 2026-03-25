@@ -315,16 +315,23 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                 const isSmcBullish = liveData?.smc?.swingTrend === "BULLISH";
                 const flightPlanStatus = `${isSmcBullish ? "BOĞA 📈" : "AYI 📉"} / ${(liveData as any)?.marketPhaseText || "DURGUN"}`;
                 
-                const decision = aiScore > 80 
-                  ? (isShort ? "SHORT AÇ ✅" : "LONG AÇ ✅") 
-                  : aiScore > 60 
-                    ? (isShort ? "SATIŞI TUT 📉" : "EKLE/TUT 📈") 
-                    : "BEKLE ❌";
+                // Kısa pozisyon (COVER) için karar: Yüksek AI = satış baskısı devam, düşük AI = ters yön uyarısı
+                const decision = isShort
+                  ? (aiScore > 75
+                      ? "SATIŞI TUT 📉"
+                      : aiScore > 55
+                        ? "BEKLE / KAPANIŞA YAKLAŞ"
+                        : "TERS TREND ⚠ KAPANDIR")
+                  : (aiScore > 80
+                      ? "LONG AÇ ✅"
+                      : aiScore > 60
+                        ? "EKLE/TUT 📈"
+                        : "BEKLE ❌");
 
                 const { statusText, statusColor } = interpretTradingStatus(liveData, isClosed, trade.side, currentPrice, meta.activeTakeProfit || parseFloat(payload?.takeProfit?.price || "0"), meta.activeStopLoss || parseFloat(payload?.stopLoss?.price || "0"), aiScore, trade.status, meta);
 
                 const allTfs = MTF_INTERVALS.map(tf => mtfResults[tf]).filter(Boolean);
-                // BUG FIX #1: Use isShort (meta.mode based) instead of trade.side for correct COVER context
+                // isShort: meta.mode bazlı doğru COVER tespiti
                 const { verdictText, verdictColor, bullCount, bearCount, goodPct, dominantPct, sentimentColor } = calculateMtfVerdict(allTfs, isShort ? "SELL" : "BUY");
 
                 return (
@@ -409,23 +416,24 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                           if (!d) return null;
                           const hasBuy = d.f4ConfirmedBuy || d.f4EarlyBuy || d.trend === "BULLISH";
                           const hasSell = d.f4ConfirmedSell || d.f4EarlySell || d.trend === "BEARISH";
-                          // BUG FIX #2 & #3: COVER-aware color and label semantics
-                          // COVER (isShort=true): SAT=good(rose), AL=warning(amber)
-                          // TRADE (isShort=false): AL=good(emerald), SAT=warning(amber)
+                          // MTF hücre etiketi:
+                          // COVER (isShort=true): SAT = iyi (rose), AL = ters uyarı (amber)
+                          // TRADE (isShort=false): AL = iyi (emerald), SAT = ters uyarı (amber)
                           const cellColorClass = isShort
                             ? (hasSell
                                 ? "bg-rose-500/10 border-rose-500/20 text-rose-400"
                                 : hasBuy
-                                  ? "bg-amber-500/10 border-amber-500/30 text-amber-500 animate-pulse"
+                                  ? "bg-amber-500/10 border-amber-500/30 text-amber-400 animate-pulse"
                                   : "bg-slate-800/20 border-white/5 text-slate-600")
                             : (hasBuy
                                 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
                                 : hasSell
-                                  ? "bg-amber-500/10 border-amber-500/30 text-amber-500 animate-pulse"
+                                  ? "bg-amber-500/10 border-amber-500/30 text-amber-400 animate-pulse"
                                   : "bg-slate-800/20 border-white/5 text-slate-600");
+                          // Etiketler: Net ve kısa - 'AL KARŞI' gibi kafa karıştırıcı ifade yok
                           const cellLabel = isShort
-                            ? (hasSell ? "SAT ✓" : hasBuy ? "AL KARŞI ⚠" : "-")
-                            : (hasBuy ? "AL ✓" : hasSell ? "SAT KARŞI ⚠" : "-");
+                            ? (hasSell ? "SAT ✓" : hasBuy ? "⚠ TERS" : "NÖTR")
+                            : (hasBuy ? "AL ✓" : hasSell ? "⚠ TERS" : "NÖTR");
                           return (
                             <div key={tf} className={cn(
                               "flex-1 p-1 rounded border text-center flex flex-col gap-0.5 transition-all duration-300",

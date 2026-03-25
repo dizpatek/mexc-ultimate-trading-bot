@@ -247,14 +247,24 @@ export class MatrixV5Strategy extends BaseStrategy {
 
     this.engine = new MatrixV5Engine({
       f4Length: this.parameters.f4Length ? Number(this.parameters.f4Length) : undefined,
-      f4Multiplier: this.parameters.f4_multiplier ? Number(this.parameters.f4_multiplier) : 1.0,
+      // f4Multiplier: strategy-engine.ts'ten TF bazlı hesaplanmış çarpan (camelCase)
+      // Önce f4Multiplier bakıyoruz (yeni köprü), yoksa eski f4_multiplier'a fallback
+      f4Multiplier: this.parameters.f4Multiplier
+        ? Number(this.parameters.f4Multiplier)
+        : this.parameters.f4_multiplier
+        ? Number(this.parameters.f4_multiplier)
+        : 1.0,
       whaleVolumeMultiplier: this.parameters.whaleVolumeMultiplier ? Number(this.parameters.whaleVolumeMultiplier) : undefined,
       mtfThreshold: this.parameters.mtfThreshold ? Number(this.parameters.mtfThreshold) : 80,
       f4SlopeThreshold: 0.01,
       f4PowerLossThreshold: this.parameters.f4PowerLossThreshold ? Number(this.parameters.f4PowerLossThreshold) : 90,
       f4LookbackBars: this.parameters.f4LookbackBars ? Number(this.parameters.f4LookbackBars) : 30,
-      longSqueezeThreshold: this.parameters.f4SqueezeThreshold ? Number(this.parameters.f4SqueezeThreshold) : 20,
-      shortSqueezeThreshold: this.parameters.f4SqueezeThreshold ? Number(this.parameters.f4SqueezeThreshold) : 20,
+      longSqueezeThreshold: this.parameters.longSqueezeThreshold
+        ? Number(this.parameters.longSqueezeThreshold)
+        : this.parameters.f4SqueezeThreshold ? Number(this.parameters.f4SqueezeThreshold) : 20,
+      shortSqueezeThreshold: this.parameters.shortSqueezeThreshold
+        ? Number(this.parameters.shortSqueezeThreshold)
+        : this.parameters.f4SqueezeThreshold ? Number(this.parameters.f4SqueezeThreshold) : 20,
       minPowerLoss: this.parameters.minPowerLoss ? Number(this.parameters.minPowerLoss) : 90,
     });
   }
@@ -317,7 +327,7 @@ export class MatrixV5Strategy extends BaseStrategy {
       if (originalSignal) {
         const engineBullCount = result.indicatorBullCount ?? result.mtfBullCount ?? 0;
         const consensus = await getMtfConsensus(this.symbol, timeframeStr, engineBullCount);
-        mtfScore = consensus.score;
+        mtfScore = consensus.mtfScore;  // [-100,+100] yeni ölçek
         mtfVerdictText = consensus.verdictText;
 
         const isEarly = !!(result.f4EarlyBuy || result.f4EarlySell);
@@ -347,7 +357,7 @@ export class MatrixV5Strategy extends BaseStrategy {
           prediction: String(result.prediction?.text || ""),
           whaleDetected: !!result.whaleDetected,
           whaleStatus: String(result.whaleStatus || ""),
-          mtfWeightedScore: Number(mtfScore) || 50,
+          mtfWeightedScore: Number(mtfScore) || 0,  // [-100,+100] yeni standart
           mtfVerdict: String(mtfVerdictText || "N/A"),
           fundingRate: Number(result.fundingRate) || 0,
           fundingImpact: String(result.fundingImpact || ""),
@@ -384,32 +394,33 @@ export class MatrixV5Strategy extends BaseStrategy {
   ): { signal: "BUY" | "SELL" | null; reasonExtension: string } {
     const mtfVetoEnabled = this.parameters.mtfVeto !== false;
     
-    // Yeni asimetrik eşikler (UI'dan gelen veya fallback)
-    const mtfLongThreshold = Number(this.parameters.mtfLongThreshold || this.parameters.mtfThreshold) || 70;
-    const mtfShortThreshold = Number(this.parameters.mtfShortThreshold || (100 - mtfLongThreshold)) || 30;
+    // YENİ: [-100,+100] ölçeğinde eşikler
+    // mtfLongThreshold  = pozitif minimum (eski 70 → yeni 20)
+    // mtfShortThreshold = mutlak değer; cover eşiği = -mtfShortThreshold
+    const mtfLongThreshold  = Number(this.parameters.mtfLongThreshold  ?? this.parameters.mtfThreshold ?? 20);
+    const mtfShortThreshold = Number(this.parameters.mtfShortThreshold ?? 20);
+    const coverThreshold = -mtfShortThreshold; // örn: -20
+    const scoreLabel = `${mtfScore > 0 ? '+' : ''}${Math.round(mtfScore)}`;
 
     let finalSignal = signal;
     let reasonExtension = "";
 
     if (mtfVetoEnabled) {
       if (signal === "BUY" && mtfScore < mtfLongThreshold) {
-        reasonExtension = ` | 🛑 MTF Long Veto: Boğa Gücü (%${mtfScore.toFixed(0)}) yetersiz. (Gerekli: %${mtfLongThreshold}+, ${mtfVerdictText})`;
+        reasonExtension = ` | 🛑 MTF LONG Veto: Skor ${scoreLabel} < +${mtfLongThreshold} (${mtfVerdictText}) — LONG iptal.`;
         finalSignal = null;
-      } else if (signal === "SELL" && mtfScore > mtfShortThreshold) {
-        const bearPower = (100 - mtfScore).toFixed(0);
-        const bearRequired = (100 - mtfShortThreshold).toFixed(0);
-        reasonExtension = ` | 🛑 MTF Short Veto: Ayı Gücü (%${bearPower}) yetersiz. (Gerekli: %${bearRequired}+, ${mtfVerdictText})`;
+      } else if (signal === "SELL" && mtfScore > coverThreshold) {
+        reasonExtension = ` | 🛑 MTF SHORT Veto: Skor ${scoreLabel} > ${coverThreshold} (${mtfVerdictText}) — COVER iptal.`;
         finalSignal = null;
       } else if (isEarly) {
-        // [STRICT] If it's early but trend is strongly opposite, veto it anyway
-        if (signal === "BUY" && mtfScore < 50) {
-          reasonExtension = ` | 🛑 MTF Trend Veto: Erken sinyal ama trend AYI/ZAYIF (%${mtfScore.toFixed(0)}), LONG iptal.`;
+        if (signal === "BUY" && mtfScore < -20) {
+          reasonExtension = ` | 🛑 MTF Erken LONG Veto: Skor ${scoreLabel} (piyasa net ayı) — iptal.`;
           finalSignal = null;
-        } else if (signal === "SELL" && mtfScore > 50) {
-          reasonExtension = ` | 🛑 MTF Trend Veto: Erken sinyal ama trend BOĞA/GÜÇLÜ (%${mtfScore.toFixed(0)}), SHORT iptal.`;
+        } else if (signal === "SELL" && mtfScore > 20) {
+          reasonExtension = ` | 🛑 MTF Erken SHORT Veto: Skor ${scoreLabel} (piyasa net boğa) — iptal.`;
           finalSignal = null;
         } else {
-          reasonExtension = ` | ⚡ Erken Giriş Onayı (MTF ${mtfVerdictText})`;
+          reasonExtension = ` | ⚡ Erken Giriş Onaylı (MTF ${mtfVerdictText}, Skor: ${scoreLabel})`;
         }
       }
     } else {

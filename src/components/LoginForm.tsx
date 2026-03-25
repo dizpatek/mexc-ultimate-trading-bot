@@ -379,7 +379,7 @@ const LoginForm: React.FC = () => {
                 )}
 
                 {error && (
-                  <div className="p-3 bg-red-950/30 border border-red-500/50 text-white text-[10px] font-mono font-bold uppercase tracking-widest animate-shake">
+                  <div className="p-3 bg-red-950/30 border border-red-500/50 text-white text-[10px] font-mono font-bold uppercase tracking-widest">
                     <div className="flex items-center gap-2">
                        <AlertCircle className="w-4 h-4 text-red-400" />
                        {error}

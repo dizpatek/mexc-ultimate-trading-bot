@@ -123,6 +123,9 @@ export interface BotConfig {
   pilot_mode: "matrix" | "hedge";
   pilot_use_usdt: boolean;
   f4_multiplier: number;
+  scalp_f4_multiplier?: number;  // Scalp TF'leri (1m-4h) için F4 çarpanı
+  swing_f4_multiplier?: number;  // Swing TF'leri (1d+) için F4 çarpanı
+  f4_alpha?: number;             // F4 alpha (0-100 arası, motora /100 olarak geçilir)
   f4_power_loss_threshold: number;
   f4_lookback_bars: number;
   f4_squeeze_threshold: number;
@@ -735,6 +738,9 @@ export async function getBotConfig(userId: number): Promise<BotConfig> {
     pilot_mode: (rows[0].pilot_mode as any) || "matrix",
     pilot_use_usdt: !!rows[0].pilot_use_usdt,
     f4_multiplier: parseFloat(String(rows[0].f4_multiplier || 1.0)),
+    scalp_f4_multiplier: parseFloat(String(rows[0].scalp_f4_multiplier ?? 3.7)),
+    swing_f4_multiplier: parseFloat(String(rows[0].swing_f4_multiplier ?? 1.2)),
+    f4_alpha: parseFloat(String(rows[0].f4_alpha ?? 95)),
     f4_power_loss_threshold: parseFloat(String(rows[0].f4_power_loss_threshold || 90)),
     long_squeeze_threshold: parseFloat(String(rows[0].long_squeeze_threshold || 20)),
     short_squeeze_threshold: parseFloat(String(rows[0].short_squeeze_threshold || 20)),
@@ -928,7 +934,7 @@ export async function updateBotConfig(userId: number, updates: Partial<BotConfig
       String(
         updates.pilot_mtf_long_threshold !== undefined
           ? updates.pilot_mtf_long_threshold
-          : (current.pilot_mtf_long_threshold ?? 70),
+          : (current.pilot_mtf_long_threshold ?? 20), // YENİ: +20 (eski 70 idi, yeni ölçek -100/+100)
       ),
     );
 
@@ -936,7 +942,7 @@ export async function updateBotConfig(userId: number, updates: Partial<BotConfig
       String(
         updates.pilot_mtf_short_threshold !== undefined
           ? updates.pilot_mtf_short_threshold
-          : (current.pilot_mtf_short_threshold ?? 30),
+          : (current.pilot_mtf_short_threshold ?? 20), // YENİ: 20 (eski 30 idi, pilot-executor eksi yapıyor: -20)
       ),
     );
 
@@ -959,7 +965,8 @@ export async function updateBotConfig(userId: number, updates: Partial<BotConfig
                 pilot_mtf_veto, pilot_mtf_threshold, pilot_mtf_long_threshold, pilot_mtf_short_threshold, f4_lookback_bars, f4_squeeze_threshold, min_power_loss,
                 trade_freshness_bars,
                 scalp_length, scalp_volume_multiplier, swing_length, swing_volume_multiplier,
-                pilot_mode, pilot_use_usdt
+                pilot_mode, pilot_use_usdt,
+                scalp_f4_multiplier, swing_f4_multiplier, f4_alpha, fibo_length
             )
             VALUES (
                 ${userId}, ${f4}, ${whale}, ${ai}, ${auto}, ${defense}, ${now},
@@ -967,7 +974,11 @@ export async function updateBotConfig(userId: number, updates: Partial<BotConfig
                 ${p_veto}, ${p_thresh}, ${p_long}, ${p_short}, ${updates.f4_lookback_bars ?? current.f4_lookback_bars ?? 30}, ${updates.f4_squeeze_threshold ?? current.f4_squeeze_threshold ?? 20}, ${updates.min_power_loss ?? current.min_power_loss ?? 90},
                 ${updates.trade_freshness_bars ?? current.trade_freshness_bars ?? 5},
                 ${updates.scalp_length ?? current.scalp_length ?? 11}, ${updates.scalp_volume_multiplier ?? current.scalp_volume_multiplier ?? 3.0}, ${updates.swing_length ?? current.swing_length ?? 10}, ${updates.swing_volume_multiplier ?? current.swing_volume_multiplier ?? 1.2},
-                ${p_mode}, ${p_usdt}
+                ${p_mode}, ${p_usdt},
+                ${updates.scalp_f4_multiplier ?? current.scalp_f4_multiplier ?? 3.7},
+                ${updates.swing_f4_multiplier ?? current.swing_f4_multiplier ?? 1.2},
+                ${updates.f4_alpha ?? current.f4_alpha ?? 95},
+                ${updates.fibo_length ?? current.fibo_length ?? 20}
             )
             ON CONFLICT (user_id) DO UPDATE SET
                 f4_length = EXCLUDED.f4_length,
@@ -1000,7 +1011,11 @@ export async function updateBotConfig(userId: number, updates: Partial<BotConfig
                 swing_length = EXCLUDED.swing_length,
                 swing_volume_multiplier = EXCLUDED.swing_volume_multiplier,
                 pilot_mode = EXCLUDED.pilot_mode,
-                pilot_use_usdt = EXCLUDED.pilot_use_usdt
+                pilot_use_usdt = EXCLUDED.pilot_use_usdt,
+                scalp_f4_multiplier = EXCLUDED.scalp_f4_multiplier,
+                swing_f4_multiplier = EXCLUDED.swing_f4_multiplier,
+                f4_alpha = EXCLUDED.f4_alpha,
+                fibo_length = EXCLUDED.fibo_length
         `;
     console.log(
       `[DB] Bot config updated successfully at ${new Date(now).toISOString()}`,
@@ -1056,7 +1071,7 @@ export async function initializeUserSettings(userId: number): Promise<void> {
     // 1. Seed default bot config
     await sql`
       INSERT INTO bot_configs (
-        user_id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, timeframe, updated_at
+        user_id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, pilot_timeframe, updated_at
       ) VALUES (
         ${userId}, 10, 1.8, 65, false, false, '4h', ${now}
       ) ON CONFLICT (user_id) DO NOTHING

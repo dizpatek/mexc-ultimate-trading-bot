@@ -10,8 +10,8 @@ import { GoogleOAuthProvider } from "@react-oauth/google";
 import TopToasts from "./ui/TopToasts";
 import ConfirmDialog from "./ui/ConfirmDialog";
 
-// Google Client ID from environment variables
-const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "placeholder-id";
+// Google Client ID explicitly hardcoded to prevent Next.js build-time ENV issues on PaaS
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "36399774172-i0sahmhr5l1c4a9okogiqjau9ijevo9h.apps.googleusercontent.com";
 
 export default function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());

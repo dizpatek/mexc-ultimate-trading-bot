@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Matrix Pro Bridge",
-  "version": "3.4",
+  "version": "3.5",
   "description": "TradingView iframe bridge for Matrix Dashboard. Isolated — does NOT touch Google cookies.",
   "permissions": [
     "declarativeNetRequest",
@@ -16,7 +16,8 @@
     "*://*.mexc.com/*",
     "*://*.vercel.app/*",
     "*://localhost/*",
-    "*://127.0.0.1/*"
+    "*://127.0.0.1/*",
+    "*://*.code.run/*"
   ],
   "declarative_net_request": {
     "rule_resources": [{
@@ -31,7 +32,8 @@
         "*://*.tradingview.com/*",
         "*://localhost/*",
         "*://127.0.0.1/*",
-        "*://*.vercel.app/*"
+        "*://*.vercel.app/*",
+        "*://*.code.run/*"
       ],
       "js": ["content.js"],
       "run_at": "document_start",

@@ -47,9 +47,9 @@ export async function GET(request: Request) {
         const { getSetting } = await import("@/lib/settings");
         const activeMode = (await getSetting("TRADING_MODE", userId)) || "test";
 
-        if (requestedMode === "production" && activeMode === "test") {
-          console.log(`[Cron/Strategies] 🛑 User ${userId} is in TEST mode. Skipping production request.`);
-          return { userId, status: "SKIPPED", reason: "Mode mismatch" };
+        if (requestedMode !== activeMode) {
+          console.log(`[Cron/Strategies] 🛑 User ${userId}: mod uyuşmazlığı (istek: ${requestedMode}, kullanıcı: ${activeMode}). Atlanıyor.`);
+          return { userId, status: "SKIPPED", reason: `Mode mismatch: requested=${requestedMode}, active=${activeMode}` };
         }
 
         console.log(`[Cron] ⚡ Starting private cycle for user: ${userId}`);

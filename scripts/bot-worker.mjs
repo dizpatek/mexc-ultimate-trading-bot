@@ -34,29 +34,32 @@ async function pingCron(endpoint) {
     }
 }
 
-// 1. Otopilot (Strategies) - Her 90 saniyede bir (Her iki mod için)
+// BUG 5 FIX: Güvenlik gereği sadece sunucu ortamında tanımlı olan mod tetiklenir.
+// İki modun aynı anda tetiklenmesi kullanıcı izolasyonu açısından risklidir.
+const ACTIVE_MODE = process.env.DEFAULT_TRADING_MODE || "test";
+console.log(`[Worker] Aktif tetikleme modu: ${ACTIVE_MODE}`);
+
+// 1. Otopilot (Strategies) - Her 90 saniyede bir
 setInterval(() => {
-    pingCron("/api/cron/strategies?immediate=true&tradingMode=test");
-    pingCron("/api/cron/strategies?immediate=true&tradingMode=production");
+    pingCron(`/api/cron/strategies?immediate=true&tradingMode=${ACTIVE_MODE}`);
 }, 90000);
 
-// 2. Trailing Stop & Profit Monitor - Her 45 saniyede bir (Daha güvenli döngü)
+// 2. Trailing Stop & Profit Monitor - Her 45 saniyede bir
 setInterval(() => {
-    pingCron("/api/cron/trailing-stop?tradingMode=test");
-    pingCron("/api/cron/trailing-stop?tradingMode=production");
+    pingCron(`/api/cron/trailing-stop?tradingMode=${ACTIVE_MODE}`);
 }, 45000);
 
-// 3. Alarmlar (Alarms) - Her 15 dakikada bir (Daha sıkı kontrol)
+// 3. Alarmlar (Alarms) - Her 15 dakikada bir
 setInterval(() => {
     pingCron("/api/cron/alarms");
 }, 15 * 60000);
 
-// 3. Fiyat Geçmişi (Price History) - Her Saat Başı
+// 4. Fiyat Geçmişi (Price History) - Her Saat Başı
 setInterval(() => {
     pingCron("/api/cron/price-history");
 }, 60 * 60000);
 
-// 4. Portföy Özeti (Portfolio Snapshot) - Günde Bir (24 Saat)
+// 5. Portföy Özeti (Portfolio Snapshot) - Günde Bir (24 Saat)
 setInterval(() => {
     pingCron("/api/cron/portfolio-snapshot");
 }, 24 * 60 * 60000);
@@ -64,6 +67,5 @@ setInterval(() => {
 // Script başlar başlamaz ilk tetikleri ateşle (ısınma - warmup)
 setTimeout(() => {
     pingCron("/api/cron/alarms");
-    pingCron("/api/cron/strategies?immediate=true&tradingMode=test");
-    pingCron("/api/cron/strategies?immediate=true&tradingMode=production");
+    pingCron(`/api/cron/strategies?immediate=true&tradingMode=${ACTIVE_MODE}`);
 }, 5000);

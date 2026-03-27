@@ -52,13 +52,9 @@ export async function getMexcCredentials(
     return { apiKey: dbKey, apiSecret: dbSecret };
   }
 
-  // Only allow Admin (UID 1) to use environment variables as fallback
-  if (userId === 1) {
-    return {
-      apiKey: process.env.MEXC_KEY || "",
-      apiSecret: process.env.MEXC_SECRET || "",
-    };
-  }
-
+  // ENV FALLBACK KALDIRILDI: Güvenlik gereği HER kullanıcı kendi API anahtarlarını
+  // Settings > API Key sayfasından tanımlamalıdır. ENV'den otomatik okuma TEHLİKELİDİR
+  // çünkü admin hesabı başka kullanıcıların test döngülerinde yanlışlıkla tetiklenebilir.
+  console.warn(`[Settings] ⚠️ MEXC credentials not found in DB for User ${userId}. Returning empty.`);
   return { apiKey: "", apiSecret: "" };
 }

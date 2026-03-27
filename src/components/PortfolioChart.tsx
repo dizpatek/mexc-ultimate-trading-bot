@@ -600,7 +600,13 @@ export const PortfolioChart = forwardRef<{ focusOnPrices: () => void }, Portfoli
           {/* GROUP 3: COMMANDS & ACTIONS (RIGHT) */}
           <div className="flex items-center gap-2 lg:justify-self-end justify-between w-full lg:w-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center p-1 bg-slate-950/20 gap-1">
-              {activeTab === "TV" && extensionChecked && !extensionInstalled && (
+              {activeTab === "TV" && ((extensionInstalled || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')) ? (
+                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[9px] font-black rounded">
+                  <CheckCircle className="w-3 h-3" />
+                  <span className="hidden sm:inline">BRIDGE AKTIF</span>
+                  <span className="sm:hidden">AKTIF</span>
+                </div>
+              ) : (extensionChecked && !extensionInstalled && (
                 <div
                   onClick={() => setShowLoginModal(true)}
                   className="flex items-center gap-1.5 px-2 py-1.5 bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[9px] font-black rounded cursor-pointer hover:bg-rose-500/20 transition-all animate-pulse"
@@ -608,15 +614,7 @@ export const PortfolioChart = forwardRef<{ focusOnPrices: () => void }, Portfoli
                   <span className="hidden sm:inline">Bridge Gerekli</span>
                   <span className="sm:hidden">BRIDGE</span>
                 </div>
-              )}
-
-              {activeTab === "TV" && extensionInstalled && (
-                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[9px] font-black rounded">
-                  <CheckCircle className="w-3 h-3" />
-                  <span className="hidden sm:inline">BRIDGE AKTIF</span>
-                  <span className="sm:hidden">AKTIF</span>
-                </div>
-              )}
+              )))}
 
               {activeTab === "TV" && (
                 <button

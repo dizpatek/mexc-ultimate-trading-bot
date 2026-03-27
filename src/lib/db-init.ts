@@ -18,6 +18,7 @@ export async function ensureTablesExist(): Promise<boolean> {
         await createBotTables();
         await createMarketDataTables();
         await createNewsTable();
+        await createNotificationsTable();
         await runSchemaMigrations();
         await createDefaultConfigs();
         await createIndexes();
@@ -40,6 +41,32 @@ export async function ensureTablesExist(): Promise<boolean> {
     initPromise = null;
     throw err;
   }
+}
+
+async function createNotificationsTable() {
+  await sql`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id),
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      level TEXT DEFAULT 'INFO',
+      is_read BOOLEAN DEFAULT FALSE,
+      type TEXT DEFAULT 'BOTH',
+      created_at BIGINT NOT NULL
+    );
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS notification_reads (
+      id SERIAL PRIMARY KEY,
+      notification_id INTEGER REFERENCES notifications(id) ON DELETE CASCADE,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      read_at BIGINT NOT NULL,
+      UNIQUE(notification_id, user_id)
+    );
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);`;
 }
 
 async function createCoreTables() {
@@ -411,6 +438,15 @@ async function runSchemaMigrations() {
     /* ignore */
   }
 
+  // Gelişmiş Motor Ayarları (Squeeze & Slope)
+  try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS long_squeeze_threshold NUMERIC DEFAULT 20`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS short_squeeze_threshold NUMERIC DEFAULT 20`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS f4_slope_threshold NUMERIC DEFAULT 0.01`;
+  } catch {
+    /* ignore */
+  }
+
   // Ensure bot_configs id is serial (fix 500 errors on PK)
   try {
     await sql`
@@ -459,10 +495,10 @@ async function createDefaultConfigs() {
       await sql`
         INSERT INTO bot_configs (id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, updated_at, 
                                  pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation, pilot_timeframe, fibo_length, timeframe_settings,
-                                 f4_power_loss_threshold, long_squeeze_threshold, short_squeeze_threshold)
+                                 f4_power_loss_threshold, long_squeeze_threshold, short_squeeze_threshold, f4_slope_threshold)
         VALUES (1, 11, 3.0, 65, false, false, ${Date.now()}, 
                 true, 0.3, true, 0.3, true, 1.0, '4h', 20, '{"pilot_tp_percent": 2.0, "pilot_sl_percent": 1.0, "cover_tp_percent": 1.0, "cover_sl_percent": 1.0, "cover_tp_trailing": true, "cover_tp_deviation": 0.3, "cover_sl_trailing": true, "cover_sl_deviation": 1.0}',
-                90, 20, 20)
+                90, 20, 20, 0.01)
             `;
       console.log("[DB-Init] Default bot config inserted.");
     }

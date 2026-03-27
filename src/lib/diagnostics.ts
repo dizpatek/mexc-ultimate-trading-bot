@@ -9,7 +9,7 @@ import path from 'path';
 
 export const DiagnosticsService = {
   // 1. System Audit
-  async getSystemAudit() {
+  async getSystemAudit(userId: number = 14) {
     const { rows: dbTest } = await sql`SELECT version(), now()`;
     const dbInfo = dbTest[0] as any;
     const tables = ['system_settings', 'bot_configs', 'strategy_signals', 'orders', 'system_logs', 'portfolio'];
@@ -23,7 +23,7 @@ export const DiagnosticsService = {
       tableStatus.push({ name: t, exists: rows.length > 0 });
     }
 
-    const { rows: settings } = await sql`SELECT key, value FROM system_settings`;
+    const { rows: settings } = await sql`SELECT key, value FROM system_settings WHERE user_id = ${userId}`;
     const clientTime = Date.now();
     const serverTime = new Date(dbInfo?.now).getTime();
     
@@ -42,6 +42,7 @@ export const DiagnosticsService = {
     const { rows: signals } = await sql`
       SELECT symbol, signal_type as type, timeframe, timestamp 
       FROM strategy_signals 
+      WHERE user_id = ${userId}
       ORDER BY timestamp DESC LIMIT 5
     `;
     const { rows: logs } = await sql`
@@ -105,9 +106,9 @@ export const DiagnosticsService = {
   },
 
   // 5. Maintenance Kit
-  async getMaintenance() {
+  async getMaintenance(userId: number = 14) {
     const { rows: duplicates } = await sql`
-      SELECT symbol, count(*) FROM orders WHERE status = 'FILLED'
+      SELECT symbol, count(*) FROM orders WHERE user_id = ${userId} AND status = 'FILLED'
       GROUP BY symbol, meta::jsonb->>'mode' HAVING count(*) > 1
     `;
     const { rows: indexes } = await sql`SELECT indexname FROM pg_indexes WHERE tablename = 'orders' AND indexname LIKE '%user_id%'`;
@@ -201,14 +202,30 @@ export const DiagnosticsService = {
       ORDER BY created_at DESC
     `;
 
-    if (allActive.length <= 2) return { success: true, removedCount: 0 };
+    if (allActive.length <= 1) return { success: true, removedCount: 0 };
 
-    const tradeToKeep = allActive.find(o => (o as any).mode === 'TRADE');
-    const coverToKeep = allActive.find(o => (o as any).mode === 'COVER');
+    // Sembol bazında gruplayarak, HER SEMBOL İÇİN ayrı ayrı en güncel olanı tut.
+    const bySymbol: Record<string, any[]> = {};
+    for (const row of allActive) {
+      const o = row as any;
+      if (!bySymbol[o.symbol]) bySymbol[o.symbol] = [];
+      bySymbol[o.symbol].push(o);
+    }
 
-    const idsToClose = allActive
-      .filter(o => o.id !== (tradeToKeep as any)?.id && o.id !== (coverToKeep as any)?.id)
-      .map(o => o.id);
+    const idsToClose: any[] = [];
+    for (const symbol in bySymbol) {
+      const ordersForSymbol = bySymbol[symbol];
+      if (ordersForSymbol.length <= 1) continue;
+
+      const tradeToKeep = ordersForSymbol.find(o => o.mode === 'TRADE');
+      const coverToKeep = ordersForSymbol.find(o => o.mode === 'COVER');
+
+      for (const o of ordersForSymbol) {
+        if (o.id !== tradeToKeep?.id && o.id !== coverToKeep?.id) {
+          idsToClose.push(o.id);
+        }
+      }
+    }
 
     if (idsToClose.length > 0) {
       const res = await sql`
@@ -221,6 +238,35 @@ export const DiagnosticsService = {
       return { success: true, removedCount: (res as any).rowCount };
     }
     return { success: true, removedCount: 0 };
+  },
+
+  // 10.5 Portfolio Anomaly Fixer (Hayalet Emir Temizliği)
+  async runAnomalyCleanup(userId: number = 14) {
+    const { rows: holdings } = await sql`SELECT symbol, balance FROM portfolio WHERE user_id = ${userId}`;
+    const { rows: activeOrders } = await sql`
+      SELECT id, symbol FROM orders 
+      WHERE user_id = ${userId} AND status = 'FILLED' AND meta::jsonb->>'smartTrade' = 'true'
+    `;
+    
+    // Find orders where the symbol is NOT in holdings, OR balance is effectively 0
+    const ghostOrderIds = activeOrders
+      .filter(o => {
+        const h = holdings.find(h => (h as any).symbol === o.symbol);
+        return !h || Number((h as any).balance) < 0.00000001; // Extremely small dust or zero
+      })
+      .map(o => o.id);
+
+    if (ghostOrderIds.length > 0) {
+      const res = await sql`
+        UPDATE orders 
+        SET status = 'CLOSED', 
+            updated_at = ${Date.now()},
+            meta = (meta::jsonb || ${JSON.stringify({exitReason: "GHOST_ORDER_CLEANUP", cleaned_at: Date.now()})}::jsonb)::text
+        WHERE id = ANY(${ghostOrderIds})
+      `;
+      return { success: true, removedCount: ghostOrderIds.length, symbols: ghostOrderIds.map(id => activeOrders.find(o => o.id === id)?.symbol) };
+    }
+    return { success: true, removedCount: 0, symbols: [] };
   },
 
   // 11. Advanced User Management

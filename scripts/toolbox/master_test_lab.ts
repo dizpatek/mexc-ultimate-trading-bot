@@ -5,9 +5,9 @@ import { DiagnosticsService } from '../../src/lib/diagnostics';
  */
 
 async function testLab() {
-  const symbol = process.argv[2] || 'BTCUSDT';
-  const type = process.argv[3] || 'BUY';
-  const userId = 14;
+  const userId = Number(process.argv[2]) || 14;
+  const symbol = process.argv[3] || 'BTCUSDT';
+  const type = process.argv[4] || 'BUY';
 
   console.log(`\n--- 🧪 MASTER TEST LAB: SİNYAL SİMÜLASYONU ---`);
   try {

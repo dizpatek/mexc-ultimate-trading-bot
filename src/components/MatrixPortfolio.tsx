@@ -227,14 +227,7 @@ export const MatrixPortfolio: React.FC<MatrixPortfolioProps> = ({
   // buildSmartPrediction — Shared Lib calculateSmartPrediction kullanılıyor
 
   if (isHoldingsLoading) {
-    return (
-      <div className="bg-slate-900/40 backdrop-blur-md p-8 flex flex-col items-center justify-center gap-4 mt-6">
-        <RefreshCw className="w-6 h-6 animate-spin text-cyan-500 mr-2" />
-        <span className="text-slate-400 font-mono text-xs">
-          MATRIX V3 MOTORU BAŞLATILIYOR...
-        </span>
-      </div>
-    );
+    return null;
   }
 
   return (

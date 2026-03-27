@@ -131,6 +131,7 @@ export interface BotConfig {
   f4_squeeze_threshold: number;
   long_squeeze_threshold: number;
   short_squeeze_threshold: number;
+  f4_slope_threshold: number;
   min_power_loss: number;
   trade_freshness_bars: number;
   fibo_length: number;
@@ -744,6 +745,7 @@ export async function getBotConfig(userId: number): Promise<BotConfig> {
     f4_power_loss_threshold: parseFloat(String(rows[0].f4_power_loss_threshold || 90)),
     long_squeeze_threshold: parseFloat(String(rows[0].long_squeeze_threshold || 20)),
     short_squeeze_threshold: parseFloat(String(rows[0].short_squeeze_threshold || 20)),
+    f4_slope_threshold: parseFloat(String(rows[0].f4_slope_threshold || 0.01)),
     scalp_length: parseInt(String(rows[0].scalp_length ?? 11)),
     scalp_volume_multiplier: parseFloat(String(rows[0].scalp_volume_multiplier ?? 3.0)),
     swing_length: parseInt(String(rows[0].swing_length ?? 10)),

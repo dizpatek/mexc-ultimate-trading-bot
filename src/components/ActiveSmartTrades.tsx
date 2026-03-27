@@ -239,12 +239,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
   }, [trades, activeTab]);
 
   if (isLoading || !isMounted) {
-    return (
-      <div className="bg-slate-900/40 backdrop-blur-md border border-slate-800 rounded-xl p-8 flex flex-col items-center justify-center gap-4 mt-6">
-        <RefreshCw className="w-8 h-8 text-cyan-500 animate-spin" />
-        <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Nöral Mantık Çekirdeği Başlatılıyor...</span>
-      </div>
-    );
+    return null;
   }
 
   return (

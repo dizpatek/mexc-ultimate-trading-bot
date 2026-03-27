@@ -340,6 +340,8 @@ export class PilotExecutor {
         },
         timeframe,
         source: "pilot_auto",
+        aiScore: typeof signal.indicators?.aiScore === 'number' ? signal.indicators.aiScore : null,
+        mtfVerdict: signal.indicators?.mtfVerdict || null,
       }, mode);
       return { executed: true, data: { ...(res as any), type: "SMART_TRADE", source: "pilot_auto" } };
     } catch (err) {
@@ -402,6 +404,8 @@ export class PilotExecutor {
         },
         timeframe,
         source: "pilot_auto",
+        aiScore: typeof signal.indicators?.aiScore === 'number' ? signal.indicators.aiScore : null,
+        mtfVerdict: signal.indicators?.mtfVerdict || null,
       }, mode);
       return { executed: true, data: { ...(res as any), type: "SMART_TRADE", source: "pilot_auto", reEntry: true } };
     } catch (err) {
@@ -448,6 +452,8 @@ export class PilotExecutor {
         },
         timeframe,
         source: "pilot_auto",
+        aiScore: typeof signal.indicators?.aiScore === 'number' ? signal.indicators.aiScore : null,
+        mtfVerdict: signal.indicators?.mtfVerdict || null,
       }, mode);
       return { executed: true, data: { ...(res as any), type: "SMART_TRADE", source: "pilot_auto" } };
     } catch (err) {
@@ -723,14 +729,30 @@ export class PilotExecutor {
             },
             timeframe: scanTimeframe,
             source: "pilot_auto",
+            aiScore: typeof signal.indicators?.aiScore === 'number' ? signal.indicators.aiScore : null,
+            mtfVerdict: signal.indicators?.mtfVerdict || null,
           }, mode);
           
           executed = true;
           executionResult = { ...(res as any), type: "SMART_TRADE_ADOPTED", source: "pilot_auto" };
         }
       } else if (signal.signal === "SELL" && alloc.hasHolding) {
-        // MTF veto artık YALNIZCA strategies.ts → applyMtfVeto() tarafında uygulanıyor.
-        // Burada tekrar kontrol yapılMAZ.
+        // [FINAL GUARD] MTF Veto Check (Secondary defense)
+        // Strateji seviyesinde engellenmemiş olsa bile, burada son bir kez kontrol yapıyoruz.
+        if (botConfig.pilot_mtf_veto && signal.indicators?.mtfWeightedScore !== undefined) {
+           const mtfScore = Number(signal.indicators.mtfWeightedScore);
+           const mtfShortThreshold = Math.abs(Number(botConfig.pilot_mtf_short_threshold || 20));
+           const coverThreshold = -mtfShortThreshold; 
+
+           if (mtfScore > coverThreshold) {
+              const msg = `🛑 MTF GUARD Veto [${cleanSymbol}]: Skor ${mtfScore} > ${coverThreshold} (${signal.indicators.mtfVerdict}). Boğa trendinde COVER (Short) engellendi.`;
+              console.warn(`[PilotExecutor] ${msg}`);
+              await logSystemEvent(userId, "SYSTEM", "NEGATIVE", msg);
+              await this.recordSignalResult({ ...params, timestamp, executed: false, executionResult: { message: `MTF Guard Veto: ${mtfScore} > ${coverThreshold}` }, aiScore });
+              return;
+           }
+        }
+
         await logSystemEvent(userId, "SYSTEM", 
           `Sinyal geldi [${cleanSymbol}], Satış (COVER) modunda çıkış yapılıyor.`,
           `AI Skoru: ${aiScore}.`

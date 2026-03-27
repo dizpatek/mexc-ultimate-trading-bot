@@ -220,7 +220,6 @@ export const Header = ({}: HeaderProps) => {
             <div className="absolute inset-y-2 lg:-left-[1px] -top-[1px] lg:top-auto lg:w-[3px] w-auto h-[2px] lg:h-auto bg-indigo-400 rounded-full shadow-[0_0_10px_#818cf8] left-1 right-1 lg:right-auto" />
           )}
         </Link>
-
         <Link
           href="/guide"
           title="OPERATIONAL MANUAL"

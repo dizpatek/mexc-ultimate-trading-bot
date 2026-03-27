@@ -42,12 +42,13 @@ import { useHoldings } from "@/hooks/usePortfolio";
 import { api } from "@/services/api";
 import { useTimeframe } from "@/context/TimeframeContext";
 import { analyzeSentiment, SentimentResult } from "@/lib/sentiment-analyzer";
+import { NotificationBell } from "../NotificationBell";
 
 import { logger } from "@/lib/logger";
 import { useAuth } from "@/hooks/useAuth";
 import { useTrade } from "@/context/TradeContext";
 import { useNotification } from "@/context/NotificationContext";
-import { BotConfig, TimeframeSettings } from "@/hooks/useBotConfig";
+import { useBotConfig, BotConfig, TimeframeSettings } from "@/hooks/useBotConfig";
 
 // --- TYPES & INTERFACES ---
 interface V5Indicator {
@@ -314,7 +315,16 @@ export const MatrixHorizon = ({
   );
 
   // Command State
-  const [config, setConfig] = useState<BotConfig>(DEFAULT_BOT_CONFIG);
+  // Command State (Hooked for instant loading)
+  const { config: hookConfig, setConfig: setHookConfig } = useBotConfig();
+  const config = hookConfig || DEFAULT_BOT_CONFIG;
+  const setConfig = (newConf: any) => {
+    if (typeof newConf === 'function') {
+      setHookConfig((prev: BotConfig | null) => newConf(prev || DEFAULT_BOT_CONFIG));
+    } else {
+      setHookConfig(newConf);
+    }
+  };
   const [showSettings, setShowSettings] = useState(false);
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [isSectionExpanded, setIsSectionExpanded] = useState(false);
@@ -533,30 +543,7 @@ export const MatrixHorizon = ({
 
   const rotation = sentiment ? (sentiment.score / 100) * 90 : 0;
 
-  // Synchronize local config state with remote state and global timeframe
-  useEffect(() => {
-    let isMounted = true;
-    const loadInitialConfig = async () => {
-      try {
-        const res = await api.get("/bot/config");
-        const data = res.data;
-        if (isMounted && data && !data.error) {
-          console.log("[MatrixHorizon] Initial config loaded:", data.auto_trade ? "PİLOT ON" : "PİLOT OFF");
-          setConfig((prev) => ({ ...prev, ...data }));
-        }
-
-        // Immediate session heartbeat for the console
-        logger.info(
-          "Matrix Engine Online",
-          "Kullanıcı oturumu başlatıldı, tüm modüller senkronize ediliyor.",
-        );
-      } catch (err) {
-        console.error("[MatrixHorizon] Config Load Error:", err);
-      }
-    };
-    loadInitialConfig();
-    return () => { isMounted = false; };
-  }, []);
+  // Removed redundant loadInitialConfig useEffect as useBotConfig handles it instantly via localStorage
 
   // Synchronize local config state with remote state and global timeframe
 
@@ -678,7 +665,7 @@ export const MatrixHorizon = ({
 
   const saveConfig = useCallback(async (updates: Partial<BotConfig>, onSuccess?: () => void) => {
     // 1. Update LOCAL state immediately for UI responsiveness
-    setConfig((prev) => ({ ...prev, ...updates }));
+    setConfig((prev: BotConfig) => ({ ...prev, ...updates }));
 
     // 2. Persist to BACKEND
     try {
@@ -2368,6 +2355,8 @@ function CommandBar({
         {/* Timeframes moved here from center */}
         <div className="flex items-center p-1 bg-slate-950/20 gap-1">
 
+          <NotificationBell />
+
           <button 
             onClick={(e) => { 
               e.stopPropagation();
@@ -2505,52 +2494,65 @@ interface SettingsPanelProps {
 
 const ADVANCED_PRESETS: Record<string, any> = {
   "1M": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 70, pilot_mtf_long_threshold: 30, pilot_mtf_short_threshold: 30, pilot_trailing_buy: false, pilot_only_holdings: true,
-    allocation: 3, tp: 1.2, sl: 0.6, ttp: 0.15, tsl: 0.20, cover_tp: 1.1, cover_sl: 0.50, cover_ttp: 0.13, cover_tsl: 0.18,
-    ai_threshold: 72, whale_multiplier: 1.0, f4_multiplier: 3.7, 
+    pilot_mtf_veto: true, pilot_mtf_threshold: 70, pilot_mtf_long_threshold: 70, pilot_mtf_short_threshold: 30, pilot_trailing_buy: false, pilot_only_holdings: true,
+    allocation: 3, tp: 1.0, sl: 0.6, ttp: 0.12, tsl: 0.20, cover_tp: 0.9, cover_sl: 0.50, cover_ttp: 0.10, cover_tsl: 0.18,
     f4_length: 5, f4_lookback_bars: 15, f4_squeeze_threshold: 10, f4_power_loss_threshold: 85, min_power_loss: 85,
+    long_squeeze_threshold: 12, short_squeeze_threshold: 12, f4_slope_threshold: 0.018,
+    trade_freshness_bars: 3, fibo_length: 8,
     scalp_length: 5, scalp_volume_multiplier: 4.0, swing_length: 8, swing_volume_multiplier: 1.0, f4_active: true
   },
   "15M": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 65, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20, pilot_trailing_buy: false, pilot_only_holdings: true,
-    allocation: 5, tp: 1.0, sl: 0.55, ttp: 0.12, tsl: 0.18, cover_tp: 0.9, cover_sl: 0.40, cover_ttp: 0.10, cover_tsl: 0.15,
-    ai_threshold: 65, whale_multiplier: 1.1, f4_multiplier: 3.2, 
+    pilot_mtf_veto: true, pilot_mtf_threshold: 65, pilot_mtf_long_threshold: 65, pilot_mtf_short_threshold: 35, pilot_trailing_buy: false, pilot_only_holdings: true,
+    allocation: 5, tp: 1.8, sl: 1.0, ttp: 0.18, tsl: 0.25, cover_tp: 1.6, cover_sl: 0.9, cover_ttp: 0.15, cover_tsl: 0.22,
+    ai_threshold: 68, whale_multiplier: 1.3, f4_multiplier: 3.2, 
     f4_length: 8, f4_lookback_bars: 20, f4_squeeze_threshold: 14, f4_power_loss_threshold: 87, min_power_loss: 87,
+    long_squeeze_threshold: 16, short_squeeze_threshold: 16, f4_slope_threshold: 0.014,
+    trade_freshness_bars: 5, fibo_length: 13,
     scalp_length: 8, scalp_volume_multiplier: 3.5, swing_length: 9, swing_volume_multiplier: 1.1, f4_active: true
   },
   "1H": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 65, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20, pilot_trailing_buy: true, pilot_only_holdings: true,
-    allocation: 10, tp: 1.2, sl: 0.65, ttp: 0.12, tsl: 0.22, cover_tp: 1.1, cover_sl: 0.45, cover_ttp: 0.11, cover_tsl: 0.20,
-    ai_threshold: 65, whale_multiplier: 1.2, f4_multiplier: 2.7, 
+    pilot_mtf_veto: true, pilot_mtf_threshold: 60, pilot_mtf_long_threshold: 60, pilot_mtf_short_threshold: 40, pilot_trailing_buy: true, pilot_only_holdings: true,
+    allocation: 10, tp: 3.5, sl: 1.8, ttp: 0.25, tsl: 0.35, cover_tp: 3.0, cover_sl: 1.6, cover_ttp: 0.22, cover_tsl: 0.30,
+    ai_threshold: 65, whale_multiplier: 1.2, f4_multiplier: 2.5, 
     f4_length: 11, f4_lookback_bars: 30, f4_squeeze_threshold: 20, f4_power_loss_threshold: 90, min_power_loss: 90,
+    long_squeeze_threshold: 20, short_squeeze_threshold: 20, f4_slope_threshold: 0.010,
+    trade_freshness_bars: 5, fibo_length: 20,
     scalp_length: 11, scalp_volume_multiplier: 3.0, swing_length: 10, swing_volume_multiplier: 1.2, f4_active: true
   },
   "4H": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 68, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20, pilot_trailing_buy: true, pilot_only_holdings: true,
-    allocation: 12, tp: 2.0, sl: 1.0, ttp: 0.18, tsl: 0.28, cover_tp: 1.8, cover_sl: 0.65, cover_ttp: 0.16, cover_tsl: 0.25,
-    ai_threshold: 68, whale_multiplier: 1.3, f4_multiplier: 2.0, 
+    pilot_mtf_veto: true, pilot_mtf_threshold: 60, pilot_mtf_long_threshold: 60, pilot_mtf_short_threshold: 40, pilot_trailing_buy: true, pilot_only_holdings: true,
+    allocation: 12, tp: 7.5, sl: 3.8, ttp: 0.45, tsl: 0.60, cover_tp: 6.8, cover_sl: 3.5, cover_ttp: 0.40, cover_tsl: 0.55,
+    ai_threshold: 65, whale_multiplier: 1.2, f4_multiplier: 2.0, 
     f4_length: 13, f4_lookback_bars: 40, f4_squeeze_threshold: 25, f4_power_loss_threshold: 88, min_power_loss: 88,
+    long_squeeze_threshold: 24, short_squeeze_threshold: 24, f4_slope_threshold: 0.008,
+    trade_freshness_bars: 8, fibo_length: 26,
     scalp_length: 13, scalp_volume_multiplier: 2.5, swing_length: 12, swing_volume_multiplier: 1.3, f4_active: true
   },
   "1D": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 70, pilot_mtf_long_threshold: 30, pilot_mtf_short_threshold: 30, pilot_trailing_buy: true, pilot_only_holdings: true,
-    allocation: 15, tp: 3.0, sl: 1.5, ttp: 0.28, tsl: 0.45, cover_tp: 2.7, cover_sl: 1.0, cover_ttp: 0.25, cover_tsl: 0.40,
-    ai_threshold: 70, whale_multiplier: 1.4, f4_multiplier: 1.2, 
+    pilot_mtf_veto: true, pilot_mtf_threshold: 60, pilot_mtf_long_threshold: 70, pilot_mtf_short_threshold: 30, pilot_trailing_buy: true, pilot_only_holdings: true,
+    allocation: 15, tp: 18.0, sl: 9.0, ttp: 0.85, tsl: 1.20, cover_tp: 16.0, cover_sl: 8.0, cover_ttp: 0.75, cover_tsl: 1.00,
+    ai_threshold: 65, whale_multiplier: 1.4, f4_multiplier: 1.5, 
     f4_length: 16, f4_lookback_bars: 55, f4_squeeze_threshold: 30, f4_power_loss_threshold: 85, min_power_loss: 85,
+    long_squeeze_threshold: 28, short_squeeze_threshold: 28, f4_slope_threshold: 0.006,
+    trade_freshness_bars: 10, fibo_length: 34,
     scalp_length: 16, scalp_volume_multiplier: 2.0, swing_length: 15, swing_volume_multiplier: 1.4, f4_active: true
   },
   "1W": {
-    pilot_mtf_veto: false, pilot_mtf_threshold: 75, pilot_mtf_long_threshold: 40, pilot_mtf_short_threshold: 40, pilot_trailing_buy: true, pilot_only_holdings: true,
-    allocation: 20, tp: 6.0, sl: 3.0, ttp: 0.55, tsl: 0.90, cover_tp: 5.5, cover_sl: 2.0, cover_ttp: 0.50, cover_tsl: 0.80,
-    ai_threshold: 75, whale_multiplier: 1.5, f4_multiplier: 1.1, 
+    pilot_mtf_veto: false, pilot_mtf_threshold: 60, pilot_mtf_long_threshold: 75, pilot_mtf_short_threshold: 25, pilot_trailing_buy: true, pilot_only_holdings: true,
+    allocation: 20, tp: 35.0, sl: 15.0, ttp: 1.50, tsl: 2.50, cover_tp: 32.0, cover_sl: 14.0, cover_ttp: 1.30, cover_tsl: 2.20,
+    ai_threshold: 70, whale_multiplier: 1.5, f4_multiplier: 1.2, 
     f4_length: 20, f4_lookback_bars: 80, f4_squeeze_threshold: 35, f4_power_loss_threshold: 80, min_power_loss: 80,
+    long_squeeze_threshold: 32, short_squeeze_threshold: 32, f4_slope_threshold: 0.004,
+    trade_freshness_bars: 15, fibo_length: 50,
     scalp_length: 20, scalp_volume_multiplier: 1.8, swing_length: 18, swing_volume_multiplier: 1.5, f4_active: true
   },
   "1MO": {
-    pilot_mtf_veto: false, pilot_mtf_threshold: 80, pilot_mtf_long_threshold: 50, pilot_mtf_short_threshold: 50, pilot_trailing_buy: true, pilot_only_holdings: true,
-    allocation: 25, tp: 12.0, sl: 6.0, ttp: 1.0, tsl: 1.6, cover_tp: 11.0, cover_sl: 4.0, cover_ttp: 0.9, cover_tsl: 1.4,
-    ai_threshold: 80, whale_multiplier: 1.8, f4_multiplier: 1.0, 
+    pilot_mtf_veto: false, pilot_mtf_threshold: 60, pilot_mtf_long_threshold: 80, pilot_mtf_short_threshold: 20, pilot_trailing_buy: true, pilot_only_holdings: true,
+    allocation: 25, tp: 60.0, sl: 25.0, ttp: 2.50, tsl: 4.00, cover_tp: 55.0, cover_sl: 22.0, cover_ttp: 2.20, cover_tsl: 3.50,
+    ai_threshold: 75, whale_multiplier: 1.8, f4_multiplier: 1.0, 
     f4_length: 28, f4_lookback_bars: 120, f4_squeeze_threshold: 50, f4_power_loss_threshold: 75, min_power_loss: 75,
+    long_squeeze_threshold: 36, short_squeeze_threshold: 36, f4_slope_threshold: 0.002,
+    trade_freshness_bars: 20, fibo_length: 89,
     scalp_length: 28, scalp_volume_multiplier: 1.5, swing_length: 25, swing_volume_multiplier: 1.6, f4_active: true
   },
 };
@@ -2580,6 +2582,9 @@ function SettingsPanel({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
       f4_squeeze_threshold: p.f4_squeeze_threshold,
       f4_power_loss_threshold: p.f4_power_loss_threshold,
       min_power_loss: p.min_power_loss,
+      long_squeeze_threshold: p.long_squeeze_threshold,
+      short_squeeze_threshold: p.short_squeeze_threshold,
+      f4_slope_threshold: p.f4_slope_threshold,
       scalp_length: p.scalp_length,
       scalp_volume_multiplier: p.scalp_volume_multiplier,
       swing_length: p.swing_length,
@@ -2926,6 +2931,33 @@ function SettingsPanel({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
               <span className="text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded">{config.trade_freshness_bars ?? DEFAULT_BOT_CONFIG.trade_freshness_bars} Bar</span>
             </div>
             <input type="range" min="1" max="50" step="1" value={config.trade_freshness_bars ?? DEFAULT_BOT_CONFIG.trade_freshness_bars} onChange={(e) => saveConfig({ trade_freshness_bars: parseInt(e.target.value) })} className="w-full h-1 accent-indigo-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-indigo-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
+          </div>
+
+          {/* Long Squeeze Threshold */}
+          <div className="bg-slate-900/50 p-2.5 rounded-lg border border-emerald-500/20 shadow-inner shadow-emerald-500/5">
+            <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
+              <span>Long Sıkışma Eşiği</span>
+              <span className="text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">{config.long_squeeze_threshold ?? DEFAULT_BOT_CONFIG.long_squeeze_threshold}</span>
+            </div>
+            <input type="range" min="5" max="100" step="1" value={config.long_squeeze_threshold ?? DEFAULT_BOT_CONFIG.long_squeeze_threshold} onChange={(e) => saveConfig({ long_squeeze_threshold: parseInt(e.target.value) })} className="w-full h-1 accent-emerald-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
+          </div>
+
+          {/* Short Squeeze Threshold */}
+          <div className="bg-slate-900/50 p-2.5 rounded-lg border border-rose-500/20 shadow-inner shadow-rose-500/5">
+            <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
+              <span>Short Sıkışma Eşiği</span>
+              <span className="text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded">{config.short_squeeze_threshold ?? DEFAULT_BOT_CONFIG.short_squeeze_threshold}</span>
+            </div>
+            <input type="range" min="5" max="100" step="1" value={config.short_squeeze_threshold ?? DEFAULT_BOT_CONFIG.short_squeeze_threshold} onChange={(e) => saveConfig({ short_squeeze_threshold: parseInt(e.target.value) })} className="w-full h-1 accent-rose-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-rose-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
+          </div>
+
+          {/* F4 Slope Threshold */}
+          <div className="bg-slate-900/50 p-2.5 rounded-lg border border-violet-500/20 shadow-inner shadow-violet-500/5">
+            <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
+              <span>F4 Eğim (Slope) Eşiği</span>
+              <span className="text-violet-400 bg-violet-500/10 px-1.5 py-0.5 rounded">{config.f4_slope_threshold ?? DEFAULT_BOT_CONFIG.f4_slope_threshold}</span>
+            </div>
+            <input type="range" min="0.001" max="0.100" step="0.001" value={config.f4_slope_threshold ?? DEFAULT_BOT_CONFIG.f4_slope_threshold} onChange={(e) => saveConfig({ f4_slope_threshold: parseFloat(e.target.value) })} className="w-full h-1 accent-violet-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-violet-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
           </div>
 
         </div>

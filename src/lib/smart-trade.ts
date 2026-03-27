@@ -35,6 +35,8 @@ export interface SmartTradePayload {
   user_id: number;
   timeframe?: string;
   source?: string; // e.g. 'pilot_auto' — used for re-entry tracking
+  aiScore?: number | null;
+  mtfVerdict?: string | null;
 }
 
 export async function handleSmartTrade(
@@ -268,6 +270,8 @@ export async function handleSmartTrade(
           highestPrice: avgPrice,
           lowestPrice: avgPrice,
           source: payload.source || undefined, // Track origin (e.g. pilot_auto)
+          aiScore: payload.aiScore ?? null,
+          mtfVerdict: payload.mtfVerdict ?? null,
           lastUpdate: Date.now(),
           exitReason:
             initialStatus === "CLOSED"

@@ -35,4 +35,4 @@ async function performanceAnalyzer(userId: number = 14) {
   }
 }
 
-performanceAnalyzer();
+performanceAnalyzer(Number(process.argv[2]) || 14);

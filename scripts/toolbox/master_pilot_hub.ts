@@ -25,8 +25,8 @@ async function pilotHubCheck(userId: number = 14) {
       console.log(`   ❌ HATA: Kullanıcı için bot konfigürasyonu bulunamadı!`);
     }
 
-    // 2. Son Gelen Sinyaller (Raw Flow)
-    console.log(`\n⚡ 2. SON SİNYAL AKIŞI (Global):`);
+    // 2. Son Gelen Sinyaller
+    console.log(`\n⚡ 2. SON SİNYAL AKIŞI (Kişisel):`);
     if (data.recentSignals.length > 0) {
       data.recentSignals.forEach((s: any) => {
         const ts = Number(s.timestamp) || Date.now();
@@ -56,4 +56,4 @@ async function pilotHubCheck(userId: number = 14) {
   }
 }
 
-pilotHubCheck();
+pilotHubCheck(Number(process.argv[2]) || 14);

@@ -149,6 +149,9 @@ async function processStrategy(
       f4PowerLossThreshold: botConfig.f4_power_loss_threshold,
       f4LookbackBars: botConfig.f4_lookback_bars,
       f4SqueezeThreshold: botConfig.f4_squeeze_threshold,
+      longSqueezeThreshold: botConfig.long_squeeze_threshold,
+      shortSqueezeThreshold: botConfig.short_squeeze_threshold,
+      f4SlopeThreshold: botConfig.f4_slope_threshold,
       minPowerLoss: botConfig.min_power_loss,
       ...(strategy.parameters || {})
     } as StrategyParameters;

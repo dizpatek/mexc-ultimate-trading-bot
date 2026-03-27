@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { useHoldings } from "@/hooks/usePortfolio";
 import { Header } from "@/components/Header";
+import { NotificationModal } from "@/components/NotificationModal";
 import { UnifiedControlStrip } from "@/components/UnifiedControlStrip";
 import { MatrixHorizon } from "@/components/matrix-horizon/MatrixHorizon";
 import { ActiveSmartTrades } from "@/components/ActiveSmartTrades";
@@ -47,7 +48,7 @@ export default function Dashboard() {
     holding: 0,
     usdt: 0,
   });
-  const [isBottomSectionExpanded, setIsBottomSectionExpanded] = useState(false);
+  const [isBottomSectionExpanded, setIsBottomSectionExpanded] = useState(true);
   const [globalMarketData, setGlobalMarketData] = useState<GlobalMarketData | null>(null);
 
   // Lifted Hooks for Unified Header & Performance
@@ -155,6 +156,7 @@ export default function Dashboard() {
   return (
     <HorizonLayout>
       <Header />
+      <NotificationModal />
 
       <main className="flex-1 min-w-0 px-2 md:px-4 lg:px-6 py-0.5 md:py-1 lg:py-1.5 space-y-1 overflow-y-auto max-w-full mx-auto w-full pb-4 no-scrollbar">
         {/* MATRIX MISSION CONTROL (Full Width) */}

@@ -4,18 +4,25 @@ import { DiagnosticsService } from '../../src/lib/diagnostics';
  * 🛠️ MASTER MAINTENANCE KIT (Bakım & Onarım Kiti)
  */
 
-async function maintenanceKit() {
-  console.log(`\n--- 🛠️ MASTER MAINTENANCE KIT: SİSTEM BAKIM VE ONARIM ---`);
+async function maintenanceKit(userId: number = 14) {
+  console.log(`\n--- 🛠️ MASTER MAINTENANCE KIT: SİSTEM BAKIM VE ONARIM (User: ${userId}) ---`);
   const startTime = Date.now();
 
   try {
-    const data = await DiagnosticsService.getMaintenance();
+    const data = await DiagnosticsService.getMaintenance(userId);
 
     // 1. Mükerrer İşlem Denetimi
     console.log(`\n🧹 1. MÜKERRER İŞLEM TARAMASI:`);
     if (data.duplicates.length > 0) {
       console.log(`   ⚠️ UYARI: ${data.duplicates.length} adet mükerrer işlem grubu saptandı!`);
       data.duplicates.forEach((d: any) => console.log(`      - ${d.symbol}: ${d.count} adet`));
+      
+      // AUTO HEAL 
+      console.log(`   ⚙️ AUTO-HEAL: Mükerrer işlemler (klonlar) temizleniyor...`);
+      const fixRes = await DiagnosticsService.runForceCleanup(userId);
+      if (fixRes.success && fixRes.removedCount > 0) {
+        console.log(`   ✅ BAŞARILI: ${fixRes.removedCount} adet eski/kopya emir veritabanından güvenle temizlendi.`);
+      }
     } else {
       console.log(`   ✅ OK: Mükerrer aktif işlem bulunamadı.`);
     }
@@ -35,4 +42,4 @@ async function maintenanceKit() {
   }
 }
 
-maintenanceKit();
+maintenanceKit(Number(process.argv[2]) || 14);

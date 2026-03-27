@@ -256,7 +256,7 @@ export class MatrixV5Strategy extends BaseStrategy {
         : 1.0,
       whaleVolumeMultiplier: this.parameters.whaleVolumeMultiplier ? Number(this.parameters.whaleVolumeMultiplier) : undefined,
       mtfThreshold: this.parameters.mtfThreshold ? Number(this.parameters.mtfThreshold) : 80,
-      f4SlopeThreshold: 0.01,
+      f4SlopeThreshold: this.parameters.f4SlopeThreshold ? Number(this.parameters.f4SlopeThreshold) : 0.01,
       f4PowerLossThreshold: this.parameters.f4PowerLossThreshold ? Number(this.parameters.f4PowerLossThreshold) : 90,
       f4LookbackBars: this.parameters.f4LookbackBars ? Number(this.parameters.f4LookbackBars) : 30,
       longSqueezeThreshold: this.parameters.longSqueezeThreshold
@@ -357,7 +357,7 @@ export class MatrixV5Strategy extends BaseStrategy {
           prediction: String(result.prediction?.text || ""),
           whaleDetected: !!result.whaleDetected,
           whaleStatus: String(result.whaleStatus || ""),
-          mtfWeightedScore: Number(mtfScore) || 0,  // [-100,+100] yeni standart
+          mtfWeightedScore: Number(mtfScore) || 0,  
           mtfVerdict: String(mtfVerdictText || "N/A"),
           fundingRate: Number(result.fundingRate) || 0,
           fundingImpact: String(result.fundingImpact || ""),
@@ -367,7 +367,7 @@ export class MatrixV5Strategy extends BaseStrategy {
           f4EarlySell: !!result.f4EarlySell,
           f4ConfirmedBuy: !!result.f4ConfirmedBuy,
           f4ConfirmedSell: !!result.f4ConfirmedSell,
-          originalIntent: originalSignal || "" // Hidden metadata, ensure not null
+          originalIntent: originalSignal || "" 
         },
         targets: result.targets || { t1: 0, t2: 0, sl: 0 },
         timestamp: Date.now(),
@@ -397,27 +397,33 @@ export class MatrixV5Strategy extends BaseStrategy {
     // YENİ: [-100,+100] ölçeğinde eşikler
     // mtfLongThreshold  = pozitif minimum (eski 70 → yeni 20)
     // mtfShortThreshold = mutlak değer; cover eşiği = -mtfShortThreshold
-    const mtfLongThreshold  = Number(this.parameters.mtfLongThreshold  ?? this.parameters.mtfThreshold ?? 20);
-    const mtfShortThreshold = Number(this.parameters.mtfShortThreshold ?? 20);
+    const mtfLongThreshold  = Math.abs(Number(this.parameters.mtfLongThreshold  ?? this.parameters.mtfThreshold ?? 20));
+    const mtfShortThreshold = Math.abs(Number(this.parameters.mtfShortThreshold ?? 20));
     const coverThreshold = -mtfShortThreshold; // örn: -20
-    const scoreLabel = `${mtfScore > 0 ? '+' : ''}${Math.round(mtfScore)}`;
 
+    const scoreLabel = `${mtfScore > 0 ? '+' : ''}${Math.round(mtfScore)}`;
     let finalSignal = signal;
     let reasonExtension = "";
 
     if (mtfVetoEnabled) {
+      // 1. Standart Veto (Sıkı: Mutlak yöne göre)
       if (signal === "BUY" && mtfScore < mtfLongThreshold) {
-        reasonExtension = ` | 🛑 MTF LONG Veto: Skor ${scoreLabel} < +${mtfLongThreshold} (${mtfVerdictText}) — LONG iptal.`;
+        reasonExtension = ` | 🛑 MTF LONG Veto: Skor ${scoreLabel} < ${mtfLongThreshold} (${mtfVerdictText}) — BUY iptal.`;
         finalSignal = null;
       } else if (signal === "SELL" && mtfScore > coverThreshold) {
-        reasonExtension = ` | 🛑 MTF SHORT Veto: Skor ${scoreLabel} > ${coverThreshold} (${mtfVerdictText}) — COVER iptal.`;
+        // [STRICT] COVER (Short) koruması: MTF pozitif veya hafif negatifse engelle.
+        // Eğer MTF bir şekilde boğa tarafındaysa (pozitif skor), Short (SELL) asla açılmaz.
+        reasonExtension = ` | 🛑 MTF SHORT Veto: Skor ${scoreLabel} > ${coverThreshold} (${mtfVerdictText}) — COVER (Short) engellendi.`;
         finalSignal = null;
-      } else if (isEarly) {
+      } 
+      // 2. Erken Sinyal Özel Koruması (İkincil Kontrol)
+      else if (isEarly) {
         if (signal === "BUY" && mtfScore < -20) {
           reasonExtension = ` | 🛑 MTF Erken LONG Veto: Skor ${scoreLabel} (piyasa net ayı) — iptal.`;
           finalSignal = null;
-        } else if (signal === "SELL" && mtfScore > 20) {
-          reasonExtension = ` | 🛑 MTF Erken SHORT Veto: Skor ${scoreLabel} (piyasa net boğa) — iptal.`;
+        } else if (signal === "SELL" && mtfScore > -10) {
+          // [STRICT] Erken SELL sinyallerinde nötr (+/- 10) piyasada bile short açma.
+          reasonExtension = ` | 🛑 MTF Erken SHORT Veto: Skor ${scoreLabel} (piyasa nötr/boğa) — iptal.`;
           finalSignal = null;
         } else {
           reasonExtension = ` | ⚡ Erken Giriş Onaylı (MTF ${mtfVerdictText}, Skor: ${scoreLabel})`;
@@ -425,6 +431,10 @@ export class MatrixV5Strategy extends BaseStrategy {
       }
     } else {
       reasonExtension = ` | ℹ️ MTF Check: ${mtfVerdictText} (Veto Devre Dışı)`;
+    }
+
+    if (!finalSignal && reasonExtension) {
+      console.log(`[MatrixV5Veto] ${this.symbol} ${signal} Sinyali Veto Edildi: ${reasonExtension}`);
     }
     return { signal: finalSignal, reasonExtension };
   }

@@ -131,4 +131,4 @@ async function tradeAudit(userId: number = 1) {
   console.log(`\n✅ Denetim tamamlandı.`);
 }
 
-tradeAudit();
+tradeAudit(Number(process.argv[2]) || 1);

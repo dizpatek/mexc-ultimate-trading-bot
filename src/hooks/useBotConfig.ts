@@ -111,5 +111,5 @@ export function useBotConfig() {
     };
   }, []);
 
-  return { config };
+  return { config, setConfig };
 }

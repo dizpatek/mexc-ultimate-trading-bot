@@ -69,7 +69,7 @@ export const CombatLog = ({
   const trade = useTrade();
   const { data: holdings, isLoading: isLoadingHoldings } = useHoldings();
   const { config } = useBotConfig();
-  const [internalIsExpanded, setInternalIsExpanded] = useState(false);
+  const [internalIsExpanded, setInternalIsExpanded] = useState(true);
   const isSectionExpanded = propIsExpanded !== undefined ? propIsExpanded : internalIsExpanded;
   const setIsSectionExpanded = onToggleExpanded || setInternalIsExpanded;
 

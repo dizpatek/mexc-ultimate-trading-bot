@@ -41,6 +41,12 @@ async function portfolioGuardian(userId: number = 14) {
       data.anomalies.forEach((a: any) => {
         console.log(`   ❌ ANOMALİ: ${a.symbol} emirlerde aktif ama cüzdanda yok!`);
       });
+      // AUTO HEAL
+      console.log(`   ⚙️ AUTO-HEAL: Hayalet emirler temizleniyor...`);
+      const fixResult = await DiagnosticsService.runAnomalyCleanup(userId);
+      if (fixResult.success && fixResult.removedCount > 0) {
+         console.log(`   ✅ BAŞARILI: ${fixResult.removedCount} adet hayalet emir veritabanından başarıyla temizlendi.`);
+      }
     } else {
       console.log(`   ✅ OK: Aktif işlemlerde anomali saptanmadı.`);
     }
@@ -52,4 +58,4 @@ async function portfolioGuardian(userId: number = 14) {
   }
 }
 
-portfolioGuardian();
+portfolioGuardian(Number(process.argv[2]) || 14);

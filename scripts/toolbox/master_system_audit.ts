@@ -6,12 +6,12 @@ import { DiagnosticsService } from '../../src/lib/diagnostics';
  * Bu araç artık 'src/lib/diagnostics' servisinden güç almaktadır.
  */
 
-async function systemAudit() {
-  console.log(`\n--- 🛠️ MASTER SYSTEM AUDIT: ALTYAPI VE SAĞLIK RAPORU ---`);
+async function systemAudit(userId: number = 14) {
+  console.log(`\n--- 🛠️ MASTER SYSTEM AUDIT: ALTYAPI VE SAĞLIK RAPORU (User: ${userId}) ---`);
   const startTime = Date.now();
 
   try {
-    const data = await DiagnosticsService.getSystemAudit();
+    const data = await DiagnosticsService.getSystemAudit(userId);
 
     // 1. Veritabanı Bağlantı Testi
     console.log(`\n🗄️ 1. VERİTABANI BAĞLANTISI:`);
@@ -46,4 +46,4 @@ async function systemAudit() {
   }
 }
 
-systemAudit();
+systemAudit(Number(process.argv[2]) || 14);

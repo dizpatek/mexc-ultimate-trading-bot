@@ -242,7 +242,7 @@ export async function DELETE(request: Request) {
       // Fetch all in-progress smart trades with full details for execution
       const { rows } = await sql`
                 SELECT id, symbol, side, qty, status, meta FROM orders 
-                WHERE user_id = ${user.id} AND status IN ('FILLED', 'PENDING')
+                WHERE user_id = ${user.id} AND status IN ('FILLED', 'PENDING', 'NEW', 'ACTIVE', 'OPEN')
             `;
 
       const smartRows = rows.filter((r) => {
@@ -325,7 +325,7 @@ export async function DELETE(request: Request) {
       // Only delete CLOSED orders that are smart trades (matching GET filter)
       await sql`
                 DELETE FROM orders 
-                WHERE user_id = ${user.id} AND status = 'CLOSED' 
+                WHERE user_id = ${user.id} AND status IN ('CLOSED', 'NEW', 'CANCELLED')
                 AND (meta::jsonb->>'smartTrade')::boolean = true
             `;
       return NextResponse.json({

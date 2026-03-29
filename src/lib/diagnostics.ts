@@ -332,7 +332,8 @@ export const DiagnosticsService = {
     const tables = [
       'system_logs', 'alarm_logs', 'alarms', 'dca_bots', 'performance_metrics', 
       'panic_snapshots', 'system_settings', 'strategy_signals', 'strategies', 
-      'trade_history', 'orders', 'portfolio', 'portfolio_snapshots'
+      'trade_history', 'orders', 'portfolio', 'portfolio_snapshots',
+      'bot_configs', 'notifications', 'notification_reads'
     ];
 
     for (const t of tables) {

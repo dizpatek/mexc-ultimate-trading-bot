@@ -511,6 +511,26 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
               <span className="flex items-center gap-2">V2.6.2-TERMİNAL</span>
               <span className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> VERİ AKIŞI: AKTİF</span>
             </div>
+
+            {/* PNL SUMMARY Formula */}
+            <div className="flex items-center gap-4 bg-slate-900/50 px-3 py-1.5 rounded-lg border border-white/5">
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400">TOPLAM KAR:</span>
+                <span className="text-emerald-400 font-black">${pnlSummary.grossProfit.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div className="text-slate-600">-</div>
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400">TOPLAM ZARAR:</span>
+                <span className="text-rose-400 font-black">${pnlSummary.grossLoss.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div className="text-slate-600">=</div>
+              <div className="flex items-center gap-2">
+                <span className="text-slate-300">KALAN (NET):</span>
+                <span className={cn("font-black px-2 py-0.5 rounded", pnlSummary.total >= 0 ? "text-emerald-400 bg-emerald-500/10" : "text-rose-400 bg-rose-500/10")}>
+                  ${pnlSummary.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -111,5 +111,29 @@ export function useBotConfig() {
     };
   }, []);
 
-  return { config, setConfig };
+  const setGlobalConfig = (newConfig: BotConfig | null | ((prev: BotConfig | null) => BotConfig | null)) => {
+    const mode = getTradingModeSync();
+    let finalConfig: BotConfig | null;
+
+    if (typeof newConfig === 'function') {
+      finalConfig = newConfig(config);
+    } else {
+      finalConfig = newConfig;
+    }
+
+    // 1. Update State
+    setConfig(finalConfig);
+
+    // 2. Local Storage Sync
+    if (finalConfig) {
+      localStorage.setItem(`bot_config_cache_${mode}`, JSON.stringify(finalConfig));
+    } else {
+      localStorage.removeItem(`bot_config_cache_${mode}`);
+    }
+
+    // 3. Dispatch Global Event
+    window.dispatchEvent(new CustomEvent("botConfigUpdated"));
+  };
+
+  return { config, setConfig: setGlobalConfig };
 }

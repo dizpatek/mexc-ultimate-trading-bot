@@ -263,6 +263,7 @@ const StationNode = ({ station, index, isActive, onClick }: { station: Station; 
           alt={station.title}
           width={180}
           height={180}
+          unoptimized={true}
           className="w-[80%] h-auto object-contain transition-all duration-500"
           style={{
             filter: isActive
@@ -417,6 +418,7 @@ export const PilotPipeline3D = () => {
                       alt="Signal"
                       width={80}
                       height={80}
+                      unoptimized={true}
                       className="w-16 h-16"
                       style={{ transform: "none" }}
                     />

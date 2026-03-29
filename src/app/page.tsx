@@ -24,6 +24,7 @@ import { useNewsData } from "@/hooks/useNewsData";
 import { useNewsAnalytics } from "@/hooks/useNewsAnalytics";
 import { useTimeframe } from "@/context/TimeframeContext";
 import { useTradingSignals } from "@/hooks/useTradingSignals";
+import { useBotConfig } from "@/hooks/useBotConfig";
 import { 
   Terminal, 
   Activity, 
@@ -53,6 +54,7 @@ export default function Dashboard() {
 
   // Lifted Hooks for Unified Header & Performance
   const { timeframe } = useTimeframe();
+  const { config: botConfig } = useBotConfig();
   const logsData = useCombatLogs(timeframe);
   const newsData = useNewsData();
   const newsAnalytics = useNewsAnalytics(newsData.rawNews);
@@ -169,9 +171,19 @@ export default function Dashboard() {
         </div>
 
         {/* PILOT PIPELINE 3D (Ezzstar Style - New Dashboard Standard) */}
-        <div className="w-full relative min-h-[400px] mb-2 mt-1 overflow-visible">
-          <PilotPipeline3D />
-        </div>
+        <AnimatePresence mode="wait">
+          {botConfig?.auto_trade && (
+            <motion.div 
+              initial={{ height: 0, opacity: 0, marginTop: 0 }}
+              animate={{ height: "auto", opacity: 1, marginTop: 4 }}
+              exit={{ height: 0, opacity: 0, marginTop: 0 }}
+              transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+              className="w-full relative min-h-[400px] mb-2 overflow-visible"
+            >
+              <PilotPipeline3D />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* MONEY FLOW (Legacy Section - Keeping for data depth) */}
         <MoneyFlowSection globalMarketData={globalMarketData} />

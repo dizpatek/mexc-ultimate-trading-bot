@@ -2943,13 +2943,13 @@ function SettingsPanel({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
           <div className="bg-slate-900/50 p-2.5 rounded-lg border border-rose-500/20">
             <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
               <span>F4 Sıkışma Limiti</span>
-              <span className="text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded">{config.f4_squeeze_threshold ?? DEFAULT_BOT_CONFIG.f4_squeeze_threshold ?? 20}</span>
+              <span className="text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded">{config.f4_squeeze_threshold ?? DEFAULT_BOT_CONFIG.f4_squeeze_threshold ?? 10}</span>
             </div>
-            <input type="range" min="5" max="50" step="1" value={config.f4_squeeze_threshold ?? DEFAULT_BOT_CONFIG.f4_squeeze_threshold ?? 20} onChange={(e) => saveConfig({ f4_squeeze_threshold: parseInt(e.target.value) })} className="w-full h-1 accent-rose-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-rose-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
+            <input type="range" min="5" max="50" step="1" value={config.f4_squeeze_threshold ?? DEFAULT_BOT_CONFIG.f4_squeeze_threshold ?? 10} onChange={(e) => saveConfig({ f4_squeeze_threshold: parseInt(e.target.value) })} className="w-full h-1 accent-rose-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-rose-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
             <ZoneVisualizer 
-              value={config.f4_squeeze_threshold ?? DEFAULT_BOT_CONFIG.f4_squeeze_threshold ?? 20} min={5} max={50}
+              value={config.f4_squeeze_threshold ?? DEFAULT_BOT_CONFIG.f4_squeeze_threshold ?? 10} min={5} max={50}
               label="SIKIŞMA TESPİT ET" colorText="text-rose-400" colorBg="bg-rose-500/20" colorBorder="border-rose-500/30" inverse={true}
-              desc={`Eğim açısı ${config.f4_squeeze_threshold ?? DEFAULT_BOT_CONFIG.f4_squeeze_threshold ?? 20} birimin altındaysa piyasayı "sıkışıyor/konsolide" sayar ve onay verir.`}
+              desc={`Eğim açısı ${config.f4_squeeze_threshold ?? DEFAULT_BOT_CONFIG.f4_squeeze_threshold ?? 10} birimin altındaysa piyasayı "sıkışıyor/konsolide" sayar ve onay verir.`}
             />
           </div>
 

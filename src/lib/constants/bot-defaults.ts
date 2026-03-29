@@ -103,10 +103,10 @@ export const V5_DEFAULTS = {
   F4_STRATEGY: {
     powerLoss: 90,
     lookback: 30,
-    squeeze: 20,
+    squeeze: 10,
     minPowerLoss: 90,
-    longSqueeze: 20,
-    shortSqueeze: 20
+    longSqueeze: 10,
+    shortSqueeze: 10
   }
 };
 
@@ -173,7 +173,7 @@ export const TIMEFRAME_PRESETS: Record<string, TimeframePreset> = {
     cover_tp_percent: 1.6, cover_sl_percent: 0.9, cover_tp_deviation: 0.15, cover_sl_deviation: 0.22,
     ai_threshold: 68, whale_multiplier: 1.3, fibo_length: 13, f4_active: true,
     scalp_length: 8, scalp_volume_multiplier: 3.5, swing_length: 9, swing_volume_multiplier: 1.1,
-    f4_lookback_bars: 20, f4_squeeze_threshold: 14, f4_power_loss_threshold: 87, f4_slope_threshold: 0.014, long_squeeze_threshold: 16, short_squeeze_threshold: 16, min_power_loss: 87,
+    f4_lookback_bars: 20, f4_squeeze_threshold: 10, f4_power_loss_threshold: 87, f4_slope_threshold: 0.014, long_squeeze_threshold: 10, short_squeeze_threshold: 10, min_power_loss: 87,
     trade_freshness_bars: 5, f4_multiplier: 3.2,
     pilot_mode: "matrix", pilot_use_usdt: false
   },
@@ -183,7 +183,7 @@ export const TIMEFRAME_PRESETS: Record<string, TimeframePreset> = {
     cover_tp_percent: 3.0, cover_sl_percent: 1.6, cover_tp_deviation: 0.22, cover_sl_deviation: 0.30,
     ai_threshold: 65, whale_multiplier: 1.2, fibo_length: 20, f4_active: true,
     scalp_length: 11, scalp_volume_multiplier: 3.0, swing_length: 10, swing_volume_multiplier: 1.2,
-    f4_lookback_bars: 30, f4_squeeze_threshold: 20, f4_power_loss_threshold: 90, f4_slope_threshold: 0.010, long_squeeze_threshold: 20, short_squeeze_threshold: 20, min_power_loss: 90,
+    f4_lookback_bars: 30, f4_squeeze_threshold: 10, f4_power_loss_threshold: 90, f4_slope_threshold: 0.010, long_squeeze_threshold: 10, short_squeeze_threshold: 10, min_power_loss: 90,
     trade_freshness_bars: 5, f4_multiplier: 2.5,
     pilot_mode: "matrix", pilot_use_usdt: false
   },
@@ -193,7 +193,7 @@ export const TIMEFRAME_PRESETS: Record<string, TimeframePreset> = {
     cover_tp_percent: 6.8, cover_sl_percent: 3.5, cover_tp_deviation: 0.40, cover_sl_deviation: 0.55,
     ai_threshold: 65, whale_multiplier: 1.2, fibo_length: 26, f4_active: true,
     scalp_length: 13, scalp_volume_multiplier: 2.5, swing_length: 12, swing_volume_multiplier: 1.3,
-    f4_lookback_bars: 40, f4_squeeze_threshold: 25, f4_power_loss_threshold: 88, f4_slope_threshold: 0.008, long_squeeze_threshold: 24, short_squeeze_threshold: 24, min_power_loss: 88,
+    f4_lookback_bars: 40, f4_squeeze_threshold: 12, f4_power_loss_threshold: 88, f4_slope_threshold: 0.008, long_squeeze_threshold: 12, short_squeeze_threshold: 12, min_power_loss: 88,
     trade_freshness_bars: 8, f4_multiplier: 2.0,
     pilot_mode: "matrix", pilot_use_usdt: false
   },

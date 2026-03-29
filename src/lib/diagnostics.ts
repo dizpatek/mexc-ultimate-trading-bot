@@ -338,7 +338,7 @@ export const DiagnosticsService = {
 
     for (const t of tables) {
       try {
-        await sql`DELETE FROM ${t} WHERE user_id = ${userId}`;
+        await pool.query(`DELETE FROM ${t} WHERE user_id = $1`, [userId]);
       } catch (e) {
         console.warn(`Purge step fail on ${t}:`, e);
       }

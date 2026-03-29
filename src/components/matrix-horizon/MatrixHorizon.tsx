@@ -7,6 +7,14 @@ import { CentralCommand } from "./CentralCommand";
 import { AIAnalysisSummary } from "../AIAnalysisSummary";
 import { AssetIcon } from "../AssetIcon";
 import {
+  WhaleMultiplierVisualizer,
+  SignalMultiplierVisualizer,
+  LengthVisualizer,
+  PowerLossVisualizer,
+  SlopeVisualizer,
+  ZoneVisualizer,
+} from "./Visualizers";
+import {
   RefreshCw,
   LayoutTemplate,
   Brain,
@@ -2557,6 +2565,8 @@ const ADVANCED_PRESETS: Record<string, any> = {
   },
 };
 
+
+
 function SettingsPanel({ config, saveConfig, isAdmin, lastSync, riskMode, setRiskMode, isSectionExpanded, setIsSectionExpanded }: SettingsPanelProps) {
   const effectiveTradeMode = (riskMode === "scalp" || riskMode === "swing") 
     ? (riskMode === "scalp" ? "Scalp" : "Swing")
@@ -2682,33 +2692,49 @@ function SettingsPanel({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
           <div className="grid grid-cols-2 gap-2">
             <div className="bg-slate-900/50 p-2 rounded-lg border border-white/5 space-y-1.5 hover:border-emerald-500/20 transition-colors">
               <div className="flex justify-between text-[8px] font-black text-slate-400 uppercase tracking-widest">
-                <span className="text-emerald-500/80">LONG EŞİĞİ</span>
+                <span className="text-emerald-500/80">LONG İŞLEM EŞİĞİ</span>
                 <span className="text-emerald-500">+{config.pilot_mtf_long_threshold ?? 20}</span>
               </div>
               <input 
                 type="range" min="0" max="100" step="5" 
                 value={config.pilot_mtf_long_threshold ?? 20} 
-                onChange={(e) => saveConfig({ pilot_mtf_long_threshold: parseInt(e.target.value) })} 
+                onChange={(e) => saveConfig({ 
+                  pilot_mtf_long_threshold: parseInt(e.target.value),
+                  long_squeeze_threshold: parseInt(e.target.value)
+                })} 
                 className="w-full h-1 accent-emerald-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" 
               />
               <div className="flex justify-between text-[7px] text-slate-600">
                 <span>0 (NÖTR)</span><span>+100 (TAM BOĞA)</span>
               </div>
+              <ZoneVisualizer 
+                value={config.pilot_mtf_long_threshold ?? 20} min={0} max={100}
+                label="LONG İŞLEM ONAY ALANI" colorText="text-emerald-400" colorBg="bg-emerald-500/20" colorBorder="border-emerald-500/30" inverse={false}
+                desc={`F4 Boğa gücü +${config.pilot_mtf_long_threshold ?? 20} eşiğini aşarsa pilot long açar. Sol taraftaki zayıf bölgede (Veto) kalan sinyaller reddedilir.`}
+              />
             </div>
             <div className="bg-slate-900/50 p-2 rounded-lg border border-white/5 space-y-1.5 hover:border-rose-500/20 transition-colors">
               <div className="flex justify-between text-[8px] font-black text-slate-400 uppercase tracking-widest">
-                <span className="text-rose-500/80">SHORT EŞİĞİ</span>
+                <span className="text-rose-500/80">SHORT İŞLEM EŞİĞİ</span>
                 <span className="text-rose-500">−{config.pilot_mtf_short_threshold ?? 20}</span>
               </div>
               <input 
                 type="range" min="0" max="100" step="5" 
                 value={config.pilot_mtf_short_threshold ?? 20} 
-                onChange={(e) => saveConfig({ pilot_mtf_short_threshold: parseInt(e.target.value) })} 
+                onChange={(e) => saveConfig({ 
+                  pilot_mtf_short_threshold: parseInt(e.target.value),
+                  short_squeeze_threshold: parseInt(e.target.value)
+                })} 
                 className="w-full h-1 accent-rose-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-rose-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" 
               />
               <div className="flex justify-between text-[7px] text-slate-600">
                 <span>0 (NÖTR)</span><span>−100 (TAM AYI)</span>
               </div>
+              <ZoneVisualizer 
+                value={config.pilot_mtf_short_threshold ?? 20} min={0} max={100}
+                label="SHORT İŞLEM ONAY ALANI" colorText="text-rose-400" colorBg="bg-rose-500/20" colorBorder="border-rose-500/30" inverse={false}
+                desc={`F4 Ayı gücü −${config.pilot_mtf_short_threshold ?? 20} eşiğini aşarsa (gücü artarsa) pilot short açar. Sol taraftaki zayıf bölgede (Veto) kalan sinyaller reddedilir.`}
+              />
             </div>
           </div>
         </div>
@@ -2868,6 +2894,9 @@ function SettingsPanel({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
               <span className="text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded">{config.whale_multiplier ?? DEFAULT_BOT_CONFIG.whale_multiplier}x</span>
             </div>
             <input type="range" min="1.1" max="10.0" step="0.1" value={config.whale_multiplier ?? DEFAULT_BOT_CONFIG.whale_multiplier} onChange={(e) => saveConfig({ whale_multiplier: parseFloat(e.target.value) })} className="w-full h-1 accent-cyan-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
+            <WhaleMultiplierVisualizer 
+              value={config.whale_multiplier ?? DEFAULT_BOT_CONFIG.whale_multiplier} min={1.1} max={10.0}
+            />
           </div>
           
           {/* F4 Çarpanı */}
@@ -2877,6 +2906,9 @@ function SettingsPanel({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
               <span className="text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">{config.f4_multiplier ?? DEFAULT_BOT_CONFIG.f4_multiplier}x</span>
             </div>
             <input type="range" min="0.1" max="10.0" step="0.1" value={config.f4_multiplier ?? DEFAULT_BOT_CONFIG.f4_multiplier} onChange={(e) => saveConfig({ f4_multiplier: parseFloat(e.target.value) })} className="w-full h-1 accent-emerald-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
+            <SignalMultiplierVisualizer 
+              value={config.f4_multiplier ?? DEFAULT_BOT_CONFIG.f4_multiplier} min={0.1} max={10.0}
+            />
           </div>
 
           {/* F4 Length */}
@@ -2886,6 +2918,11 @@ function SettingsPanel({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
               <span className="text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded">{config.f4_length ?? DEFAULT_BOT_CONFIG.f4_length} Bar</span>
             </div>
             <input type="range" min="5" max="50" step="1" value={config.f4_length ?? DEFAULT_BOT_CONFIG.f4_length} onChange={(e) => saveConfig({ f4_length: parseInt(e.target.value) })} className="w-full h-1 accent-blue-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-blue-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
+            <LengthVisualizer 
+              value={config.f4_length ?? DEFAULT_BOT_CONFIG.f4_length} min={5} max={50}
+              label="HESAPLAMA ÇAPI" colorText="text-blue-400" colorBg="bg-blue-400"
+              desc={`Gerçek zamanlı osilatör filtresinin ortalamasını almak için`}
+            />
           </div>
 
           {/* F4 Lookback */}
@@ -2895,6 +2932,11 @@ function SettingsPanel({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
               <span className="text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded">{config.f4_lookback_bars ?? DEFAULT_BOT_CONFIG.f4_lookback_bars ?? 30} Bar</span>
             </div>
             <input type="range" min="5" max="100" step="5" value={config.f4_lookback_bars ?? DEFAULT_BOT_CONFIG.f4_lookback_bars ?? 30} onChange={(e) => saveConfig({ f4_lookback_bars: parseInt(e.target.value) })} className="w-full h-1 accent-blue-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-blue-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
+            <LengthVisualizer 
+              value={config.f4_lookback_bars ?? DEFAULT_BOT_CONFIG.f4_lookback_bars ?? 30} min={5} max={100}
+              label="TARAMA UZUNLUĞU" colorText="text-blue-400" colorBg="bg-blue-400"
+              desc={`Ani yükselişlerin geçmişe olan oranını bulabilmek için`}
+            />
           </div>
 
           {/* F4 Squeeze */}
@@ -2904,24 +2946,39 @@ function SettingsPanel({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
               <span className="text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded">{config.f4_squeeze_threshold ?? DEFAULT_BOT_CONFIG.f4_squeeze_threshold ?? 20}</span>
             </div>
             <input type="range" min="5" max="50" step="1" value={config.f4_squeeze_threshold ?? DEFAULT_BOT_CONFIG.f4_squeeze_threshold ?? 20} onChange={(e) => saveConfig({ f4_squeeze_threshold: parseInt(e.target.value) })} className="w-full h-1 accent-rose-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-rose-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
+            <ZoneVisualizer 
+              value={config.f4_squeeze_threshold ?? DEFAULT_BOT_CONFIG.f4_squeeze_threshold ?? 20} min={5} max={50}
+              label="SIKIŞMA TESPİT ET" colorText="text-rose-400" colorBg="bg-rose-500/20" colorBorder="border-rose-500/30" inverse={true}
+              desc={`Eğim açısı ${config.f4_squeeze_threshold ?? DEFAULT_BOT_CONFIG.f4_squeeze_threshold ?? 20} birimin altındaysa piyasayı "sıkışıyor/konsolide" sayar ve onay verir.`}
+            />
           </div>
 
-          {/* F4 Power Loss Threshold */}
-          <div className="bg-slate-900/50 p-2.5 rounded-lg border border-amber-500/20">
+          {/* Unified F4 Power Loss (Merged) */}
+          <div className="bg-slate-900/50 p-2.5 rounded-lg border border-amber-500/20 shadow-inner shadow-amber-500/5">
             <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
-              <span>F4 Güç Kaybı Eşiği</span>
-              <span className="text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">{config.f4_power_loss_threshold ?? DEFAULT_BOT_CONFIG.f4_power_loss_threshold}%</span>
+              <div className="flex items-center gap-2">
+                <Zap size={14} className="text-amber-400" />
+                <span>F4 GÜÇ KAYBI</span>
+              </div>
+              <span className="text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">%{config.f4_power_loss_threshold ?? 90}</span>
             </div>
-            <input type="range" min="50" max="100" step="1" value={config.f4_power_loss_threshold ?? DEFAULT_BOT_CONFIG.f4_power_loss_threshold} onChange={(e) => saveConfig({ f4_power_loss_threshold: parseInt(e.target.value) })} className="w-full h-1 accent-amber-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-amber-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
-          </div>
-
-          {/* Min Power Loss */}
-          <div className="bg-slate-900/50 p-2.5 rounded-lg border border-amber-500/20">
-            <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
-              <span>Güç Kaybı Alt Sınır</span>
-              <span className="text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">{config.min_power_loss ?? DEFAULT_BOT_CONFIG.min_power_loss}%</span>
-            </div>
-            <input type="range" min="10" max="100" step="5" value={config.min_power_loss ?? DEFAULT_BOT_CONFIG.min_power_loss} onChange={(e) => saveConfig({ min_power_loss: parseInt(e.target.value) })} className="w-full h-1 accent-amber-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-amber-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
+            <input 
+              type="range" min="50" max="100" step="1" 
+              value={config.f4_power_loss_threshold ?? 90} 
+              onChange={(e) => {
+                const val = parseInt(e.target.value);
+                saveConfig({ 
+                  f4_power_loss_threshold: val,
+                  min_power_loss: val
+                });
+              }} 
+              className="w-full h-1.5 accent-amber-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-amber-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" 
+            />
+            <PowerLossVisualizer 
+              value={config.f4_power_loss_threshold ?? 90} min={50} max={100}
+              label="GÜÇ KAYBI EŞİĞİ" colorText="text-amber-400"
+              desc={`Momentum bir önceki tepe/dip noktasına göre %${config.f4_power_loss_threshold ?? 90} çekilirse işleme girilir/çıkılır.`}
+            />
           </div>
 
           {/* Trade Freshness (Taze İşlem Mesafesi) */}
@@ -2931,25 +2988,13 @@ function SettingsPanel({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
               <span className="text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded">{config.trade_freshness_bars ?? DEFAULT_BOT_CONFIG.trade_freshness_bars} Bar</span>
             </div>
             <input type="range" min="1" max="50" step="1" value={config.trade_freshness_bars ?? DEFAULT_BOT_CONFIG.trade_freshness_bars} onChange={(e) => saveConfig({ trade_freshness_bars: parseInt(e.target.value) })} className="w-full h-1 accent-indigo-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-indigo-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
+            <LengthVisualizer 
+              value={config.trade_freshness_bars ?? DEFAULT_BOT_CONFIG.trade_freshness_bars} min={1} max={50}
+              label="BAYATLAMA SÜRESİ" colorText="text-indigo-400" colorBg="bg-indigo-400"
+              desc={`Gelen sinyal`}
+            />
           </div>
 
-          {/* Long Squeeze Threshold */}
-          <div className="bg-slate-900/50 p-2.5 rounded-lg border border-emerald-500/20 shadow-inner shadow-emerald-500/5">
-            <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
-              <span>Long Sıkışma Eşiği</span>
-              <span className="text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">{config.long_squeeze_threshold ?? DEFAULT_BOT_CONFIG.long_squeeze_threshold}</span>
-            </div>
-            <input type="range" min="5" max="100" step="1" value={config.long_squeeze_threshold ?? DEFAULT_BOT_CONFIG.long_squeeze_threshold} onChange={(e) => saveConfig({ long_squeeze_threshold: parseInt(e.target.value) })} className="w-full h-1 accent-emerald-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
-          </div>
-
-          {/* Short Squeeze Threshold */}
-          <div className="bg-slate-900/50 p-2.5 rounded-lg border border-rose-500/20 shadow-inner shadow-rose-500/5">
-            <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
-              <span>Short Sıkışma Eşiği</span>
-              <span className="text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded">{config.short_squeeze_threshold ?? DEFAULT_BOT_CONFIG.short_squeeze_threshold}</span>
-            </div>
-            <input type="range" min="5" max="100" step="1" value={config.short_squeeze_threshold ?? DEFAULT_BOT_CONFIG.short_squeeze_threshold} onChange={(e) => saveConfig({ short_squeeze_threshold: parseInt(e.target.value) })} className="w-full h-1 accent-rose-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-rose-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
-          </div>
 
           {/* F4 Slope Threshold */}
           <div className="bg-slate-900/50 p-2.5 rounded-lg border border-violet-500/20 shadow-inner shadow-violet-500/5">
@@ -2958,6 +3003,9 @@ function SettingsPanel({ config, saveConfig, isAdmin, lastSync, riskMode, setRis
               <span className="text-violet-400 bg-violet-500/10 px-1.5 py-0.5 rounded">{config.f4_slope_threshold ?? DEFAULT_BOT_CONFIG.f4_slope_threshold}</span>
             </div>
             <input type="range" min="0.001" max="0.100" step="0.001" value={config.f4_slope_threshold ?? DEFAULT_BOT_CONFIG.f4_slope_threshold} onChange={(e) => saveConfig({ f4_slope_threshold: parseFloat(e.target.value) })} className="w-full h-1 accent-violet-500 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-violet-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer" />
+            <SlopeVisualizer 
+              value={config.f4_slope_threshold ?? DEFAULT_BOT_CONFIG.f4_slope_threshold} min={0} max={0.100}
+            />
           </div>
 
         </div>

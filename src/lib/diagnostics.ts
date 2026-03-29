@@ -310,11 +310,19 @@ export const DiagnosticsService = {
   },
 
   async deleteRecord(tableName: string, id: any) {
-    const tables = await this.getTables();
-    if (!tables.includes(tableName)) throw new Error("Invalid table name");
+    const rows = await this.getTables();
+    if (!rows.find((r: any) => r.table_name === tableName)) throw new Error("Invalid table name");
     
     await pool.query(`DELETE FROM ${tableName} WHERE id = $1`, [id]);
     return { success: true };
+  },
+
+  async clearTable(tableName: string) {
+    const rows = await this.getTables();
+    if (!rows.find((r: any) => r.table_name === tableName)) throw new Error("Invalid table name");
+    
+    await pool.query(`TRUNCATE TABLE ${tableName} CASCADE`);
+    return { success: true, message: `Table ${tableName} cleared.` };
   },
 
   // 13. Reusable User Purge (Extracted from Admin API)

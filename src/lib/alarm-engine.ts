@@ -97,9 +97,7 @@ export async function checkAlarms() {
 
       const engine = new MatrixV5Engine({ 
         tradeMode: config.tradeMode,
-        f4Multiplier: config.f4Multiplier,
-        scalpF4Multiplier: config.scalpF4Multiplier,
-        swingF4Multiplier: config.swingF4Multiplier
+        f4Multiplier: config.f4Multiplier
       });
       
       // Group by symbol for this user

@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
           );
 
           // Step 2.6: Real MTF Integration (V5.6 Enhancement for Bulk)
-          const mtfResult = await getMtfConsensus(symbolUpper, intervalVal, result.indicatorBullCount);
+          const mtfResult = await getMtfConsensus(symbolUpper, intervalVal, result.indicatorBullCount || 0);
           result.mtfConsensus = mtfResult.verdictText;
           result.mtfWeightedScore = mtfResult.mtfScore;  // [-100,+100] yeni ölçek
           result.mtfBullCount = mtfResult.bullCount;
@@ -139,6 +139,7 @@ export async function POST(request: NextRequest) {
             liquidityZone: result.liquidityZone,
             liquidityBonus: result.liquidityBonus,
             mtfWeightedScore: result.mtfWeightedScore,
+            bullWeight: (result.indicatorBullCount || 0) / 5,
             dynamicWeights: result.dynamicWeights,
             fundingRate: result.fundingRate,
             fundingImpact: result.fundingImpact,

@@ -6,14 +6,20 @@ const connectionString =
   process.env.DATABASE_URL ||
   process.env.POSTGRES_URI;
 
-export const pool = new Pool({
+const poolConfig: any = {
   connectionString,
-  ssl: connectionString?.includes("primary")
-    ? { rejectUnauthorized: false }
-    : false,
   max: 10,
   idleTimeoutMillis: 30000,
-});
+};
+
+// Enable SSL if explicitly requested or if it's a Northflank/Neon primary DB
+if (connectionString?.includes("primary") || 
+    process.env.PGSSLMODE === 'require' || 
+    connectionString?.includes("sslmode=require")) {
+  poolConfig.ssl = { rejectUnauthorized: false };
+}
+
+export const pool = new Pool(poolConfig);
 
 // Debug Logging (Masked)
 if (connectionString) {

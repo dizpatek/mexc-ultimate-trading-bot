@@ -10,7 +10,8 @@ export async function GET(
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get("limit") || "100");
 
-    const trades = await getTradeHistoryBySymbol(symbol, limit);
+    const userId = 1; // Default to admin for analytics page
+    const trades = await getTradeHistoryBySymbol(userId, symbol, limit);
     return NextResponse.json(trades);
   } catch (error: unknown) {
     console.error("Error fetching symbol trades:", error);

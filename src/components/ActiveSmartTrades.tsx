@@ -41,11 +41,27 @@ export { calculateTradePnl, calculateMtfVerdict };
 interface ActiveSmartTradesProps {
   onEdit?: (trade: SmartTradeOrder) => void;
   onNewTrade?: () => void;
+  mtfData?: any;
+  loadingMtf?: any;
+  failedMtf?: any;
+  liveSignals?: any;
+  fetchMtfAnalysis?: any;
+  fetchMultipleMtfAnalysis?: any;
+  fetchLiveSignals?: any;
+  isManaged?: boolean;
 }
 
 export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
   onEdit,
   onNewTrade,
+  mtfData: managedMtfData,
+  loadingMtf: managedLoadingMtf,
+  failedMtf: managedFailedMtf,
+  liveSignals: managedLiveSignals,
+  fetchMtfAnalysis: managedFetchMtfAnalysis,
+  fetchMultipleMtfAnalysis: managedFetchMultipleMtfAnalysis,
+  fetchLiveSignals: managedFetchLiveSignals,
+  isManaged = false,
 }) => {
   const [trades, setTrades] = useState<SmartTradeOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -61,15 +77,15 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
     "active" | "passive" | "archive" | null
   >(null);
 
-  const {
-    mtfData,
-    loadingMtf,
-    failedMtf,
-    liveSignals,
-    fetchMtfAnalysis,
-    fetchMultipleMtfAnalysis,
-    fetchLiveSignals,
-  } = useTradingSignals();
+  const internalSignals = useTradingSignals();
+  
+  const mtfData = isManaged ? managedMtfData : internalSignals.mtfData;
+  const loadingMtf = isManaged ? managedLoadingMtf : internalSignals.loadingMtf;
+  const failedMtf = isManaged ? managedFailedMtf : internalSignals.failedMtf;
+  const liveSignals = isManaged ? managedLiveSignals : internalSignals.liveSignals;
+  const fetchMtfAnalysis = isManaged ? managedFetchMtfAnalysis : internalSignals.fetchMtfAnalysis;
+  const fetchMultipleMtfAnalysis = isManaged ? managedFetchMultipleMtfAnalysis : internalSignals.fetchMultipleMtfAnalysis;
+  const fetchLiveSignals = isManaged ? managedFetchLiveSignals : internalSignals.fetchLiveSignals;
 
   const [timeframe] = useModuleTimeframe("4h");
   const { notify, confirm } = useNotification();
@@ -409,26 +425,41 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                         {MTF_INTERVALS.map(tf => {
                           const d = mtfResults[tf];
                           if (!d) return null;
-                          const hasBuy = d.f4ConfirmedBuy || d.f4EarlyBuy || d.trend === "BULLISH";
-                          const hasSell = d.f4ConfirmedSell || d.f4EarlySell || d.trend === "BEARISH";
+                          let weight = 0.5;
+                          if (typeof d.bullWeight === 'number') {
+                            weight = d.bullWeight;
+                          } else {
+                            if (d.f4ConfirmedBuy || d.f4EarlyBuy) weight = 0.9;
+                            else if (d.f4ConfirmedSell || d.f4EarlySell) weight = 0.1;
+                            else if (d.signal === "BUY" || d.trend === "BULLISH") weight = 0.75;
+                            else if (d.signal === "SELL" || d.trend === "BEARISH") weight = 0.25;
+                          }
+                          
+                          // Artık sırf trend bullish diye AL demiyoruz, 5 üzerinden kaçın AL dediğine (bullWeight) bakıyoruz.
+                          const hasBuy = weight > 0.55;
+                          const hasSell = weight < 0.45;
+
                           // MTF hücre etiketi:
-                          // COVER (isShort=true): SAT = iyi (rose), AL = ters uyarı (amber)
-                          // TRADE (isShort=false): AL = iyi (emerald), SAT = ters uyarı (amber)
+                          // COVER (isShort=true): SAT = iyi (rose), AL = ters uyarı (orange)
+                          // TRADE (isShort=false): AL = iyi (emerald), SAT = ters uyarı (orange)
                           const cellColorClass = isShort
                             ? (hasSell
                                 ? "bg-rose-500/10 border-rose-500/20 text-rose-400"
                                 : hasBuy
-                                  ? "bg-amber-500/10 border-amber-500/30 text-amber-400 animate-pulse"
+                                  ? "bg-orange-500/10 border-orange-500/30 text-orange-400 animate-pulse"
                                   : "bg-slate-800/20 border-white/5 text-slate-600")
                             : (hasBuy
                                 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
                                 : hasSell
-                                  ? "bg-amber-500/10 border-amber-500/30 text-amber-400 animate-pulse"
+                                  ? "bg-orange-500/10 border-orange-500/30 text-orange-400 animate-pulse"
                                   : "bg-slate-800/20 border-white/5 text-slate-600");
-                          // Etiketler: Net ve kısa - 'AL KARŞI' gibi kafa karıştırıcı ifade yok
+
+                          // Etiketler: Sadece AL/SAT yerine, gücünü de (3/5, 4/5 gibi) ifade edebiliriz
+                          // weight = 0.2 (1/5 bull) -> SAT
+                          // weight = 0.8 (4/5 bull) -> AL
                           const cellLabel = isShort
-                            ? (hasSell ? "SAT ✓" : hasBuy ? "⚠ TERS" : "NÖTR")
-                            : (hasBuy ? "AL ✓" : hasSell ? "⚠ TERS" : "NÖTR");
+                            ? (hasSell ? "SAT ✓" : hasBuy ? "AL ⚠" : "NÖTR")
+                            : (hasBuy ? "AL ✓" : hasSell ? "SAT ⚠" : "NÖTR");
                           return (
                             <div key={tf} className={cn(
                               "flex-1 p-1 rounded border text-center flex flex-col gap-0.5 transition-all duration-300",

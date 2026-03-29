@@ -131,12 +131,16 @@ async function signedRequest<T>(
   userId: number,
   params: Record<string, string | number | boolean> = {},
   timeout = 10000,
+  forceReal = false,
 ): Promise<T | null> {
   // P1.0 ULTIMATE SAFETY LOCK: Fetch the REAL active mode from database settings
   const { getSetting } = await import("./settings");
   const activeMode = (await getSetting("TRADING_MODE", userId)) || "test";
 
-  if (activeMode === "test") {
+  // Allow bypass ONLY for GET /account (balances) if forceReal is explicitly requested
+  const isSyncRequest = forceReal && method === "GET" && endpoint.includes("account");
+
+  if (activeMode === "test" && !isSyncRequest) {
     const errorMsg = `[Security Lock] Blocking PRIVATE MEXC ${method} ${endpoint} request: System is in TEST mode.`;
     console.error(errorMsg);
     // Instead of throwing which might crash components, we return null or specific signal
@@ -205,8 +209,14 @@ async function signedGet<T>(
   userId: number,
   params: Record<string, string | number | boolean> = {},
   timeout = 10000,
+  forceReal = false,
 ): Promise<T | null> {
-  return signedRequest<T>("GET", endpoint, userId, params, timeout);
+  return signedRequest<T>("GET", endpoint, userId, params, timeout, forceReal);
+}
+
+export async function getAccountInfo(userId: number, forceReal = false) {
+  const res = await signedGet<AccountInfo>("/api/v3/account", userId, {}, 10000, forceReal);
+  return res as AccountInfo;
 }
 
 export async function testConnection() {
@@ -417,10 +427,7 @@ export interface OrderResult {
   }[];
 }
 
-export async function getAccountInfo(userId: number) {
-  const res = await signedGet<AccountInfo>("/api/v3/account", userId);
-  return res as AccountInfo;
-}
+// getAccountInfo moved to line 215 with forceReal support
 
 export async function getBalance(asset: string, userId: number) {
   const account = await getAccountInfo(userId);

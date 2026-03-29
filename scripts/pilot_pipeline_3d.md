@@ -1,6 +1,6 @@
 # 🌌 Pilot Pipeline 3D Mimari Analizi
 
-Bu doküman, sistemin "kalbi" olan **Pilot Pipeline**'ın (Otopilot İşlem Hattı) katmanlı mimarisini ve verinin bir sinyalden işleme nasıl dönüştüğünü 3 boyutlu bir perspektifle açıklar.
+Bu doküman, sistemin **Pilot Pipeline**'ının katmanlı mimarisini ve verinin bir sinyalden işleme nasıl dönüştüğünü 3 boyutlu bir perspektifle açıklar. Sistem, **TRADE (Long)** ve **COVER (Short)** üzerine kuruludur.
 
 ## 🏗️ Katmanlı Mimari Şeması (3D Perspective)
 
@@ -29,14 +29,26 @@ graph TD
         J -->|OK| L["✅ Veto Check (MTF/Score)"]
     end
 
-    subgraph "L4: EXECUTION LAYER (İnfaz Katmanı)"
+    subgraph "L4: EXECUTION LAYER (Giriş Emri)"
         L --> M["🚀 SmartTrade Executor"]
-        M --> N["🟢 BUY (New/Re-Entry)"]
-        M --> O["🔴 SELL (Cover/TP/SL)"]
+        M --> N["🟢 TRADE — Long (Yeni Alım veya Re-Entry)"]
+        M --> O["🔴 COVER — Short (Aktif Varlık Satışı)"]
+        N & O --> TPADEF["📌 TP / SL Hedefleri TANIMLANIR ve SQL'e Kaydedilir"]
     end
 
-    subgraph "L5: AUDIT LAYER (Denetim Katmanı)"
-        N & O & I --> P["📋 Combat Terminal (YZ Sinyal Akışı)"]
+    subgraph "L5: MONITOR LOOP (Sürekli İzleme — Ayrı Döngü)"
+        TPADEF -.->|Her 1 saniyede tetiklenir| MON["🔁 smart-trade-monitor.ts"]
+        MON --> EVAL["evaluateActiveTrade — Fiyat Kontrolü"]
+        EVAL --> TP_CHECK{"TP Hedefine Ulaşıldı mı?"}
+        EVAL --> SL_CHECK{"SL Tetiklendi mi?"}
+        TP_CHECK -->|EVET| TP_EXEC["executePartialTP / executeExit — Kâr Al"]
+        SL_CHECK -->|EVET| SL_EXEC["executeExit — Stop Loss"]
+        TP_CHECK & SL_CHECK -->|Hayır| TRAIL{"Trailing Aktif?"}
+        TRAIL -->|EVET| TRAIL_CALC["calculateTrailingExitTarget — Hedef Güncelle"]
+    end
+
+    subgraph "L6: AUDIT LAYER (Denetim Katmanı)"
+        TP_EXEC & SL_EXEC & TRAIL_CALC & I --> P["📋 Combat Terminal (Sinyal Akışı)"]
         P --> Q["🔍 System Console (Derin Loglar)"]
     end
 
@@ -44,8 +56,11 @@ graph TD
     style L2 fill:#0f172a,stroke:#38bdf8,color:#38bdf8,stroke-width:2px
     style L3 fill:#1e293b,stroke:#f59e0b,color:#f59e0b,stroke-width:2px
     style L4 fill:#064e3b,stroke:#10b981,color:#10b981,stroke-width:2px
-    style L5 fill:#020617,stroke:#6366f1,color:#6366f1
+    style L5 fill:#1c1917,stroke:#f97316,color:#f97316,stroke-width:2px
+    style L6 fill:#020617,stroke:#6366f1,color:#6366f1
 ```
+
+---
 
 ## 🛠️ Pipeline Derinlik Analizi
 
@@ -55,24 +70,35 @@ Sistem, MEXC borsasından gelen ham mum (k-line) verilerini anlık olarak çeker
 
 ### 2. Katman (Zeka): Karar Mekanizması
 
-En yoğun işlem bu katmanda gerçekleşir. Sadece tek bir indikatöre değil, **5 farklı zaman diliminin (MTF)** ve **AI Skoru**'nun konfluansına (kesişimine) bakılır. Sistem "akıllı" bir karar vermeden önce veriyi 360 derece analiz eder.
+En yoğun işlem bu katmanda gerçekleşir. Sadece tek bir indikatöre değil, **5 farklı zaman diliminin (MTF)** ve **AI Skoru**'nun konfluansına (kesişimine) bakılır.
 
 ### 3. Katman (Güvenlik): İzolasyon Muhafızları
 
-Burada veriler süzgeçten geçer:
+- **Timeframe Guard:** İzleme ve Pilot periyotları burada ayrıştırılır.
+- **Veto Guard:** MTF skoru veya AI skoru yetersizse sinyal burada **VETO** alır.
 
-- **Timeframe Guard:** Senin seçtiğin sidebar periyodu ile botun işlem periyodu burada ayrıştırılır. "İzleme" ve "Pilot" bu noktada kollara ayrılır.
-- **Veto Guard:** Eğer MTF %65'in altındaysa veya AI skoru yetersizse, sinyal burada "VETO" yer.
+### 4. Katman (Giriş Emri): TRADE ve COVER Mimarisi
 
-### 4. Katman (İnfaz): Emir Pipeline'ı
+> [!IMPORTANT]
+> Sistem **Long/Short** değil, **TRADE (Long)** ve **COVER (Short)** terminolojisiyle çalışır.
 
-Tüm onaylar alındıktan sonra, veri bir API isteğine dönüşür. **SmartTrade** motoru devreye girerek TP/SL ayarlarını yapar ve emri borsaya iletir.
+- **🟢 TRADE (Long):** Yeni varlık alımı veya Re-Entry (Geri Alım). TP / SL parametreleri **tanımlanıp** SmartTrade kaydına yazılır. Ancak burada **çalıştırılmaz.**
+- **🔴 COVER (Short):** Portföydeki varlığın kısa pozisyona alınması. TP / SL parametreleri yine **tanımlanır, çalıştırılmaz.**
 
-### 5. Katman (Denetim): Görselleştirme
+### 5. Katman (Monitor Loop): TP/SL'nin Gerçekten Tetiklendiği Yer
 
-Son aşamada, tüm bu karmaşık süreç kullanıcının anlayabileceği "Şahane" sinyal kartlarına (`CombatLog`) dönüştürülür. İşlem başarılı olsa da olmasa da, denetim katmanı her adımı şeffafça loglar.
+> [!CAUTION]
+> TP ve SL **Giriş emri sırasında değil**, `smart-trade-monitor.ts` döngüsünde **her saniye** kontrol edilerek tetiklenir.
+
+- `evaluateTakeProfit()` → Fiyat TP hedefine ulaştıysa → `executePartialTP` veya `executeExit`
+- `evaluateStopLoss()` → Fiyat SL hedefine düştüyse → `executeExit`
+- `calculateTrailingExitTarget()` → Trailing aktifse hedef dinamik olarak güncellenir.
+
+### 6. Katman (Denetim): CombatLog Görselleştirme
+
+Her işlem, her veto ve her kapanış — başarılı olsun ya da olmasın — `CombatLog`'a yazılır.
 
 ---
 
-> [!IMPORTANT]
-> Sistem şu an **Tam İzolasyon** modundadır. Kullanıcılar arası veri sızıntısı ve periyot karışıklığı bu pipeline sayesinde 0'a indirilmiştir.
+> [!NOTE]
+> **Özet:** Giriş emirleri (L4) sadece karar verir ve kaydeder. TP/SL'nin gerçekleşmesi tamamen bağımsız bir `cron` döngüsünde (L5) yaşar. Bu tasarım, botun aynı anda onlarca işlemi eş zamanlı takip edebilmesini sağlar.

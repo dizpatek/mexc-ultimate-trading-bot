@@ -122,30 +122,29 @@ export function calculateMtfVerdict(
   side: "BUY" | "SELL" = "BUY"
 ) {
   // If we are LONG (BUY), bullish is good. If we are SHORT (SELL), bearish is good.
-  // P5.6: Enhanced MTF Weighted Scoring (Synced with mtf-engine.ts)
-  let mtfBullScore = 0;
+  // P5.6 -> V6: Enhanced MTF Weighted Scoring (Synced with mtf-engine.ts)
   let totalTfs = 0;
+  let tfScores: number[] = [];
 
   allTfs.forEach(d => {
     if (!d) return;
     totalTfs++;
     
-    // Check if d.bullWeight exists (new centralized format) or calculate it
+    let weight = 0.5; // Neutral start
     if (typeof (d as any).bullWeight === 'number') {
-      mtfBullScore += (d as any).bullWeight;
+      weight = (d as any).bullWeight;
     } else {
-      // Legacy fallback: Calculate a weight from available flags
-      let weight = 0.5; // Neutral start
+      // Legacy fallback
       if (d.f4ConfirmedBuy || d.f4EarlyBuy) weight = 0.9;
       else if (d.f4ConfirmedSell || d.f4EarlySell) weight = 0.1;
       else if (d.signal === "BUY" || d.trend === "BULLISH") weight = 0.75;
       else if (d.signal === "SELL" || d.trend === "BEARISH") weight = 0.25;
-      mtfBullScore += weight;
     }
+    tfScores.push(weight);
   });
 
-  const bullCountRaw = mtfBullScore;
-  const bearCountRaw = totalTfs - mtfBullScore;
+  const bullCountRaw = tfScores.reduce((a, b) => a + b, 0);
+  const bearCountRaw = totalTfs - bullCountRaw;
 
   // Context-aware scoring
   const goodCount = side === "BUY" ? bullCountRaw : bearCountRaw;
@@ -153,15 +152,19 @@ export function calculateMtfVerdict(
   
   const total = allTfs.length;
   const goodPct = total > 0 ? Math.round((goodCount / total) * 100) : 50;
-
   const bullPct = total > 0 ? Math.round((bullCountRaw / total) * 100) : 0;
   const bearPct = total > 0 ? Math.round((bearCountRaw / total) * 100) : 0;
 
-  // [-100, +100] MTF Birleşik Skoru
-  // 5 SAT → -100 | 5 AL → +100 | 3AL/2SAT → +20 | tam nötr → 0
-  const mtfScore = total > 0 
-    ? Math.round(((bullCountRaw - bearCountRaw) / total) * 100)
-    : 0;
+  // [-100, +100] MTF Birleşik Skoru - WEIGHTED LOGIC
+  let mtfScore = 0;
+  if (tfScores.length > 0) {
+    const nearestUpper = tfScores[0];
+    const otherTfs = tfScores.slice(1);
+    const otherAvg = otherTfs.length > 0 ? (otherTfs.reduce((a, b) => a + b, 0) / otherTfs.length) : nearestUpper;
+    
+    const weightedBullRatio = (nearestUpper * 0.5) + (otherAvg * 0.5);
+    mtfScore = Math.round((weightedBullRatio - 0.5) * 200);
+  }
 
   // verdictText ve verdictColor basit bullPct/bearPct'e göre kalsın
   let verdictText = "NÖTR";
@@ -190,11 +193,11 @@ export function calculateMtfVerdict(
       verdictText = "SAT";
       verdictColor = "text-rose-300";
     } else if (mtfScore >= 60) {
-      verdictText = "TERS TREND (AL)";
+      verdictText = "GÜÇLÜ BOĞA ⚠";
       verdictColor = "text-orange-500 font-black animate-pulse bg-orange-500/10 px-1 rounded";
     } else if (mtfScore >= 20) {
-      verdictText = "ZAYIF / BOĞA";
-      verdictColor = "text-emerald-300";
+      verdictText = "ZAYIF BOĞA ⚠";
+      verdictColor = "text-orange-400 font-bold bg-orange-400/10 px-1 rounded";
     }
   }
 

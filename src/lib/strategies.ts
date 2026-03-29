@@ -323,15 +323,17 @@ export class MatrixV5Strategy extends BaseStrategy {
       // V5.5 Optimization: True MTF Consensus Veto
       let mtfScore = 50;
       let mtfVerdictText = "ATLANDI";
+      let nearestMtfScore = 0; // [NEW] Scope-safe storage for indicators
 
       if (originalSignal) {
         const engineBullCount = result.indicatorBullCount ?? result.mtfBullCount ?? 0;
         const consensus = await getMtfConsensus(this.symbol, timeframeStr, engineBullCount);
         mtfScore = consensus.mtfScore;  // [-100,+100] yeni ölçek
         mtfVerdictText = consensus.verdictText;
+        nearestMtfScore = consensus.nearestScore ?? 0;
 
         const isEarly = !!(result.f4EarlyBuy || result.f4EarlySell);
-        const veto = this.applyMtfVeto(originalSignal, mtfScore, mtfVerdictText, isEarly);
+        const veto = this.applyMtfVeto(originalSignal, mtfScore, mtfVerdictText, isEarly, nearestMtfScore);
         signalType = veto.signal; // Can become null
         reasonText += veto.reasonExtension;
       }
@@ -359,6 +361,7 @@ export class MatrixV5Strategy extends BaseStrategy {
           whaleStatus: String(result.whaleStatus || ""),
           mtfWeightedScore: Number(mtfScore) || 0,  
           mtfVerdict: String(mtfVerdictText || "N/A"),
+          nearestScore: nearestMtfScore,
           fundingRate: Number(result.fundingRate) || 0,
           fundingImpact: String(result.fundingImpact || ""),
           f4PowerLoss: Number(result.f4PowerLoss) || 0,
@@ -390,7 +393,8 @@ export class MatrixV5Strategy extends BaseStrategy {
     signal: "BUY" | "SELL" | null,
     mtfScore: number,
     mtfVerdictText: string,
-    isEarly: boolean = false
+    isEarly: boolean = false,
+    nearestScore: number = 0
   ): { signal: "BUY" | "SELL" | null; reasonExtension: string } {
     const mtfVetoEnabled = this.parameters.mtfVeto !== false;
     
@@ -401,19 +405,24 @@ export class MatrixV5Strategy extends BaseStrategy {
     const mtfShortThreshold = Math.abs(Number(this.parameters.mtfShortThreshold ?? 20));
     const coverThreshold = -mtfShortThreshold; // örn: -20
 
+    // [STRICT V6] Nearest TF Guard: If the immediate upper timeframe is against us, VETO.
+    const isNearestOpposite = (signal === "BUY" && (nearestScore || 0) < -20) || (signal === "SELL" && (nearestScore || 0) > 20);
+
     const scoreLabel = `${mtfScore > 0 ? '+' : ''}${Math.round(mtfScore)}`;
     let finalSignal = signal;
     let reasonExtension = "";
 
     if (mtfVetoEnabled) {
-      // 1. Standart Veto (Sıkı: Mutlak yöne göre)
-      if (signal === "BUY" && mtfScore < mtfLongThreshold) {
-        reasonExtension = ` | 🛑 MTF LONG Veto: Skor ${scoreLabel} < ${mtfLongThreshold} (${mtfVerdictText}) — BUY iptal.`;
+      if (isNearestOpposite) {
+          reasonExtension = ` | 🛑 MTF NEAREST Veto: Yakın periyot (${nearestScore}) sinyale ters! — İptal.`;
+          finalSignal = null;
+      }
+      // 1. Standart Veto (Ağırlıklı Ortalama)
+      else if (signal === "BUY" && mtfScore < mtfLongThreshold) {
+        reasonExtension = ` | 🛑 MTF LONG Veto: Skor ${scoreLabel} < ${mtfLongThreshold} — BUY iptal.`;
         finalSignal = null;
       } else if (signal === "SELL" && mtfScore > coverThreshold) {
-        // [STRICT] COVER (Short) koruması: MTF pozitif veya hafif negatifse engelle.
-        // Eğer MTF bir şekilde boğa tarafındaysa (pozitif skor), Short (SELL) asla açılmaz.
-        reasonExtension = ` | 🛑 MTF SHORT Veto: Skor ${scoreLabel} > ${coverThreshold} (${mtfVerdictText}) — COVER (Short) engellendi.`;
+        reasonExtension = ` | 🛑 MTF SHORT Veto: Skor ${scoreLabel} > ${coverThreshold} — COVER iptal.`;
         finalSignal = null;
       } 
       // 2. Erken Sinyal Özel Koruması (İkincil Kontrol)

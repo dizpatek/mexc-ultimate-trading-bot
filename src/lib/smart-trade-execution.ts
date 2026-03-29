@@ -67,6 +67,50 @@ export async function executeEntry(
     const tradeMode = metaPayload?.mode || 'TRADE';
     const tradeState = tradeMode === 'COVER' ? 'COVER_SOLD' : 'TRADE_ACTIVE';
 
+    // ── TRAILING BUY SL/TP DYNAMIC CALCULATION ─────────────────────────
+    // If the executed entry price (avgPrice) is different from the payload's original buyPrice,
+    // we must adjust the SL and TP absolute prices relative to the new execution price, 
+    // keeping the original percentage distance intact.
+    if (metaPayload?.buyPrice && Number(metaPayload.buyPrice) > 0) {
+      const originalBuyPrice = Number(metaPayload.buyPrice);
+      const isTrailingExecuted = metaPayload.trailingBuy === true && avgPrice !== originalBuyPrice;
+
+      if (isTrailingExecuted) {
+        if (metaPayload.stopLoss?.price) {
+          const originalSl = Number(metaPayload.stopLoss.price);
+          // Dist ratio = absolute difference / original element
+          const slDistRatio = Math.abs(originalBuyPrice - originalSl) / originalBuyPrice;
+          
+          let newSl = originalSl;
+          if (tradeMode === 'COVER') {
+            newSl = avgPrice * (1 + slDistRatio); // SL is above for SHORT
+          } else {
+            newSl = avgPrice * (1 - slDistRatio); // SL is below for LONG
+          }
+          metaPayload.stopLoss.price = newSl.toString();
+          metaParam.activeStopLoss = newSl;
+          console.log(`[Execution] T-Buy SL Adjusted for ${symbol}: ${originalSl} -> ${newSl} (Exec: ${avgPrice})`);
+        }
+
+        if (metaPayload.takeProfit?.price) {
+          const originalTp = Number(metaPayload.takeProfit.price);
+          const tpDistRatio = Math.abs(originalBuyPrice - originalTp) / originalBuyPrice;
+          
+          let newTp = originalTp;
+          if (tradeMode === 'COVER') {
+            newTp = avgPrice * (1 - tpDistRatio); // TP is below for SHORT
+          } else {
+            newTp = avgPrice * (1 + tpDistRatio); // TP is above for LONG
+          }
+          metaPayload.takeProfit.price = newTp.toString();
+          metaParam.activeTakeProfit = newTp;
+          console.log(`[Execution] T-Buy TP Adjusted for ${symbol}: ${originalTp} -> ${newTp} (Exec: ${avgPrice})`);
+        }
+        
+        metaParam.payload = metaPayload;
+      }
+    }
+
     await sql`UPDATE orders SET status = 'FILLED', price = ${avgPrice}, updated_at = ${Date.now()}, meta = (meta::jsonb || ${JSON.stringify({ ...metaParam, entryReason: reason, entryResult: result, highestPrice: avgPrice, lowestPrice: avgPrice, filledAt: Date.now(), tradeState })}::jsonb)::text WHERE id = ${id}`;
   } catch (err) {
     console.error(`[Entry Error]`, err);

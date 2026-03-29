@@ -15,6 +15,8 @@ import {
   X,
   ChevronUp,
   ChevronDown,
+  ShieldCheck,
+  CheckCircle2
 } from "lucide-react";
 import { api } from "@/services/api";
 import { TradingViewEmbedChart } from "./TradingViewEmbedChart";
@@ -105,6 +107,30 @@ export const MatrixPortfolio: React.FC<MatrixPortfolioProps> = ({
 
   // 5. Signals Alarm Sync
   const { logs: combatLogs } = useCombatLogs(interval);
+
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+
+  const handleSyncPortfolio = async () => {
+    setIsSyncing(true);
+    setSyncStatus(null);
+    try {
+      const response = await api.post("/bot/sync-portfolio", {});
+      if (response.data.success) {
+        setSyncStatus("SUCCESS");
+        refetch(); // Refresh holdings
+        setTimeout(() => setSyncStatus(null), 3000);
+      } else {
+        alert("Eror: " + response.data.error);
+        setSyncStatus(null);
+      }
+    } catch (e) {
+      console.error("Sync error:", e);
+      setSyncStatus(null);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Fetch AI signals — Hook tarafından yönetiliyor
   useEffect(() => {
@@ -278,6 +304,31 @@ export const MatrixPortfolio: React.FC<MatrixPortfolioProps> = ({
               title="Yenile"
             >
               <RefreshCw className={cn("w-3.5 h-3.5", isLoadingSignals && "animate-spin text-cyan-400")} />
+            </button>
+            
+            <button
+               onClick={(e) => { 
+                 e.stopPropagation(); 
+                 handleSyncPortfolio();
+               }}
+               disabled={isSyncing}
+               className={cn(
+                 "flex items-center gap-1.5 px-2 py-1.5 rounded-lg border border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/10 transition-all",
+                 isSyncing && "opacity-50 cursor-wait",
+                 syncStatus === "SUCCESS" && "bg-emerald-500/20 text-emerald-400 border-emerald-400"
+               )}
+               title="Gerçek MEXC cüzdanınızı simülatöre kopyalar (Sadece Okuma)"
+            >
+              {isSyncing ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : syncStatus === "SUCCESS" ? (
+                <CheckCircle2 className="w-3.5 h-3.5" />
+              ) : (
+                <ShieldCheck className="w-3.5 h-3.5" />
+              )}
+              <span className="text-[8px] font-black uppercase hidden sm:inline">
+                {isSyncing ? "EŞLENİYOR..." : syncStatus === "SUCCESS" ? "BAŞARILI!" : "CÜZDANI EŞLE"}
+              </span>
             </button>
             
             <button

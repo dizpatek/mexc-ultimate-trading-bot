@@ -725,27 +725,27 @@ export async function getBotConfig(userId: number): Promise<BotConfig> {
   }
   return {
     ...rows[0],
-    whale_multiplier: parseFloat(String(rows[0].whale_multiplier || 1.8)),
-    ai_threshold: parseInt(String(rows[0].ai_threshold || 65)),
+    whale_multiplier: parseFloat(String(rows[0].whale_multiplier ?? 1.8)),
+    ai_threshold: parseInt(String(rows[0].ai_threshold ?? 65)),
     auto_trade: !!rows[0].auto_trade,
     defense_mode: !!rows[0].defense_mode,
     pilot_trailing_buy: !!rows[0].pilot_trailing_buy,
     pilot_tp_trailing: !!rows[0].pilot_tp_trailing,
     pilot_sl_trailing: !!rows[0].pilot_sl_trailing,
     pilot_mtf_veto: !!rows[0].pilot_mtf_veto,
-    pilot_mtf_threshold: parseInt(String(rows[0].pilot_mtf_threshold || 70)),
-    pilot_mtf_long_threshold: parseInt(String(rows[0].pilot_mtf_long_threshold || 70)),
-    pilot_mtf_short_threshold: parseInt(String(rows[0].pilot_mtf_short_threshold || 30)),
-    pilot_mode: (rows[0].pilot_mode as any) || "matrix",
+    pilot_mtf_threshold: parseInt(String(rows[0].pilot_mtf_threshold ?? 70)),
+    pilot_mtf_long_threshold: parseInt(String(rows[0].pilot_mtf_long_threshold ?? 20)),
+    pilot_mtf_short_threshold: parseInt(String(rows[0].pilot_mtf_short_threshold ?? 20)),
+    pilot_mode: (rows[0].pilot_mode as any) ?? "matrix",
     pilot_use_usdt: !!rows[0].pilot_use_usdt,
-    f4_multiplier: parseFloat(String(rows[0].f4_multiplier || 1.0)),
+    f4_multiplier: parseFloat(String(rows[0].f4_multiplier ?? 1.0)),
     scalp_f4_multiplier: parseFloat(String(rows[0].scalp_f4_multiplier ?? 3.7)),
     swing_f4_multiplier: parseFloat(String(rows[0].swing_f4_multiplier ?? 1.2)),
     f4_alpha: parseFloat(String(rows[0].f4_alpha ?? 95)),
-    f4_power_loss_threshold: parseFloat(String(rows[0].f4_power_loss_threshold || 90)),
-    long_squeeze_threshold: parseFloat(String(rows[0].long_squeeze_threshold || 20)),
-    short_squeeze_threshold: parseFloat(String(rows[0].short_squeeze_threshold || 20)),
-    f4_slope_threshold: parseFloat(String(rows[0].f4_slope_threshold || 0.01)),
+    f4_power_loss_threshold: parseFloat(String(rows[0].f4_power_loss_threshold ?? 90)),
+    long_squeeze_threshold: parseFloat(String(rows[0].long_squeeze_threshold ?? 20)),
+    short_squeeze_threshold: parseFloat(String(rows[0].short_squeeze_threshold ?? 20)),
+    f4_slope_threshold: parseFloat(String(rows[0].f4_slope_threshold ?? 0.01)),
     scalp_length: parseInt(String(rows[0].scalp_length ?? 11)),
     scalp_volume_multiplier: parseFloat(String(rows[0].scalp_volume_multiplier ?? 3.0)),
     swing_length: parseInt(String(rows[0].swing_length ?? 10)),
@@ -968,7 +968,8 @@ export async function updateBotConfig(userId: number, updates: Partial<BotConfig
                 trade_freshness_bars,
                 scalp_length, scalp_volume_multiplier, swing_length, swing_volume_multiplier,
                 pilot_mode, pilot_use_usdt,
-                scalp_f4_multiplier, swing_f4_multiplier, f4_alpha, fibo_length
+                scalp_f4_multiplier, swing_f4_multiplier, f4_alpha, fibo_length,
+                long_squeeze_threshold, short_squeeze_threshold, f4_slope_threshold
             )
             VALUES (
                 ${userId}, ${f4}, ${whale}, ${ai}, ${auto}, ${defense}, ${now},
@@ -980,7 +981,10 @@ export async function updateBotConfig(userId: number, updates: Partial<BotConfig
                 ${updates.scalp_f4_multiplier ?? current.scalp_f4_multiplier ?? 3.7},
                 ${updates.swing_f4_multiplier ?? current.swing_f4_multiplier ?? 1.2},
                 ${updates.f4_alpha ?? current.f4_alpha ?? 95},
-                ${updates.fibo_length ?? current.fibo_length ?? 20}
+                ${updates.fibo_length ?? current.fibo_length ?? 20},
+                ${updates.long_squeeze_threshold !== undefined ? updates.long_squeeze_threshold : (current.long_squeeze_threshold ?? 20)},
+                ${updates.short_squeeze_threshold !== undefined ? updates.short_squeeze_threshold : (current.short_squeeze_threshold ?? 20)},
+                ${updates.f4_slope_threshold !== undefined ? updates.f4_slope_threshold : (current.f4_slope_threshold ?? 0.01)}
             )
             ON CONFLICT (user_id) DO UPDATE SET
                 f4_length = EXCLUDED.f4_length,
@@ -1017,7 +1021,10 @@ export async function updateBotConfig(userId: number, updates: Partial<BotConfig
                 scalp_f4_multiplier = EXCLUDED.scalp_f4_multiplier,
                 swing_f4_multiplier = EXCLUDED.swing_f4_multiplier,
                 f4_alpha = EXCLUDED.f4_alpha,
-                fibo_length = EXCLUDED.fibo_length
+                fibo_length = EXCLUDED.fibo_length,
+                long_squeeze_threshold = EXCLUDED.long_squeeze_threshold,
+                short_squeeze_threshold = EXCLUDED.short_squeeze_threshold,
+                f4_slope_threshold = EXCLUDED.f4_slope_threshold
         `;
     console.log(
       `[DB] Bot config updated successfully at ${new Date(now).toISOString()}`,

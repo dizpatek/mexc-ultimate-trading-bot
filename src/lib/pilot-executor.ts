@@ -68,13 +68,16 @@ async function loadReEntryMapFromDB(userId: number): Promise<void> {
       const executedQty = Number(meta.executedQty || 0);
       const usdtProceeds = exitPrice * executedQty;
 
-      if (usdtProceeds >= 5 && !userMap.has(row.symbol as string)) {
-        userMap.set(row.symbol as string, {
-          lastSaleUsdt: usdtProceeds,
-          lastSaleAt: Number(meta.closedAt || Date.now()),
-          symbol: row.symbol as string,
-        });
-        console.log(`[Pilot] ♻️ RE-ENTRY LOADED FROM DB: ${row.symbol as string} | User: ${userId} | USDT: $${usdtProceeds.toFixed(2)}`);
+      if (usdtProceeds >= 5) {
+        const cleanSym = normalizeSymbol(row.symbol as string);
+        if (!userMap.has(cleanSym)) {
+          userMap.set(cleanSym, {
+            lastSaleUsdt: usdtProceeds,
+            lastSaleAt: Number(meta.closedAt || Date.now()),
+            symbol: row.symbol as string, // keep original for db updates
+          });
+          console.log(`[Pilot] ♻️ RE-ENTRY LOADED FROM DB: ${row.symbol as string} | User: ${userId} | USDT: $${usdtProceeds.toFixed(2)}`);
+        }
       }
     }
 
@@ -94,13 +97,14 @@ async function loadReEntryMapFromDB(userId: number): Promise<void> {
  * Persists to in-memory map (DB record already exists in orders table).
  */
 export function registerPilotReEntry(userId: number, symbol: string, usdtProceeds: number) {
+  const cleanSym = normalizeSymbol(symbol);
   if (!pilotReEntryMap.has(userId)) {
     pilotReEntryMap.set(userId, new Map());
   }
-  pilotReEntryMap.get(userId)!.set(symbol, {
+  pilotReEntryMap.get(userId)!.set(cleanSym, {
     lastSaleUsdt: usdtProceeds,
     lastSaleAt: Date.now(),
-    symbol,
+    symbol, // original symbol for DB updates
   });
   console.log(`[Pilot] ♻️ RE-ENTRY REGISTERED: ${symbol} | User: ${userId} | USDT: $${usdtProceeds.toFixed(2)}`);
 }
@@ -112,10 +116,12 @@ export function registerPilotReEntry(userId: number, symbol: string, usdtProceed
  * Returns null if no re-entry is registered.
  */
 async function consumeReEntry(userId: number, symbol: string): Promise<ReEntryRecord | null> {
+  const cleanSym = normalizeSymbol(symbol);
   const userMap = pilotReEntryMap.get(userId);
-  const record = userMap?.get(symbol);
+  const record = userMap?.get(cleanSym);
   if (record) {
-    userMap!.delete(symbol);
+    userMap!.delete(cleanSym);
+    const dbSymbol = record.symbol; // Use original symbol for SQL matching
     // Mark ONLY the most recent matching order as consumed in DB
     try {
       await sql`
@@ -123,7 +129,7 @@ async function consumeReEntry(userId: number, symbol: string): Promise<ReEntryRe
         WHERE id = (
           SELECT id FROM orders
           WHERE user_id = ${userId}
-            AND symbol = ${symbol}
+            AND (symbol = ${dbSymbol} OR symbol = ${cleanSym})
             AND status = 'CLOSED'
             AND side = 'BUY'
             AND meta::jsonb->>'source' = 'pilot_auto'
@@ -147,7 +153,8 @@ async function consumeReEntry(userId: number, symbol: string): Promise<ReEntryRe
  */
 function hasReEntry(userId: number, symbol: string): boolean {
   if (!initializedUsers.has(userId)) return false; // Guard: DB not loaded yet
-  return !!pilotReEntryMap.get(userId)?.has(symbol);
+  const cleanSym = normalizeSymbol(symbol);
+  return !!pilotReEntryMap.get(userId)?.has(cleanSym);
 }
 
 /**
@@ -637,14 +644,23 @@ export class PilotExecutor {
     }
 
     if (!signal.signal) {
+      if (signal.reason && signal.reason.includes("🛑")) {
+        const cleanSymbol = normalizeSymbol(symbol);
+        const reasonParts = signal.reason.split("🛑");
+        const reasonText = reasonParts.slice(1).join("🛑").trim();
+        await logSystemEvent(userId, "SYSTEM", "NEGATIVE", `🛑 OTOPİLOT VETO [${cleanSymbol}]: ${reasonText}`);
+      }
       await this.recordSignalResult({ ...params, timestamp, executed: false, executionResult: {}, aiScore: 0 });
       return;
     }
 
+    // 3. Ensure Re-Entry map is loaded from DB (P4.2 Fix)
+    await PilotExecutor.ensureReEntryMapLoaded(userId);
+
     const aiScore = typeof signal.indicators?.aiScore === 'number' ? signal.indicators.aiScore : 0;
     console.log(`[Pilot] Signal for ${symbol}: ${signal.signal} | Score: ${aiScore}`);
-    
-    // 3. Calculate Allocation
+
+    // 4. Calculate Allocation
     const alloc = this.calculateAllocation(userId, symbol, holdingsMap, botConfig, signal.signal);
 
     let executed = false;
@@ -743,12 +759,16 @@ export class PilotExecutor {
            const mtfScore = Number(signal.indicators.mtfWeightedScore);
            const mtfShortThreshold = Math.abs(Number(botConfig.pilot_mtf_short_threshold || 20));
            const coverThreshold = -mtfShortThreshold; 
+           const nearestScore = Number(signal.indicators.nearestScore || 0);
 
-           if (mtfScore > coverThreshold) {
-              const msg = `🛑 MTF GUARD Veto [${cleanSymbol}]: Skor ${mtfScore} > ${coverThreshold} (${signal.indicators.mtfVerdict}). Boğa trendinde COVER (Short) engellendi.`;
+           const isNearestOpposite = nearestScore > 20;
+
+           if (mtfScore > coverThreshold || isNearestOpposite) {
+              const cause = isNearestOpposite ? `Yakın P. ${nearestScore} > 20 (Zıt Yön)` : `Skor ${mtfScore} > ${coverThreshold}`;
+              const msg = `🛑 MTF GUARD Veto [${cleanSymbol}]: ${cause}. Boğa trendinde COVER (Short) engellendi.`;
               console.warn(`[PilotExecutor] ${msg}`);
               await logSystemEvent(userId, "SYSTEM", "NEGATIVE", msg);
-              await this.recordSignalResult({ ...params, timestamp, executed: false, executionResult: { message: `MTF Guard Veto: ${mtfScore} > ${coverThreshold}` }, aiScore });
+              await this.recordSignalResult({ ...params, timestamp, executed: false, executionResult: { message: `MTF Guard Veto: ${cause}` }, aiScore });
               return;
            }
         }

@@ -1,8 +1,0 @@
-{
-  "buildEngine": "dockerfile",
-  "dockerfile": {
-    "dockerfilePath": "/Dockerfile",
-    "dockerContext": "/",
-    "dockerWorkDir": "/"
-  }
-}

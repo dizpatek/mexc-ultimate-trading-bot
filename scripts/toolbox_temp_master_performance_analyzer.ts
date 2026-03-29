@@ -1,4 +1,4 @@
-import { DiagnosticsService } from './src/lib/diagnostics';
+import { DiagnosticsService } from '../src/lib/diagnostics';
 
 /**
  * 📈 MASTER PERFORMANCE ANALYZER (Ticaret Analitiği)

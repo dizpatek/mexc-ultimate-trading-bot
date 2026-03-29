@@ -166,21 +166,21 @@ export async function getKlines(
 export async function getAccountInfo(
   userId: number,
   mode: TradingMode = "test",
+  forceReal = false,
 ) {
   const finalMode = String(mode).toLowerCase();
-  if (finalMode === "test") {
+  if (finalMode === "test" && !forceReal) {
     const simulator = getSimulator(userId);
     await syncSimulator(userId, simulator);
     return simulator.getAccountInfo();
   }
   
   const { getAccountInfo: getMexcAccount } = await getMexcModule();
-  return getMexcAccount(userId);
+  return getMexcAccount(userId, forceReal);
 }
 
-
-export async function getHoldings(userId: number, mode: TradingMode = "test") {
-  const account = await getAccountInfo(userId, mode);
+export async function getHoldings(userId: number, mode: TradingMode = "test", forceReal = false) {
+  const account = await getAccountInfo(userId, mode, forceReal);
   return account.balances || [];
 }
 

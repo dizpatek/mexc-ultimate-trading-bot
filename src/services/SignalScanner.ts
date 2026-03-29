@@ -285,6 +285,7 @@ export class SignalScanner {
 
       signalsToInsert.push({
         symbol,
+        side: signalType.includes("BUY") ? "BUY" : "SELL",
         signal_type: signalType,
         price: currentPrice,
         volume: Number(volume) || 0,

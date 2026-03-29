@@ -322,7 +322,17 @@ export async function DELETE(request: Request) {
 
     const clearHistory = searchParams.get("clearHistory") === "true";
     if (clearHistory) {
-      // Only delete CLOSED orders that are smart trades (matching GET filter)
+      // First delete dependent trade_history records
+      await sql`
+                DELETE FROM trade_history 
+                WHERE order_id IN (
+                    SELECT id FROM orders 
+                    WHERE user_id = ${user.id} AND status IN ('CLOSED', 'NEW', 'CANCELLED')
+                    AND (meta::jsonb->>'smartTrade')::boolean = true
+                )
+            `;
+
+      // Then delete the actual orders
       await sql`
                 DELETE FROM orders 
                 WHERE user_id = ${user.id} AND status IN ('CLOSED', 'NEW', 'CANCELLED')

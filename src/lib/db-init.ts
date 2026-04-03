@@ -22,6 +22,7 @@ export async function ensureTablesExist(): Promise<boolean> {
         await runSchemaMigrations();
         await createDefaultConfigs();
         await createIndexes();
+        await cleanupOldData();
 
         console.log("[DB-Init] All tables verified successfully.");
         isInitialized = true;
@@ -83,6 +84,22 @@ async function createCoreTables() {
         );
     `;
 
+  // Insert default admin if no users exist
+  try {
+    const { rowCount } = await sql`SELECT 1 FROM users LIMIT 1`;
+    if (rowCount === 0) {
+      const now = Date.now();
+      // Default: admin / admin123
+      await sql`
+        INSERT INTO users (username, email, password_hash, is_admin, created_at, updated_at)
+        VALUES ('admin', 'admin@matrix.com', '$2b$10$TSZeLkzgREvbGJKjAktGVe8j8Pe/yl/745zcYQ243qG0RUW9vwhaC', TRUE, ${now}, ${now})
+      `;
+      console.log("[DB-Init] Default admin user created.");
+    }
+  } catch (e) {
+    console.warn("[DB-Init] Admin user check/creation warning:", e);
+  }
+
   // System logs table for generic status updates
   await sql`
         CREATE TABLE IF NOT EXISTS system_logs (
@@ -110,11 +127,14 @@ async function createTradeTables() {
             quote NUMERIC,
             price NUMERIC,
             status TEXT,
+            trading_mode TEXT DEFAULT 'test',
             created_at BIGINT,
             updated_at BIGINT,
             meta TEXT
         );
     `;
+    // Ensure column exists for migration
+    await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS trading_mode TEXT DEFAULT 'test';`.catch(() => {});
 
   // 3. Trade History Table (Standardized name, now with user_id)
   await sql`
@@ -132,9 +152,12 @@ async function createTradeTables() {
             commission_asset TEXT,
             profit_loss NUMERIC,
             profit_loss_percentage NUMERIC,
+            trading_mode TEXT DEFAULT 'test',
             created_at BIGINT
         );
     `;
+    // Ensure column exists for migration
+    await sql`ALTER TABLE trade_history ADD COLUMN IF NOT EXISTS trading_mode TEXT DEFAULT 'test';`.catch(() => {});
 }
 
 async function createPortfolioTables() {
@@ -302,6 +325,52 @@ async function createBotTables() {
             expires_at BIGINT NOT NULL
         );
     `;
+
+  // 15. Bot Config (Global/Per User) - Moved here to ensure it exists before migrations
+  await sql`
+        CREATE TABLE IF NOT EXISTS bot_configs (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER UNIQUE REFERENCES users(id),
+            f4_length INTEGER DEFAULT 11,
+            whale_multiplier NUMERIC DEFAULT 1.2,
+            ai_threshold INTEGER DEFAULT 65,
+            auto_trade BOOLEAN DEFAULT FALSE,
+            defense_mode BOOLEAN DEFAULT FALSE,
+            pilot_mode TEXT DEFAULT 'matrix',
+            pilot_use_usdt BOOLEAN DEFAULT FALSE,
+            pilot_timeframe TEXT DEFAULT '4h',
+            pilot_trailing_buy BOOLEAN DEFAULT TRUE,
+            pilot_trailing_buy_dev NUMERIC DEFAULT 0.3,
+            pilot_tp_trailing BOOLEAN DEFAULT TRUE,
+            pilot_tp_deviation NUMERIC DEFAULT 0.5,
+            pilot_sl_trailing BOOLEAN DEFAULT TRUE,
+            pilot_sl_deviation NUMERIC DEFAULT 0.5,
+            pilot_mtf_veto BOOLEAN DEFAULT TRUE,
+            pilot_mtf_threshold INTEGER DEFAULT 70,
+            pilot_mtf_long_threshold INTEGER DEFAULT 70,
+            pilot_mtf_short_threshold INTEGER DEFAULT 30,
+            pilot_only_holdings BOOLEAN DEFAULT TRUE,
+            trade_freshness_bars INTEGER DEFAULT 5,
+            fibo_length INTEGER DEFAULT 20,
+            f4_alpha NUMERIC DEFAULT 95,
+            f4_multiplier NUMERIC DEFAULT 1.0,
+            scalp_f4_multiplier NUMERIC DEFAULT 3.7,
+            swing_f4_multiplier NUMERIC DEFAULT 1.2,
+            f4_power_loss_threshold NUMERIC DEFAULT 90,
+            f4_slope_threshold NUMERIC DEFAULT 0.01,
+            long_squeeze_threshold NUMERIC DEFAULT 20,
+            short_squeeze_threshold NUMERIC DEFAULT 20,
+            f4_lookback_bars INTEGER DEFAULT 30,
+            f4_squeeze_threshold NUMERIC DEFAULT 20,
+            min_power_loss NUMERIC DEFAULT 90,
+            scalp_length INTEGER DEFAULT 11,
+            scalp_volume_multiplier NUMERIC DEFAULT 3.0,
+            swing_length INTEGER DEFAULT 10,
+            swing_volume_multiplier NUMERIC DEFAULT 1.2,
+            timeframe_settings JSONB DEFAULT '{}',
+            updated_at BIGINT NOT NULL
+        );
+    `;
 }
 
 async function runSchemaMigrations() {
@@ -402,6 +471,15 @@ async function runSchemaMigrations() {
   }
   try {
     await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS trade_freshness_bars INTEGER DEFAULT 5`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS f4_lookback_bars INTEGER DEFAULT 30`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS f4_squeeze_threshold NUMERIC DEFAULT 20`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS min_power_loss NUMERIC DEFAULT 90`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS scalp_length INTEGER DEFAULT 11`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS scalp_volume_multiplier NUMERIC DEFAULT 3.0`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS swing_length INTEGER DEFAULT 10`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS swing_volume_multiplier NUMERIC DEFAULT 1.2`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_mtf_veto BOOLEAN DEFAULT TRUE`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_only_holdings BOOLEAN DEFAULT TRUE`;
   } catch {
     /* ignore */
   }
@@ -471,24 +549,6 @@ async function runSchemaMigrations() {
 }
 
 async function createDefaultConfigs() {
-  // 14. Bot Config (Global)
-  try {
-    await sql`
-            CREATE TABLE IF NOT EXISTS bot_configs (
-                id INTEGER PRIMARY KEY,
-                f4_length INTEGER DEFAULT 10,
-                whale_multiplier NUMERIC DEFAULT 1.8,
-                ai_threshold INTEGER DEFAULT 65,
-                auto_trade BOOLEAN DEFAULT FALSE,
-                defense_mode BOOLEAN DEFAULT FALSE,
-                updated_at BIGINT NOT NULL,
-                timeframe_settings JSONB DEFAULT '{}'
-            );
-        `;
-  } catch (e) {
-    console.warn("[DB-Init] bot_configs table creation warning:", e);
-  }
-
   try {
     const { rowCount } = await sql`SELECT 1 FROM bot_configs WHERE id = 1`;
     if (rowCount === 0) {
@@ -553,4 +613,35 @@ async function createNewsTable() {
         );
     `;
   await sql`CREATE INDEX IF NOT EXISTS idx_news_published_on ON news(published_on DESC);`;
+}
+
+async function cleanupOldData() {
+  try {
+    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - SEVEN_DAYS_MS;
+
+    console.log(`[DB-Cleanup] Starting scheduled cleanup (older than 7 days)...`);
+
+    // 1. Clean market_trades (High volume)
+    const marketRes = await sql`DELETE FROM market_trades WHERE t < ${cutoff}`;
+    if (marketRes.rowCount && marketRes.rowCount > 0) {
+      console.log(`[DB-Cleanup] Deleted ${marketRes.rowCount} old market trades.`);
+    }
+
+    // 2. Clean system_logs (High volume)
+    const logRes = await sql`DELETE FROM system_logs WHERE timestamp < ${cutoff}`;
+    if (logRes.rowCount && logRes.rowCount > 0) {
+      console.log(`[DB-Cleanup] Deleted ${logRes.rowCount} old system logs.`);
+    }
+
+    // 3. Clean processed strategy signals (Keep some history but not infinite)
+    const signalRes = await sql`DELETE FROM strategy_signals WHERE timestamp < ${cutoff} AND executed = true`;
+    if (signalRes.rowCount && signalRes.rowCount > 0) {
+      console.log(`[DB-Cleanup] Deleted ${signalRes.rowCount} old executed signals.`);
+    }
+
+    console.log(`[DB-Cleanup] Cleanup completed successfully.`);
+  } catch (error) {
+    console.error(`[DB-Cleanup] Error during automatic cleanup:`, error);
+  }
 }

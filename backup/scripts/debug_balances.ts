@@ -1,6 +1,6 @@
+import * as dotenv from "dotenv";
+import { sql } from "../src/lib/postgres";
 
-import { sql } from './src/lib/postgres';
-import dotenv from 'dotenv';
 dotenv.config();
 
 async function main() {
@@ -8,7 +8,7 @@ async function main() {
     const res = await sql`SELECT * FROM balances WHERE user_id = 1`;
     console.log("BALANCES FOR USER 1:");
     console.log(JSON.stringify(res.rows, null, 2));
-    
+
     const ordersRes = await sql`
       SELECT id, symbol, side, status, meta->>'source' as source, updated_at 
       FROM orders 
@@ -17,7 +17,6 @@ async function main() {
     `;
     console.log("\nXRP ORDERS FOR USER 1:");
     console.log(JSON.stringify(ordersRes.rows, null, 2));
-
   } catch (err) {
     console.error(err);
   } finally {

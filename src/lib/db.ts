@@ -98,6 +98,8 @@ export interface BotTimeframeSettings {
   pilot_sl_deviation?: number;
   pilot_mode?: "matrix" | "hedge";
   pilot_use_usdt?: boolean;
+  pilot_trailing_buy?: boolean;
+  pilot_trailing_buy_dev?: number;
   [key: string]: unknown;
 }
 
@@ -752,6 +754,10 @@ export async function getBotConfig(userId: number): Promise<BotConfig> {
     swing_volume_multiplier: parseFloat(String(rows[0].swing_volume_multiplier ?? 1.2)),
     trade_freshness_bars: parseInt(String(rows[0].trade_freshness_bars ?? 5)),
     fibo_length: parseInt(String(rows[0].fibo_length ?? 20)),
+    f4_lookback_bars: parseInt(String(rows[0].f4_lookback_bars ?? 30)),
+    f4_squeeze_threshold: parseFloat(String(rows[0].f4_squeeze_threshold ?? 20)),
+    min_power_loss: parseFloat(String(rows[0].min_power_loss ?? 90)),
+    updated_at: Number(rows[0].updated_at || Date.now()),
   } as unknown as BotConfig;
 }
 
@@ -958,85 +964,73 @@ export async function updateBotConfig(userId: number, updates: Partial<BotConfig
 
     const now = Date.now();
 
-    console.log(`[DB] Updating bot config for User ${userId} with:`, updates);
+    const configData: Record<string, any> = {
+      user_id: userId,
+      f4_length: f4,
+      whale_multiplier: whale,
+      ai_threshold: ai,
+      auto_trade: auto,
+      defense_mode: defense,
+      pilot_trailing_buy: pt_buy,
+      pilot_trailing_buy_dev: pt_buy_dev,
+      pilot_tp_trailing: pt_tp,
+      pilot_tp_deviation: pt_tp_dev,
+      pilot_sl_trailing: pt_sl,
+      pilot_sl_deviation: pt_sl_dev,
+      pilot_timeframe: ptf,
+      f4_multiplier: multiplier,
+      timeframe_settings: updates.timeframe_settings || current.timeframe_settings || {},
+      pilot_only_holdings: p_only,
+      f4_power_loss_threshold: updates.f4_power_loss_threshold ?? current.f4_power_loss_threshold ?? 90,
+      pilot_mtf_veto: p_veto,
+      pilot_mtf_threshold: p_thresh,
+      pilot_mtf_long_threshold: p_long,
+      pilot_mtf_short_threshold: p_short,
+      f4_lookback_bars: updates.f4_lookback_bars ?? current.f4_lookback_bars ?? 30,
+      f4_squeeze_threshold: updates.f4_squeeze_threshold ?? current.f4_squeeze_threshold ?? 20,
+      min_power_loss: updates.min_power_loss ?? current.min_power_loss ?? 90,
+      trade_freshness_bars: updates.trade_freshness_bars ?? current.trade_freshness_bars ?? 5,
+      scalp_length: updates.scalp_length ?? current.scalp_length ?? 11,
+      scalp_volume_multiplier: updates.scalp_volume_multiplier ?? current.scalp_volume_multiplier ?? 3.0,
+      swing_length: updates.swing_length ?? current.swing_length ?? 10,
+      swing_volume_multiplier: updates.swing_volume_multiplier ?? current.swing_volume_multiplier ?? 1.2,
+      pilot_mode: p_mode,
+      pilot_use_usdt: p_usdt,
+      scalp_f4_multiplier: updates.scalp_f4_multiplier ?? current.scalp_f4_multiplier ?? 3.7,
+      swing_f4_multiplier: updates.swing_f4_multiplier ?? current.swing_f4_multiplier ?? 1.2,
+      f4_alpha: updates.f4_alpha ?? current.f4_alpha ?? 95,
+      fibo_length: updates.fibo_length ?? current.fibo_length ?? 20,
+      long_squeeze_threshold: updates.long_squeeze_threshold !== undefined ? updates.long_squeeze_threshold : (current.long_squeeze_threshold ?? 20),
+      short_squeeze_threshold: updates.short_squeeze_threshold !== undefined ? updates.short_squeeze_threshold : (current.short_squeeze_threshold ?? 20),
+      f4_slope_threshold: updates.f4_slope_threshold !== undefined ? updates.f4_slope_threshold : (current.f4_slope_threshold ?? 0.01),
+      updated_at: now
+    };
 
-    await sql`
-            INSERT INTO bot_configs (
-                user_id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, updated_at,
-                pilot_trailing_buy, pilot_trailing_buy_dev, pilot_tp_trailing, pilot_tp_deviation, pilot_sl_trailing, pilot_sl_deviation, pilot_timeframe, f4_multiplier, timeframe_settings, pilot_only_holdings, f4_power_loss_threshold,
-                pilot_mtf_veto, pilot_mtf_threshold, pilot_mtf_long_threshold, pilot_mtf_short_threshold, f4_lookback_bars, f4_squeeze_threshold, min_power_loss,
-                trade_freshness_bars,
-                scalp_length, scalp_volume_multiplier, swing_length, swing_volume_multiplier,
-                pilot_mode, pilot_use_usdt,
-                scalp_f4_multiplier, swing_f4_multiplier, f4_alpha, fibo_length,
-                long_squeeze_threshold, short_squeeze_threshold, f4_slope_threshold
-            )
-            VALUES (
-                ${userId}, ${f4}, ${whale}, ${ai}, ${auto}, ${defense}, ${now},
-                ${pt_buy}, ${pt_buy_dev}, ${pt_tp}, ${pt_tp_dev}, ${pt_sl}, ${pt_sl_dev}, ${ptf}, ${multiplier}, ${JSON.stringify(updates.timeframe_settings || current.timeframe_settings || {})}, ${p_only}, ${updates.f4_power_loss_threshold ?? current.f4_power_loss_threshold ?? 90},
-                ${p_veto}, ${p_thresh}, ${p_long}, ${p_short}, ${updates.f4_lookback_bars ?? current.f4_lookback_bars ?? 30}, ${updates.f4_squeeze_threshold ?? current.f4_squeeze_threshold ?? 20}, ${updates.min_power_loss ?? current.min_power_loss ?? 90},
-                ${updates.trade_freshness_bars ?? current.trade_freshness_bars ?? 5},
-                ${updates.scalp_length ?? current.scalp_length ?? 11}, ${updates.scalp_volume_multiplier ?? current.scalp_volume_multiplier ?? 3.0}, ${updates.swing_length ?? current.swing_length ?? 10}, ${updates.swing_volume_multiplier ?? current.swing_volume_multiplier ?? 1.2},
-                ${p_mode}, ${p_usdt},
-                ${updates.scalp_f4_multiplier ?? current.scalp_f4_multiplier ?? 3.7},
-                ${updates.swing_f4_multiplier ?? current.swing_f4_multiplier ?? 1.2},
-                ${updates.f4_alpha ?? current.f4_alpha ?? 95},
-                ${updates.fibo_length ?? current.fibo_length ?? 20},
-                ${updates.long_squeeze_threshold !== undefined ? updates.long_squeeze_threshold : (current.long_squeeze_threshold ?? 20)},
-                ${updates.short_squeeze_threshold !== undefined ? updates.short_squeeze_threshold : (current.short_squeeze_threshold ?? 20)},
-                ${updates.f4_slope_threshold !== undefined ? updates.f4_slope_threshold : (current.f4_slope_threshold ?? 0.01)}
-            )
-            ON CONFLICT (user_id) DO UPDATE SET
-                f4_length = EXCLUDED.f4_length,
-                whale_multiplier = EXCLUDED.whale_multiplier,
-                ai_threshold = EXCLUDED.ai_threshold,
-                auto_trade = EXCLUDED.auto_trade,
-                defense_mode = EXCLUDED.defense_mode,
-                pilot_trailing_buy = EXCLUDED.pilot_trailing_buy,
-                pilot_trailing_buy_dev = EXCLUDED.pilot_trailing_buy_dev,
-                pilot_tp_trailing = EXCLUDED.pilot_tp_trailing,
-                pilot_tp_deviation = EXCLUDED.pilot_tp_deviation,
-                pilot_sl_trailing = EXCLUDED.pilot_sl_trailing,
-                pilot_sl_deviation = EXCLUDED.pilot_sl_deviation,
-                pilot_timeframe = EXCLUDED.pilot_timeframe,
-                f4_multiplier = EXCLUDED.f4_multiplier,
-                trade_freshness_bars = EXCLUDED.trade_freshness_bars,
-                updated_at = EXCLUDED.updated_at,
-                timeframe_settings = EXCLUDED.timeframe_settings,
-                pilot_only_holdings = EXCLUDED.pilot_only_holdings,
-                f4_power_loss_threshold = EXCLUDED.f4_power_loss_threshold,
-                pilot_mtf_veto = EXCLUDED.pilot_mtf_veto,
-                pilot_mtf_threshold = EXCLUDED.pilot_mtf_threshold,
-                pilot_mtf_long_threshold = EXCLUDED.pilot_mtf_long_threshold,
-                pilot_mtf_short_threshold = EXCLUDED.pilot_mtf_short_threshold,
-                f4_lookback_bars = EXCLUDED.f4_lookback_bars,
-                f4_squeeze_threshold = EXCLUDED.f4_squeeze_threshold,
-                min_power_loss = EXCLUDED.min_power_loss,
-                scalp_length = EXCLUDED.scalp_length,
-                scalp_volume_multiplier = EXCLUDED.scalp_volume_multiplier,
-                swing_length = EXCLUDED.swing_length,
-                swing_volume_multiplier = EXCLUDED.swing_volume_multiplier,
-                pilot_mode = EXCLUDED.pilot_mode,
-                pilot_use_usdt = EXCLUDED.pilot_use_usdt,
-                scalp_f4_multiplier = EXCLUDED.scalp_f4_multiplier,
-                swing_f4_multiplier = EXCLUDED.swing_f4_multiplier,
-                f4_alpha = EXCLUDED.f4_alpha,
-                fibo_length = EXCLUDED.fibo_length,
-                long_squeeze_threshold = EXCLUDED.long_squeeze_threshold,
-                short_squeeze_threshold = EXCLUDED.short_squeeze_threshold,
-                f4_slope_threshold = EXCLUDED.f4_slope_threshold
-        `;
-    console.log(
-      `[DB] Bot config updated successfully at ${new Date(now).toISOString()}`,
-    );
+    console.log(`[DB] Saving bot config for User ${userId}...`);
+
+    // Use a single query with column names extracted to avoid mismatches
+    const columns = Object.keys(configData);
+    const updatesStr = columns
+      .filter(c => c !== 'user_id' && c !== 'id')
+      .map((c) => `${c} = EXCLUDED.${c}`)
+      .join(", ");
+
+    const query = `
+      INSERT INTO bot_configs (${columns.join(", ")})
+      VALUES (${columns.map((_, i) => `$${i + 1}`).join(", ")})
+      ON CONFLICT (user_id) DO UPDATE SET ${updatesStr}
+    `;
+
+    await sql.raw(query, Object.values(configData));
+    
+    console.log(`[DB] Bot config updated successfully for user ${userId}`);
   } catch (err: unknown) {
-    console.error(
-      "DB Update Bot Config Error:",
-      err instanceof Error ? err.message : String(err),
-    );
+    console.error("[DB] updateBotConfig CRITICAL ERROR:", err);
     throw err;
   }
-}// --- LOCKING MECHANISM ---
+}
+
+// --- LOCKING MECHANISM ---
 export async function acquireLock(
   lockId: string,
   owner: string,
@@ -1070,19 +1064,15 @@ export async function releaseLock(lockId: string, owner: string): Promise<void> 
   await sql`DELETE FROM system_locks WHERE id = ${lockId} AND owner = ${owner}`;
 }
 
-/**
- * Initializes default settings and bot configuration for a new user.
- * Essential for multi-tenant isolation.
- */
 export async function initializeUserSettings(userId: number): Promise<void> {
   const now = Date.now();
   try {
-    // 1. Seed default bot config
+    // 1. Seed base bot config (Let defaults handle most columns)
     await sql`
       INSERT INTO bot_configs (
-        user_id, f4_length, whale_multiplier, ai_threshold, auto_trade, defense_mode, pilot_timeframe, updated_at
+        user_id, updated_at
       ) VALUES (
-        ${userId}, 10, 1.8, 65, false, false, '4h', ${now}
+        ${userId}, ${now}
       ) ON CONFLICT (user_id) DO NOTHING
     `;
 

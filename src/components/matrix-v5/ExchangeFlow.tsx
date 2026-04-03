@@ -22,12 +22,6 @@ export function ExchangeFlow() {
           <div className="flex items-center gap-2 px-3 py-1.5 bg-transparent shrink-0">
             <MoveHorizontal className="w-4 h-4 text-cyan-400" />
             <h2 className="text-[10px] font-black tracking-[0.2em] text-cyan-100 uppercase">
-              EXCHANGE FLOW
-            </h2>
-          </div>
-          <div className="w-px h-4 bg-slate-800/50 hidden sm:block" />
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-transparent shrink-0 hidden sm:flex">
-            <h2 className="text-[10px] font-black tracking-[0.2em] text-cyan-100 uppercase">
               MAKER TAKER
             </h2>
           </div>

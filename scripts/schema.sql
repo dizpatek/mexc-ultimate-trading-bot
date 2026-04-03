@@ -20,13 +20,15 @@ CREATE TABLE IF NOT EXISTS orders (
   quote NUMERIC,
   price NUMERIC,
   status TEXT,
+  trading_mode TEXT DEFAULT 'test',
   created_at BIGINT,
   updated_at BIGINT,
   meta TEXT
 );
 
--- Ensure user_id exists if table was already created
+-- Ensure user_id and trading_mode exist if table was already created
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_id INTEGER;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS trading_mode TEXT DEFAULT 'test';
 
 -- Trade history table
 CREATE TABLE IF NOT EXISTS trade_history (
@@ -43,11 +45,13 @@ CREATE TABLE IF NOT EXISTS trade_history (
   commission_asset TEXT,
   profit_loss NUMERIC,
   profit_loss_percentage NUMERIC,
+  trading_mode TEXT DEFAULT 'test',
   created_at BIGINT
 );
 
--- Ensure user_id exists if table was already created
+-- Ensure user_id and trading_mode exist if table was already created
 ALTER TABLE trade_history ADD COLUMN IF NOT EXISTS user_id INTEGER;
+ALTER TABLE trade_history ADD COLUMN IF NOT EXISTS trading_mode TEXT DEFAULT 'test';
 
 -- Portfolio snapshots table
 CREATE TABLE IF NOT EXISTS portfolio_snapshots (

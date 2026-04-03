@@ -135,9 +135,20 @@ export async function handleBuySignal(options: BuySignalOptions) {
       console.log(`[Pilot] Routing ${pair} to Standardized Smart Trade...`);
 
       const currentPrice = await getPrice(pair);
+      
+      // P4.2: Dynamic pilot settings from botConfig timeframe_settings
+      const tfSettings = botConfig.timeframe_settings || {};
+      const tpPerc = tp !== null ? 0 : (tfSettings.pilot_tp_percent || 3.0);
+      const slPerc = sl !== null ? 0 : (tfSettings.pilot_sl_percent || 1.5);
+      
       // P3.1: Strictly prioritize AI targets if they exist (not null/undefined)
-      const finalTp = (tp !== null && tp !== undefined) ? tp : (currentPrice * 1.03);
-      const finalSl = (sl !== null && sl !== undefined) ? sl : (currentPrice * 0.985);
+      const finalTp = (tp !== null && tp !== undefined) ? tp : (currentPrice * (1 + tpPerc / 100));
+      const finalSl = (sl !== null && sl !== undefined) ? sl : (currentPrice * (1 - slPerc / 100));
+
+      const tpTrailing = tfSettings.pilot_tp_trailing ?? botConfig.pilot_tp_trailing ?? true;
+      const tpDev = Number(tfSettings.pilot_tp_deviation ?? botConfig.pilot_tp_deviation ?? 0.12);
+      const slTrailing = tfSettings.pilot_sl_trailing ?? botConfig.pilot_sl_trailing ?? true;
+      const slDev = Number(tfSettings.pilot_sl_deviation ?? botConfig.pilot_sl_deviation ?? 0.22);
 
       try {
         const smartResult = await handleSmartTrade({
@@ -149,14 +160,16 @@ export async function handleBuySignal(options: BuySignalOptions) {
           buyType: "MARKET",
           takeProfit: {
             price: finalTp.toString(),
-            trailing: botConfig.pilot_tp_trailing ?? true,
-            deviation: Number(botConfig.pilot_tp_deviation ?? 0.5),
+            trailing: tpTrailing,
+            deviation: tpDev,
           },
           stopLoss: {
             price: finalSl.toString(),
-            trailing: botConfig.pilot_sl_trailing ?? true,
-            deviation: Number(botConfig.pilot_sl_deviation ?? 0.5),
+            trailing: slTrailing,
+            deviation: slDev,
           },
+          trailingBuy: tfSettings.pilot_trailing_buy ?? botConfig.pilot_trailing_buy ?? true,
+          trailingBuyDev: Number(tfSettings.pilot_trailing_buy_dev ?? botConfig.pilot_trailing_buy_dev ?? 0.12),
         }, mode);
 
         notify(
@@ -381,10 +394,20 @@ export async function handleSellSignal({
         if (balance.free > 0) {
           const currentPrice = await getPrice(pair);
           
+          // P4.2: Dynamic pilot settings from botConfig timeframe_settings (COVER mode)
+          const tfSettings = botConfig.timeframe_settings || {};
+          const tpPerc = tp !== null ? 0 : (tfSettings.cover_tp_percent || 3.0);
+          const slPerc = sl !== null ? 0 : (tfSettings.cover_sl_percent || 1.8);
+          
           // P3.1: Properly prioritize AI targets and fix direction for exiting LONG positions
           // For a LONG exit: Take Profit > currentPrice, Stop Loss < currentPrice
-          const finalTp = (tp !== null && tp !== undefined) ? tp : (currentPrice * 1.03); 
-          const finalSl = (sl !== null && sl !== undefined) ? sl : (currentPrice * 0.98);
+          const finalTp = (tp !== null && tp !== undefined) ? tp : (currentPrice * (1 + tpPerc / 100)); 
+          const finalSl = (sl !== null && sl !== undefined) ? sl : (currentPrice * (1 - slPerc / 100));
+
+          const tpTrailing = tfSettings.cover_tp_trailing ?? botConfig.pilot_tp_trailing ?? true;
+          const tpDev = Number(tfSettings.cover_tp_deviation ?? botConfig.pilot_tp_deviation ?? 0.12);
+          const slTrailing = tfSettings.cover_sl_trailing ?? botConfig.pilot_sl_trailing ?? true;
+          const slDev = Number(tfSettings.cover_sl_deviation ?? botConfig.pilot_sl_deviation ?? 0.22);
 
           const smartResult = await handleSmartTrade({
             user_id: userId,
@@ -395,13 +418,13 @@ export async function handleSellSignal({
             buyType: "MARKET",
             takeProfit: {
               price: finalTp.toString(),
-              trailing: botConfig.pilot_tp_trailing ?? true,
-              deviation: Number(botConfig.pilot_tp_deviation ?? 0.5),
+              trailing: tpTrailing,
+              deviation: tpDev,
             },
             stopLoss: {
               price: finalSl.toString(),
-              trailing: botConfig.pilot_sl_trailing ?? true,
-              deviation: Number(botConfig.pilot_sl_deviation ?? 0.5),
+              trailing: slTrailing,
+              deviation: slDev,
             },
           }, mode);
 

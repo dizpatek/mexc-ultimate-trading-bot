@@ -157,73 +157,131 @@ export interface TimeframePreset {
 }
 
 export const TIMEFRAME_PRESETS: Record<string, TimeframePreset> = {
+  // ═══════════════════════════════════════════════════════════════════════
+  // 🎯 KÂR ODAKLI PILOT PRESET'LERİ (Tüm TF'ler)
+  // 
+  // Temel Prensipler:
+  //   1. TP:SL oranı minimum 2:1 (Risk/Ödül avantajı)
+  //   2. TSL deviation sıkı (kâr yakaladığında bırakma)
+  //   3. Trailing buy = true (tepeden alımı engelle)
+  //   4. AI threshold yüksek (sadece güçlü sinyaller)
+  //   5. MTF veto aktif, eşik 20 (makul konsensüs)
+  //   6. SL mesafesi volatiliteye uygun (erken stop engeli)
+  //   7. F4 squeeze sıkı (sadece net momentum sinyalleri)
+  // ═══════════════════════════════════════════════════════════════════════
+
   "1m": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 20, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20, pilot_trailing_buy: false, pilot_only_holdings: true, pilot_trade_allocation: 3,
-    pilot_tp_percent: 1.0, pilot_sl_percent: 0.6, pilot_tp_deviation: 0.12, pilot_sl_deviation: 0.20,
-    cover_tp_percent: 0.9, cover_sl_percent: 0.50, cover_tp_deviation: 0.10, cover_sl_deviation: 0.18,
-    ai_threshold: 72, whale_multiplier: 1.5, fibo_length: 8, f4_active: true,
+    // Scalping: Çok hızlı, sıkı trailing, küçük ama sık kâr
+    pilot_mtf_veto: true, pilot_mtf_threshold: 20, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20,
+    pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 3,
+    pilot_tp_percent: 1.5,   // TP: %1.5 — 1m'de yeterli kâr hedefi
+    pilot_sl_percent: 0.6,   // SL: %0.6 — TP:SL = 2.5:1
+    pilot_tp_deviation: 0.08, // TTP sıkı: kâr yakalandığında %0.08 geri dönüşte kapat
+    pilot_sl_deviation: 0.15, // TSL: fiyat yükseldikçe SL %0.15 mesafede takip
+    cover_tp_percent: 1.2, cover_sl_percent: 0.5, cover_tp_deviation: 0.08, cover_sl_deviation: 0.12,
+    ai_threshold: 75, whale_multiplier: 1.5, fibo_length: 8, f4_active: true,
     scalp_length: 5, scalp_volume_multiplier: 4.0, swing_length: 8, swing_volume_multiplier: 1.0,
-    f4_lookback_bars: 15, f4_squeeze_threshold: 10, f4_power_loss_threshold: 85, f4_slope_threshold: 0.018, long_squeeze_threshold: 12, short_squeeze_threshold: 12, min_power_loss: 85,
+    f4_lookback_bars: 15, f4_squeeze_threshold: 12, f4_power_loss_threshold: 88, f4_slope_threshold: 0.020,
+    long_squeeze_threshold: 14, short_squeeze_threshold: 14, min_power_loss: 88,
     trade_freshness_bars: 3, f4_multiplier: 4.0,
     pilot_mode: "matrix", pilot_use_usdt: false
   },
+
   "15m": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 20, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20, pilot_trailing_buy: false, pilot_only_holdings: true, pilot_trade_allocation: 5,
-    pilot_tp_percent: 1.8, pilot_sl_percent: 1.0, pilot_tp_deviation: 0.18, pilot_sl_deviation: 0.25,
-    cover_tp_percent: 1.6, cover_sl_percent: 0.9, cover_tp_deviation: 0.15, cover_sl_deviation: 0.22,
-    ai_threshold: 68, whale_multiplier: 1.3, fibo_length: 13, f4_active: true,
-    scalp_length: 8, scalp_volume_multiplier: 3.5, swing_length: 9, swing_volume_multiplier: 1.1,
-    f4_lookback_bars: 20, f4_squeeze_threshold: 10, f4_power_loss_threshold: 87, f4_slope_threshold: 0.014, long_squeeze_threshold: 10, short_squeeze_threshold: 10, min_power_loss: 87,
-    trade_freshness_bars: 5, f4_multiplier: 3.2,
+    // 🌟 ANA PRESET — Denge: Yeterli sıklıkta sinyal + güçlü kâr potansiyeli
+    pilot_mtf_veto: true, pilot_mtf_threshold: 20, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20,
+    pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 8,
+    pilot_tp_percent: 3.0,    // TP: %3.0 — 15m'de iyi kâr potansiyeli
+    pilot_sl_percent: 1.2,    // SL: %1.2 — TP:SL = 2.5:1, volatiliteye alan tanır
+    pilot_tp_deviation: 0.12, // TTP: kâr yakalandığında %0.12 geri dönüşte kapat
+    pilot_sl_deviation: 0.20, // TSL: fiyat yükseldikçe SL %0.20 mesafede takip
+    cover_tp_percent: 2.5, cover_sl_percent: 1.0, cover_tp_deviation: 0.10, cover_sl_deviation: 0.18,
+    ai_threshold: 70, whale_multiplier: 1.3, fibo_length: 13, f4_active: true,
+    scalp_length: 8, scalp_volume_multiplier: 3.5, swing_length: 10, swing_volume_multiplier: 1.2,
+    f4_lookback_bars: 20, f4_squeeze_threshold: 10, f4_power_loss_threshold: 87, f4_slope_threshold: 0.014,
+    long_squeeze_threshold: 12, short_squeeze_threshold: 12, min_power_loss: 87,
+    trade_freshness_bars: 4, f4_multiplier: 3.2,
     pilot_mode: "matrix", pilot_use_usdt: false
   },
+
   "1h": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 20, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20, pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 10,
-    pilot_tp_percent: 3.5, pilot_sl_percent: 1.8, pilot_tp_deviation: 0.25, pilot_sl_deviation: 0.35,
-    cover_tp_percent: 3.0, cover_sl_percent: 1.6, cover_tp_deviation: 0.22, cover_sl_deviation: 0.30,
-    ai_threshold: 65, whale_multiplier: 1.2, fibo_length: 20, f4_active: true,
+    // Swing-Scalp: Daha geniş hedefler, sakin volatilite
+    pilot_mtf_veto: true, pilot_mtf_threshold: 20, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20,
+    pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 10,
+    pilot_tp_percent: 5.0,    // TP: %5.0 — 1h trendde güçlü hareket
+    pilot_sl_percent: 2.0,    // SL: %2.0 — TP:SL = 2.5:1
+    pilot_tp_deviation: 0.20, // TTP: kâr kilitleme
+    pilot_sl_deviation: 0.30, // TSL: trendi takip
+    cover_tp_percent: 4.0, cover_sl_percent: 1.8, cover_tp_deviation: 0.18, cover_sl_deviation: 0.25,
+    ai_threshold: 68, whale_multiplier: 1.2, fibo_length: 20, f4_active: true,
     scalp_length: 11, scalp_volume_multiplier: 3.0, swing_length: 10, swing_volume_multiplier: 1.2,
-    f4_lookback_bars: 30, f4_squeeze_threshold: 10, f4_power_loss_threshold: 90, f4_slope_threshold: 0.010, long_squeeze_threshold: 10, short_squeeze_threshold: 10, min_power_loss: 90,
-    trade_freshness_bars: 5, f4_multiplier: 2.5,
+    f4_lookback_bars: 30, f4_squeeze_threshold: 10, f4_power_loss_threshold: 90, f4_slope_threshold: 0.010,
+    long_squeeze_threshold: 10, short_squeeze_threshold: 10, min_power_loss: 90,
+    trade_freshness_bars: 4, f4_multiplier: 2.5,
     pilot_mode: "matrix", pilot_use_usdt: false
   },
+
   "4h": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 20, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20, pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 12,
-    pilot_tp_percent: 7.5, pilot_sl_percent: 3.8, pilot_tp_deviation: 0.45, pilot_sl_deviation: 0.60,
-    cover_tp_percent: 6.8, cover_sl_percent: 3.5, cover_tp_deviation: 0.40, cover_sl_deviation: 0.55,
+    // Swing: Büyük trendleri yakalama, geniş nefes alanı
+    pilot_mtf_veto: true, pilot_mtf_threshold: 20, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20,
+    pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 12,
+    pilot_tp_percent: 10.0,   // TP: %10 — 4h trendde büyük kâr
+    pilot_sl_percent: 4.0,    // SL: %4.0 — TP:SL = 2.5:1
+    pilot_tp_deviation: 0.40, // TTP
+    pilot_sl_deviation: 0.55, // TSL
+    cover_tp_percent: 8.0, cover_sl_percent: 3.5, cover_tp_deviation: 0.35, cover_sl_deviation: 0.50,
     ai_threshold: 65, whale_multiplier: 1.2, fibo_length: 26, f4_active: true,
     scalp_length: 13, scalp_volume_multiplier: 2.5, swing_length: 12, swing_volume_multiplier: 1.3,
-    f4_lookback_bars: 40, f4_squeeze_threshold: 12, f4_power_loss_threshold: 88, f4_slope_threshold: 0.008, long_squeeze_threshold: 12, short_squeeze_threshold: 12, min_power_loss: 88,
-    trade_freshness_bars: 8, f4_multiplier: 2.0,
+    f4_lookback_bars: 40, f4_squeeze_threshold: 12, f4_power_loss_threshold: 88, f4_slope_threshold: 0.008,
+    long_squeeze_threshold: 12, short_squeeze_threshold: 12, min_power_loss: 88,
+    trade_freshness_bars: 6, f4_multiplier: 2.0,
     pilot_mode: "matrix", pilot_use_usdt: false
   },
+
   "1d": {
-    pilot_mtf_veto: true, pilot_mtf_threshold: 20, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20, pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 15,
-    pilot_tp_percent: 18.0, pilot_sl_percent: 9.0, pilot_tp_deviation: 0.85, pilot_sl_deviation: 1.20,
-    cover_tp_percent: 16.0, cover_sl_percent: 8.0, cover_tp_deviation: 0.75, cover_sl_deviation: 1.00,
+    // Position: Günlük trend takibi, maximum trailing
+    pilot_mtf_veto: true, pilot_mtf_threshold: 20, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20,
+    pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 15,
+    pilot_tp_percent: 20.0,   // TP: %20
+    pilot_sl_percent: 8.0,    // SL: %8 — TP:SL = 2.5:1
+    pilot_tp_deviation: 0.80, pilot_sl_deviation: 1.10,
+    cover_tp_percent: 18.0, cover_sl_percent: 7.0, cover_tp_deviation: 0.70, cover_sl_deviation: 0.95,
     ai_threshold: 65, whale_multiplier: 1.4, fibo_length: 34, f4_active: true,
     scalp_length: 16, scalp_volume_multiplier: 2.0, swing_length: 15, swing_volume_multiplier: 1.4,
-    f4_lookback_bars: 55, f4_squeeze_threshold: 30, f4_power_loss_threshold: 85, f4_slope_threshold: 0.006, long_squeeze_threshold: 28, short_squeeze_threshold: 28, min_power_loss: 85,
-    trade_freshness_bars: 10, f4_multiplier: 1.5,
+    f4_lookback_bars: 55, f4_squeeze_threshold: 30, f4_power_loss_threshold: 85, f4_slope_threshold: 0.006,
+    long_squeeze_threshold: 28, short_squeeze_threshold: 28, min_power_loss: 85,
+    trade_freshness_bars: 8, f4_multiplier: 1.5,
     pilot_mode: "matrix", pilot_use_usdt: false
   },
+
   "1w": {
-    pilot_mtf_veto: false, pilot_mtf_threshold: 20, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20, pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 20,
-    pilot_tp_percent: 35.0, pilot_sl_percent: 15.0, pilot_tp_deviation: 1.50, pilot_sl_deviation: 2.50,
-    cover_tp_percent: 32.0, cover_sl_percent: 14.0, cover_tp_deviation: 1.30, cover_sl_deviation: 2.20,
+    // Macro: Haftalık trend, çok geniş hedefler
+    pilot_mtf_veto: false, pilot_mtf_threshold: 20, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20,
+    pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 20,
+    pilot_tp_percent: 40.0,   // TP: %40
+    pilot_sl_percent: 15.0,   // SL: %15 — TP:SL = 2.7:1
+    pilot_tp_deviation: 1.50, pilot_sl_deviation: 2.50,
+    cover_tp_percent: 35.0, cover_sl_percent: 13.0, cover_tp_deviation: 1.30, cover_sl_deviation: 2.20,
     ai_threshold: 70, whale_multiplier: 1.5, fibo_length: 50, f4_active: true,
     scalp_length: 20, scalp_volume_multiplier: 1.8, swing_length: 18, swing_volume_multiplier: 1.5,
-    f4_lookback_bars: 80, f4_squeeze_threshold: 35, f4_power_loss_threshold: 80, f4_slope_threshold: 0.004, long_squeeze_threshold: 32, short_squeeze_threshold: 32, min_power_loss: 80,
-    trade_freshness_bars: 15, f4_multiplier: 1.2,
+    f4_lookback_bars: 80, f4_squeeze_threshold: 35, f4_power_loss_threshold: 80, f4_slope_threshold: 0.004,
+    long_squeeze_threshold: 32, short_squeeze_threshold: 32, min_power_loss: 80,
+    trade_freshness_bars: 12, f4_multiplier: 1.2,
     pilot_mode: "matrix", pilot_use_usdt: false
   },
+
   "1M": {
-    pilot_mtf_veto: false, pilot_mtf_threshold: 20, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20, pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 25,
-    pilot_tp_percent: 60.0, pilot_sl_percent: 25.0, pilot_tp_deviation: 2.50, pilot_sl_deviation: 4.00,
+    // Ultra-Macro: Aylık strateji
+    pilot_mtf_veto: false, pilot_mtf_threshold: 20, pilot_mtf_long_threshold: 20, pilot_mtf_short_threshold: 20,
+    pilot_trailing_buy: true, pilot_only_holdings: true, pilot_trade_allocation: 25,
+    pilot_tp_percent: 65.0,   // TP: %65
+    pilot_sl_percent: 25.0,   // SL: %25 — TP:SL = 2.6:1
+    pilot_tp_deviation: 2.50, pilot_sl_deviation: 4.00,
     cover_tp_percent: 55.0, cover_sl_percent: 22.0, cover_tp_deviation: 2.20, cover_sl_deviation: 3.50,
     ai_threshold: 75, whale_multiplier: 1.8, fibo_length: 89, f4_active: true,
     scalp_length: 28, scalp_volume_multiplier: 1.5, swing_length: 25, swing_volume_multiplier: 1.6,
-    f4_lookback_bars: 120, f4_squeeze_threshold: 50, f4_power_loss_threshold: 75, f4_slope_threshold: 0.002, long_squeeze_threshold: 36, short_squeeze_threshold: 36, min_power_loss: 75,
+    f4_lookback_bars: 120, f4_squeeze_threshold: 50, f4_power_loss_threshold: 75, f4_slope_threshold: 0.002,
+    long_squeeze_threshold: 36, short_squeeze_threshold: 36, min_power_loss: 75,
     trade_freshness_bars: 20, f4_multiplier: 1.0,
     pilot_mode: "matrix", pilot_use_usdt: false
   }

@@ -610,10 +610,10 @@ export function interpretTradingStatus(
   tradeStatus: string,
   meta: Record<string, unknown>,
 ): { statusText: string; statusColor: string; liveAiScore: number } {
-  // --- Interpret logic omitted to focus on new central function ---
-  // Ensure we keep existing code. Only adding new function above it.
   const liveAiScore = Math.round((liveData as any)?.aiScore || aiScore || 0);
-  const payload = meta?.payload || {};
+  const payload = meta?.payload as any || {};
+  const isPilot = payload.source === "pilot_auto";
+  const sourceLabel = isPilot ? "[PİLOT] " : "[MANUEL] ";
 
   let statusText = "SİNYAL...";
   let statusColor = "text-cyan-400";
@@ -622,30 +622,30 @@ export function interpretTradingStatus(
   if (isClosed && meta?.exitReason) {
     const reason = String(meta.exitReason);
     if (reason.includes("TP_HIT") || reason.includes("TAKE_PROFIT")) {
-      statusText = (payload as any).takeProfit?.trailing
+      statusText = sourceLabel + ((payload as any).takeProfit?.trailing
         ? "TTP GERÇEKLEŞTİ ✅"
-        : "TP VURULDU ✅";
+        : "TP VURULDU ✅");
       statusColor = "text-emerald-500 font-black";
       return { statusText, statusColor, liveAiScore };
     }
     if (reason.includes("SL_HIT") || reason.includes("STOP_LOSS")) {
-      statusText = (payload as any).stopLoss?.trailing
+      statusText = sourceLabel + ((payload as any).stopLoss?.trailing
         ? "TSL GERÇEKLEŞTİ ❌"
-        : "SL VURULDU ❌";
+        : "SL VURULDU ❌");
       statusColor = "text-rose-600 font-black";
       return { statusText, statusColor, liveAiScore };
     }
     if (reason === "MANUAL_PANIC_EXIT") {
-      statusText = "PANİK ÇIKIŞ ⚡";
+      statusText = sourceLabel + "PANİK ÇIKIŞ ⚡";
       statusColor = "text-amber-500 font-black";
       return { statusText, statusColor, liveAiScore };
     }
     if (reason === "MANUAL_SILENT_EXIT") {
-      statusText = "SESSİZ ARŞİV 🔒";
+      statusText = sourceLabel + "SESSİZ ARŞİV 🔒";
       statusColor = "text-slate-500 font-bold";
       return { statusText, statusColor, liveAiScore };
     }
-    statusText = "KAPANDI 🔒";
+    statusText = sourceLabel + "KAPANDI 🔒";
     statusColor = "text-slate-500 font-bold";
     return { statusText, statusColor, liveAiScore };
   }
@@ -653,34 +653,32 @@ export function interpretTradingStatus(
   // --- 0.5. SIRA - AKTİF TRAILING DURUMLARI ---
   if (tradeStatus === "PENDING" && (payload as any).trailingBuy) {
     if (meta?.entryTriggered) {
-      statusText = "TBUY TAKİPDE 🔍";
+      statusText = sourceLabel + "TBUY TAKİPDE 🔍";
       statusColor = "text-cyan-300 animate-pulse font-bold";
     } else {
-      statusText = "TBUY AKTİF ⏳";
+      statusText = sourceLabel + "TBUY AKTİF ⏳";
       statusColor = "text-cyan-400 animate-pulse font-bold";
     }
     return { statusText, statusColor, liveAiScore };
   }
 
   if (tradeStatus === "FILLED" && !isClosed) {
-    statusText = "İŞLEM AÇILDI ✅";
+    statusText = sourceLabel + "İŞLEM AÇILDI ✅";
     statusColor = "text-emerald-400 font-black";
-    // Do not return yet, allow Proximity Checks to override if TP/SL is near
   }
 
   if (meta?.tpTriggered && (payload as any).takeProfit?.trailing && !isClosed) {
-    statusText = "TTP BAŞLADI 🚀";
+    statusText = sourceLabel + "TTP BAŞLADI 🚀";
     statusColor = "text-emerald-400 animate-pulse font-bold";
     return { statusText, statusColor, liveAiScore };
   }
 
   if (meta?.tslActivated && (payload as any).stopLoss?.trailing && !isClosed) {
-    statusText = "TSL BAŞLADI 🚨";
+    statusText = sourceLabel + "TSL BAŞLADI 🚨";
     statusColor = "text-rose-400 animate-pulse font-bold";
     return { statusText, statusColor, liveAiScore };
   }
 
-  // 1. TP/SL Yakınlık Kontrolü (Gelişmiş Eşikler)
   if (tp > 0) {
     const dist =
       side === "BUY"
@@ -688,16 +686,16 @@ export function interpretTradingStatus(
         : ((currentPrice - tp) / currentPrice) * 100;
         
     if (dist <= 0) {
-      statusText = "💰 TP TAMAMLANDI";
+      statusText = sourceLabel + "💰 TP TAMAMLANDI";
       statusColor = "text-emerald-500 animate-pulse font-black";
     } else if (dist < 0.25) {
-      statusText = "🔥 TP ÇOK YAKIN (KRİTİK)";
+      statusText = sourceLabel + "🔥 TP ÇOK YAKIN (KRİTİK)";
       statusColor = "text-emerald-400 animate-pulse font-black shadow-[0_0_10px_rgba(16,185,129,0.5)]";
     } else if (dist < 0.75) {
-      statusText = "🎯 HEDEF TESTİ";
+      statusText = sourceLabel + "🎯 HEDEF TESTİ";
       statusColor = "text-emerald-400 animate-pulse";
     } else if (dist < 1.5) {
-      statusText = "✅ HEDEF YAKIN";
+      statusText = sourceLabel + "✅ HEDEF YAKIN";
       statusColor = "text-emerald-400/90 font-bold";
     }
   }
@@ -709,73 +707,58 @@ export function interpretTradingStatus(
         : ((sl - currentPrice) / currentPrice) * 100;
 
     if (distSl <= 0) {
-      statusText = "❌ SL VURULDU";
+      statusText = sourceLabel + "❌ SL VURULDU";
       statusColor = "text-rose-600 animate-pulse font-black";
     } else if (distSl < 0.25) {
-      statusText = "💀 SL ÇOK YAKIN (KRİTİK)";
+      statusText = sourceLabel + "💀 SL ÇOK YAKIN (KRİTİK)";
       statusColor = "text-rose-500 animate-pulse font-black shadow-[0_0_10px_rgba(244,63,94,0.5)]";
     } else if (distSl < 0.75) {
-      statusText = "🔥 SL TEST EDİLİYOR";
+      statusText = sourceLabel + "🔥 SL TEST EDİLİYOR";
       statusColor = "text-rose-500 animate-pulse font-bold";
     } else if (distSl < 1.5) {
-      statusText = "🛡️ RİSKLİ BÖLGE";
+      statusText = sourceLabel + "🛡️ RİSKLİ BÖLGE";
       statusColor = "text-rose-400 font-bold";
     }
   }
 
-  // 2. Canlı Sinyal Yorumlama
   if (statusText === "SİNYAL..." && !isClosed && liveData) {
     const ld = liveData as Record<string, any>;
     const upP = ld.prediction?.upProb ?? 50;
     const isBull = ld.trend === "BULLISH";
     const isBear = ld.trend === "BEARISH";
-    const hasBuy =
-      ld.f4EarlyBuy ||
-      ld.f4ConfirmedBuy ||
-      ld.signal === "BUY";
-    const hasSell =
-      ld.f4EarlySell ||
-      ld.f4ConfirmedSell ||
-      ld.signal === "SELL";
+    const hasBuy = ld.f4EarlyBuy || ld.f4ConfirmedBuy || ld.signal === "BUY";
+    const hasSell = ld.f4EarlySell || ld.f4ConfirmedSell || ld.signal === "SELL";
 
     if (hasBuy && upP >= 60) {
-      statusText = "DİP BÖLGESİ 🟢";
+      statusText = sourceLabel + "DİP BÖLGESİ 🟢";
       statusColor = "text-emerald-400";
     } else if (hasSell && upP <= 40) {
-      statusText = "TEPE BÖLGESİ 🔴";
+      statusText = sourceLabel + "TEPE BÖLGESİ 🔴";
       statusColor = "text-rose-400";
     } else if (isBull && upP >= 55 && liveAiScore >= 60) {
-      statusText = "BOĞA MOD 📈";
+      statusText = sourceLabel + "BOĞA MOD 📈";
       statusColor = "text-emerald-400";
     } else if (isBear && upP <= 45 && liveAiScore <= 40) {
-      statusText = "AYI MOD 📉";
+      statusText = sourceLabel + "AYI MOD 📉";
       statusColor = "text-rose-400";
-    } else if (
-      ld.whaleDetected &&
-      (ld.whaleStatus === "BUY_ACTIVE" ||
-        ld.whaleStatus === "ALIM_AKTİF")
-    ) {
-      statusText = "BALİNA AL 🐋"; // Fixed spelling
+    } else if (ld.whaleDetected && (ld.whaleStatus === "BUY_ACTIVE" || ld.whaleStatus === "ALIM_AKTİF")) {
+      statusText = sourceLabel + "BALİNA AL 🐋";
       statusColor = "text-amber-400";
-    } else if (
-      ld.whaleDetected &&
-      (ld.whaleStatus === "SELL_ACTIVE" ||
-        ld.whaleStatus === "SATIM_AKTİF")
-    ) {
-      statusText = "BALİNA SAT 🐋"; // Fixed spelling
+    } else if (ld.whaleDetected && (ld.whaleStatus === "SELL_ACTIVE" || ld.whaleStatus === "SATIM_AKTİF")) {
+      statusText = sourceLabel + "BALİNA SAT 🐋";
       statusColor = "text-amber-400";
     } else if (isBull) {
-      statusText = "BOĞA EĞİLİM";
+      statusText = sourceLabel + "BOĞA EĞİLİM";
       statusColor = "text-emerald-400";
     } else if (isBear) {
-      statusText = "AYI EĞİLİM";
+      statusText = sourceLabel + "AYI EĞİLİM";
       statusColor = "text-rose-400";
     } else {
-      statusText = "YATAY ↔";
+      statusText = sourceLabel + "YATAY ↔";
       statusColor = "text-amber-400";
     }
   } else if (statusText === "SİNYAL..." && !isClosed && !liveData) {
-    statusText = "SİNYAL ARANIYOR...";
+    statusText = sourceLabel + "SİNYAL ARANIYOR...";
     statusColor = "text-cyan-400";
   }
 

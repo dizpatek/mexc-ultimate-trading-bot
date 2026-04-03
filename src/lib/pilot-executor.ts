@@ -285,6 +285,19 @@ export class PilotExecutor {
       finalTpPrice = currentPrice + (dirMultiplier * slDist * 1.5);
     }
 
+    // FIX-D: SL Minimum Mesafe Koruması (Floor)
+    // Anlık dalgalanmalarda SL'nin çok yakın tetiklenmesini önler.
+    // Minimum %0.3 mesafe zorunlu (tüm TF'ler için güvenli alt sınır).
+    const MIN_SL_DISTANCE = 0.003; // %0.3
+    const currentSlDist = Math.abs(finalSlPrice - currentPrice) / currentPrice;
+    if (currentSlDist < MIN_SL_DISTANCE) {
+      if (isLong) {
+        finalSlPrice = currentPrice * (1 - MIN_SL_DISTANCE);
+      } else {
+        finalSlPrice = currentPrice * (1 + MIN_SL_DISTANCE);
+      }
+    }
+
     return { finalTpPrice, finalSlPrice };
   }
 
@@ -325,6 +338,15 @@ export class PilotExecutor {
 
       console.log(`[Pilot] \u2708\ufe0f Executing NEW BUY for ${symbol} | Entry: ${currentPrice} | TP: ${finalTpPrice.toFixed(4)} | SL: ${finalSlPrice.toFixed(4)} | Alloc: $${allocUsdt.toFixed(2)}`);
       
+      // P4.2: Dynamic pilot settings from botConfig timeframe_settings
+      const tfSettings = botConfig.timeframe_settings || {};
+      const trailingBuy = tfSettings.pilot_trailing_buy ?? botConfig.pilot_trailing_buy ?? DEFAULT_BOT_CONFIG.pilot_trailing_buy;
+      const trailingBuyDev = Number(tfSettings.pilot_trailing_buy_dev ?? botConfig.pilot_trailing_buy_dev ?? DEFAULT_BOT_CONFIG.pilot_trailing_buy_dev);
+      const tpTrailing = tfSettings.pilot_tp_trailing ?? botConfig.pilot_tp_trailing ?? DEFAULT_BOT_CONFIG.pilot_tp_trailing;
+      const tpDev = Number(tfSettings.pilot_tp_deviation ?? botConfig.pilot_tp_deviation ?? DEFAULT_BOT_CONFIG.pilot_tp_deviation);
+      const slTrailing = tfSettings.pilot_sl_trailing ?? botConfig.pilot_sl_trailing ?? DEFAULT_BOT_CONFIG.pilot_sl_trailing;
+      const slDev = Number(tfSettings.pilot_sl_deviation ?? botConfig.pilot_sl_deviation ?? DEFAULT_BOT_CONFIG.pilot_sl_deviation);
+
       const res = await handleSmartTrade({
         mode: "TRADE",
         symbol,
@@ -333,17 +355,17 @@ export class PilotExecutor {
         buyType: "MARKET",
         useExisting: false, // Brand new asset, we MUST buy
         user_id: userId,
-        trailingBuy: botConfig.pilot_trailing_buy ?? DEFAULT_BOT_CONFIG.pilot_trailing_buy,
-        trailingBuyDev: botConfig.pilot_trailing_buy_dev ?? DEFAULT_BOT_CONFIG.pilot_trailing_buy_dev,
+        trailingBuy,
+        trailingBuyDev,
         takeProfit: {
           price: finalTpPrice.toString(),
-          trailing: Boolean(botConfig.timeframe_settings?.pilot_tp_trailing ?? botConfig.pilot_tp_trailing ?? DEFAULT_BOT_CONFIG.pilot_tp_trailing),
-          deviation: Number(botConfig.timeframe_settings?.pilot_tp_deviation ?? botConfig.pilot_tp_deviation ?? DEFAULT_BOT_CONFIG.pilot_tp_deviation),
+          trailing: Boolean(tpTrailing),
+          deviation: tpDev,
         },
         stopLoss: {
           price: finalSlPrice.toString(),
-          trailing: Boolean(botConfig.timeframe_settings?.pilot_sl_trailing ?? botConfig.pilot_sl_trailing ?? DEFAULT_BOT_CONFIG.pilot_sl_trailing),
-          deviation: Number(botConfig.timeframe_settings?.pilot_sl_deviation ?? botConfig.pilot_sl_deviation ?? DEFAULT_BOT_CONFIG.pilot_sl_deviation),
+          trailing: Boolean(slTrailing),
+          deviation: slDev,
         },
         timeframe,
         source: "pilot_auto",
@@ -389,6 +411,15 @@ export class PilotExecutor {
 
       console.log(`[Pilot] \u267b\ufe0f Executing RE-ENTRY BUY for ${symbol} | Entry: ${currentPrice} | TP: ${finalTpPrice.toFixed(4)} | SL: ${finalSlPrice.toFixed(4)} | USDT: $${allocUsdt.toFixed(2)}`);
 
+      // P4.2: Dynamic pilot settings from botConfig timeframe_settings
+      const tfSettings = botConfig.timeframe_settings || {};
+      const trailingBuy = tfSettings.pilot_trailing_buy ?? botConfig.pilot_trailing_buy ?? DEFAULT_BOT_CONFIG.pilot_trailing_buy;
+      const trailingBuyDev = Number(tfSettings.pilot_trailing_buy_dev ?? botConfig.pilot_trailing_buy_dev ?? DEFAULT_BOT_CONFIG.pilot_trailing_buy_dev);
+      const tpTrailing = tfSettings.pilot_tp_trailing ?? botConfig.pilot_tp_trailing ?? DEFAULT_BOT_CONFIG.pilot_tp_trailing;
+      const tpDev = Number(tfSettings.pilot_tp_deviation ?? botConfig.pilot_tp_deviation ?? DEFAULT_BOT_CONFIG.pilot_tp_deviation);
+      const slTrailing = tfSettings.pilot_sl_trailing ?? botConfig.pilot_sl_trailing ?? DEFAULT_BOT_CONFIG.pilot_sl_trailing;
+      const slDev = Number(tfSettings.pilot_sl_deviation ?? botConfig.pilot_sl_deviation ?? DEFAULT_BOT_CONFIG.pilot_sl_deviation);
+
       const res = await handleSmartTrade({
         mode: "TRADE",
         symbol,
@@ -397,17 +428,17 @@ export class PilotExecutor {
         buyType: "MARKET",
         useExisting: false, 
         user_id: userId,
-        trailingBuy: botConfig.pilot_trailing_buy ?? DEFAULT_BOT_CONFIG.pilot_trailing_buy,
-        trailingBuyDev: botConfig.pilot_trailing_buy_dev ?? DEFAULT_BOT_CONFIG.pilot_trailing_buy_dev,
+        trailingBuy,
+        trailingBuyDev,
         takeProfit: {
           price: finalTpPrice.toString(),
-          trailing: Boolean(botConfig.timeframe_settings?.pilot_tp_trailing ?? botConfig.pilot_tp_trailing ?? DEFAULT_BOT_CONFIG.pilot_tp_trailing),
-          deviation: Number(botConfig.timeframe_settings?.pilot_tp_deviation ?? botConfig.pilot_tp_deviation ?? DEFAULT_BOT_CONFIG.pilot_tp_deviation),
+          trailing: Boolean(tpTrailing),
+          deviation: tpDev,
         },
         stopLoss: {
           price: finalSlPrice.toString(),
-          trailing: Boolean(botConfig.timeframe_settings?.pilot_sl_trailing ?? botConfig.pilot_sl_trailing ?? DEFAULT_BOT_CONFIG.pilot_sl_trailing),
-          deviation: Number(botConfig.timeframe_settings?.pilot_sl_deviation ?? botConfig.pilot_sl_deviation ?? DEFAULT_BOT_CONFIG.pilot_sl_deviation),
+          trailing: Boolean(slTrailing),
+          deviation: slDev,
         },
         timeframe,
         source: "pilot_auto",
@@ -439,6 +470,13 @@ export class PilotExecutor {
 
       console.log(`[Pilot] \u2708\ufe0f Creating SmartTrade SELL (COVER) for ${symbol} | Entry: ${currentPrice} | TP: ${finalTpPrice.toFixed(4)} | SL: ${finalSlPrice.toFixed(4)} | Qty: ${targetQty.toFixed(8)}`);
 
+      // Dynamic COVER settings from botConfig timeframe_settings
+      const tfSettings = botConfig.timeframe_settings || {};
+      const tpTrailing = tfSettings.cover_tp_trailing ?? botConfig.pilot_tp_trailing ?? DEFAULT_TIMEFRAME_SETTINGS.cover_tp_trailing;
+      const tpDev = Number(tfSettings.cover_tp_deviation ?? botConfig.pilot_tp_deviation ?? DEFAULT_TIMEFRAME_SETTINGS.cover_tp_deviation);
+      const slTrailing = tfSettings.cover_sl_trailing ?? botConfig.pilot_sl_trailing ?? DEFAULT_TIMEFRAME_SETTINGS.cover_sl_trailing;
+      const slDev = Number(tfSettings.cover_sl_deviation ?? botConfig.pilot_sl_deviation ?? DEFAULT_TIMEFRAME_SETTINGS.cover_sl_deviation);
+
       const res = await handleSmartTrade({
         mode: "COVER",
         symbol,
@@ -449,13 +487,13 @@ export class PilotExecutor {
         user_id: userId,
         takeProfit: {
           price: finalTpPrice.toString(), 
-          trailing: Boolean(botConfig.timeframe_settings?.cover_tp_trailing ?? DEFAULT_TIMEFRAME_SETTINGS.cover_tp_trailing),
-          deviation: Number(botConfig.timeframe_settings?.cover_tp_deviation ?? DEFAULT_TIMEFRAME_SETTINGS.cover_tp_deviation),
+          trailing: Boolean(tpTrailing),
+          deviation: tpDev,
         },
         stopLoss: {
           price: finalSlPrice.toString(),
-          trailing: Boolean(botConfig.timeframe_settings?.cover_sl_trailing ?? DEFAULT_TIMEFRAME_SETTINGS.cover_sl_trailing),
-          deviation: Number(botConfig.timeframe_settings?.cover_sl_deviation ?? DEFAULT_TIMEFRAME_SETTINGS.cover_sl_deviation),
+          trailing: Boolean(slTrailing),
+          deviation: slDev,
         },
         timeframe,
         source: "pilot_auto",
@@ -622,8 +660,24 @@ export class PilotExecutor {
       }
       
       if (sellTradeForSymbol && pilotMode === "matrix") {
-        console.log(`[Pilot] ↪️ ${symbol} Matrix Modu: Aktif SATIŞ (COVER) kapatılıyor...`);
-        await this.closeSmartTrade(sellTradeForSymbol, userId, mode);
+        const source = sellTradeForSymbol.meta?.payload?.source || "manual";
+        if (source === "pilot_auto") {
+          // FIX-A: MATRIX_FLIP_EXIT Konfirmasyon Süresi
+          // İşlem yeterince uzun süre açık kalmadıysa flip yapma.
+          const tradeAge = Date.now() - (Number(sellTradeForSymbol.created_at) || 0);
+          const MIN_FLIP_AGE_MS = 3 * 60 * 1000; // 3 dakika (1m TF için 3 mum)
+          if (tradeAge < MIN_FLIP_AGE_MS) {
+            console.log(`[Pilot] ⏳ ${symbol} Matrix Flip engellendi: İşlem henüz ${Math.round(tradeAge/1000)}sn açık (min: ${MIN_FLIP_AGE_MS/1000}sn). Sinyal atlanıyor.`);
+            await this.recordSignalResult({ ...params, timestamp, executed: false, executionResult: {}, aiScore: 0, vetoReason: `Matrix Flip çok erken (${Math.round(tradeAge/1000)}sn < ${MIN_FLIP_AGE_MS/1000}sn)` });
+            return;
+          }
+          console.log(`[Pilot] ↪️ ${symbol} Matrix Modu: Aktif SATIŞ (COVER) kapatılıyor...`);
+          await this.closeSmartTrade(sellTradeForSymbol, userId, mode);
+          holdingsMap.delete(normalizeSymbol(symbol));
+          holdingsMap.delete(symbol);
+        } else {
+          console.log(`[Pilot] 🛡️ ${symbol}: Aktif SATIŞ (MANUEL) bulundu, Matrix Flip ile kapatılmıyor.`);
+        }
       }
     } else if (signal.signal === "SELL") {
       // Matrix Mode: Only check the current symbol
@@ -638,8 +692,23 @@ export class PilotExecutor {
       }
 
       if (buyTradeForSymbol && pilotMode === "matrix") {
-        console.log(`[Pilot] ↪️ ${symbol} Matrix Modu: Aktif ALIŞ (TRADE) kapatılıyor...`);
-        await this.closeSmartTrade(buyTradeForSymbol, userId, mode);
+        const source = buyTradeForSymbol.meta?.payload?.source || "manual";
+        if (source === "pilot_auto") {
+          // FIX-A: MATRIX_FLIP_EXIT Konfirmasyon Süresi
+          const tradeAge = Date.now() - (Number(buyTradeForSymbol.created_at) || 0);
+          const MIN_FLIP_AGE_MS = 3 * 60 * 1000; // 3 dakika
+          if (tradeAge < MIN_FLIP_AGE_MS) {
+            console.log(`[Pilot] ⏳ ${symbol} Matrix Flip engellendi: İşlem henüz ${Math.round(tradeAge/1000)}sn açık (min: ${MIN_FLIP_AGE_MS/1000}sn). Sinyal atlanıyor.`);
+            await this.recordSignalResult({ ...params, timestamp, executed: false, executionResult: {}, aiScore: 0, vetoReason: `Matrix Flip çok erken (${Math.round(tradeAge/1000)}sn < ${MIN_FLIP_AGE_MS/1000}sn)` });
+            return;
+          }
+          console.log(`[Pilot] ↪️ ${symbol} Matrix Modu: Aktif ALIŞ (TRADE) kapatılıyor...`);
+          await this.closeSmartTrade(buyTradeForSymbol, userId, mode);
+          holdingsMap.delete(normalizeSymbol(symbol));
+          holdingsMap.delete(symbol);
+        } else {
+          console.log(`[Pilot] 🛡️ ${symbol}: Aktif ALIŞ (MANUEL) bulundu, Matrix Flip ile kapatılmıyor.`);
+        }
       }
     }
 

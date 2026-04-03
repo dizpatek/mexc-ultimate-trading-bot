@@ -272,6 +272,7 @@ export async function handleSmartTrade(
           source: payload.source || undefined, // Track origin (e.g. pilot_auto)
           aiScore: payload.aiScore ?? null,
           mtfVerdict: payload.mtfVerdict ?? null,
+          filledAt: Date.now(), // FIX-G: SL buffer ve süre hesaplaması için gerekli
           lastUpdate: Date.now(),
           exitReason:
             initialStatus === "CLOSED"

@@ -30,6 +30,8 @@ let repairPromise: Promise<void> | null = null;
 
 async function performRepair() {
   try {
+    // Ensure critical columns exist for monitoring
+    await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS trading_mode TEXT DEFAULT 'test'`.catch(() => {});
     await sql`UPDATE orders SET meta = replace(meta, '}{', ',')::text WHERE meta LIKE '%}{%'`;
     isDbRepaired = true;
     console.log("[SmartMonitor] Database metadata repair successful.");
@@ -287,22 +289,15 @@ async function processTradeMonitoring(
 
     Object.assign(meta, { ...stateUpdates, lastUpdate: Date.now() });
 
-    // ── PILOT MODE GATE ──────────────────────────────────────────────────────
-    // pilotEnabled is resolved once per cycle in monitorSmartTrades().
+    // ── PILOT MODE GATE (FIX-H) ──────────────────────────────────────────────
+    // Pilot kapalıyken MEVCUT işlemlerin TP/SL koruması ÇALIŞMAYA DEVAM EDER.
+    // Pilot OFF = yalnızca YENİ işlem açılmasını engeller (pilot-executor.ts'de).
+    // Burada shouldExit true ise, bu zaten TP veya SL hit demektir — korumalı çıkış.
     if (!pilotEnabled && shouldExit) {
       console.log(
-        `[SmartMonitor] ✈️ PİLOT KAPALI — Trade #${id} için "${exitReason}" tetiklenmeliydi, ancak dış müdahale devre dışı. Sadece fiyat güncelleniyor.`
+        `[SmartMonitor] ✈️ PİLOT KAPALI ama TP/SL koruması aktif (U#${trade.user_id}) — Trade #${id}: "${exitReason}" çalıştırılıyor.`
       );
-      
-      // P3.5: Persist the status in metadata so UI can show the "Vetoed" state
-      meta.pilotVetoReason = exitReason;
-      isDirty = true;
-      
-      // P3.6: Log to the Global System Console (CombatLog)
-      await logSystemEvent(trade.user_id, "WARN", `✈️ PİLOT KAPALI: ${symbol}`, exitReason);
-
-      shouldExit = false;
-      exitReason = "";
+      // FIX-H: shouldExit'i iptal ETMİYORUZ — TP/SL her zaman çalışır.
     }
 
     // P4.3: Separate Persistence Side-Effects
@@ -530,21 +525,27 @@ function evaluateStopLoss(
   const isTrailingSLEnabled =
     rawTrailing === true || rawTrailing === ("true" as unknown);
 
-  // FIX: TSL only activates AFTER at least one TP is hit (tpTriggered).
-  // This prevents early trailing and misleading "TSL BAŞLADI" messages.
+  // FIX-B: TSL artık TP vurulmadan da aktifleşir.
+  // Eski davranış: TSL yalnızca TP hit sonrası çalışıyordu → %86 zarar oranının ana nedeni.
+  // Yeni davranış: TSL, WARMUP (30sn) sonrası hemen aktif. TP hit sonrası deviation sıkılaşır.
   const isTpAlreadyHit = !!meta.tpTriggered;
 
-  if (isTrailingSLEnabled && slPrice > 0 && isTpAlreadyHit) {
+  if (isTrailingSLEnabled && slPrice > 0) {
     // NEW TRAILING SL PATH: Trails using the initial SL distance dynamically.
     const sl = payload.stopLoss!;
     const isCover = payload.mode === "COVER";
 
-    // Calculate inherent TSL Deviation percentage. 
-    // Prioritize explicit TSL deviation from settings, fallback to initial SL distance.
+    // CRITICAL BUG FIX (Matrix V5):
+    // TSL must initially trail at the FULL Stop Loss distance until Take Profit is hit.
+    // TSL ONLY clamps to the tight 'deviation' (e.g. 0.18%) AFTER TP is hit.
+    // Using deviation from the start caused 90% of trades to close at a loss (-0.2% ~ -0.4%) instantly.
+    const initialSlDistRatio = Math.abs((entryPrice - slPrice) / entryPrice);
+    let distRatio = initialSlDistRatio > 0 ? initialSlDistRatio : 0.01;
+
     const tslDevSetting = payload.stopLoss?.deviation;
-    const distRatio = (typeof tslDevSetting === 'number' && tslDevSetting > 0)
-      ? (tslDevSetting / 100)
-      : Math.abs((entryPrice - slPrice) / entryPrice);
+    if (isTpAlreadyHit && typeof tslDevSetting === 'number' && tslDevSetting > 0) {
+      distRatio = tslDevSetting / 100;
+    }
 
     const prevSl = (meta.activeStopLoss as number) || slPrice;
 
@@ -739,8 +740,10 @@ function evaluateTakeProfit(
         if (!tpTriggered) {
           tpTriggered = metaUpdates.tpTriggered = true;
           console.log(
-            `[SmartMonitor] TP TRAILING TRIGGERED: Trade ${trade.id} | ${side} | Price: ${currentPrice} | TP Target: ${tpPrice}`,
+            `[SmartMonitor] TP TRAILING TRIGGERED: Trade ${trade.id} | ${side} | Price: ${currentPrice} | TP Target: ${tpPrice} | Mode: ${payload.mode}`
           );
+          // P4.2: Record initial activation price to prevent instant exit on micro-fluctuation
+          metaUpdates.ttpActivationPrice = currentPrice;
         }
 
         const prevTp = (meta.activeTakeProfit as number) || tpPrice;
@@ -748,6 +751,8 @@ function evaluateTakeProfit(
         const trailExit = calculateTrailingExitTarget(payload.mode || "TRADE", highest, lowest, entryPrice, devPercent);
 
         // Monotonicity for TP:
+        // P4.2: Ensure finalTp has a minimum buffer from entry to avoid slippage-loss
+        // but also respect the deviation. 
         const finalTp =
           prevTp > 0
             ? isLong

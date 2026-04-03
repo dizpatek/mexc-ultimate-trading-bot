@@ -308,6 +308,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                 const liveData = (mtfResults[orderTf] || liveSignals[symNorm] || null) as any;
                 const isShort = meta.mode === "COVER" || trade.side === "SELL";
                 const aiScore = liveData ? (liveData.aiScore || 0) : Number(meta?.lastAiScore) || 0;
+                const isPilot = payload?.source === "pilot_auto";
                 
                 // P5.1: Calculate probability based on signal direction if raw upProb is missing
                 const rawUpProb = liveData?.prediction?.upProb;
@@ -367,7 +368,12 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                               {meta.mode || "TRADE"}
                             </span>
                           </div>
-                          <span className="text-[9px] font-black text-slate-500 uppercase tracking-tighter ml-0.5">V{trade.id}</span>
+                          <div className="flex items-center gap-1">
+                            <span className={cn("text-[7px] px-1 py-0.25 rounded font-black border uppercase tracking-tighter opacity-80", isPilot ? "bg-cyan-500/10 border-cyan-500/20 text-cyan-400" : "bg-slate-500/10 border-slate-500/20 text-slate-400")}>
+                               {isPilot ? "PILOT AUTO" : "MANUEL"}
+                            </span>
+                            <span className="text-[9px] font-black text-slate-500 uppercase tracking-tighter">V{trade.id}</span>
+                          </div>
                         </div>
                       </div>
 

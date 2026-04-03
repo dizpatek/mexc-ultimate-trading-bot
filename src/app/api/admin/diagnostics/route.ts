@@ -18,12 +18,12 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, rows });
     }
 
-    const [system, pilot, portfolio, performance, maintenance, db, deployment, worker, logs, users, tables] = await Promise.all([
-      DiagnosticsService.getSystemAudit(),
+    const results = await Promise.allSettled([
+      DiagnosticsService.getSystemAudit(user.id),
       DiagnosticsService.getPilotHub(user.id),
       DiagnosticsService.getPortfolioGuardian(user.id),
       DiagnosticsService.getPerformance(user.id),
-      DiagnosticsService.getMaintenance(),
+      DiagnosticsService.getMaintenance(user.id),
       DiagnosticsService.getDbStatus(),
       DiagnosticsService.getDeploymentStatus(),
       DiagnosticsService.getWorkerHeartbeat(),
@@ -32,11 +32,26 @@ export async function GET(request: Request) {
       DiagnosticsService.getTables()
     ]);
 
+    const data = {
+      system: results[0].status === 'fulfilled' ? results[0].value : { error: results[0].reason },
+      pilot: results[1].status === 'fulfilled' ? results[1].value : { error: results[1].reason },
+      portfolio: results[2].status === 'fulfilled' ? results[2].value : { error: results[2].reason },
+      performance: results[3].status === 'fulfilled' ? results[3].value : { error: results[3].reason },
+      maintenance: results[4].status === 'fulfilled' ? results[4].value : { error: results[4].reason },
+      db: results[5].status === 'fulfilled' ? results[5].value : { error: results[5].reason },
+      deployment: results[6].status === 'fulfilled' ? results[6].value : { error: results[6].reason },
+      worker: results[7].status === 'fulfilled' ? results[7].value : { error: results[7].reason },
+      logs: results[8].status === 'fulfilled' ? results[8].value : { error: results[8].reason },
+      users: results[9].status === 'fulfilled' ? results[9].value : { error: results[9].reason },
+      tables: results[10].status === 'fulfilled' ? results[10].value : { error: results[10].reason }
+    };
+
     return NextResponse.json({
       success: true,
-      data: { system, pilot, portfolio, performance, maintenance, db, deployment, worker, logs, users, tables }
+      data
     });
   } catch (error: unknown) {
+    console.error("[DiagnosticsAPI] Failed to fetch audit:", error);
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }

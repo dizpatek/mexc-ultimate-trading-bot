@@ -256,6 +256,18 @@ export const ExpandedTradePanel: React.FC<ExpandedTradePanelProps> = ({
             handleFlashOpen={handleFlashOpen}
             setLoadingAction={setLoadingAction}
             fetchTrades={fetchTrades}
+            onDelegate={async (e) => {
+              e.stopPropagation();
+              await doAction(
+                "delegate",
+                "PİLOT'A DEVRET",
+                `Bu işlem MEVCUT AYARLARINIZLA (TP/SL/Trailing) otopilot denetimine devredilsin mi? Manuel ayarlarınız korunacaktır.`,
+                async () => {
+                  await api.put(`/trade/delegate`, { orderId: trade.id });
+                  fetchTrades();
+                }
+              );
+            }}
           />
         </div>
       </div>
@@ -665,6 +677,7 @@ interface ActionSegmentProps {
   handleFlashOpen: (e: React.MouseEvent, trade: SmartTradeOrder) => void;
   setLoadingAction: (id: string | null) => void;
   fetchTrades: () => void;
+  onDelegate: (e: React.MouseEvent) => void;
 }
 const ActionSegment: React.FC<ActionSegmentProps> = ({
   trade,
@@ -685,6 +698,7 @@ const ActionSegment: React.FC<ActionSegmentProps> = ({
   handleFlashOpen,
   setLoadingAction,
   fetchTrades,
+  onDelegate,
 }) => (
   <div className="flex flex-col bg-slate-950/40 divide-y divide-white/5">
     <div className="px-2 py-1.5 flex items-center gap-1.5 border-b border-white/5 bg-slate-950/80">
@@ -793,6 +807,14 @@ const ActionSegment: React.FC<ActionSegmentProps> = ({
               onSlUpdate();
             }}
             bg="bg-rose-500/5 hover:bg-rose-500/10 text-rose-300"
+          />
+        )}
+        {(payload as any)?.source !== "pilot_auto" && (
+           <A 
+            icon={loadingAction === "delegate" ? <Loader2 className="animate-spin w-5 h-5" /> : <ShieldAlert className="w-5 h-5" />}
+            label={loadingAction === "delegate" ? "DEVREDİLİYOR" : "PİLOT'A DEVRET"}
+            onClick={onDelegate}
+            bg="bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 border border-cyan-500/30 active:scale-95 transition-all shadow-[0_0_15px_-5px_rgba(34,211,238,0.4)]"
           />
         )}
         <div className="col-span-2 flex flex-col divide-y divide-white/5 mt-auto bg-slate-950/20">

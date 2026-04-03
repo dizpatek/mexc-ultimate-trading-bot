@@ -7,6 +7,8 @@ import {
   getUserByUsername,
 } from "./db";
 
+console.log("[Auth] Loading auth-utils.ts - getSessionUser exported.");
+
 const JWT_SECRET = process.env.JWT_SECRET || "mexc-ultimate-secret-key-2026";
 
 interface User {
@@ -21,6 +23,28 @@ interface JwtPayload {
   email: string;
   username: string;
   is_admin?: boolean;
+}
+
+export async function getSessionUser(request: Request) {
+  try {
+    const authHeader = request.headers.get("authorization");
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return null;
+    }
+
+    const token = authHeader.split(" ")[1];
+    const result = await getCurrentUser(token);
+
+    if (result.success && result.user) {
+      return result.user;
+    }
+
+    return null;
+  } catch (error) {
+    console.error("[Auth] getSessionUser Error:", error);
+    return null;
+  }
 }
 
 export async function hashPassword(password: string): Promise<string> {
@@ -145,27 +169,4 @@ export async function getCurrentUser(token: string) {
       is_admin: user.is_admin,
     },
   };
-}
-
-export async function getSessionUser(request: Request) {
-  try {
-    const authHeader = request.headers.get("authorization");
-
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return null; // Return null to enforce proper auth
-    }
-
-    const token = authHeader.split(" ")[1];
-    const result = await getCurrentUser(token);
-
-    if (result.success && result.user) {
-      return result.user;
-    }
-
-    console.warn(`[Auth] getSessionUser: getCurrentUser failed for token slice: ${token.substring(0, 10)}... Reason: ${result.message}`);
-    return null;
-  } catch (error) {
-    console.error("[Auth] getSessionUser Error:", error);
-    return null;
-  }
 }

@@ -3,14 +3,16 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently \"next dev\" \"node scripts/bot-worker.mjs\"",
+    "dev": "concurrently \"next dev\" \"node scripts/bot-worker.mjs\" \"npx tsx --import dotenv/config scripts/sync_maker_taker.ts\"",
     "build": "next build",
     "start": "node scripts/bot-worker.mjs & next start",
     "lint": "eslint",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json}\" \"*.{ts,js,json}\"",
     "db:init": "node scripts/init-db.mjs",
     "telegram:start": "python telegram_signal_listener.py",
-    "telegram:dev": "python telegram_signal_listener.py"
+    "telegram:dev": "python telegram_signal_listener.py",
+    "sync:makertaker": "npx tsx --import dotenv/config scripts/sync_maker_taker.ts",
+    "sync:makertaker:win": "powershell -Command \"$env:DATABASE_URL=(Get-Content .env | Select-String '^DATABASE_URL' | ForEach-Object { $_ -replace 'DATABASE_URL=','' }); npx tsx --import dotenv/config scripts/sync_maker_taker.ts\""
   },
   "dependencies": {
     "@react-oauth/google": "^0.13.4",
@@ -19,6 +21,7 @@
     "@vercel/postgres": "^0.10.0",
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.3",
+    "ccxt": "^4.5.45",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",

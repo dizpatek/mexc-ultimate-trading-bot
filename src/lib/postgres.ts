@@ -6,6 +6,11 @@ const connectionString =
   process.env.DATABASE_URL ||
   process.env.POSTGRES_URI;
 
+// Nuclear fix for Northflank TLS mismatch in scripts and dev
+if (process.env.NODE_ENV === "development" || connectionString?.includes("northflank.com")) {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+}
+
 const poolConfig: any = {
   connectionString,
   max: 10,
@@ -14,9 +19,13 @@ const poolConfig: any = {
 
 // Enable SSL if explicitly requested or if it's a Northflank/Neon primary DB
 if (connectionString?.includes("primary") || 
+    connectionString?.includes("lb.") || 
     process.env.PGSSLMODE === 'require' || 
     connectionString?.includes("sslmode=require")) {
-  poolConfig.ssl = { rejectUnauthorized: false };
+  poolConfig.ssl = { 
+    rejectUnauthorized: false,
+    checkServerIdentity: () => undefined // Forcefully ignore hostname mismatch
+  };
 }
 
 export const pool = new Pool(poolConfig);
@@ -57,6 +66,24 @@ export async function sql(
     client.release();
   }
 }
+
+/**
+ * Raw SQL execution with parameterized values
+ */
+sql.raw = async function(query: string, values: any[]) {
+  const sanitizedValues = values.map((v) =>
+    typeof v === "object" && v !== null && !(v instanceof Date)
+      ? JSON.stringify(v)
+      : v,
+  );
+  
+  const client = await pool.connect();
+  try {
+    return await client.query(query, sanitizedValues);
+  } finally {
+    client.release();
+  }
+};
 
 // Ensure pool is closed on hot reload/shutdown
 if (process.env.NODE_ENV === "development") {

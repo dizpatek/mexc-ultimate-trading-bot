@@ -27,6 +27,7 @@ const SRC_DIR = path.join(ROOT, "src");
 const WIKI_DIR = path.join(ROOT, "brain", "wiki");
 const LOG_FILE = path.join(WIKI_DIR, "00-LOG.md");
 const INDEX_FILE = path.join(WIKI_DIR, "00-INDEX.md");
+const AUTORESEARCH_ROOT = path.resolve(ROOT, "..", "AutoResearch");
 
 const today = () => new Date().toISOString().split("T")[0];
 
@@ -54,6 +55,10 @@ const FILE_MAP: Record<string, string> = {
   "src/components/Header.tsx": "entities/Header.md",
   "src/components/PilotPipeline3D.tsx": "entities/PilotPipeline3D.md",
   "src/components/ActiveSmartTrades.tsx": "entities/TradePanel.md",
+  // ─── AutoResearch (External) ───
+  "../AutoResearch/train.py": "entities/AutoResearchTrain.md",
+  "../AutoResearch/prepare.py": "entities/AutoResearchPrepare.md",
+  "../AutoResearch/program.md": "concepts/AutoResearchCycle.md",
 };
 
 // ─── Yardımcı Fonksiyonlar ──────────────────────────────────────

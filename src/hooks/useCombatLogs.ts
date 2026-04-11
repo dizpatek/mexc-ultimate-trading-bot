@@ -346,7 +346,7 @@ export function useCombatLogs(
       // P3.2 Fix: Fetch ALL signals regardless of current UI timeframe
       // This ensures we keep history when switching views
       const response = await api.get(`/logs/signals?timeframe=${timeframe || "1m"}`, {
-        timeout: 15000, // 15s threshold
+        timeout: 30000, // Increased to 30s threshold
       });
       const data = response.data;
       setError(null);

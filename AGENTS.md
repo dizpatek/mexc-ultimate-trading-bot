@@ -1,6 +1,13 @@
 # MexCBrain — Wiki Şeması (AGENTS.md)
 
-Bu dosya, LLM'e MexCBrain wiki'sini nasıl okuyacağını, güncelleyeceğini ve genişleteceğini açıklar.
+## 🧠 Wiki-First Zeka Döngüsü (Kritik Kural)
+
+**Bu kural her prompt ve her görev başlangıcında ZORUNLUDUR:**
+
+1.  **Döngüye Gir:** Herhangi bir `grep` veya `ls` yapmadan önce `brain/wiki/00-INDEX.md` dosyasını oku.
+2.  **Bağlam Kazan:** İlgili modülün `entities/` sayfasını incele. Bu, kod tabanını sıfırdan taramak yerine "Wiki Beyni"ni kullanarak **token tasarrufu** sağlar.
+3.  **Otonom Gelişim:** Hata onarımı veya strateji geliştirme sonrası sonucu Wiki'ye işle. 
+4.  **AutoResearch Senkronizasyonu:** Masaüstündeki `AutoResearch` klasöründeki AI çıktılarını Wiki üzerinden takip et ve ana projeye aktar.
 
 ---
 

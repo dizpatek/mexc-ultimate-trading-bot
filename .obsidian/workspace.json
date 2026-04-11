@@ -11,14 +11,10 @@
             "id": "75454268838ddd9d",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "brain/wiki/entities/PilotExecutor.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "PilotExecutor"
+              "type": "graph",
+              "state": {},
+              "icon": "lucide-git-fork",
+              "title": "Grafik Görünümü"
             }
           }
         ]
@@ -74,7 +70,8 @@
               "title": "Yer İmleri"
             }
           }
-        ]
+        ],
+        "currentTab": 1
       }
     ],
     "direction": "horizontal",
@@ -185,7 +182,16 @@
   },
   "active": "75454268838ddd9d",
   "lastOpenFiles": [
+    "_tools/system/bridge-logic.ts",
+    "brain/wiki/concepts/AutoResearchCycle.md",
+    "brain/wiki/entities/AutoResearchPrepare.md",
+    "brain/wiki/entities/AutoResearchTrain.md",
+    "brain/wiki/flows/01-signal-flow.md",
+    "AGENTS.md",
+    "README.md",
     "RESEARCH_LIVE_LOGS.md",
+    "LICENSE.md",
+    "brain/wiki/entities/PilotExecutor.md",
     "brain/wiki/entities/PilotPipeline3D.md",
     "brain/wiki/entities/Header.md",
     "brain/wiki/concepts/OrderManagement.md",
@@ -202,15 +208,6 @@
     "brain/wiki/entities/WhaleRadarHook.md",
     "brain/wiki/entities/SmartTradeLogicHook.md",
     "brain/wiki/entities/TradingLogic.md",
-    "brain/wiki/entities/CombatLogsHook.md",
-    "brain/wiki/entities/SmartTradeMonitor.md",
-    "brain/wiki/entities/SmartTradeExecution.md",
-    "brain/wiki/entities/SmartTrade.md",
-    "brain/wiki/entities/SignalScanner.md",
-    "brain/wiki/entities/PilotExecutor.md",
-    "brain/wiki/entities/PanicService.md",
-    "brain/wiki/entities/MtfEngine.md",
-    "brain/wiki/entities/MexcWrapper.md",
     "node_modules/@babel/helper-string-parser/package.json",
     "node_modules/@babel/helper-validator-identifier/package.json",
     "node_modules/@typescript-eslint/types/package.json",

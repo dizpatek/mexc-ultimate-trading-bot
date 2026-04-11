@@ -19,6 +19,9 @@
     "wiki:watch": "npx tsx --import dotenv/config _tools/system/wiki-gen.ts watch",
     "wiki:sync": "npx tsx --import dotenv/config _tools/system/wiki-gen.ts sync",
     "wiki:lint": "npx tsx --import dotenv/config _tools/system/wiki-gen.ts lint",
+    "bridge:status": "npx tsx _tools/system/bridge-logic.ts status",
+    "bridge:diff": "npx tsx _tools/system/bridge-logic.ts diff",
+    "bridge:sync": "npx tsx _tools/system/bridge-logic.ts sync",
     "db:analyze-trades": "npx tsx _tools/system/analyze-trades.ts",
     "db:clean-orphans": "npx tsx _tools/system/clean-orphaned-trades.ts",
     "tool": "npx tsx _tools/BrainCLI.ts"

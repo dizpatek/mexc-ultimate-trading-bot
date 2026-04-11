@@ -9,6 +9,24 @@
 ## [2026-04-11] build | Wiki yeniden oluşturuldu
 
 - **İşlem:** Tam build
+- **Güncellenen:** 2 sayfa
+- **Değişmeyen:** 23 sayfa
+- **Kapsam:** Tüm entity sayfaları
+
+---
+
+## [2026-04-11] build | Wiki yeniden oluşturuldu
+
+- **İşlem:** Tam build
+- **Güncellenen:** 0 sayfa
+- **Değişmeyen:** 22 sayfa
+- **Kapsam:** Tüm entity sayfaları
+
+---
+
+## [2026-04-11] build | Wiki yeniden oluşturuldu
+
+- **İşlem:** Tam build
 - **Güncellenen:** 3 sayfa
 - **Değişmeyen:** 19 sayfa
 - **Kapsam:** Tüm entity sayfaları

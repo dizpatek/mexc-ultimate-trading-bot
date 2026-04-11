@@ -571,8 +571,10 @@ async function createIndexes() {
   // 15. Performance Indexes
   await sql`CREATE INDEX IF NOT EXISTS idx_strategy_signals_timestamp ON strategy_signals(timestamp);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_strategy_signals_symbol ON strategy_signals(symbol);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_strategy_signals_user_ts ON strategy_signals(user_id, timestamp DESC);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_system_logs_timestamp ON system_logs(timestamp);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_system_logs_user_id ON system_logs(user_id);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_system_logs_user_ts ON system_logs(user_id, timestamp DESC);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_strategies_user_id ON strategies(user_id);`;
   
   // P4.7: Dashboard Performance Optimization Indexes

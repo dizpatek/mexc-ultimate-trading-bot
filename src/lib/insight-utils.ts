@@ -29,26 +29,27 @@ export function buildInsight(signalType: string | null | undefined, indicators: 
   if (isWhale) {
     const direction = whaleStatus === "BULLISH" ? "YUKARI" : "AŞAĞI";
     const emoji = whaleStatus === "BULLISH" ? "📈" : "📉";
-    return `🐳 BALİNA HAREKETİ: Piyasa genelinden bağımsız, yüksek hacimli bir giriş/çıkış saptandı. Motor bu hareketi ${direction} ${emoji} yönlü bir fırsat olarak görüyor. F4 Gücü: %${Math.round(f4)}.`;
+    const prefix = whaleStatus === "BULLISH" ? "🟢 AL: " : "🔴 SAT: ";
+    return `${prefix}🐳 BALİNA HAREKETİ: Piyasa genelinden bağımsız, yüksek hacimli bir giriş/çıkış saptandı. Motor bu hareketi ${direction} ${emoji} yönlü bir fırsat olarak görüyor. F4 Gücü: %${Math.round(f4)}.`;
   }
 
   if (isBuy) {
     if (f4 < 0) {
-      return `DİP YAKALAMA (Reversal Buy): F4 yönü eksi/aşağı gözüküyor (${Math.round(f4)}%) ancak satıcılar yorulduğu için düşüş trendi %${Math.round(loss)} güç kaybetti. Motor dönüşü sezip YUKARI fırsatı görüyor. Otopilot onayı bekleniyor.`;
+      return `🟢 AL: DİP YAKALAMA (Reversal Buy): F4 yönü eksi/aşağı gözüküyor (${Math.round(f4)}%) ancak satıcılar yorulduğu için düşüş trendi %${Math.round(loss)} güç kaybetti. Motor dönüşü sezip YUKARI fırsatı görüyor. Otopilot onayı bekleniyor.`;
     } else {
       if (loss >= 85) {
-        return `YÜKSELİŞ DOYUMU: F4 pozitif bölgede (${Math.round(f4)}%) ancak yükseliş trendi %${Math.round(loss)} gibi çok yüksek bir güç kaybına ulaştı. Yeni alım (Long) riskli olabilir, düzeltme bekliyor.`;
+        return `🟢 AL: YÜKSELİŞ DOYUMU: F4 pozitif bölgede (${Math.round(f4)}%) ancak yükseliş trendi %${Math.round(loss)} gibi çok yüksek bir güç kaybına ulaştı. Yeni alım (Long) riskli olabilir, düzeltme bekliyor.`;
       }
-      return `TREND TAKİBİ: F4 zaten güçlü pozitif bölgede (${Math.round(f4)}%). Motor, mevcut yükselişin YUKARI devamını öngörüyor. Otopilot onayı bekleniyor.`;
+      return `🟢 AL: TREND TAKİBİ: F4 zaten güçlü pozitif bölgede (${Math.round(f4)}%). Motor, mevcut yükselişin YUKARI devamını öngörüyor. Otopilot onayı bekleniyor.`;
     }
   } else if (isSell) {
     if (f4 > 0) {
-      return `ZİRVE DÜZELTMESİ (Reversal Sell): F4 artıda/yukarıda (${Math.round(f4)}%) ancak alıcılar tükendiği için yükseliş trendi %${Math.round(loss)} güç kaybetti. Motor düzeltme sezip AŞAĞI fırsat görüyor. Otopilot onayı bekleniyor.`;
+      return `🔴 SAT: ZİRVE DÜZELTMESİ (Reversal Sell): F4 artıda/yukarıda (${Math.round(f4)}%) ancak alıcılar tükendiği için yükseliş trendi %${Math.round(loss)} güç kaybetti. Motor düzeltme sezip AŞAĞI fırsat görüyor. Otopilot onayı bekleniyor.`;
     } else {
       if (loss >= 85) {
-        return `DÜŞÜŞ DOYUMU: F4 negatif bölgede (${Math.round(f4)}%) ancak düşüş trendi %${Math.round(loss)} gibi çok yüksek bir güç kaybına ulaştı. Açığa satış (Short) için çok geç olabilir, tepki bekliyor.`;
+        return `🔴 SAT: DÜŞÜŞ DOYUMU: F4 negatif bölgede (${Math.round(f4)}%) ancak düşüş trendi %${Math.round(loss)} gibi çok yüksek bir güç kaybına ulaştı. Açığa satış (Short) için çok geç olabilir, tepki bekliyor.`;
       }
-      return `DÜŞÜŞ TRENDİ: F4 halihazırda negatif bölgede (${Math.round(f4)}%). Motor düşüşün AŞAĞI devamını öngörüyor. Otopilot onayı bekleniyor.`;
+      return `🔴 SAT: DÜŞÜŞ TRENDİ: F4 halihazırda negatif bölgede (${Math.round(f4)}%). Motor düşüşün AŞAĞI devamını öngörüyor. Otopilot onayı bekleniyor.`;
     }
   }
 

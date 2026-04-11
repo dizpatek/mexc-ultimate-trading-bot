@@ -6,7 +6,16 @@ import { getSessionUser } from "@/lib/auth-utils";
 
 export const dynamic = "force-dynamic";
 
+// Simple global lock to prevent concurrent executions in a long-running Node process
+let isMonitoring = false;
+
 export async function GET(request: Request) {
+  if (isMonitoring) {
+    console.log("[Cron/TrailingStop] Monitor is already running, skipping this cycle.");
+    return NextResponse.json({ success: false, message: "Monitor already running" }, { status: 429 });
+  }
+
+  isMonitoring = true;
   try {
     const isDev = process.env.NODE_ENV !== "production";
     const cronSecret = process.env.CRON_SECRET || (isDev ? "dev-secret" : null);
@@ -63,5 +72,7 @@ export async function GET(request: Request) {
       { error: error instanceof Error ? error.message : String(error) },
       { status: 500 },
     );
+  } finally {
+    isMonitoring = false;
   }
 }

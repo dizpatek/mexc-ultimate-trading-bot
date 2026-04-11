@@ -267,6 +267,8 @@ export async function handleSmartTrade(
             : "TRADE_ACTIVE",
           activeTakeProfit: takeProfit?.price || null,
           activeStopLoss: stopLoss?.price || null,
+          // COVER + trailing SL varsa TSL baştan aktif olarak işaretlenir
+          tslActivated: (mode === "COVER" && stopLoss?.trailing === true) ? true : undefined,
           highestPrice: avgPrice,
           lowestPrice: avgPrice,
           source: payload.source || undefined, // Track origin (e.g. pilot_auto)

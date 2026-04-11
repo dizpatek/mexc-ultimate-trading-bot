@@ -1,4 +1,5 @@
 import { sql, pool } from "@/lib/postgres";
+export { sql, pool };
 import { DEFAULT_BOT_CONFIG } from "./constants/bot-defaults";
 import type { Pool } from "pg";
 
@@ -100,6 +101,11 @@ export interface BotTimeframeSettings {
   pilot_use_usdt?: boolean;
   pilot_trailing_buy?: boolean;
   pilot_trailing_buy_dev?: number;
+  // AutoResearch Preferences
+  ar_symbols?: string[];
+  ar_timeframe?: string;
+  ar_is_running?: boolean;
+  ar_phase?: "auto" | "random" | "hillclimb" | "ucb";
   [key: string]: unknown;
 }
 
@@ -312,6 +318,27 @@ export async function getMarketTrades(symbol: string, exchange: string, from: nu
     side: Number(r.side),
     usd: Number(r.usd)
   }));
+}
+
+export async function getLatestMarketTrade(symbol: string, exchange: string): Promise<MarketTrade | null> {
+  const { rows } = await sql`
+        SELECT symbol, exchange, t, p, q, side, usd 
+        FROM market_trades 
+        WHERE symbol = ${symbol} AND exchange = ${exchange}
+        ORDER BY t DESC
+        LIMIT 1
+    `;
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    symbol: r.symbol as string,
+    exchange: r.exchange as string,
+    t: Number(r.t),
+    p: Number(r.p),
+    q: Number(r.q),
+    side: Number(r.side),
+    usd: Number(r.usd)
+  };
 }
 
 export async function insertMarketTrades(trades: MarketTrade[]) {
@@ -762,56 +789,13 @@ export async function getBotConfig(userId: number): Promise<BotConfig> {
 }
 
 // --- System Logging ---
-const sysLogBuffer: {
-  userId: number;
-  level: string;
-  message: string;
-  details: string | null;
-}[] = [];
-let isFlushingSysLogs = false;
-const MAX_BUFFER_SIZE = 5000;
+// RAM Optimizasyonu: sysLogBuffer IPTAL EDILDI (Northflank Pico)
+// Loglar artik bellekte array olarak birikmeyecek, sadece terminale yazilacak.
 
 export async function flushSystemLogs() {
-  if (isFlushingSysLogs || sysLogBuffer.length === 0) return;
-  isFlushingSysLogs = true;
-
-  // Process up to 100 logs per batch to reduce connection overhead
-  const batch = sysLogBuffer.splice(0, 100);
-  try {
-    const timeStr = Date.now();
-
-    // Construct bulk insert values
-    // Note: Using parameterized queries for array of tuples in node-postgres
-    // Requires a flat array of values and a dynamically generated query string
-    const values: unknown[] = [];
-    const placeholders = batch
-      .map((log, index) => {
-        const offset = index * 5;
-        values.push(log.userId, log.level, log.message, log.details, timeStr);
-        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5})`;
-      })
-      .join(", ");
-
-    const queryText = `
-            INSERT INTO system_logs (user_id, level, message, details, timestamp)
-            VALUES ${placeholders}
-        `;
-
-    await (pool as Pool).query(queryText, values);
-  } catch (err) {
-    console.error(
-      "[DB] Failed to flush system logs batch. Logs dropped to prevent ordering inversion.",
-      err,
-    );
-    // NOTE: In a serverless environment, re-queuing failed batches can lead to
-    // chronological inversions and log duplication if the DB flaps.
-    // We drop them here to prioritize system stability over 100% log retention.
-  } finally {
-    isFlushingSysLogs = false;
-    if (sysLogBuffer.length > 0) {
-      setTimeout(() => flushSystemLogs().catch(() => {}), 1000);
-    }
-  }
+  // sysLogBuffer iptal edildiği için bu fonksiyon artık boştadır.
+  // Eski çağrıların hata vermemesi için korundu.
+  return;
 }
 
 export async function logSystemEvent(
@@ -821,29 +805,44 @@ export async function logSystemEvent(
   details?: string,
   immediate = false,
 ) {
-  if (immediate) {
-    try {
-      await sql`
-                INSERT INTO system_logs (user_id, level, message, details, timestamp)
-                VALUES (${userId}, ${level}, ${message}, ${details}, ${Date.now()})
-            `;
-    } catch (err) {
-      console.error("[DB] logSystemEvent (immediate) Error:", err);
-    }
-    return;
-  }
+  // Console logging (preserved for terminal visibility)
+  const timeStr = new Date().toISOString();
+  console.log(`[${timeStr}] [UID:${userId}] [${level}] ${message}`, details ? `| Detaylar: ${details}` : "");
 
-  // Add to buffer for batch processing, dropping oldest if full to prevent OOM
-  if (sysLogBuffer.length >= MAX_BUFFER_SIZE) {
-    sysLogBuffer.shift();
-  }
-  sysLogBuffer.push({ userId, level, message, details: details || null });
-
-  // Auto trigger flush if buffer starts getting full
-  if (sysLogBuffer.length >= 20 && !isFlushingSysLogs) {
-    flushSystemLogs().catch(() => {});
+  // Database recording (Restored for System Console visibility)
+  try {
+    await sql`
+      INSERT INTO system_logs (user_id, level, message, details, timestamp)
+      VALUES (${userId}, ${level}, ${message}, ${details || null}, ${Date.now()})
+    `;
+  } catch (err) {
+    console.error(`[DB] logSystemEvent Failed for User ${userId}:`, err);
   }
 }
+
+// --- Autoclean DB Janitor ---
+export async function autoCleanDB() {
+  try {
+    const now = Date.now();
+    const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+    const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000; // Extended from 2 to 7 days
+
+    // Postgres'teki eski ticaret loglarini temizle
+    const resTrades = await sql`DELETE FROM trade_history WHERE created_at < ${thirtyDaysAgo}`;
+    // System logs retention extended
+    const resLogs = await sql`DELETE FROM system_logs WHERE timestamp < ${sevenDaysAgo}`;
+    
+    console.log(`🧹 [Janitor] Veritabanı Temizlendi: ${resTrades.rowCount} eski islem, ${resLogs.rowCount} eski log silindi.`);
+  } catch (err) {
+    console.error("🧹 [Janitor] Veritabanı Temizlik Hatasi:", err);
+  }
+}
+
+// Node.js süreci başlarken bir kez çalıştır ve ardından 6 saatte bir tekrarla
+setTimeout(() => {
+  autoCleanDB();
+  setInterval(autoCleanDB, 6 * 60 * 60 * 1000);
+}, 5000);
 
 export async function updateBotConfig(userId: number, updates: Partial<BotConfig>) {
   try {
@@ -1087,6 +1086,139 @@ export async function initializeUserSettings(userId: number): Promise<void> {
   } catch (error) {
     console.error(`[DB] Error initializing settings for User ${userId}:`, error);
     throw error;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// AUTO-RESEARCH EXPERIMENTS
+// ─────────────────────────────────────────────────────────────────
+
+export interface AutoResearchExperiment {
+  id: number;
+  run_id: string;
+  params: Record<string, unknown>;
+  composite_score: number;
+  win_rate: number;
+  sharpe: number;
+  profit_factor: number;
+  max_drawdown: number;
+  total_trades: number;
+  total_pnl_pct: number;
+  timeframe: string;
+  symbol: string;
+  search_phase: string;
+  is_best: boolean;
+  created_at: number;
+}
+
+/**
+ * AutoResearch deneyini veritabanına kaydeder.
+ */
+export async function insertAutoResearchExperiment(exp: Omit<AutoResearchExperiment, "id">): Promise<number> {
+  try {
+    const result = await sql`
+      INSERT INTO autoresearch_experiments
+        (run_id, params, composite_score, win_rate, sharpe, profit_factor, max_drawdown,
+         total_trades, total_pnl_pct, timeframe, symbol, search_phase, is_best, created_at)
+      VALUES
+        (${exp.run_id}, ${JSON.stringify(exp.params)}, ${exp.composite_score},
+         ${exp.win_rate}, ${exp.sharpe}, ${exp.profit_factor}, ${exp.max_drawdown},
+         ${exp.total_trades}, ${exp.total_pnl_pct}, ${exp.timeframe}, ${exp.symbol},
+         ${exp.search_phase}, ${exp.is_best}, ${exp.created_at})
+      RETURNING id
+    `;
+    return Number(result.rows[0].id);
+  } catch (e: unknown) {
+    console.error("[AutoResearch] DB Insert Error:", e instanceof Error ? e.message : String(e));
+    throw e;
+  }
+}
+
+/**
+ * Mevcut en iyi deneyi "is_best=false" olarak işaretle, ardından yeniyi "true" yap.
+ */
+export async function markNewBestExperiment(newId: number): Promise<void> {
+  await sql`UPDATE autoresearch_experiments SET is_best = false WHERE is_best = true`;
+  await sql`UPDATE autoresearch_experiments SET is_best = true  WHERE id = ${newId}`;
+}
+
+/**
+ * En iyi deneyi döndür.
+ */
+export async function getBestExperiment(): Promise<AutoResearchExperiment | null> {
+  const { rows } = await sql`
+    SELECT * FROM autoresearch_experiments
+    WHERE is_best = true
+    ORDER BY composite_score DESC
+    LIMIT 1
+  `;
+  if (!rows[0]) return null;
+  return { ...rows[0], params: typeof rows[0].params === "string" ? JSON.parse(rows[0].params) : rows[0].params } as AutoResearchExperiment;
+}
+
+/**
+ * Son N deneyi listele (dashboard için).
+ */
+export async function listAutoResearchExperiments(limit = 100): Promise<AutoResearchExperiment[]> {
+  const { rows } = await sql`
+    SELECT * FROM autoresearch_experiments
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `;
+  return rows.map(r => ({
+    ...r,
+    params: typeof r.params === "string" ? JSON.parse(r.params) : r.params,
+    composite_score: parseFloat(String(r.composite_score)),
+    win_rate:         parseFloat(String(r.win_rate)),
+    sharpe:           parseFloat(String(r.sharpe)),
+    profit_factor:    parseFloat(String(r.profit_factor)),
+    max_drawdown:     parseFloat(String(r.max_drawdown)),
+    total_pnl_pct:    parseFloat(String(r.total_pnl_pct)),
+    total_trades:     parseInt(String(r.total_trades)),
+    created_at:       Number(r.created_at),
+  })) as AutoResearchExperiment[];
+}
+
+/**
+ * AutoResearch tablosunu oluştur (bir kez çalıştırılır).
+ */
+export async function initAutoResearchTable(): Promise<void> {
+  await sql`
+    CREATE TABLE IF NOT EXISTS autoresearch_experiments (
+      id             SERIAL PRIMARY KEY,
+      run_id         UUID            NOT NULL,
+      params         JSONB           NOT NULL,
+      composite_score DOUBLE PRECISION DEFAULT 0,
+      win_rate        DOUBLE PRECISION DEFAULT 0,
+      sharpe          DOUBLE PRECISION DEFAULT 0,
+      profit_factor   DOUBLE PRECISION DEFAULT 0,
+      max_drawdown    DOUBLE PRECISION DEFAULT 0,
+      total_trades    INTEGER          DEFAULT 0,
+      total_pnl_pct   DOUBLE PRECISION DEFAULT 0,
+      timeframe       VARCHAR(50)      DEFAULT '4h',
+      symbol          VARCHAR(255)     DEFAULT 'BTCUSDT',
+      search_phase    VARCHAR(50)      DEFAULT 'random',
+      is_best         BOOLEAN          DEFAULT false,
+      created_at      BIGINT           NOT NULL
+    )
+  `;
+  // Index for fast lookups
+  await sql`CREATE INDEX IF NOT EXISTS idx_autores_score ON autoresearch_experiments (composite_score DESC)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_autores_run   ON autoresearch_experiments (run_id)`;
+  console.log("[AutoResearch] DB tablosu hazır.");
+}
+
+/**
+ * Sistemi genelinde Dashboard konsoluna log basmak için kullanılır.
+ */
+export async function logSystemMessage(message: string, details?: string, sentiment: 'POSITIVE'|'NEGATIVE'|'NEUTRAL' = 'NEUTRAL', userId: number = DEFAULT_UID): Promise<void> {
+  try {
+    await sql`
+      INSERT INTO system_logs (user_id, level, message, details, timestamp)
+      VALUES (${userId}, 'SYSTEM', ${message}, ${details || null}, ${Date.now()})
+    `;
+  } catch (e) {
+    console.warn("[DB] logSystemMessage failed:", e);
   }
 }
 

@@ -8,7 +8,7 @@ export const MTF_INTERVALS = ["15m", "1h", "4h", "1d", "1w"];
 async function fetchBulkMtfData(trades: { id: number; symbol: string }[], mapApiResponse: any) {
   const updates: Record<number, Record<string, F4Data>> = {};
   const newFailures: Record<number, boolean> = {};
-  const CHUNK_SIZE = 25;
+  const CHUNK_SIZE = 15;
 
   for (let i = 0; i < trades.length; i += CHUNK_SIZE) {
     const chunk = trades.slice(i, i + CHUNK_SIZE);
@@ -211,7 +211,7 @@ export function useTradingSignals(enabled: boolean = true) {
       setIsLoadingSignals(true);
       
       try {
-        const CHUNK_SIZE = 100;
+        const CHUNK_SIZE = 25;
         const chunks: string[][] = [];
         for (let i = 0; i < symbols.length; i += CHUNK_SIZE) {
           chunks.push(symbols.slice(i, i + CHUNK_SIZE));

@@ -96,7 +96,7 @@ export async function POST(request: Request) {
     console.error("Quick trade server error:", error);
 
     // Check if it's an axios error with a status code
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const axiosError = error as any;
     const status = axiosError.response?.status || 500;
     const message = axiosError.mexcDetail

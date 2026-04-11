@@ -59,7 +59,7 @@ export async function executePanicSell(
       };
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const snapshotData: any[] = [];
     const sellResults: SellResult[] = [];
     let totalUsdtValue = 0;
@@ -82,7 +82,7 @@ export async function executePanicSell(
           `[PanicService] Selling ${quantity} ${asset} as ${symbol}...`,
         );
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         const sellResult: any = await marketSellByQty(
           Number(userId),
           symbol,

@@ -42,8 +42,8 @@ const STATIONS: Station[] = [
     title: "TARAMA",
     codeRef: "runPilotCycle()",
     image: "/pipeline/station-scanner.png",
-    accentColor: "#a855f7",
-    glowColor: "rgba(168,85,247,0.7)",
+    accentColor: "#06b6d4",
+    glowColor: "rgba(6,182,212,0.7)",
     x: 4.2,
     y: 42,
     phaseLabelPos: { x: 50, y: 70 },
@@ -127,8 +127,8 @@ const STATIONS: Station[] = [
     title: "DENETİM",
     codeRef: "recordSignalResult()",
     image: "/pipeline/station-audit.png",
-    accentColor: "#06b6d4",
-    glowColor: "rgba(6,182,212,0.7)",
+    accentColor: "#a855f7",
+    glowColor: "rgba(168,85,247,0.7)",
     x: 95.8,
     y: 42,
     phaseLabelPos: { x: 90, y: 60 },
@@ -314,20 +314,13 @@ export const PilotPipeline3D = () => {
   const [activeId, setActiveId] = useState<string | null>(null);
 
   useEffect(() => {
-    // ══ SYNC TIMER with FLASHBACK EFFECT ══
-    // Forward for 15s, snappy rewind (flashback) for 0.5s
-    const controls = animate(0, 15.5, {
-      duration: 15.5,
+    // Işınlanma (Teleport) Efekti: Baştan sona tek yön doğrusal (15s)
+    const controls = animate(0, 15, {
+      duration: 15,
       repeat: Infinity,
       ease: "linear",
       onUpdate: (v: number) => {
-        if (v <= 15) {
-          setProgress((v / 15) * 100);
-        } else {
-          // Flashback: 15 to 15.5 (0.5s) -> 100 to 0
-          const flashbackVal = 1 - ((v - 15) / 0.5);
-          setProgress(flashbackVal * 100);
-        }
+        setProgress((v / 15) * 100);
       },
     });
     return controls.stop;
@@ -386,15 +379,16 @@ export const PilotPipeline3D = () => {
             <motion.path d={ROAD_PATH} stroke="white" strokeWidth="0.5" fill="none" strokeDasharray="2 60"
               animate={{ strokeDashoffset: [-600, 0] }} transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }} />
 
-            {/* 🚗 SIGNAL CAPSULE - V2 RIGHTWARD ORIENTED */}
+            {/* 🚗 SIGNAL CAPSULE - V2 RIGHTWARD ORIENTED (TELEPORT EFFECT) */}
             <motion.g
-              initial={{ offsetDistance: "0%" }}
-              animate={{ offsetDistance: ["0%", "100%", "0%"] }}
+              initial={{ offsetDistance: "0%", opacity: 0 }}
+              animate={{ 
+                offsetDistance: ["0%", "100%"],
+                opacity: [0, 1, 1, 0]
+              }}
               transition={{ 
-                duration: 15.5, 
-                repeat: Infinity, 
-                times: [0, 0.967, 1],
-                ease: ["linear", "circIn"] 
+                offsetDistance: { duration: 15, repeat: Infinity, ease: "linear" },
+                opacity: { duration: 15, repeat: Infinity, ease: "linear", times: [0, 0.05, 0.95, 1] }
               }}
               style={{ offsetPath: `path("${ROAD_PATH}")` }}
             >

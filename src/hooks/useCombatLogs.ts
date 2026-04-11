@@ -34,6 +34,7 @@ export interface LogEntry {
     f4Power?: number;
     f4PowerLoss?: number;
     insight?: string;
+    originalIntent?: string;
     scanTimeframe?: string;
     pilotTimeframe?: string;
   };
@@ -144,17 +145,31 @@ function extractMetaData(raw: any): {
           f4Power: Number(indicators?.f4Power ?? data.f4Power ?? 0),
           f4PowerLoss: Number(indicators?.f4PowerLoss ?? data.f4PowerLoss ?? 0),
           insight: String(indicators?.insight ?? data.insight ?? ""),
+          originalIntent: String(data.originalIntent ?? indicators?.originalIntent ?? ""),
         };
+      }
+
+      if (indicators) {
+        // Create a nice summary of key indicators
+        const parts: string[] = [];
+        if (indicators.rsi) parts.push(`RSI: ${Math.round(indicators.rsi)}`);
+        if (indicators.mfi) parts.push(`MFI: ${Math.round(indicators.mfi)}`);
+        if (indicators.volumeScore) parts.push(`VOL: ${indicators.volumeScore}`);
+        if (indicators.trend) parts.push(`TRND: ${indicators.trend}`);
+        if (indicators.mtfSummary) parts.push(indicators.mtfSummary);
+
+        if (parts.length > 0) {
+          const indicatorStr = parts.join(" | ");
+          extractedDetail = extractedDetail 
+            ? `${extractedDetail} — ${indicatorStr}` 
+            : indicatorStr;
+        }
       }
     }
 
     // Fallback for string-only or failed metadata
     if (typeof raw === "string" && !metaData) {
       extractedDetail = raw;
-    }
-
-    if (!extractedDetail && metaData?.veto) {
-      extractedDetail = `VETO: ${metaData.veto}`;
     }
   } catch (e) {
     console.warn("Meta Extraction Failed:", e);
@@ -166,7 +181,7 @@ function extractMetaData(raw: any): {
 /**
  * Formats the primary display message for a log entry
  */
-function formatLogMessage(sig: any, suffix: string): string {
+function formatLogMessage(sig: any, suffix: string, meta?: any): string {
   if (sig.type === "SYSTEM" || sig.symbol === "SYSTEM") return sig.detail;
   if (sig.type === "WHALE") return `劇 WHALE: ${sig.symbol}`;
   if (["BUY", "SELL", "STOP_LOSS", "TAKE_PROFIT"].includes(sig.type)) {
@@ -184,11 +199,13 @@ function formatLogMessage(sig: any, suffix: string): string {
     const act = sig.type.replace("SCANNER_", "");
     return `🔭 TARAMA [${act}]: ${sig.symbol} @ ${sig.price}`;
   }
-  const side = sig.side || (sig.type?.includes("BUY") ? "BUY" : sig.type?.includes("SELL") ? "SELL" : "");
-  const sideLabel = side === "BUY" ? " (AL)" : side === "SELL" ? " (SAT)" : "";
-  const sideIcon = side === "BUY" ? "🟢" : side === "SELL" ? "🔴" : "🎯";
   
-  return `${sideIcon} YZ: ${sig.symbol}${sideLabel}`;
+  const intent = meta?.originalIntent?.toUpperCase() || "";
+  const side = sig.side || (sig.type?.includes("BUY") ? "BUY" : sig.type?.includes("SELL") ? "SELL" : (intent.includes("BUY") ? "BUY" : intent.includes("SELL") ? "SELL" : ""));
+  const sideIcon = side === "BUY" ? "🟢" : side === "SELL" ? "🔴" : "🎯";
+  const sidePrefix = side ? `[${side}] ` : "";
+  
+  return `${sideIcon} ${sidePrefix}YZ: ${sig.symbol}`.trim();
 }
 
 /**
@@ -239,17 +256,15 @@ export function parseLogEntry(sig: any, currentUserId?: number): LogEntry {
   else if (sig.type?.startsWith("F4_")) logType = "F4_SIGNAL";
 
   let finalDetail = extractedDetail;
-
-  if (!finalDetail && sig.strategy_name) {
-    finalDetail = sig.executed
-      ? `ONAYLANDI: ${sig.strategy_name}`
-      : sig.strategy_name;
-  }
+  // Fallback Kaldırıldı: Eğer detay yoksa boş kalmalı, "Pilot ON" yazmamalı.
+  // if (!finalDetail && sig.strategy_name) {
+  //   finalDetail = sig.executed ? `ONAYLANDI: ${sig.strategy_name}` : sig.strategy_name;
+  // }
 
   const { timeframe: parsedTf, suffix: tfSuffix } = extractTimeframe(
     finalDetail || "",
   );
-  const displayMessage = formatLogMessage(sig, tfSuffix);
+  const displayMessage = formatLogMessage(sig, tfSuffix, metaData);
   // Standardize timeframe strings for UI consistency
   let finalTimeframe = parsedTf || sig.timeframe || "";
   if (finalTimeframe === "1M") finalTimeframe = "1Mo";
@@ -265,9 +280,7 @@ export function parseLogEntry(sig: any, currentUserId?: number): LogEntry {
     details:
       isSystem || !metaData
         ? finalDetail
-        : metaData.veto
-          ? `VETO: ${metaData.veto}`
-          : undefined,
+        : (finalDetail || (metaData.veto ? `VETO: ${metaData.veto}` : undefined)),
     assetSymbol: isSystem ? undefined : normalizeSymbol(sig.symbol),
     timeframe: finalTimeframe,
     strategyName:
@@ -332,7 +345,9 @@ export function useCombatLogs(
     try {
       // P3.2 Fix: Fetch ALL signals regardless of current UI timeframe
       // This ensures we keep history when switching views
-      const response = await api.get(`/logs/signals?timeframe=${timeframe || "1m"}`);
+      const response = await api.get(`/logs/signals?timeframe=${timeframe || "1m"}`, {
+        timeout: 15000, // 15s threshold
+      });
       const data = response.data;
       setError(null);
 
@@ -354,7 +369,8 @@ export function useCombatLogs(
       console.error("Fetch Logs Error:", err);
       // Don't set error message for 401 as it's handled globally
       if (!(err instanceof AxiosError && err.response?.status === 401)) {
-        setError("Veri Çekilemedi");
+        const isTimeout = err instanceof AxiosError && (err.code === 'ECONNABORTED' || err.message?.includes('timeout'));
+        setError(isTimeout ? "İstek Zaman Aşımına Uğradı (Yavaş Bağlantı)" : "Veri Çekilemedi");
       }
     } finally {
       setIsLoading(false);
@@ -392,7 +408,9 @@ export function useCombatLogs(
       try {
         isScanningGlobal = true;
         setScanStatus("scanning");
-        const response = await api.get(`/signals/scan?timeframe=${timeframe}`);
+        const response = await api.get(`/signals/scan?timeframe=${timeframe}`, {
+          timeout: 20000, // Slightly longer for heavy scan operations
+        });
 
         const finishTime = Date.now();
         localStorage.setItem("last_signal_scan", finishTime.toString());

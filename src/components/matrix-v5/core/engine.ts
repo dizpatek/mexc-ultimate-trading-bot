@@ -28,13 +28,20 @@ export class ChartEngine {
   height: number;
   chartW: number;
   chartH: number;
+  overlayMode: boolean; // Overlay cam modu
   onPanLazyLoad?: (vStart: number, vEnd: number) => void;
 
-  constructor(canvasId: string) {
+  constructor(canvasId: string, overlayMode = false) {
+    this.overlayMode = overlayMode;
     this.canvas = document.getElementById(canvasId) as HTMLCanvasElement;
     this.ctx = this.canvas.getContext('2d', { alpha: false }) as CanvasRenderingContext2D;
     
-    this.margin = { top: 20, right: 80, bottom: 30, left: 10 };
+    // Eğer overlay mode'daysa Margin 0'dır, Lightweight Charts'ın price eksenini kaplamayacağız
+    if (this.overlayMode) {
+      this.margin = { top: 0, right: 0, bottom: 0, left: 0 };
+    } else {
+      this.margin = { top: 20, right: 80, bottom: 30, left: 10 };
+    }
     
     // Viewport
     this.viewport = {
@@ -241,6 +248,9 @@ export class ChartEngine {
 
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
+      // ... overlayMode'da wheel kapalı (alttaki grafik halleder)
+      if (this.overlayMode) return;
+      
       if (this.trades.length === 0) return;
       
       const zoomFactor = 1.1;
@@ -260,6 +270,26 @@ export class ChartEngine {
       this.invalidateCache();
       this.needsRender = true;
     }, { passive: false });
+
+    // --- Overlay Mode Sync Event ---
+    window.addEventListener('matrix-sync', ((e: CustomEvent) => {
+      if (!this.overlayMode) return;
+      const d = e.detail;
+      if (d.startTime && d.endTime) {
+        this.viewport.startTime = d.startTime;
+        this.viewport.endTime = d.endTime;
+        this.smoothEndTime = d.endTime;
+        this.viewport.isLive = true;
+      }
+      if (d.minPrice && d.maxPrice) {
+        this.viewport.minPrice = d.minPrice;
+        this.viewport.maxPrice = d.maxPrice;
+        this.smoothMinPrice = d.minPrice;
+        this.smoothMaxPrice = d.maxPrice;
+      }
+      this.invalidateCache();
+      this.needsRender = true;
+    }) as EventListener);
   }
 
   // --- Utility Mappers ---

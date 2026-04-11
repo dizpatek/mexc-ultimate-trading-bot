@@ -111,7 +111,8 @@ export async function executeEntry(
       }
     }
 
-    await sql`UPDATE orders SET status = 'FILLED', price = ${avgPrice}, updated_at = ${Date.now()}, meta = (meta::jsonb || ${JSON.stringify({ ...metaParam, entryReason: reason, entryResult: result, highestPrice: avgPrice, lowestPrice: avgPrice, filledAt: Date.now(), tradeState })}::jsonb)::text WHERE id = ${id}`;
+    const tslActivatedOnEntry = (tradeMode === 'COVER' && metaPayload?.stopLoss?.trailing === true) ? true : (metaParam.tslActivated || undefined);
+    await sql`UPDATE orders SET status = 'FILLED', price = ${avgPrice}, updated_at = ${Date.now()}, meta = (meta::jsonb || ${JSON.stringify({ ...metaParam, entryReason: reason, entryResult: result, highestPrice: avgPrice, lowestPrice: avgPrice, filledAt: Date.now(), tradeState, tslActivated: tslActivatedOnEntry })}::jsonb)::text WHERE id = ${id}`;
   } catch (err) {
     console.error(`[Entry Error]`, err);
     throw err; // Re-throw so monitor catches it and records the monitorError correctly
@@ -216,6 +217,14 @@ export async function executeExit(
 
     // Refresh daily performance metrics
     await calculateDailyPerformance(user_id).catch(e => console.error("[Performance] Calc failed:", e));
+
+    // CDT: COVER kapandığında coverSaleMap'ten temizle (COVER satışı geri alındı)
+    if (tradeMode === 'COVER') {
+      try {
+        const { clearCoverSale } = await import('./pilot-executor');
+        clearCoverSale(user_id, symbol);
+      } catch { /* pilot-executor mevcut değilse sessizce geç */ }
+    }
   } catch (err) {
     console.error(`[Exit Error]`, err);
     throw err;

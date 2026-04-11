@@ -11,7 +11,7 @@ export async function GET(request: Request) {
 
     const openOrders = await getOpenOrders(user.id);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const orders = ((openOrders as any[]) || []).map(
       (order: any, index: number) => {
         // Handle both MexcOrder and SimulatedOrder types

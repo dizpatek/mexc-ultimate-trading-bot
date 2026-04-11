@@ -1,0 +1,10 @@
+{
+  "enableMermaid": true,
+  "mermaidTheme": "dark",
+  "showLineNumber": false,
+  "livePreview": true,
+  "defaultViewMode": "preview",
+  "readableLineLength": true,
+  "foldHeading": false,
+  "foldIndent": true
+}

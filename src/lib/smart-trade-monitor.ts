@@ -51,25 +51,30 @@ function ensureInitialized() {
   return repairPromise;
 }
 
-export async function monitorSmartTrades(tradingMode: "test" | "production" = "test") {
+export async function monitorSmartTrades(tradingMode?: "test" | "production") {
   const now = Date.now();
   if (now - lastRun < MONITOR_INTERVAL) return;
   lastRun = now;
-
-  // console.log("[SmartMonitor] Starting monitoring cycle...");
-  // P4.4: Removed frequent logSystemEvent to reduce DB noise. 
-  // We only log if something actually HAPPENS (error, state change, etc).
 
   const cycleCache: KlineCache = {};
 
   try {
     await ensureInitialized();
 
-    const { rows } = await sql`
+    // SAFETY NET: If no tradingMode is given, monitor ALL active smart trades regardless of mode.
+    // This prevents production trades from being silently ignored.
+    const { rows } = tradingMode
+      ? await sql`
             SELECT id, user_id, symbol, side, qty, price, meta, status, trading_mode 
             FROM orders 
             WHERE meta::jsonb->>'smartTrade' = 'true' 
             AND trading_mode = ${tradingMode}
+            AND status IN ('FILLED', 'PENDING', 'PARTIALLY_FILLED')
+        `
+      : await sql`
+            SELECT id, user_id, symbol, side, qty, price, meta, status, trading_mode 
+            FROM orders 
+            WHERE meta::jsonb->>'smartTrade' = 'true' 
             AND status IN ('FILLED', 'PENDING', 'PARTIALLY_FILLED')
         `;
 
@@ -104,14 +109,12 @@ export async function monitorSmartTrades(tradingMode: "test" | "production" = "t
             }
           }
 
-          // Use trade-specific cache context
-          const tradeCache: KlineCache = { ...cycleCache };
-          (tradeCache as { __tradeMode?: string }).__tradeMode = userConfig.tradeMode;
-
+          // Use shared cycleCache to prevent redundant AI computation per trade
           return processTradeMonitoring(
             trade,
             userConfig.pilotEnabled,
-            tradeCache,
+            cycleCache,
+            userConfig.tradeMode,
             currentPrice,
           ).catch((err) =>
             console.error(`[SmartMonitor] Error for trade ${trade.id}:`, err),
@@ -202,6 +205,7 @@ async function processTradeMonitoring(
   trade: MonitoredTrade, 
   pilotEnabled: boolean, 
   cycleCache: KlineCache,
+  tradeMode: string,
   preFetchedPrice?: number
 ) {
   const {
@@ -223,7 +227,7 @@ async function processTradeMonitoring(
     if (!currentPrice || isNaN(currentPrice)) return;
 
     let isDirty = false;
-    const aiResult = await runAiAnalysis(symbol, meta, cycleCache);
+    const aiResult = await runAiAnalysis(symbol, meta, cycleCache, tradeMode);
     if (aiResult) {
       meta.lastAiScore = aiResult.aiScore;
       meta.monitorLogs = aiResult.aiLogs;
@@ -284,35 +288,21 @@ async function processTradeMonitoring(
       shouldExit = result.shouldExit;
       exitReason = result.exitReason;
       currentQty = result.newQty;
-      Object.assign(meta, result.metaUpdates);
     }
 
     Object.assign(meta, { ...stateUpdates, lastUpdate: Date.now() });
 
-    // ── PILOT MODE GATE (FIX-H) ──────────────────────────────────────────────
-    // Pilot kapalıyken MEVCUT işlemlerin TP/SL koruması ÇALIŞMAYA DEVAM EDER.
-    // Pilot OFF = yalnızca YENİ işlem açılmasını engeller (pilot-executor.ts'de).
-    // Burada shouldExit true ise, bu zaten TP veya SL hit demektir — korumalı çıkış.
-    if (!pilotEnabled && shouldExit) {
-      console.log(
-        `[SmartMonitor] ✈️ PİLOT KAPALI ama TP/SL koruması aktif (U#${trade.user_id}) — Trade #${id}: "${exitReason}" çalıştırılıyor.`
-      );
-      // FIX-H: shouldExit'i iptal ETMİYORUZ — TP/SL her zaman çalışır.
-    }
+    // P4.4: Selective update to reduce DB pressure
+    // Always update lastPrice in meta so UI sees movement. 
+    // Even 0.005% change triggers a DB update to keep Dashboard "live"
+    const lastSavedPrice = Number(meta.lastPrice) || 0;
+    const priceChangePct = lastSavedPrice > 0 ? Math.abs((currentPrice - lastSavedPrice) / lastSavedPrice) : 1;
 
-    // P4.3: Separate Persistence Side-Effects
     if (shouldExit) {
       await executeExit(trade, currentPrice, exitReason, meta, currentQty);
-    } else if (isDirty) {
-      // P4.4: Selective update to reduce DB pressure
-      // Only save if price moved significantly (> 0.01%) for display accuracy
-      const lastSavedPrice = Number(meta.lastPrice) || 0;
-      const priceChangePct = lastSavedPrice > 0 ? Math.abs((currentPrice - lastSavedPrice) / lastSavedPrice) : 1;
-      
-      if (priceChangePct > 0.0001) {
-         meta.lastPrice = currentPrice;
-         await saveTradeUpdate(id, currentQty, meta);
-      }
+    } else if (isDirty || priceChangePct > 0.00005) {
+      meta.lastPrice = currentPrice;
+      await saveTradeUpdate(id, currentQty, meta);
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -342,7 +332,7 @@ async function handleMonitorError(id: number, msg: string) {
     `;
 }
 
-async function runAiAnalysis(symbol: string, meta: Record<string, unknown>, cycleCache: KlineCache) {
+async function runAiAnalysis(symbol: string, meta: Record<string, unknown>, cycleCache: KlineCache, tradeMode: string) {
   const lastAiRun = (meta.lastAiRunAt as number) || 0;
   if (Date.now() - lastAiRun <= AI_ANALYSIS_INTERVAL) return null;
 
@@ -350,9 +340,15 @@ async function runAiAnalysis(symbol: string, meta: Record<string, unknown>, cycl
   const payload = meta.payload as TradePayload | undefined;
   const timeframe = payload?.timeframe || "1m";
 
-  const cacheKey = `${symbol}-${timeframe}`;
+  const cacheKey = `${symbol}-${timeframe}-${tradeMode}`;
+  const resultCacheKey = `${cacheKey}_aiResult`;
   const now = Date.now();
-  
+
+  // Return cached AI result if available in this cycle (Performance Throttling Optimization)
+  if ((cycleCache as any)[resultCacheKey]) {
+    return (cycleCache as any)[resultCacheKey];
+  }
+
   try {
     let klines = cycleCache[cacheKey] ? cycleCache[cacheKey].klines : null;
 
@@ -366,8 +362,7 @@ async function runAiAnalysis(symbol: string, meta: Record<string, unknown>, cycl
     if (klines && klines.length >= 50) {
       const engine = new MatrixV5Engine(); // P3.2: Thread-safe instance per trade
       type KlineData = { close: number; high: number; low: number; volume: number };
-      const cycleTradeMode = (cycleCache as { __tradeMode?: "Scalp" | "Swing" }).__tradeMode || "Scalp";
-      const configOverrides: Partial<MatrixV5Config> = { tradeMode: cycleTradeMode };
+      const configOverrides: Partial<MatrixV5Config> = { tradeMode: tradeMode as "Scalp" | "Swing" };
       const res = engine.analyze(
         klines.map((k: KlineData) => k.close),
         klines.map((k: KlineData) => k.high),
@@ -378,7 +373,8 @@ async function runAiAnalysis(symbol: string, meta: Record<string, unknown>, cycl
         0, // P3.1: Explicit fundingRate for correct positional parsing
         configOverrides
       );
-      return {
+      
+      const result = {
         aiScore: res.aiScore,
         aiLogs: [
           `Trend: ${res.trend}`,
@@ -386,6 +382,10 @@ async function runAiAnalysis(symbol: string, meta: Record<string, unknown>, cycl
           `Decision: ${res.systemDecision}`,
         ],
       };
+      
+      // Store in global cycle cache to prevent redundant Matrix engine calculations for identical pairs
+      (cycleCache as any)[resultCacheKey] = result;
+      return result;
     }
   } catch (err) {
     console.warn(`[SmartMonitor] AI fail ${symbol}:`, err);
@@ -590,7 +590,7 @@ function evaluateStopLoss(
     // Diagnostic Log: When price is near SL or hit
     if (
       finalSL > 0 &&
-      (Math.abs(currentPrice - finalSL) / finalSL < 0.01 || slHit)
+      (Math.abs(currentPrice - finalSL) / finalSL < 0.005 || slHit)
     ) {
       console.log(
         `[SmartMonitor] SL EVAL (TSL-PATH): Trade ${tradeId} | ${side} | Price: ${currentPrice} | SL: ${finalSL.toFixed(2)} | Hit: ${slHit}`,

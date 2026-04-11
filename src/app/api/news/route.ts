@@ -6,8 +6,9 @@ export const revalidate = 300; // Cache the response for 5 minutes (300 seconds)
 
 export async function GET(request: Request) {
   try {
-    const user = await getSessionUser(request);
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // News API is now public to prevent 401 errors during session transitions
+    // const user = await getSessionUser(request);
+    // if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { searchParams } = new URL(request.url);
     const force = searchParams.get("force") === "true";

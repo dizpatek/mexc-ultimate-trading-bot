@@ -652,11 +652,18 @@ const LogLine = ({
 
           {/* Timeframe moved to header above */}
 
-          {/* RAW DETAILS (Fallback) */}
-          {log.details && !log.meta?.veto && (
-            <span className="text-slate-500 text-[9px] break-words opacity-60 italic">
-              {log.details}
-            </span>
+          {/* RAW DETAILS (Indicators, technical data, etc.) */}
+          {log.details && log.details !== log.meta?.veto && (
+            <div className={cn(
+              "w-full mt-1.5 p-1.5 rounded flex items-start text-[9px] break-words italic border border-dashed",
+              log.sentiment === "POSITIVE"
+                ? "bg-emerald-900/10 border-emerald-500/20 text-emerald-400/80"
+                : log.sentiment === "NEGATIVE"
+                ? "bg-rose-900/10 border-rose-500/20 text-rose-400/80"
+                : "bg-slate-800/30 border-slate-700/50 text-slate-400/80"
+            )}>
+              {log.details.replace(/^VETO: /i, "")}
+            </div>
           )}
           
           {/* INSIGHT EXPLANATION */}

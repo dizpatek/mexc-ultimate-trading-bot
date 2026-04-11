@@ -229,7 +229,7 @@ export const MatrixDashboard = () => {
     refresh();
     const id = setInterval(refresh, 30000);
     return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   if (loading)

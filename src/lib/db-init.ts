@@ -574,6 +574,12 @@ async function createIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_system_logs_timestamp ON system_logs(timestamp);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_system_logs_user_id ON system_logs(user_id);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_strategies_user_id ON strategies(user_id);`;
+  
+  // P4.7: Dashboard Performance Optimization Indexes
+  await sql`CREATE INDEX IF NOT EXISTS idx_orders_user_mode_status ON orders(user_id, trading_mode, status);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_orders_user_mode_created ON orders(user_id, trading_mode, created_at DESC);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_trade_history_order_id ON trade_history(order_id);`;
 }
 
 async function createMarketDataTables() {

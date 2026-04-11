@@ -1,31 +1,24 @@
-import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth-utils";
-import { getKlines } from "@/lib/mexc-wrapper";
+import { NextRequest, NextResponse } from "next/server";
 
-export async function GET(request: Request) {
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const symbol = searchParams.get("symbol") || "BTCUSDT";
+  const interval = searchParams.get("interval") || "1m";
+  const limit = searchParams.get("limit") || "200";
+
   try {
-    const user = await getSessionUser(request);
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-    const { searchParams } = new URL(request.url);
-    const symbol = searchParams.get("symbol");
-    const interval = searchParams.get("interval");
-    const limit = searchParams.get("limit") || "200";
-
-    if (!symbol || !interval) {
+    const resp = await fetch(`https://api.mexc.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
+    
+    if (!resp.ok) {
       return NextResponse.json(
-        { error: "Symbol and interval are required parameters" },
-        { status: 400 }
+        { error: `MEXC API Error: ${resp.status}` }, 
+        { status: resp.status }
       );
     }
-
-    const data = await getKlines(symbol, interval, parseInt(limit));
+    
+    const data = await resp.json();
     return NextResponse.json(data);
-  } catch (error: unknown) {
-    console.error("Failed to fetch klines:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch kline data from exchange" },
-      { status: 500 }
-    );
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

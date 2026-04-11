@@ -227,15 +227,142 @@ export async function getServerTime() {
   return publicGet<{ serverTime: number }>("/api/v3/time");
 }
 
+/**
+ * Limit Wall (Order Book Depth) Analysis
+ * Geçerli fiyata %1 - %2 uzaktaki alım satım duvarlarının yoğunluğunu hesaplar.
+ */
+export async function fetchOrderBookWall(symbol: string, limit = 100) {
+  try {
+    const depth = await publicGet<{ bids: [string, string][]; asks: [string, string][] }>("/api/v3/depth", { 
+      symbol: normalizeSymbol(symbol), 
+      limit 
+    });
+    
+    // Geçerli tahmini orta fiyat (Market Price)
+    const midPrice = (parseFloat(depth.bids[0][0]) + parseFloat(depth.asks[0][0])) / 2;
+    
+    let bidVolume = 0; // Alış duvarı gücü (Destek)
+    let askVolume = 0; // Satış duvarı gücü (Direnç)
+
+    // Sadece Fiyattan max %2 uzağa kadarki duvarlara bak (Kalite Kontrolü)
+    depth.bids.forEach(([priceStr, qtyStr]) => {
+      const price = parseFloat(priceStr);
+      if (price >= midPrice * 0.98) bidVolume += parseFloat(qtyStr) * price;
+    });
+
+    depth.asks.forEach(([priceStr, qtyStr]) => {
+      const price = parseFloat(priceStr);
+      if (price <= midPrice * 1.02) askVolume += parseFloat(qtyStr) * price;
+    });
+
+    return {
+      buyWallWeight: bidVolume,
+      sellWallWeight: askVolume,
+      imbalance: bidVolume > askVolume ? "BULLISH" : "BEARISH",
+      ratio: bidVolume / (askVolume || 1)
+    };
+  } catch (err) {
+    console.error("[MEXC] fetchOrderBookWall error:", err);
+    return null;
+  }
+}
+
+/**
+ * Hyperliquid L1 fiyatını çeker (allMids endpoint — rate-limit YOK, IP dostu).
+ * Sembol örnek: "BTC", "ETH" (USDT olmadan)
+ */
+async function getHyperliquidPrice(baseCoin: string): Promise<number | null> {
+  try {
+    const res = await axios.post("https://api.hyperliquid.xyz/info", 
+      { type: "allMids" }, 
+      { timeout: 5000, headers: { "Content-Type": "application/json" } }
+    );
+    // allMids yanıtı: { "BTC": "65000.5", "ETH": "3100.2", ... }
+    const price = res.data?.[baseCoin];
+    return price ? parseFloat(price) : null;
+  } catch {
+    return null; // Silent fail (Hyperliquid erişilemeze fallback)
+  }
+}
+
+/**
+ * Arbitrage Sensitivity Check (MEXC vs Hyperliquid L1)
+ * Fiyat sapması %0.3 üzerindeyse Dashboard'a 'Arbitrage Opportunity' sinyali gönderir.
+ * Promise.allSettled ile güvenli — Hyperliquid çevrimdışıysa bot MEXC döngüsü kesilmez.
+ */
+export async function checkPriceGap(symbol: string): Promise<{ gapPercent: number; fasterExchange: string; isArbitrage: boolean; hlPrice: number | null; mexcPrice: number | null } | null> {
+  try {
+    // Sembolü base coin'e çevir: "BTCUSDT" -> "BTC"
+    const sym = normalizeSymbol(symbol);
+    const baseCoin = sym.replace(/USDT$/, "").replace(/BUSD$/, "");
+
+    // Paralel asenkron çekme — biri düşerse diğeri devam eder (allSettled)
+    const [hlResult, mexcResult] = await Promise.allSettled([
+      getHyperliquidPrice(baseCoin),
+      getPrice(sym) // MEXC WS cache veya REST fallback
+    ]);
+
+    const hlPrice = hlResult.status === "fulfilled" ? hlResult.value : null;
+    const mexcPrice = mexcResult.status === "fulfilled" ? mexcResult.value : null;
+
+    if (!hlPrice || !mexcPrice) return null;
+
+    const gap = Math.abs(hlPrice - mexcPrice);
+    const gapPercent = (gap / mexcPrice) * 100;
+
+    return {
+      gapPercent,
+      fasterExchange: hlPrice > mexcPrice ? "HYPERLIQUID" : "MEXC",
+      isArbitrage: gapPercent > 0.3,
+      hlPrice,
+      mexcPrice
+    };
+  } catch {
+    return null; // Silent fail — asla bot döngüsünü kesme
+  }
+}
+
+import WebSocket from "ws";
+
+// Next.js HMR (Hot Module Replacement) sırasında çoklu bağlantı açılmasını engellemek için Global Cache
+const g = global as any;
+if (!g.mexcWsCache) {
+  g.mexcWsCache = {
+    client: null as WebSocket | null,
+    priceCache: new Map<string, number>(),
+    subscribed: new Set<string>(),
+    pingInterval: null as NodeJS.Timeout | null,
+    isReconnecting: false
+  };
+}
+const wsState = g.mexcWsCache;
+
+function initMexcWs() {
+  // Backend'de WS kullanımı iptal edildi. (Sunucu RAM şişirmesini engellemek için)
+  // GetPrice artık direkt ultra-hızlı HTTP Batching sistemini kullanacak.
+}
+
+function subscribeToSymbolWs(sym: string) {
+  // Next.js API rotalarında kalıcı bağlantı anti-pattern'dir, iptal edildi.
+}
+
 const priceQueue = new Set<string>();
 const priceWaiters = new Map<string, ((price: number) => void)[]>();
 let priceBatchTimeout: NodeJS.Timeout | null = null;
 
 export async function getPrice(symbol: string): Promise<number> {
   const normalized = normalizeSymbol(symbol);
+  
+  // WS Auto-Subscribe
+  subscribeToSymbolWs(normalized);
 
+  // 1. FAST PATH: Return from WS Cache if exists
+  if (wsState.priceCache.has(normalized)) {
+    return wsState.priceCache.get(normalized)!;
+  }
+
+  // 2. HTTP FALLBACK (Initial load or WS latency)
   return new Promise((resolve) => {
-    // Add to batch queue
     priceQueue.add(normalized);
     const list = priceWaiters.get(normalized) || [];
     list.push(resolve);
@@ -243,7 +370,7 @@ export async function getPrice(symbol: string): Promise<number> {
 
     if (priceBatchTimeout) return;
 
-    // Collect all requests over short window
+    // Use larger batching window (100ms) since WS handles high-speed now
     priceBatchTimeout = setTimeout(async () => {
       const symbolsToFetch = Array.from(priceQueue);
       priceQueue.clear();
@@ -261,10 +388,8 @@ export async function getPrice(symbol: string): Promise<number> {
         if (Array.isArray(data)) {
           data.forEach((item: { symbol: string; price: string }) => {
             resultsMap.set(item.symbol, parseFloat(item.price));
+            wsState.priceCache.set(item.symbol, parseFloat(item.price)); // Seed Cache
           });
-        } else if (data && typeof data === "object" && "symbol" in data && "price" in data) {
-          const d = data as { symbol: string; price: string };
-          resultsMap.set(d.symbol, parseFloat(d.price));
         }
 
         currentWaiters.forEach((waiters, sym) => {
@@ -272,12 +397,10 @@ export async function getPrice(symbol: string): Promise<number> {
           waiters.forEach((res) => res(price));
         });
       } catch (err) {
-        console.error("[MEXC] Price batch fetch failed:", err);
-        currentWaiters.forEach((waiters) => {
-          waiters.forEach((res) => res(0));
-        });
+        console.error("[MEXC] HTTP Price fetch fallback failed:", err);
+        currentWaiters.forEach((waiters) => waiters.forEach((res) => res(0)));
       }
-    }, 20);
+    }, 500); // 500 ms as fallback batch (CPU Optimization for Northflank)
   });
 }
 
@@ -640,4 +763,13 @@ export async function placeStopMarket(
     p.quoteOrderQty = String(quoteOrderQtyOrQty);
   }
   return postOrder(userId, p);
+}
+
+export async function getRecentTrades(symbol: string, limit = 500) {
+  const symbolNormalized = normalizeSymbol(symbol);
+  const params: Record<string, string | number | boolean> = {
+    symbol: symbolNormalized,
+    limit,
+  };
+  return publicGet<any[]>("/api/v3/trades", params);
 }

@@ -24,6 +24,42 @@ const pilotReEntryMap = new Map<number, Map<string, ReEntryRecord>>();
 const initializedUsers = new Set<number>();
 const lastLoadTimeMap = new Map<number, number>(); // userId -> timestamp
 
+// ═══════════════════════════════════════════════════════════════════
+// CDT (COVER-TO-TRADE) RE-ENTRY SYSTEM
+// COVER işlemi bir asset'i sattığında, BUY sinyali gelirse
+// o asset'i aynı miktarda geri alabilmek için hafizaya alınır.
+// pilot_cdt_reentry=false ise bypass edilir.
+// ═══════════════════════════════════════════════════════════════════
+interface CoverSaleRecord {
+  qty: number;     // Satılan asset miktarı
+  symbol: string;  // Orijinal sembol
+  coverId: number; // Cover order DB ID
+}
+const coverSaleMap = new Map<number, Map<string, CoverSaleRecord>>();
+
+export function registerCoverSale(userId: number, symbol: string, qty: number, coverId: number) {
+  const cleanSym = normalizeSymbol(symbol);
+  if (!coverSaleMap.has(userId)) coverSaleMap.set(userId, new Map());
+  coverSaleMap.get(userId)!.set(cleanSym, { qty, symbol, coverId });
+  console.log(`[Pilot] 📦 CDT COVER SALE: ${symbol} | Qty: ${qty.toFixed(8)} | Cover#${coverId}`);
+}
+
+export function clearCoverSale(userId: number, symbol: string) {
+  const cleanSym = normalizeSymbol(symbol);
+  const deleted = coverSaleMap.get(userId)?.delete(cleanSym);
+  if (deleted) console.log(`[Pilot] 📦 CDT COVER SALE CLEARED: ${symbol}`);
+}
+
+function hasCoverSale(userId: number, symbol: string): boolean {
+  const cleanSym = normalizeSymbol(symbol);
+  return !!coverSaleMap.get(userId)?.has(cleanSym);
+}
+
+function getCoverSaleRecord(userId: number, symbol: string): CoverSaleRecord | null {
+  const cleanSym = normalizeSymbol(symbol);
+  return coverSaleMap.get(userId)?.get(cleanSym) || null;
+}
+
 /**
  * Load re-entry records from the DB into the in-memory map.
  * Called once on first signal check after restart.
@@ -197,7 +233,7 @@ export class PilotExecutor {
     holdingsMap: Map<string, any>,
     botConfig: BotConfig,
     signalType: string
-  ): { hasHolding: boolean; targetQty: number; isNewBuy: boolean; isReEntry: boolean; reEntryUsdt: number } {
+  ): { hasHolding: boolean; targetQty: number; isNewBuy: boolean; isReEntry: boolean; reEntryUsdt: number; isCoverReEntry: boolean; coverReEntryQty: number } {
     const symbolKey = normalizeSymbol(symbol);
     const holding = holdingsMap.get(symbolKey) || holdingsMap.get(symbol);
     const free = Number(holding?.free || 0);
@@ -214,26 +250,25 @@ export class PilotExecutor {
     }
 
     // P4.2: hasHolding should be based on real total balance, not just target trade qty.
-    // Standardized threshold (0.00001) to ensure small but tradable positions are detected.
     const hasHolding = totalQty > 0.00001;
-    
-    // RE-ENTRY CHECK: If we don't hold the asset but have a re-entry record, it's a re-entry buy
+
+    // RE-ENTRY CHECK: Klasik re-entry (TRADE sat → geri al)
     const isReEntry = !hasHolding && signalType === "BUY" && hasReEntry(userId, symbolKey);
     const reEntryUsdt = isReEntry ? (pilotReEntryMap.get(userId)?.get(symbolKey)?.lastSaleUsdt || 0) : 0;
 
-    // If we don't hold the asset, but signal is BUY and pilot_only_holdings is false -> New Buy
-    const isNewBuy = !hasHolding && !isReEntry && signalType === "BUY" && botConfig.pilot_only_holdings === false;
+    // CDT RE-ENTRY CHECK: COVER satışından hafızadaki miktarla LONG aç
+    const isCoverReEntry = !hasHolding && !isReEntry && signalType === "BUY" && hasCoverSale(userId, symbolKey);
+    const coverReEntryQty = isCoverReEntry ? (getCoverSaleRecord(userId, symbolKey)?.qty || 0) : 0;
 
-    // TARGET QTY logic for Adding to positions (Ek Alım): 
-    // If we have holding, we should still use USDT balance for the new buy part.
+    // NEW BUY: Varlık yoksa ve re-entry de yoksa, pilot_only_holdings=false ise yeni alım
+    const isNewBuy = !hasHolding && !isReEntry && !isCoverReEntry && signalType === "BUY" && botConfig.pilot_only_holdings === false;
+
+    // TARGET QTY: Mevcut varlık varsa management modu için toplam qty'i kullan
     if (hasHolding && signalType === "BUY") {
-       // P4.2: If we already have the asset, we don't necessarily want to set quantity to 0 here because 
-       // it causes "Invalid amount" if the pilot tries to "take over" the position at line 616.
-       // We keep the targetQty as the current holding to allow Management mode.
-       targetQty = totalQty; 
+      targetQty = totalQty;
     }
 
-    return { hasHolding, targetQty, isNewBuy, isReEntry, reEntryUsdt };
+    return { hasHolding, targetQty, isNewBuy, isReEntry, reEntryUsdt, isCoverReEntry, coverReEntryQty };
   }
 
   /**
@@ -452,6 +487,67 @@ export class PilotExecutor {
   }
 
   /**
+   * CDT (Cover-to-Trade) RE-ENTRY Buy:
+   * COVER satışından hafızada tutulan miktar kadar LONG pozisyon açar.
+   */
+  static async executeCoverReEntryBuy(symbol: string, botConfig: BotConfig, userId: number, mode: TradingMode, timeframe: string, signal: any, coverQty: number) {
+    try {
+      const currentPrice = await getPrice(symbol);
+
+      if (coverQty <= 0 || (coverQty * currentPrice) < 5) {
+        const msg = "CDT Re-Entry miktarı yetersiz (min $5).";
+        console.log(`[Pilot] ⚠️ ${symbol} CDT RE-ENTRY ATLANDI: Qty=${coverQty.toFixed(8)}`);
+        await logSystemEvent(userId, "SYSTEM", "TRADE_SKIPPED", `TRADE_SKIPPED: ${symbol} CDT Re-Entry atlandı: ${msg}`);
+        return { executed: false, data: { message: msg } };
+      }
+
+      const tpPerc = botConfig.timeframe_settings?.pilot_tp_percent ?? DEFAULT_TIMEFRAME_SETTINGS.pilot_tp_percent;
+      const slPerc = botConfig.timeframe_settings?.pilot_sl_percent ?? DEFAULT_TIMEFRAME_SETTINGS.pilot_sl_percent;
+      const { finalTpPrice, finalSlPrice } = this.validatePilotTargets(currentPrice, signal.targets || {}, tpPerc, slPerc, true);
+
+      console.log(`[Pilot] ♻️ CDT Re-Entry BUY: ${symbol} | Entry: ${currentPrice} | TP: ${finalTpPrice.toFixed(4)} | SL: ${finalSlPrice.toFixed(4)} | Qty: ${coverQty.toFixed(8)}`);
+
+      const tfSettings = botConfig.timeframe_settings || {};
+      const trailingBuy = tfSettings.pilot_trailing_buy ?? botConfig.pilot_trailing_buy ?? DEFAULT_BOT_CONFIG.pilot_trailing_buy;
+      const trailingBuyDev = Number(tfSettings.pilot_trailing_buy_dev ?? botConfig.pilot_trailing_buy_dev ?? DEFAULT_BOT_CONFIG.pilot_trailing_buy_dev);
+      const tpTrailing = tfSettings.pilot_tp_trailing ?? botConfig.pilot_tp_trailing ?? DEFAULT_BOT_CONFIG.pilot_tp_trailing;
+      const tpDev = Number(tfSettings.pilot_tp_deviation ?? botConfig.pilot_tp_deviation ?? DEFAULT_BOT_CONFIG.pilot_tp_deviation);
+      const slTrailing = tfSettings.pilot_sl_trailing ?? botConfig.pilot_sl_trailing ?? DEFAULT_BOT_CONFIG.pilot_sl_trailing;
+      const slDev = Number(tfSettings.pilot_sl_deviation ?? botConfig.pilot_sl_deviation ?? DEFAULT_BOT_CONFIG.pilot_sl_deviation);
+
+      const res = await handleSmartTrade({
+        mode: "TRADE",
+        symbol,
+        amount: coverQty.toFixed(8),
+        buyPrice: currentPrice.toString(),
+        buyType: "MARKET",
+        useExisting: false,
+        user_id: userId,
+        trailingBuy,
+        trailingBuyDev,
+        takeProfit: {
+          price: finalTpPrice.toString(),
+          trailing: Boolean(tpTrailing),
+          deviation: tpDev,
+        },
+        stopLoss: {
+          price: finalSlPrice.toString(),
+          trailing: Boolean(slTrailing),
+          deviation: slDev,
+        },
+        timeframe,
+        source: "pilot_auto",
+        aiScore: typeof signal.indicators?.aiScore === 'number' ? signal.indicators.aiScore : null,
+        mtfVerdict: signal.indicators?.mtfVerdict || null,
+      }, mode);
+
+      return { executed: true, data: { ...(res as any), type: "SMART_TRADE", source: "pilot_auto", coverReEntry: true } };
+    } catch (err) {
+      return { executed: false, data: { error: String(err) } };
+    }
+  }
+
+  /**
    * Executes a COVER mode SmartTrade to sell and buy back lower.
    */
   static async executeCover(symbol: string, botConfig: BotConfig, userId: number, mode: TradingMode, timeframe: string, targetQty: number, signal: any) {
@@ -500,6 +596,12 @@ export class PilotExecutor {
         aiScore: typeof signal.indicators?.aiScore === 'number' ? signal.indicators.aiScore : null,
         mtfVerdict: signal.indicators?.mtfVerdict || null,
       }, mode);
+
+      // CDT: COVER satışını hafizaya al (BUY sinyali için geri alım)
+      if ((res as any)?.success) {
+        registerCoverSale(userId, symbol, targetQty, (res as any)?.dbId || 0);
+      }
+
       return { executed: true, data: { ...(res as any), type: "SMART_TRADE", source: "pilot_auto" } };
     } catch (err) {
       return { executed: false, data: { error: String(err) } };
@@ -567,11 +669,15 @@ export class PilotExecutor {
 
   /**
    * Force-closes an active SmartTrade (used for Matrix mode flipping).
+   * 
+   * SMART FLIP GUARDS:
+   * 1. Stop Loss Guard: If price hasn't crossed the stop, DON'T flip. TSL will handle it.
+   * 2. Catastrophe Guard: If loss exceeds CATASTROPHE_LOSS_PCT, flip regardless (emergency exit).
+   * 3. Profit-Only Mode: Only flip if the trade is in profit (locks gains).
    */
-  static async closeSmartTrade(record: any, userId: number, mode: TradingMode) {
+  static async closeSmartTrade(record: any, userId: number, mode: TradingMode, reason: string = "MATRIX_FLIP_EXIT") {
     const symbol = record.symbol;
     try {
-      console.log(`[Pilot] \u21aa\ufe0f Closing SmartTrade for ${symbol} (Matrix Flip/Exit)`);
       const currentPrice = await getPrice(symbol);
       const qty = parseFloat(String(record.qty || 0));
       
@@ -579,6 +685,69 @@ export class PilotExecutor {
         await sql`UPDATE orders SET status = 'CLOSED', updated_at = ${Date.now()}, meta = (meta::jsonb || '{"exitReason": "ZERO_QTY_GHOST_ORDER"}'::jsonb)::text WHERE id = ${record.id}`;
         return;
       }
+
+      // ── SMART FLIP GUARD ─────────────────────────────────────────────────────
+      // We ONLY close a trade if one of the following conditions is met:
+      // 1. Price has already crossed the stop loss (TSL/SL territory)
+      // 2. Loss exceeds the catastrophe threshold (emergency exit)
+      // 3. OR it's a "profit-only flip" and we're in profit
+      //
+      // If none of these: DO NOT FLIP. Let the SL/TSL mechanism handle the exit.
+      // Rationale: User set a stop for a reason. They accepted that risk.
+      // Flipping before the stop = overriding user's risk management.
+      // -----------------------------------------------------------------
+      const meta = typeof record.meta === 'string' ? JSON.parse(record.meta) : (record.meta || {});
+      const payload = meta.payload || {};
+      const tradeMode = meta.mode || (record.side === 'BUY' ? 'TRADE' : 'COVER');
+      const isLong = tradeMode === 'TRADE';
+      const entryPrice = parseFloat(String(record.price));
+      
+      const activeStopLoss = meta.activeStopLoss 
+        ? parseFloat(String(meta.activeStopLoss))
+        : parseFloat(payload?.stopLoss?.price || '0');
+      
+      // Calculate current PnL %
+      const pnlPct = entryPrice > 0
+        ? isLong
+          ? ((currentPrice - entryPrice) / entryPrice) * 100
+          : ((entryPrice - currentPrice) / entryPrice) * 100
+        : 0;
+
+      const CATASTROPHE_LOSS_PCT = -4.0; // Emergency flip regardless of SL: -4% loss
+      const isInCatastrophicLoss = pnlPct < CATASTROPHE_LOSS_PCT;
+
+      // Check if price has crossed the stop loss
+      let slCrossed = false;
+      if (activeStopLoss > 0) {
+        slCrossed = isLong
+          ? currentPrice <= activeStopLoss   // Long: SL below price
+          : currentPrice >= activeStopLoss;  // Short: SL above price
+      }
+
+      const isInProfit = pnlPct > 0;
+
+      // GUARD LOGIC: Block flip unless one of the conditions is met
+      if (!slCrossed && !isInCatastrophicLoss) {
+        // If price is still within acceptable risk range → DON'T FLIP
+        // Let TSL/SL handle the exit naturally
+        const slDistPct = activeStopLoss > 0
+          ? Math.abs((currentPrice - activeStopLoss) / activeStopLoss) * 100
+          : 0;
+        console.log(`[Pilot] 🛡️ FLIP GUARD: ${symbol} | ${tradeMode} | PnL: ${pnlPct.toFixed(2)}% | Stop: $${activeStopLoss.toFixed(4)} | Dist to SL: ${slDistPct.toFixed(2)}% | Price is within risk range → FLIP BLOCKED. Let TSL/SL handle it.`);
+        return; // <── KEY: Do NOT close, do NOT flip
+      }
+
+      let flipReason = reason;
+      if (isInCatastrophicLoss) {
+        flipReason = `MATRIX_FLIP_EXIT (Felaket: ${pnlPct.toFixed(2)}%)`;
+        console.log(`[Pilot] 🚨 CATASTROPHE EXIT: ${symbol} | PnL: ${pnlPct.toFixed(2)}% < ${CATASTROPHE_LOSS_PCT}% threshold`);
+      } else if (slCrossed) {
+        flipReason = `MATRIX_FLIP_EXIT (SL Aşıldı: $${activeStopLoss.toFixed(4)})`;
+        console.log(`[Pilot] ⛔ SL CONFIRMED FLIP: ${symbol} | Price $${currentPrice} crossed SL $${activeStopLoss}`);
+      }
+
+      console.log(`[Pilot] ↪️ Closing SmartTrade for ${symbol} (${flipReason}) | PnL: ${pnlPct.toFixed(2)}%`);
+      // ─────────────────────────────────────────────────────────────────────────
 
       await executeExit(
         {
@@ -592,13 +761,13 @@ export class PilotExecutor {
           trading_mode: mode
         },
         currentPrice,
-        "MATRIX_FLIP_EXIT",
+        flipReason,
         record.meta,
         qty
       );
-      console.log(`[Pilot] \u2705 Successfully closed ${symbol} for flip.`);
+      console.log(`[Pilot] ✅ Successfully closed ${symbol} | Reason: ${flipReason}`);
     } catch (err) {
-      console.error(`[Pilot] \u274c Failed to close SmartTrade for ${symbol}:`, err);
+      console.error(`[Pilot] ❌ Failed to close SmartTrade for ${symbol}:`, err);
       await sql`UPDATE orders SET status = 'CLOSED', updated_at = ${Date.now()}, meta = (meta::jsonb || '{"exitError": "FAILED_TO_EXIT_API"}'::jsonb)::text WHERE id = ${record.id}`;
     }
   }
@@ -663,18 +832,25 @@ export class PilotExecutor {
         const source = sellTradeForSymbol.meta?.payload?.source || "manual";
         if (source === "pilot_auto") {
           // FIX-A: MATRIX_FLIP_EXIT Konfirmasyon Süresi
-          // İşlem yeterince uzun süre açık kalmadıysa flip yapma.
+          // İşlem yeterince uzun süre açık kalmadıysa flip yapma. (Önceden 3 dakikaydı, TSL vurmasını engelliyordu)
           const tradeAge = Date.now() - (Number(sellTradeForSymbol.created_at) || 0);
-          const MIN_FLIP_AGE_MS = 3 * 60 * 1000; // 3 dakika (1m TF için 3 mum)
+          const MIN_FLIP_AGE_MS = 60 * 60 * 1000; // 60 dakika
           if (tradeAge < MIN_FLIP_AGE_MS) {
-            console.log(`[Pilot] ⏳ ${symbol} Matrix Flip engellendi: İşlem henüz ${Math.round(tradeAge/1000)}sn açık (min: ${MIN_FLIP_AGE_MS/1000}sn). Sinyal atlanıyor.`);
-            await this.recordSignalResult({ ...params, timestamp, executed: false, executionResult: {}, aiScore: 0, vetoReason: `Matrix Flip çok erken (${Math.round(tradeAge/1000)}sn < ${MIN_FLIP_AGE_MS/1000}sn)` });
+            console.log(`[Pilot] ⏳ ${symbol} Matrix Flip engellendi: İşlem henüz ${Math.round(tradeAge/60000)}dk açık (min: ${MIN_FLIP_AGE_MS/60000}dk). Sinyal atlanıyor.`);
+            await this.recordSignalResult({ ...params, timestamp, executed: false, executionResult: {}, aiScore: 0, vetoReason: `Matrix Flip çok erken (${Math.round(tradeAge/60000)}dk < ${MIN_FLIP_AGE_MS/60000}dk)` });
             return;
           }
           console.log(`[Pilot] ↪️ ${symbol} Matrix Modu: Aktif SATIŞ (COVER) kapatılıyor...`);
           await this.closeSmartTrade(sellTradeForSymbol, userId, mode);
-          holdingsMap.delete(normalizeSymbol(symbol));
-          holdingsMap.delete(symbol);
+          // COVER kapandı → asset geri alındı, holdingsMap'e ekle
+          const flipQty = Number(sellTradeForSymbol.qty || 0);
+          if (flipQty > 0) {
+            const sym = normalizeSymbol(symbol);
+            holdingsMap.set(sym, { free: flipQty, locked: 0 });
+            holdingsMap.set(symbol, { free: flipQty, locked: 0 });
+          }
+          // CDT haritasini da temizle (cover kapandi)
+          clearCoverSale(userId, symbol);
         } else {
           console.log(`[Pilot] 🛡️ ${symbol}: Aktif SATIŞ (MANUEL) bulundu, Matrix Flip ile kapatılmıyor.`);
         }
@@ -696,10 +872,10 @@ export class PilotExecutor {
         if (source === "pilot_auto") {
           // FIX-A: MATRIX_FLIP_EXIT Konfirmasyon Süresi
           const tradeAge = Date.now() - (Number(buyTradeForSymbol.created_at) || 0);
-          const MIN_FLIP_AGE_MS = 3 * 60 * 1000; // 3 dakika
+          const MIN_FLIP_AGE_MS = 60 * 60 * 1000; // 60 dakika
           if (tradeAge < MIN_FLIP_AGE_MS) {
-            console.log(`[Pilot] ⏳ ${symbol} Matrix Flip engellendi: İşlem henüz ${Math.round(tradeAge/1000)}sn açık (min: ${MIN_FLIP_AGE_MS/1000}sn). Sinyal atlanıyor.`);
-            await this.recordSignalResult({ ...params, timestamp, executed: false, executionResult: {}, aiScore: 0, vetoReason: `Matrix Flip çok erken (${Math.round(tradeAge/1000)}sn < ${MIN_FLIP_AGE_MS/1000}sn)` });
+            console.log(`[Pilot] ⏳ ${symbol} Matrix Flip engellendi: İşlem henüz ${Math.round(tradeAge/60000)}dk açık (min: ${MIN_FLIP_AGE_MS/60000}dk). Sinyal atlanıyor.`);
+            await this.recordSignalResult({ ...params, timestamp, executed: false, executionResult: {}, aiScore: 0, vetoReason: `Matrix Flip çok erken (${Math.round(tradeAge/60000)}dk < ${MIN_FLIP_AGE_MS/60000}dk)` });
             return;
           }
           console.log(`[Pilot] ↪️ ${symbol} Matrix Modu: Aktif ALIŞ (TRADE) kapatılıyor...`);
@@ -740,12 +916,12 @@ export class PilotExecutor {
     if (timeframeMismatch) {
       // P4.2: Skip execution but proceed to logging
       executionResult = { message: tfVetoReason };
-    } else if (!alloc.hasHolding && !alloc.isNewBuy && !alloc.isReEntry) {
+    } else if (!alloc.hasHolding && !alloc.isNewBuy && !alloc.isReEntry && !alloc.isCoverReEntry) {
       const skipMsg = botConfig.pilot_only_holdings 
         ? "Portföyü Tara aktif olduğu için ve varlık bulunmadığı için atlandı." 
         : "Varlık bakiyesi yetersiz olduğu için atlandı.";
         
-      console.log(`[Pilot] \ud83d\udee1 ${cleanSymbol} ATLANDI: ${skipMsg}`);
+      console.log(`[Pilot] 🛡️ ${cleanSymbol} ATLANDI: ${skipMsg}`);
       
       await logSystemEvent(userId, "SYSTEM", 
         `Sinyal geldi [${cleanSymbol}]`, 
@@ -753,7 +929,7 @@ export class PilotExecutor {
       );
       executionResult = { message: skipMsg };
     } else {
-      await logSystemEvent(userId, "SYSTEM", "POSITIVE", `\ud83c\udfaf MATRIX V5 S\u0130NYAL\u0130: ${cleanSymbol} [${signal.signal === "BUY" ? "GO_LONG" : "GO_SHORT"}]: AI Skoru: ${aiScore} | ${signal.signal === "BUY" ? "YUKARI \ud83d\udcc8" : "A\u015eA\u011eI \ud83d\udcc9"}`);
+      await logSystemEvent(userId, "SYSTEM", "POSITIVE", `🎯 MATRIX V5 SİNYALİ: ${cleanSymbol} [${signal.signal === "BUY" ? "GO_LONG" : "GO_SHORT"}]: AI Skoru: ${aiScore} | ${signal.signal === "BUY" ? "YUKARI 📈" : "AŞAĞI 📉"}`);
 
       if (signal.signal === "BUY") {
         // MTF veto artık YALNIZCA strategies.ts → applyMtfVeto() tarafında uygulanıyor.
@@ -764,6 +940,16 @@ export class PilotExecutor {
             `AI Skoru: ${aiScore}.`
           );
           const result = await this.executeReEntryBuy(symbol, botConfig, userId, mode, scanTimeframe, signal, alloc.reEntryUsdt);
+          executed = result.executed;
+          executionResult = result.data;
+        } else if (alloc.isCoverReEntry && (botConfig as any).pilot_cdt_reentry !== false) {
+          // CDT Re-entry: COVER'dan satılan miktar kadar LONG aç
+          await logSystemEvent(userId, "SYSTEM",
+            `Sinyal geldi [${cleanSymbol}], CDT Re-Entry (Cover→Trade) modunda işleme giriliyor.`,
+            `Miktar: ${alloc.coverReEntryQty.toFixed(8)} | AI Skoru: ${aiScore}.`
+          );
+          clearCoverSale(userId, symbol);
+          const result = await this.executeCoverReEntryBuy(symbol, botConfig, userId, mode, scanTimeframe, signal, alloc.coverReEntryQty);
           executed = result.executed;
           executionResult = result.data;
         } else if (alloc.isNewBuy) {

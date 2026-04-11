@@ -40,6 +40,11 @@ abstract class Kernel<T> {
     this.isRunning = false;
   }
 
+  public restart() {
+    this.stop();
+    this.start();
+  }
+
   public getData(): T | null {
     return this.data;
   }
@@ -53,7 +58,7 @@ class MarketKernel extends Kernel<
   private debounceTimeout: NodeJS.Timeout | null = null;
 
   constructor() {
-    super(1000); // 1 second between automatic refreshes (as requested)
+    super(2000); // Reduced from 1s to 2s to reduce MEXC API pressure
   }
 
   /**
@@ -112,7 +117,7 @@ class MarketKernel extends Kernel<
     if (this.symbols.size === 0) return;
     try {
       const allSymbols = Array.from(this.symbols);
-      const CHUNK_SIZE = 30; // 4.7 FIXED: Chunking to prevent URL truncation and 404s
+      const CHUNK_SIZE = 20; // Reduced from 30 to 20 to reduce per-request payload
       const chunks: string[][] = [];
       
       for (let i = 0; i < allSymbols.length; i += CHUNK_SIZE) {
@@ -127,6 +132,7 @@ class MarketKernel extends Kernel<
           const symbolsJson = JSON.stringify(chunk);
           const response = await api.get("/market/ticker", {
             params: { symbols: symbolsJson },
+            timeout: 8000, // 8s hard cap per chunk — well within Vercel's 30s limit
           });
           const data = response.data;
 
@@ -135,10 +141,26 @@ class MarketKernel extends Kernel<
               updates[item.symbol] = { price: item.price, time: now };
             });
           }
-        } catch (innerErr) {
-          console.error("[MarketKernel] Chunk Fetch Error:", innerErr);
+        } catch (innerErr: any) {
+          const isTimeout = innerErr?.code === 'ECONNABORTED' || innerErr?.message?.includes('timeout');
+          if (isTimeout) {
+            console.warn("[MarketKernel] Chunk timeout — skipping, using last known prices.");
+          } else {
+            console.error("[MarketKernel] Chunk Fetch Error:", innerErr?.message || innerErr);
+          }
+          // Slow down on repeated errors
+          if (this.refreshInterval < 10000) {
+            this.refreshInterval = Math.min(this.refreshInterval + 2000, 10000);
+            this.restart();
+          }
         }
       }));
+
+      // Recover interval if it was slowed down
+      if (Object.keys(updates).length > 0 && this.refreshInterval > 1000) {
+        this.refreshInterval = 1000;
+        this.restart();
+      }
 
       if (Object.keys(updates).length > 0) {
         this.notify({ ...(this.data || {}), ...updates });
@@ -170,15 +192,29 @@ class PortfolioKernel extends Kernel<{
 
   protected async fetch() {
     try {
-      // Helper to handle individual fetch errors
+      // Helper to handle individual fetch errors with backoff
       const safeFetch = async <R>(
         fn: () => Promise<R>,
         name: string,
         fallback: R,
       ): Promise<R> => {
         try {
-          return await fn();
+          const result = await fn();
+          // Reset interval if successful
+          if (this.refreshInterval > 15000) {
+            console.log(`[PortfolioKernel] ${name} recovered. Resetting interval.`);
+            this.refreshInterval = 15000;
+            this.restart();
+          }
+          return result;
         } catch (error: unknown) {
+          // Increase interval on error (Backoff) to prevent spamming a failing server
+          if (this.refreshInterval < 60000) {
+             this.refreshInterval += 15000;
+             console.warn(`[PortfolioKernel] ${name} failed. Increasing interval to ${this.refreshInterval}ms`);
+             this.restart();
+          }
+
           let msg = "";
           if (error && typeof error === "object" && "response" in error) {
             const axiosError = error as {

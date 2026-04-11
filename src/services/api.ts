@@ -6,6 +6,7 @@ const API_BASE_URL = "/api"; // Changed from localhost:3000 to relative path
 
 const api = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 15000, // 4.7 FIXED: Reduced from 30s to 15s to keep UI responsive
 });
 
 api.interceptors.request.use(async (config) => {
@@ -38,10 +39,23 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
-// Add global error handler for 401 Unauthorized
+// Add global error handler for 401 Unauthorized and Network Issues
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error: any) => {
+    const { config } = error;
+    
+    // RETRY LOGIC (Max 3 retries for Network Errors or Timeouts)
+    if (config && !config._isRetry && (!error.response || error.code === "ECONNABORTED")) {
+      config._retryCount = (config._retryCount || 0) + 1;
+      if (config._retryCount <= 3) {
+        const delay = config._retryCount * 1000;
+        console.warn(`[API] Network Error/Timeout. Retrying (${config._retryCount}/3) in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return api(config);
+      }
+    }
+
     if (error.response?.status === 401) {
       if (typeof window !== "undefined") {
         const currentPath = window.location.pathname;

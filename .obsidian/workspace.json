@@ -1,0 +1,233 @@
+{
+  "main": {
+    "id": "fe9ce849c44b7e80",
+    "type": "split",
+    "children": [
+      {
+        "id": "3ee14533fde23840",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "75454268838ddd9d",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "brain/wiki/entities/PilotExecutor.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "PilotExecutor"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "eeb1208106a8fcd1",
+    "type": "split",
+    "children": [
+      {
+        "id": "0f157e2ecfc95560",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "6cae40863b8d7dda",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Dosya Gezgini"
+            }
+          },
+          {
+            "id": "2254a70e88f056de",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Ara"
+            }
+          },
+          {
+            "id": "ccf76fbf0b98cff2",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Yer İmleri"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "70c29a608e7c65eb",
+    "type": "split",
+    "children": [
+      {
+        "id": "b5a64ec542c595ca",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "aeb4c77651e23787",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "brain/wiki/api/endpoints.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "endpoints için geri bağlantılar"
+            }
+          },
+          {
+            "id": "977baa4423785ede",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "brain/wiki/api/endpoints.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "endpoints'dan giden bağlantılar"
+            }
+          },
+          {
+            "id": "13ba705c8b028d31",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Etiketler"
+            }
+          },
+          {
+            "id": "6b2036f4bcb5d8da",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "Tüm özellikler"
+            }
+          },
+          {
+            "id": "2c028c2e80e7dbda",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "brain/wiki/api/endpoints.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "endpoints ana hatları"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Hızlı geçişi aç": false,
+      "graph:Grafik görünümünü aç": false,
+      "canvas:Yeni tuval oluşturun": false,
+      "daily-notes:Bugünün Notunu Aç": false,
+      "templates:Şablon ekle": false,
+      "command-palette:Komut paletini aç": false,
+      "bases:Yeni taban oluştur": false
+    }
+  },
+  "active": "75454268838ddd9d",
+  "lastOpenFiles": [
+    "RESEARCH_LIVE_LOGS.md",
+    "brain/wiki/entities/PilotPipeline3D.md",
+    "brain/wiki/entities/Header.md",
+    "brain/wiki/concepts/OrderManagement.md",
+    "brain/wiki/concepts/Reliability.md",
+    "brain/wiki/concepts/MarketPressure.md",
+    "brain/wiki/concepts/LogTypes.md",
+    "brain/wiki/entities/AuthService.md",
+    "brain/wiki/entities/api.md",
+    "brain/wiki/entities/TradePanel.md",
+    "brain/wiki/concepts/SignalNormalization.md",
+    "brain/wiki/entities/WhaleRadar.md",
+    "brain/wiki/entities/CombatLog.md",
+    "brain/wiki/entities/ApiCoreService.md",
+    "brain/wiki/entities/WhaleRadarHook.md",
+    "brain/wiki/entities/SmartTradeLogicHook.md",
+    "brain/wiki/entities/TradingLogic.md",
+    "brain/wiki/entities/CombatLogsHook.md",
+    "brain/wiki/entities/SmartTradeMonitor.md",
+    "brain/wiki/entities/SmartTradeExecution.md",
+    "brain/wiki/entities/SmartTrade.md",
+    "brain/wiki/entities/SignalScanner.md",
+    "brain/wiki/entities/PilotExecutor.md",
+    "brain/wiki/entities/PanicService.md",
+    "brain/wiki/entities/MtfEngine.md",
+    "brain/wiki/entities/MexcWrapper.md",
+    "node_modules/@babel/helper-string-parser/package.json",
+    "node_modules/@babel/helper-validator-identifier/package.json",
+    "node_modules/@typescript-eslint/types/package.json",
+    "node_modules/@typescript-eslint/visitor-keys/node_modules/eslint-visitor-keys/package.json",
+    "node_modules/@typescript-eslint/visitor-keys/package.json",
+    "node_modules/@typescript-eslint/scope-manager/package.json",
+    "_tools/brain/wiki/flows",
+    "_tools/brain/wiki/entities",
+    "_tools/brain/wiki/concepts",
+    "_tools/brain/wiki/api",
+    "node_modules/concurrently/docs/demo.gif",
+    "node_modules/date-fns/docs/logotype.svg",
+    "node_modules/date-fns/docs/logo.svg",
+    "node_modules/playwright-core/lib/vite/traceViewer/playwright-logo.svg",
+    "node_modules/playwright-core/lib/vite/recorder/playwright-logo.svg",
+    "node_modules/playwright-core/lib/server/chromium/appIcon.png",
+    "node_modules/retry/equation.gif",
+    "node_modules/psl/browserstack-logo.svg"
+  ]
+}

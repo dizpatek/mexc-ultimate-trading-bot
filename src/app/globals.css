@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
 @import url("https://fonts.cdnfonts.com/css/revenant");
 
 @tailwind base;
@@ -32,13 +32,14 @@
 
 * {
   border-color: hsl(var(--border));
-  font-family: "Outfit", sans-serif;
+  font-family: "Inter", sans-serif;
 }
 
 body {
-  background-color: hsl(var(--background));
+  background-color: #060a14;
   color: hsl(var(--foreground));
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Glassmorphism & Premium Cards */
@@ -198,31 +199,30 @@ body {
 
 /* Futuristic Cyber Scrollbar */
 .cyber-scrollbar::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 5px;
+  height: 5px;
 }
 
 .cyber-scrollbar::-webkit-scrollbar-track {
-  background: rgba(2, 6, 23, 0.6);
-  border-radius: 4px;
+  background: rgba(110, 89, 255, 0.02);
+  border-radius: 10px;
 }
 
 .cyber-scrollbar::-webkit-scrollbar-thumb {
-  background: linear-gradient(to bottom, #22d3ee, #0891b2);
-  border-radius: 4px;
-  border: 1px solid rgba(34, 211, 238, 0.3);
-  box-shadow: 0 0 12px rgba(34, 211, 238, 0.4);
+  background: linear-gradient(to bottom, #6e59ff, #a855f7);
+  border-radius: 10px;
+  box-shadow: 0 0 15px rgba(110, 89, 255, 0.5);
 }
 
 .cyber-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(to bottom, #67e8f9, #22d3ee);
-  box-shadow: 0 0 15px rgba(34, 211, 238, 0.8);
+  background: linear-gradient(to bottom, #8b5cf6, #6e59ff);
+  box-shadow: 0 0 20px rgba(110, 89, 255, 0.8);
 }
 
 /* Firefox support for cyber-scrollbar */
 .cyber-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: #22d3ee rgba(2, 6, 23, 0.4);
+  scrollbar-color: #6e59ff transparent;
 }
 
 /* Custom Scrollbar Utilities */
@@ -319,4 +319,126 @@ body {
 
 .perspective-1000 {
   perspective: 1000px;
+}
+
+/* === MATRIX V5 PRO TERMINAL STYLES === */
+
+/* Dashboard Grid Background */
+.matrix-grid-bg {
+  background-color: #060a14;
+  background-image:
+    linear-gradient(rgba(6, 182, 212, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(6, 182, 212, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Card Glow Effect */
+.card-glow {
+  position: relative;
+  border: 1px solid rgba(30, 41, 59, 0.6);
+  border-radius: 12px;
+  background: rgba(2, 6, 23, 0.7);
+  backdrop-filter: blur(12px);
+  transition: all 0.3s ease;
+}
+.card-glow::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 13px;
+  padding: 1px;
+  background: linear-gradient(
+    135deg,
+    rgba(6, 182, 212, 0.15),
+    rgba(139, 92, 246, 0.1),
+    rgba(6, 182, 212, 0.05)
+  );
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  -webkit-mask-composite: xor;
+  pointer-events: none;
+}
+.card-glow:hover {
+  border-color: rgba(6, 182, 212, 0.3);
+  box-shadow:
+    0 0 20px -5px rgba(6, 182, 212, 0.15),
+    0 0 40px -10px rgba(139, 92, 246, 0.1);
+}
+
+/* Neon Tactical Button */
+.btn-neon {
+  position: relative;
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.15), rgba(139, 92, 246, 0.1));
+  border: 1px solid rgba(6, 182, 212, 0.4);
+  color: #67e8f9;
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+.btn-neon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.2), rgba(139, 92, 246, 0.15));
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.btn-neon:hover {
+  border-color: rgba(6, 182, 212, 0.7);
+  box-shadow: 0 0 25px -5px rgba(6, 182, 212, 0.4), 0 0 50px -15px rgba(139, 92, 246, 0.3);
+  transform: translateY(-1px);
+}
+.btn-neon:hover::after {
+  opacity: 1;
+}
+
+/* Oscillator Mini Gauge */
+.oscillator-gauge {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(30, 41, 59, 0.5);
+  overflow: hidden;
+}
+.oscillator-gauge .fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Pulse Ring Animation */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+.animate-pulse-ring {
+  animation: pulse-ring 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Glow Text Variants */
+.glow-cyan {
+  text-shadow: 0 0 8px rgba(6, 182, 212, 0.5), 0 0 16px rgba(6, 182, 212, 0.2);
+}
+.glow-emerald {
+  text-shadow: 0 0 8px rgba(16, 185, 129, 0.5), 0 0 16px rgba(16, 185, 129, 0.2);
+}
+.glow-rose {
+  text-shadow: 0 0 8px rgba(244, 63, 94, 0.5), 0 0 16px rgba(244, 63, 94, 0.2);
+}
+.glow-amber {
+  text-shadow: 0 0 8px rgba(245, 158, 11, 0.5), 0 0 16px rgba(245, 158, 11, 0.2);
 }

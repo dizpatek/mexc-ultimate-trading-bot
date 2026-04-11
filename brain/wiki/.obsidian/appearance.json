@@ -1,0 +1,10 @@
+{
+  "attachmentFolderPath": "assets",
+  "newFileLocation": "root",
+  "newLinkFormat": "shortest",
+  "useMarkdownLinks": false,
+  "alwaysUpdateLinks": true,
+  "theme": "obsidian",
+  "baseFontSize": 14,
+  "enabledCssSnippets": []
+}

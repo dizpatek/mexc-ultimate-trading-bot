@@ -1,4 +1,0 @@
-[Postgres] Connecting to: ep-solitary-feather-ahx83kq2-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require
---- USER DATA START ---
-[{"username":"admin","email":"admin@example.com"},{"username":"test5","email":"test5@test.com"}]
---- USER DATA END ---

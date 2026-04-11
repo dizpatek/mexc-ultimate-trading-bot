@@ -44,18 +44,22 @@ export class MatrixChartEngine extends ChartEngine {
   showSupertrend = true;
   showVWAP = true;
   
-  constructor(canvasId: string) {
-    console.log('🚀 MatrixChartEngine constructor called!');
-    super(canvasId);
-    // Increase right margin for indicators
-    this.margin.right = 120;
+  constructor(canvasId: string, overlayMode = false) {
+    console.log('🚀 MatrixChartEngine constructor called! OverlayMode:', overlayMode);
+    super(canvasId, overlayMode);
+    // Increase right margin for indicators (only if not overlay)
+    if (!overlayMode) {
+      this.margin.right = 120;
+    }
     console.log('✅ MatrixChartEngine initialized');
   }
   
   override setData(dataService: any): void {
     console.log('📊 MatrixChartEngine.setData called with', dataService.list?.length, 'trades');
     super.setData(dataService);
-    this.calculateAllIndicators();
+    if (!this.overlayMode) {
+      this.calculateAllIndicators();
+    }
   }
   
   private calculateAllIndicators() {
@@ -184,37 +188,42 @@ export class MatrixChartEngine extends ChartEngine {
   override draw() {
     console.log('🎨 MatrixChartEngine.draw() called - trades:', this.trades.length, 'candles:', this.candles.length);
     const ctx = this.ctx;
-    ctx.fillStyle = "#131722";
-    ctx.fillRect(0, 0, this.width, this.height);
+    
+    // In overlay mode, we just want transparency and dots. No background.
+    if (!this.overlayMode) {
+        ctx.fillStyle = "#131722";
+        ctx.fillRect(0, 0, this.width, this.height);
+    } else {
+        ctx.clearRect(0, 0, this.width, this.height);
+    }
     
     if (this.trades.length === 0) {
       console.log('⚠️ No trades to draw');
       return;
     }
     
-    console.log('Drawing with', this.candles.length, 'candles, F4 length:', this.f4Line.length);
+    // Draw base components
+    if (!this.overlayMode) {
+        console.log('Drawing with', this.candles.length, 'candles, F4 length:', this.f4Line.length);
+        this.drawGrid(ctx);
+        this.drawIndicators(ctx);
+        this.drawCandles(ctx);
+    }
     
-    this.drawGrid(ctx);
-    
-    // Draw indicators first (behind trades)
-    this.drawIndicators(ctx);
-    
-    // Draw candlesticks behind trade bubbles
-    this.drawCandles(ctx);
-    
-    // Draw trades
+    // Draw trades (Main Overlay content)
     this.drawCachedTrades(ctx);
     
-    // Draw F4 signals
-    this.drawF4Signals(ctx);
+    // Draw overlay texts and axes
+    if (!this.overlayMode) {
+        this.drawF4Signals(ctx);
+        this.drawNowLine(ctx);
+        this.drawAxes(ctx);
+        this.drawIndicatorPanel(ctx);
+    }
     
-    this.drawNowLine(ctx);
-    this.drawAxes(ctx);
+    // Always draw crosshair and tooltip because they're interactive overlays
     this.drawCrosshair(ctx);
     this.drawHoverTooltip(ctx);
-    
-    // Draw indicator panel
-    this.drawIndicatorPanel(ctx);
   }
   
   private drawCandles(ctx: CanvasRenderingContext2D) {

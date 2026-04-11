@@ -58,8 +58,9 @@ export function MultiExchangeFlowChart({ symbol: initialSymbol = "BTC-USDT" }: {
   useEffect(() => {
     console.log('🔧 MakerTakerChart useEffect - Creating engine...');
     if (chartCanvasRef.current) {
-      console.log('✅ Canvas ref exists, creating MatrixChartEngine');
-      engineRef.current = new MatrixChartEngine("chart-canvas");
+      console.log('✅ Canvas ref exists, creating MatrixChartEngine in OVERLAY mode');
+      // Pass TRUE as second argument for overlayMode
+      engineRef.current = new MatrixChartEngine("chart-canvas", true);
       console.log('✅ Engine created:', engineRef.current);
     } else {
       console.log('❌ Canvas ref is null!');
@@ -249,158 +250,17 @@ export function MultiExchangeFlowChart({ symbol: initialSymbol = "BTC-USDT" }: {
   };
 
   return (
-    <div className="makertakerchart-wrapper w-full h-[600px] flex flex-col relative rounded-xl overflow-hidden shadow-2xl">
-      <div id="chart-container" style={{ display: "flex", flex: 1, position: "relative" }}>
-        {/* Native Chart - Full Width */}
-        <div style={{ flex: 1, position: "relative" }}>
-          <canvas 
-              id="chart-canvas" 
-              ref={chartCanvasRef} 
-              style={{ 
-                  width: "100%",
-                  height: "100%",
-                  display: "block"
-              }}
-          ></canvas>
-        </div>
-      </div>
-
-      {/* UI Toolbar - Bottom */}
-      <div id="ui-controls" className="flex items-center gap-2 px-4 py-2 bg-slate-900 border-t border-slate-800">
-        <div className="control-group flex items-center gap-2">
-          <span className="control-label text-xs text-slate-400 font-bold uppercase tracking-widest">Symbol</span>
-          <input
-            type="text"
-            id="symbol-input"
-            value={symbol}
-            onChange={(e) => setSymbol(e.target.value)}
-            spellCheck="false"
-            className="w-24 bg-slate-800 text-white border border-slate-700 rounded px-2 py-1 text-sm font-mono"
-          />
-        </div>
-
-        <div className="control-group flex items-center gap-2">
-          <span className="control-label text-xs text-slate-400 font-bold uppercase tracking-widest hidden sm:block">Duration</span>
-          <input
-            type="range"
-            id="duration-slider"
-            min="1"
-            max="3600"
-            value={duration}
-            onChange={(e) => setDuration(parseInt(e.target.value))}
-            className="w-24 Accent-cyan-500"
-          />
-          <span
-            id="duration-val"
-            style={{
-              minWidth: "45px",
-              textAlign: "right",
-              color: "#fff",
-              fontSize: "13px",
-              fontWeight: 600,
-            }}
-          >
-            {duration >= 3600
-              ? duration / 3600 + "h"
-              : duration >= 60
-                ? duration / 60 + "m"
-                : duration + "s"}
-          </span>
-        </div>
-
-        <div className="timeframe-presets flex items-center gap-1.5 ml-2">
-          {[60, 300, 900, 1800, 3600].map((sec) => (
-            <button
-              key={sec}
-              className={`px-2 py-1 text-xs font-bold font-mono rounded transition-colors ${duration === sec ? "bg-cyan-500 text-slate-950" : "bg-slate-800 text-slate-400 hover:text-white"}`}
-              onClick={() => handleTimeframeClick(sec)}
-            >
-              {sec >= 3600
-                ? sec / 3600 + "h"
-                : sec >= 60
-                  ? sec / 60 + "m"
-                  : sec + "s"}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-1 ml-4 bg-slate-800 p-0.5 rounded border border-slate-700">
-          {[
-            { id: "ALL", label: "GLOBAL" },
-            { id: "ALL_SPOT", label: "SPOT" },
-            { id: "ALL_PERP", label: "PERP" }
-          ].map(opt => (
-            <button
-              key={opt.id}
-              className={`px-3 py-1 text-[11px] font-black uppercase tracking-wider rounded transition-colors ${exchange === opt.id ? "bg-cyan-500 text-slate-950 shadow-sm" : "text-slate-400 hover:text-white hover:bg-slate-700"}`}
-              onClick={() => setExchange(opt.id) }
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-
-        <button
-          id="aggregate-btn"
-          className={`ml-auto px-3 py-1 rounded text-xs font-black uppercase tracking-widest transition-colors border ${aggregated ? "bg-amber-500/20 text-amber-500 border-amber-500/50" : "bg-slate-800 text-slate-500 border-slate-700"}`}
-          title="Press 'A' to toggle"
-          onClick={toggleAggregation}
-        >
-          Hacim Birleştir
-        </button>
-        <button id="now-btn" className="px-3 py-1 bg-cyan-500 text-slate-950 text-xs font-black uppercase tracking-widest rounded hover:bg-cyan-400 transition-colors" onClick={generate}>
-          LIVE / NOW
-        </button>
-      </div>
-
-      {/* Version Indicator - Always Visible */}
-      <div style={{
-        position: 'absolute',
-        top: '10px',
-        left: '10px',
-        background: 'rgba(255, 0, 0, 0.9)',
-        color: 'white',
-        padding: '6px 12px',
-        borderRadius: '5px',
-        fontWeight: '900',
-        fontSize: '12px',
-        letterSpacing: '0.1em',
-        zIndex: 10
-      }}>
-        MATRIX V5 LOADED ✓
-      </div>
-
-      {/* Overlays */}
-      {!loading &&
-        !errorMsg &&
-        noTrades && (
-          <div
-            id="welcome-overlay"
-            className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-sm z-20 text-center"
-          >
-            <h2 className="text-2xl font-black text-cyan-400 mb-2 font-mono tracking-tighter">MakerTakerCharts V5 Pro</h2>
-            <p className="text-slate-400 font-mono text-sm">
-              Professional Grade Historical Trade Visualization.<br/>
-              <span className="text-emerald-400 animate-pulse mt-1 inline-block">Connecting to live data stream...</span>
-            </p>
-          </div>
-        )}
-
-      {loading && (
-        <div
-          id="loading-indicator"
-          className="absolute top-4 right-4 z-20 flex items-center gap-2 bg-slate-950/80 px-3 py-1.5 rounded-full border border-slate-800 backdrop-blur-md"
-        >
-          <div className="w-3 h-3 rounded-full border-2 border-slate-500 border-t-cyan-400 animate-spin"></div>
-          <span className="text-slate-400 font-mono text-[10px] font-black uppercase tracking-widest">Senkronize ediliyor...</span>
-        </div>
-      )}
+    <div className="absolute inset-0 pointer-events-none z-20">
+      <canvas 
+          id="chart-canvas" 
+          ref={chartCanvasRef} 
+          style={{ width: "100%", height: "100%", display: "block" }}
+      ></canvas>
 
       {errorMsg && (
-        <div id="error-overlay" className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-md z-30">
-          <h2 className="text-2xl font-black text-rose-500 mb-2 uppercase tracking-widest">Error Occurred</h2>
-          <p id="error-msg" className="text-rose-400 font-mono bg-rose-500/10 px-4 py-2 rounded border border-rose-500/20">
-            {errorMsg}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
+          <p className="text-rose-400 font-mono bg-rose-500/10 px-4 py-1 rounded text-xs border border-rose-500/20">
+            [MakerTaker] {errorMsg}
           </p>
         </div>
       )}

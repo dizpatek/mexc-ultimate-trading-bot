@@ -219,7 +219,7 @@ const TF_PARAMS: Record<string, TFParam> = {
   "1w": { slPct: 8.0, tpR: "1:5+", style: "uzun vadeli", noise: "MİNİMAL" },
 };
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 export const buildOrchestraPrompt = (
   symbol: string,
   tf: string,

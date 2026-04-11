@@ -1,5 +1,7 @@
 "use client";
 
+// Matrix V5 Alpha Terminal - Hotfixed Re-build Trigger
+
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
@@ -12,6 +14,28 @@ import { ActiveSmartTrades } from "@/components/ActiveSmartTrades";
 import { HorizonLayout } from "@/components/matrix-horizon/HorizonLayout";
 import { HorizonCard } from "@/components/matrix-horizon/HorizonCard";
 import { MatrixPortfolio } from "@/components/MatrixPortfolio";
+import dynamic from "next/dynamic";
+
+// ChunkLoadError mitigation wrapper for dynamic imports
+const retryImport = <T,>(fn: () => Promise<T>, retries = 2): Promise<T> => {
+  return fn().catch((err) => {
+    if (retries > 0 && err.name === "ChunkLoadError") {
+      console.warn(`[Next.js] ChunkLoadError detected. Retrying... (${retries} left)`);
+      return new Promise(resolve => setTimeout(resolve, 1000)).then(() => retryImport(fn, retries - 1));
+    }
+    throw err;
+  });
+};
+
+// Gelecekteki RAM darboğazını önlemek için Ağır/Görsel dashboard eklentileri (Lazy Load)
+const PnLCard = dynamic(() => retryImport(() => import("@/components/dashboard/PnLCard").then(m => m.PnLCard)), { ssr: false });
+const LiveStatus = dynamic(() => retryImport(() => import("@/components/dashboard/LiveStatus").then(m => m.LiveStatus)), { ssr: false });
+const RecentTrades = dynamic(() => retryImport(() => import("@/components/dashboard/LiveStatus").then(m => m.RecentTrades)), { ssr: false });
+const WhaleFeed = dynamic(() => retryImport(() => import("@/components/dashboard/WhaleFeed").then(m => m.WhaleFeed)), { ssr: false });
+const InteractiveChart = dynamic(() => retryImport(() => import("@/components/charts/InteractiveChart").then(m => m.InteractiveChart)), { ssr: false });
+const LiquidityHeatmap = dynamic(() => retryImport(() => import("@/components/dashboard/LiquidityHeatmap").then(m => m.LiquidityHeatmap)), { ssr: false });
+const ArbitrageDelta = dynamic(() => retryImport(() => import("@/components/dashboard/ArbitrageDelta").then(m => m.ArbitrageDelta)), { ssr: false });
+
 import { SmartOperationCenter } from "@/components/SmartOperationCenter";
 import { CombatLog } from "@/components/CombatLog";
 import { IntelligenceHub } from "@/components/IntelligenceHub";
@@ -51,6 +75,7 @@ export default function Dashboard() {
   });
   const [isBottomSectionExpanded, setIsBottomSectionExpanded] = useState(true);
   const [globalMarketData, setGlobalMarketData] = useState<GlobalMarketData | null>(null);
+  const [portfolioSummary, setPortfolioSummary] = useState({ totalValue: 0, change24h: 0, changePercentage: 0 });
 
   // Lifted Hooks for Unified Header & Performance
   const { timeframe } = useTimeframe();
@@ -111,8 +136,22 @@ export default function Dashboard() {
         console.warn("[Dashboard] Global data fetch failed", err);
       }
     };
+    const loadSummary = async () => {
+      try {
+        const token = localStorage.getItem("token");
+        const r = await fetch('/api/portfolio/summary', {
+           headers: { 'Authorization': token ? `Bearer ${token}` : '' }
+        });
+        if (r.ok) {
+           const d = await r.json();
+           setPortfolioSummary({ totalValue: d.totalValue || 0, change24h: d.change24h || 0, changePercentage: d.changePercentage || 0 });
+        }
+      } catch {}
+    };
+
     load();
-    const id = setInterval(load, 20000); // 20s interval
+    loadSummary();
+    const id = setInterval(() => { load(); loadSummary(); }, 20000); // 20s interval
     return () => clearInterval(id);
   }, []);
 
@@ -160,7 +199,7 @@ export default function Dashboard() {
       <Header />
       <NotificationModal />
 
-      <main className="flex-1 min-w-0 px-2 md:px-4 lg:px-6 py-0.5 md:py-1 lg:py-1.5 space-y-1 overflow-y-auto max-w-full mx-auto w-full pb-4 no-scrollbar">
+      <main className="flex-1 min-w-0 px-2 md:px-4 lg:px-6 py-1 md:py-2 space-y-2 overflow-y-auto max-w-full mx-auto w-full pb-4 no-scrollbar matrix-grid-bg">
         {/* MATRIX MISSION CONTROL (Full Width) */}
         <div className="w-full">
           <MatrixHorizon 
@@ -189,7 +228,38 @@ export default function Dashboard() {
         <MoneyFlowSection globalMarketData={globalMarketData} />
 
         {/* EXCHANGE FLOW & MAKER TAKER (Main Menu Section) */}
-        <ExchangeFlow />
+        <ExchangeFlow>
+          {/* SUPER GRID: Bloomberg-Style Pro Terminal */}
+          <div className="w-full grid grid-cols-1 xl:grid-cols-12 gap-3 pb-4">
+            
+            {/* THE UNIFIED CHARTING CENTER (FULL WIDTH) */}
+            <div className="xl:col-span-12 flex flex-col">
+              <div className="w-full flex items-center justify-between px-1 mb-1">
+                 <LiveStatus isConnected={true} />
+              </div>
+              
+              {/* Glassmorphism Combined Chart Card */}
+              <div className="w-full flex flex-col rounded-xl border border-slate-800/60 bg-[#020617]/50 overflow-hidden shadow-[0_0_50px_-15px_rgba(6,182,212,0.1)] backdrop-blur-sm">
+                
+                {/* Ultimate Overlay Chart (Candlesticks + Maker/Taker combined) */}
+                <div className="w-full relative">
+                  <div className="absolute top-2 right-2 flex items-center gap-2 z-10 px-2 py-1 bg-slate-950/70 border border-slate-800/80 rounded backdrop-blur">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span className="text-[9px] text-emerald-400 font-mono tracking-widest uppercase">ULTIMATE SYNC ENGINE</span>
+                  </div>
+                  <InteractiveChart symbol={activeSymbol || "BTCUSDT"} />
+                </div>
+
+              </div>
+
+              {/* Arbitrage Delta below the charts */}
+              <div className="mt-3">
+                <ArbitrageDelta symbol={activeSymbol || "BTCUSDT"} />
+              </div>
+            </div>
+
+          </div>
+        </ExchangeFlow>
 
         {/* SMART TRADE OPERATION CENTER & ASSET LIST */}
         <div className="w-full flex flex-col gap-2">

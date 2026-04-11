@@ -6,7 +6,7 @@ import {
   StrategySignalInput,
 } from "@/lib/db";
 import { getAccountInfo } from "@/lib/mexc-wrapper";
-import { getBotConfig, resolveTradeMode, BotConfig, logSystemEvent } from "@/lib/db";
+import { getBotConfig, resolveTradeMode, BotConfig, logSystemEvent, getBestExperiment } from "@/lib/db";
 import { buildInsight } from "@/lib/insight-utils";
 
 
@@ -105,7 +105,7 @@ export class SignalScanner {
 
     return Array.from(
       new Set([...holdingsSymbols, ...topSymbolsBroad, ...DEFAULT_SCAN_SYMBOLS]),
-    ).slice(0, 120); // Scaled for better coverage
+    ).slice(0, 30); // P4.4: Reduced from 120 to 30 to prevent Vercel/Node 30s timeout
   }
 
   static async runScan(userId: number, symbols: string[], targetTimeframe?: string, mode: "test" | "production" = "test"): Promise<ScanResult[]> {
@@ -147,8 +147,8 @@ export class SignalScanner {
       }
     }
 
-    // P3.2 PERFORMANCE: Bounded parallel scan (concurrency: 8)
-    const CONCURRENCY = 8;
+    // P3.2 PERFORMANCE: Bounded parallel scan (concurrency: 5 to avoid CPU/Network timeout)
+    const CONCURRENCY = 5;
     for (let i = 0; i < scanTasks.length; i += CONCURRENCY) {
       const chunk = scanTasks.slice(i, i + CONCURRENCY);
       const chunkResults = await Promise.allSettled(
@@ -204,6 +204,19 @@ export class SignalScanner {
 
     try {
       const config = botConfig || await getBotConfig(userId);
+      const bestExp = await getBestExperiment();
+
+      // --- AUTO-RESEARCH INTEGRATION ---
+      // Apply statistically verified hyperparameter overrides from AutoResearch ML Loop
+      let mtfThreshold = config.pilot_mtf_threshold || 80;
+      let f4Length = config.f4_length;
+      let f4PowerLossThreshold = config.f4_power_loss_threshold;
+      
+      if (bestExp && bestExp.params) {
+        mtfThreshold = bestExp.params.mtfThreshold ? Number(bestExp.params.mtfThreshold) : mtfThreshold;
+        f4Length = bestExp.params.f4Length ? Number(bestExp.params.f4Length) : f4Length;
+        f4PowerLossThreshold = bestExp.params.f4PowerLossThreshold ? Number(bestExp.params.f4PowerLossThreshold) : f4PowerLossThreshold;
+      }
 
       // P4.1 Optimizer: Pre-fetch klines here and pass to strategy if possible, 
       // but since MatrixV5Strategy expects to fetch its own for analysis consistency,
@@ -213,10 +226,10 @@ export class SignalScanner {
         minAiScore: config.ai_threshold || 65,
         tradeMode: resolveTradeMode(config),
         mtfVeto: config.pilot_mtf_veto,
-        mtfThreshold: config.pilot_mtf_threshold || 80,
-        f4Length: config.f4_length,
+        mtfThreshold: mtfThreshold,
+        f4Length: f4Length,
         whaleVolumeMultiplier: config.whale_multiplier,
-        f4PowerLossThreshold: config.f4_power_loss_threshold,
+        f4PowerLossThreshold: f4PowerLossThreshold,
         f4LookbackBars: config.f4_lookback_bars,
         f4SqueezeThreshold: config.f4_squeeze_threshold,
         minPowerLoss: config.min_power_loss,

@@ -26,35 +26,9 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Trigger monitoring if cooldown has passed
-    const now = Date.now();
-    if (now - lastMonitorTime > MONITOR_COOLDOWN_MS) {
-      lastMonitorTime = now;
-      void monitorSmartTrades();
-    }
-
     // Check mode and credentials for GET too (since we fetch prices)
     const cookieStore = await cookies();
-    const mode =
-      (cookieStore.get("TRADING_MODE")?.value as TradingMode) || "test";
-
-    if (mode === "production") {
-      const { apiKey, apiSecret } = await getMexcCredentials(
-        Number(user.id),
-        mode,
-      );
-      if (!apiKey || !apiSecret) {
-        // Return 400 BUT also empty list to avoid breaking UI if not strict
-        // Actually better to error so user knows why prices are 0 or missing
-        return NextResponse.json(
-          {
-            error:
-              "Production mode requires API keys. Please configure them in Settings.",
-          },
-          { status: 400 },
-        );
-      }
-    }
+    const mode = (cookieStore.get("TRADING_MODE")?.value as TradingMode) || "test";
 
     // Fetch orders for this user only
     const { rows } = await sql`
@@ -76,9 +50,9 @@ export async function GET(request: Request) {
       meta: string | Record<string, unknown>;
     }
 
-    const smartTradesRaw = (rows as unknown as OrderRow[])
+    const smartTrades = (rows as unknown as OrderRow[])
       .map((row) => {
-        let parsedMeta: Record<string, unknown> = {};
+        let parsedMeta: Record<string, any> = {};
         try {
           parsedMeta =
             typeof row.meta === "string"
@@ -87,30 +61,23 @@ export async function GET(request: Request) {
         } catch {
           parsedMeta = {};
         }
+
+        // PRICE LOGIC: Use currentPrice from monitor (lastPrice) if available, 
+        // otherwise fallback to entry price.
+        const currentPrice = Number(parsedMeta.lastPrice) || Number(row.price);
+
         return {
           ...row,
-          price:
-            typeof row.price === "string" ? parseFloat(row.price) : row.price,
-          qty: typeof row.qty === "string" ? parseFloat(row.qty) : row.qty,
+          price: Number(row.price),
+          qty: Number(row.qty),
+          currentPrice: currentPrice,
           meta: parsedMeta,
+          created_at: typeof row.created_at === "string"
+            ? parseInt(row.created_at) || Date.now()
+            : Number(row.created_at) || Date.now(),
         };
       })
-      .filter((row) => row.meta.smartTrade === true);
-
-    // Extract unique symbols to fetch only what we need (P4.2: Massive performance gain)
-    const uniqueSymbols = Array.from(new Set(smartTradesRaw.map(t => t.symbol)));
-    
-    // Efficiently fetch targeted prices in a single batch call to avoid rate limits and sequential delay
-    const allPrices = await fetchAllPrices(uniqueSymbols);
-
-    const smartTrades = smartTradesRaw.map((trade) => ({
-      ...trade,
-      currentPrice: allPrices[trade.symbol] || trade.price, // Use fetched price or original trade price
-      created_at:
-        typeof trade.created_at === "string"
-          ? parseInt(trade.created_at) || Date.now()
-          : Number(trade.created_at) || Date.now(),
-    }));
+      .filter((trade) => trade.meta.smartTrade === true);
 
     return NextResponse.json(smartTrades);
   } catch (error: unknown) {

@@ -205,7 +205,7 @@ export const Header = ({}: HeaderProps) => {
           )}
         </Link>
 
-        <Link
+        <a
           href="/settings"
           title="SYSTEM CONFIG"
           className={cn(
@@ -219,8 +219,8 @@ export const Header = ({}: HeaderProps) => {
           {isSettings && (
             <div className="absolute inset-y-2 lg:-left-[1px] -top-[1px] lg:top-auto lg:w-[3px] w-auto h-[2px] lg:h-auto bg-indigo-400 rounded-full shadow-[0_0_10px_#818cf8] left-1 right-1 lg:right-auto" />
           )}
-        </Link>
-        <Link
+        </a>
+        <a
           href="/guide"
           title="OPERATIONAL MANUAL"
           className={cn(
@@ -234,7 +234,7 @@ export const Header = ({}: HeaderProps) => {
           {pathname === "/guide" && (
             <div className="absolute inset-y-2 lg:-left-[1px] -top-[1px] lg:top-auto lg:w-[3px] w-auto h-[2px] lg:h-auto bg-emerald-400 rounded-full shadow-[0_0_10px_#34d399] left-1 right-1 lg:right-auto" />
           )}
-        </Link>
+        </a>
       </nav>
 
       {/* SCROLL NAVIGATION SECTION - Hidden on Mobile */}

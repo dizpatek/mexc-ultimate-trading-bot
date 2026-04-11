@@ -164,7 +164,10 @@ const [,, command, arg1, arg2] = process.argv;
         GROQ_MODEL: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
         CRYPTOCOMPARE_API_KEY: process.env.CRYPTOCOMPARE_API_KEY,
         NEXT_PUBLIC_GOOGLE_CLIENT_ID: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
-        GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET
+        GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+        DATABASE_URL: process.env.DATABASE_URL,
+        POSTGRES_URL: process.env.POSTGRES_URL,
+        JWT_SECRET: process.env.JWT_SECRET
       };
 
       if (!envVars.GROQ_API_KEY) {

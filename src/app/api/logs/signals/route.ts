@@ -5,7 +5,11 @@ import { ensureTablesExist } from "@/lib/db-init";
 
 export const dynamic = "force-dynamic";
 
+// Global cache for DB readiness during instance life (Next.js server-side)
+let dbIsReady = false;
+
 export async function GET(request: Request) {
+  const startTime = Date.now();
   try {
     const isDev = process.env.NODE_ENV !== "production";
     const cronSecret = process.env.CRON_SECRET || (isDev ? "dev-secret" : null);
@@ -32,15 +36,18 @@ export async function GET(request: Request) {
 
     const timeframe = searchParams.get("timeframe") || "1m";
 
-    // Ensure tables exist (optimized with isInitialized internal flag)
-    await ensureTablesExist();
+    // Optimized table check
+    if (!dbIsReady) {
+        const initStart = Date.now();
+        await ensureTablesExist();
+        dbIsReady = true;
+        console.log(`[Logs-API] First-run DB Init took ${Date.now() - initStart}ms`);
+    }
 
-    // 48-hour (2 days) log limit requirement
-    const fortyEightHoursAgo = Date.now() - 48 * 60 * 60 * 1000;
+    // PERFORMANCE FIX: 24h window for dashboard logs is plenty
+    const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
 
-    // Fetch both trade signals and system logs for a complete CombatLog feel
-    // P3.2 Fix: Use separate limits for each to ensure high-frequency system logs
-    // don't push out trade signals from the result set.
+    const queryStart = Date.now();
     const { rows } = await sql`
             (
                 SELECT 
@@ -49,10 +56,11 @@ export async function GET(request: Request) {
                     COALESCE(st.name, 'Pilot ON')::text as strategy_name,
                     COALESCE(s.symbol, st.symbol, 'Global')::text as symbol,
                     s.signal_type::text as type,
+                    s.side::text as side,
                     s.price::text as price,
                     s.timestamp,
                     s.executed,
-                    COALESCE(s.execution_result::text, '')::text as detail,
+                    s.execution_result::text as detail,
                     COALESCE(s.timeframe, '')::text as timeframe,
                     s.veto_reason::text as veto_reason
                 FROM strategy_signals s
@@ -63,9 +71,9 @@ export async function GET(request: Request) {
                     s.timeframe = ${timeframe} OR 
                     s.timeframe IS NULL
                 )
-                AND s.timestamp > ${fortyEightHoursAgo}
+                AND s.timestamp > ${twentyFourHoursAgo}
                 ORDER BY s.timestamp DESC
-                LIMIT 2000
+                LIMIT 50
             )
             UNION ALL
             (
@@ -75,23 +83,32 @@ export async function GET(request: Request) {
                     'Sistem'::text as strategy_name,
                     'SYSTEM'::text as symbol,
                     level::text as type,
+                    ''::text as side,
                     '---'::text as price,
                     timestamp,
                     true as executed,
-                    (message || ': ' || COALESCE(details, ''))::text as detail,
+                    LEFT((message || ': ' || COALESCE(details, '')), 500)::text as detail,
                     'SYSTEM'::text as timeframe,
                     NULL::text as veto_reason
                 FROM system_logs
                 WHERE (user_id = ${user!.id} OR user_id IS NULL)
-                AND timestamp > ${fortyEightHoursAgo}
+                AND timestamp > ${twentyFourHoursAgo}
                 ORDER BY timestamp DESC
-                LIMIT 500
+                LIMIT 50
             )
             ORDER BY timestamp DESC
+            LIMIT 100
         `;
+    
+    const duration = Date.now() - startTime;
+    if (duration > 1000) {
+        console.warn(`[Logs-API] Query slow: ${duration}ms (DB Query only: ${Date.now() - queryStart}ms)`);
+    }
 
     return NextResponse.json(rows);
   } catch (error: unknown) {
+    const duration = Date.now() - startTime;
+    console.error(`[Logs-API] Critical failure after ${duration}ms:`, error);
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: message }, { status: 500 });
   }

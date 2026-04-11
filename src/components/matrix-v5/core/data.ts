@@ -116,7 +116,7 @@ export class DataService {
     console.log("Aggregation threshold:", this.threshold);
   }
 
-  async loadRange(symbol: string, exchangeStr: string, startTime: number, endTime: number): Promise<void> {
+  async loadRange(symbol: string, exchangeStr: string, startTime: number, endTime: number, onUpdate?: () => void): Promise<void> {
     if (this.state === 0) return; // Prevent overlapping requests
     if (this.isBulkLoading) return; // Prevent lazy-load interruption during bulk sequential fetch
     this.symbol = symbol;
@@ -138,27 +138,8 @@ export class DataService {
 
     this.currentFetchStart = startTime;
     this.currentFetchEnd = endTime;
-    // If ALL is passed, we fetch from all exchanges simultaneously via our DB route
-    const SPOT_EXCHANGES = [
-      "BINANCE_SPOT", "BYBIT_SPOT", "OKX_SPOT", "BITGET_SPOT", "MEXC_SPOT",
-      "KUCOIN_SPOT", "GATE_SPOT", "HUOBI_SPOT", "HTX_SPOT", "COINBASE_SPOT",
-      "KRAKEN_SPOT", "BITSTAMP_SPOT", "PHEMEX_SPOT", "WOO_SPOT", "CRYPTOCOM_SPOT"
-    ];
-    
-    const PERP_EXCHANGES = [
-      "BINANCE_PERP", "BYBIT_PERP", "OKX_PERP", "BITGET_PERP", "MEXC_PERP",
-      "KUCOIN_PERP", "GATE_PERP", "HUOBI_PERP", "HTX_PERP", "PHEMEX_PERP",
-      "BITMEX_PERP", "DERIBIT_PERP", "WOO_PERP"
-    ];
-    
+
     let apiExchangeParam = exchangeStr;
-    if (exchangeStr === "ALL") {
-        apiExchangeParam = [...SPOT_EXCHANGES, ...PERP_EXCHANGES].join(',');
-    } else if (exchangeStr === "ALL_SPOT") {
-        apiExchangeParam = SPOT_EXCHANGES.join(',');
-    } else if (exchangeStr === "ALL_PERP") {
-        apiExchangeParam = PERP_EXCHANGES.join(',');
-    }
 
     // --- Pipelined Parallel Fetch (Newest-to-Oldest Processing) ---
     // All chunks fire network requests simultaneously for max speed,
@@ -232,6 +213,9 @@ export class DataService {
                     this.processTrades(result.trades, isOlderChunk);
                     
                     if (this.isBulkLoading) this.state = 0;
+                    
+                    // Trigger update immediately for the newest chunk or after any successful update
+                    if (onUpdate) onUpdate();
                 }
             }
             
@@ -311,17 +295,22 @@ export class DataService {
     }
 
     if (added) {
-        // Only inner-sort the batch to ensure it's chronological
-        parsedBatch.sort((a, b) => a.T - b.T);
-        
         if (isOlderChunk) {
-            // Unshift strategy for historic data: simply prepend the oldest batch
-            // This is O(N) instead of sorting O((N+M)log(N+M)) 
+            // Older data: full sort required normally, but we use unshift for speed if possible
+            parsedBatch.sort((a, b) => a.T - b.T);
             this.rawList = [...parsedBatch, ...this.rawList];
         } else {
-            // Standard append + full sort for newest data / live poll
-            this.rawList.push(...parsedBatch);
-            this.rawList.sort((a, b) => a.T - b.T);
+            // New data (live poll or single websocket deal)
+            // Optimization: if incoming is strictly newer than last item, just push
+            const lastItem = this.rawList[this.rawList.length - 1];
+            const isStrictlyNewer = parsedBatch.length > 0 && (!lastItem || parsedBatch[0].T >= lastItem.T);
+            
+            if (isStrictlyNewer) {
+                this.rawList.push(...parsedBatch);
+            } else {
+                this.rawList.push(...parsedBatch);
+                this.rawList.sort((a, b) => a.T - b.T);
+            }
         }
 
         if (this.aggregated) {
@@ -341,21 +330,24 @@ export class DataService {
   connectLiveStream(symbol: string, exchangeStr: string): void {
       this.closeStream();
       
+      let targetExchange = exchangeStr;
       if (exchangeStr.startsWith("ALL")) {
-          console.log(`WebSocket disabled for GLOBAL ${exchangeStr} view (relying on DB sync).`);
-          return;
+          // Eğer Arka plan DB sync betiği çalışmıyorsa ekran boş kalmasın diye "ALL" modunda
+          // ana sinyal sağlayıcı olarak direkt Binance Perp canlı akışına geçiş yapıyoruz.
+          targetExchange = "BINANCE_PERP"; 
       }
       
-      console.log("Starting ultra-low latency WebSocket stream...");
+      console.log(`Starting ultra-low latency WebSocket stream for ${targetExchange}...`);
       
-      const [exchange, type] = exchangeStr.split("_");
+      const [exchange, type] = targetExchange.split("_");
       
       if (exchange === "BINANCE") {
           // Format BTC-USDT to btcusdt
           const coin = symbol.split('-').join('').toLowerCase();
           const baseUrl = type === "PERP" ? "wss://fstream.binance.com/ws" : "wss://stream.binance.com:9443/ws";
+          const streamName = type === "PERP" ? "aggTrade" : "trade";
           
-          this.ws = new WebSocket(`${baseUrl}/${coin}@trade`);
+          this.ws = new WebSocket(`${baseUrl}/${coin}@${streamName}`);
           
           this.ws.onmessage = (event: MessageEvent) => {
               const data = JSON.parse(event.data);
@@ -375,7 +367,9 @@ export class DataService {
                   if (globalWindow.onLiveTradeReceived) globalWindow.onLiveTradeReceived();
               }
           };
-          this.ws.onerror = (e: Event) => console.error("WebSocket Error:", e);
+          this.ws.onerror = (e: Event) => {
+              // Sadece warn, hata fırlatma (bazı coinler Binance'de olmayabilir)
+          };
       } else if (exchange === "BYBIT") {
           // Format BTC-USDT to BTCUSDT
           const coin = symbol.split('-').join('').toUpperCase();
@@ -406,6 +400,9 @@ export class DataService {
                   if (globalWindow.onLiveTradeReceived) globalWindow.onLiveTradeReceived();
               }
           }
+          this.ws.onerror = (e: Event) => {
+             // Sessiz failover
+          };
       }
   }
 }

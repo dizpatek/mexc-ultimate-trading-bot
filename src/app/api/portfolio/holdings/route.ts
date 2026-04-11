@@ -45,10 +45,17 @@ export async function GET(request: Request) {
 
 
     const accountInfo = await getAccountInfo(user.id, mode);
+    if (!accountInfo || !accountInfo.balances) {
+      console.warn(`[Holdings] No balances found for user ${user.id} in ${mode} mode.`);
+      return NextResponse.json([]);
+    }
+
     const activeBalances = (accountInfo.balances || []).filter(
       (b: { free: string; locked: string }) =>
         parseFloat(b.free) + parseFloat(b.locked) > 0,
     );
+
+    console.log(`[Holdings] User ${user.id} (${mode}) has ${activeBalances.length} active balances.`);
 
     let totalValue = 0;
     const holdingsData = await Promise.all(
@@ -77,11 +84,10 @@ export async function GET(request: Request) {
               ) {
                 const open = parseFloat(ticker.openPrice);
                 const last = parseFloat(ticker.lastPrice);
-                // Manual calculation to ensure consistency (Percent = (Last/Open - 1) * 100)
                 change24h = (last / open - 1) * 100;
               }
-            } catch {
-              // console.warn(`Price fetch failed for ${pair}`, e);
+            } catch (e) {
+              // Silent catch for individual price failures
             }
           }
 
@@ -91,12 +97,12 @@ export async function GET(request: Request) {
           return {
             id: symbol,
             symbol,
-            name: symbol, // Could fetch from a mapping if needed
+            name: symbol,
             holding: totalQty,
             price: currentPrice,
             value,
             change24h,
-            allocation: 0, // Will calculate after loop
+            allocation: 0,
           };
         },
       ),
@@ -112,15 +118,10 @@ export async function GET(request: Request) {
     finalHoldings.sort((a, b) => b.value - a.value);
 
     return NextResponse.json(finalHoldings);
-  } catch (error) {
-    const err = error as Error;
-    console.error("Error fetching holdings [500]:", err);
+  } catch (error: any) {
+    console.error("[Holdings API Error]:", error);
     return NextResponse.json(
-      {
-        error: "Failed to fetch holdings",
-        details: err.message,
-        stack: err.stack,
-      },
+      { error: "Failed to fetch holdings", details: error.message, stack: error.stack },
       { status: 500 },
     );
   }

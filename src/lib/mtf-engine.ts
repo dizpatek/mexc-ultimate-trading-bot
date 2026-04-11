@@ -36,7 +36,7 @@ const MTF_UPPER_TF_MAP: Record<string, string[]> = {
 // Cache for MTF checks to avoid reaching API limits
 const mtfResultsCache = new Map<string, { result: number | null; timestamp: number }>();
 const pendingRequests = new Map<string, Promise<number | null>>();
-const MTF_CACHE_TTL = 30_000; // 30 saniye
+const MTF_CACHE_TTL = 55_000; // 55 saniye (cron periyoduna yakın optimize edildi)
 
 export interface MtfConsensusResult {
   score: number;       // 0-100 arası normalize boğa skoru (geriye dönük uyumluluk)

@@ -71,6 +71,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
   const [isSectionExpanded, setIsSectionExpanded] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const prevActiveCountRef = useRef<number>(0);
+  const isFetchingRef = useRef(false);
 
   const [error, setError] = useState<string | null>(null);
   const [clearingAction, setClearingAction] = useState<
@@ -91,15 +92,21 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
   const { notify, confirm } = useNotification();
 
   const fetchTrades = async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     try {
-      const response = await api.get("/trade/smart");
+      const response = await api.get("/trade/smart", {
+        timeout: 10000, // 10s component-level timeout
+      });
       setTrades(response.data);
       setLastFetchTime(Date.now());
       setError(null);
     } catch (err: any) {
       console.error("Failed to fetch smart trades:", err);
-      setError(err?.message || "Unknown error");
+      const isTimeout = err.code === 'ECONNABORTED' || err.message?.includes('timeout');
+      setError(isTimeout ? "İstek Zaman Aşımına Uğradı (Sunucu Meşgul)" : "İşlemler Yüklenemedi");
     } finally {
+      isFetchingRef.current = false;
       setIsLoading(false);
     }
   };
@@ -230,7 +237,13 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
       const activeCount = trades.filter(t => t.status !== "CLOSED").length;
       if (activeCount > 0) {
         try {
-          await api.get("/cron/trailing-stop");
+          // BUGFIX: Read trading mode from cookie so production trades are monitored.
+          // Previously, no mode was passed → always defaulted to "test" → production trades ignored.
+          const tradingMode = document.cookie
+            .split(";")
+            .find(c => c.trim().startsWith("TRADING_MODE="))
+            ?.split("=")?.[1]?.trim() || "test";
+          await api.get(`/cron/trailing-stop?tradingMode=${tradingMode}`);
         } catch (e) {
           console.warn("[MonitorTrigger] Cron call failed:", e);
         }
@@ -327,18 +340,32 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
                 const isSmcBullish = liveData?.smc?.swingTrend === "BULLISH";
                 const flightPlanStatus = `${isSmcBullish ? "BOĞA 📈" : "AYI 📉"} / ${(liveData as any)?.marketPhaseText || "DURGUN"}`;
                 
-                // Kısa pozisyon (COVER) için karar: Yüksek AI = satış baskısı devam, düşük AI = ters yön uyarısı
-                const decision = isShort
-                  ? (aiScore > 75
-                      ? "SATIŞI TUT 📉"
-                      : aiScore > 55
-                        ? "BEKLE / KAPANIŞA YAKLAŞ"
-                        : "TERS TREND ⚠ KAPANDIR")
-                  : (aiScore > 80
-                      ? "LONG AÇ ✅"
-                      : aiScore > 60
-                        ? "EKLE/TUT 📈"
-                        : "BEKLE ❌");
+                // 🔹 P5.2: Decision Logic Synchronization
+                // Prioritize active bot states (TSL/TTP) over raw AI score to prevent "Wait" vs "Profit Protection" confusion.
+                let decision = "";
+                if (!isClosed) {
+                  if (meta.tslActivated) {
+                    decision = "KÂR KORUMADA 🛡️";
+                  } else if (meta.tpTriggered) {
+                    decision = "HEDEF TAKİPTE 🚀";
+                  } else if (trade.status === "PENDING" && payload?.trailingBuy) {
+                    decision = "ALIM TAKİBİNDE ⏳";
+                  }
+                }
+
+                if (!decision) {
+                  decision = isShort
+                    ? (aiScore > 75
+                        ? "SATIŞI TUT 📉"
+                        : aiScore > 55
+                          ? "BEKLE / KAPANIŞA YAKLAŞ"
+                          : "TERS TREND ⚠ KAPANDIR")
+                    : (aiScore > 80
+                        ? "LONG AÇ ✅"
+                        : aiScore > 60
+                          ? "EKLE/TUT 📈"
+                          : "BEKLE ❌");
+                }
 
                 const { statusText, statusColor } = interpretTradingStatus(liveData, isClosed, trade.side, currentPrice, meta.activeTakeProfit || parseFloat(payload?.takeProfit?.price || "0"), meta.activeStopLoss || parseFloat(payload?.stopLoss?.price || "0"), aiScore, trade.status, meta);
 

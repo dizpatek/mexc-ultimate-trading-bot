@@ -1,4 +1,4 @@
-import { Pool, QueryResult } from "pg";
+import { Pool, QueryResult, PoolClient } from "pg";
 
 // Standardize connection URL for Northflank/Generic Postgres
 const connectionString =
@@ -13,34 +13,52 @@ if (process.env.NODE_ENV === "development" || connectionString?.includes("northf
 
 const poolConfig: any = {
   connectionString,
-  max: 10,
+  max: 15, // Artırıldı: Yoğun senkronizasyon araçları varken UI'ın beklemesini engeller
   idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000, // Optimize edildi: Bozuk bağlantılar 5s içinde elenir
 };
 
-// Enable SSL if explicitly requested or if it's a Northflank/Neon primary DB
 if (connectionString?.includes("primary") || 
     connectionString?.includes("lb.") || 
     process.env.PGSSLMODE === 'require' || 
     connectionString?.includes("sslmode=require")) {
   poolConfig.ssl = { 
     rejectUnauthorized: false,
-    checkServerIdentity: () => undefined // Forcefully ignore hostname mismatch
+    checkServerIdentity: () => undefined 
   };
 }
 
-export const pool = new Pool(poolConfig);
+// NEXT.JS SINGLETON PATTERN
+const globalWithPool = global as typeof globalThis & { pgPool?: Pool };
+export const pool = globalWithPool.pgPool || new Pool(poolConfig);
 
-// Debug Logging (Masked)
-if (connectionString) {
-  console.log(
-    `[Postgres] Connecting to: ${connectionString.split("@")[1] || "URL"}`,
-  );
-} else {
-  console.warn("[Postgres] No connection string provided in environment!");
+if (process.env.NODE_ENV === "development") {
+  globalWithPool.pgPool = pool;
 }
 
 /**
- * Tagged template literal for SQL queries, compatible with Northflank PostgreSQL
+ * Bağlantı hatalarına (ECONNRESET vb.) karşı dirençli client alma fonksiyonu
+ */
+async function getResilientClient(retries = 3): Promise<PoolClient> {
+  let lastError: any;
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await pool.connect();
+    } catch (err: any) {
+      lastError = err;
+      if (err.code === 'ECONNRESET' || err.message.includes('terminated')) {
+        console.warn(`[Postgres] Connection reset, retrying... (${i + 1}/${retries})`);
+        await new Promise(r => setTimeout(r, 1000 * (i + 1))); // Katlanarak bekleme
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * Tagged template literal for SQL queries with full resilient retry
  */
 export async function sql(
   strings: TemplateStringsArray,
@@ -51,24 +69,35 @@ export async function sql(
     "",
   );
 
-  // Automatic JSON serialization for objects/arrays to match pg driver flavor
   const sanitizedValues = values.map((v) =>
     typeof v === "object" && v !== null && !(v instanceof Date)
       ? JSON.stringify(v)
       : v,
   );
 
-  const client = await pool.connect();
-  try {
-    const result = await client.query(query, sanitizedValues);
-    return result;
-  } finally {
-    client.release();
+  let lastError: any;
+  for (let i = 0; i < 3; i++) {
+    let client;
+    try {
+      client = await getResilientClient();
+      return await client.query(query, sanitizedValues);
+    } catch (err: any) {
+      lastError = err;
+      if (err.code === 'ECONNRESET' || err.message.includes('terminated') || err.message.includes('read ECONNRESET')) {
+        console.warn(`[Postgres] Query failed (reset), retrying... (${i + 1}/3)`);
+        await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+        continue;
+      }
+      throw err;
+    } finally {
+      if (client) client.release();
+    }
   }
+  throw lastError;
 }
 
 /**
- * Raw SQL execution with parameterized values
+ * Raw SQL execution with resilient retry
  */
 sql.raw = async function(query: string, values: any[]) {
   const sanitizedValues = values.map((v) =>
@@ -77,16 +106,24 @@ sql.raw = async function(query: string, values: any[]) {
       : v,
   );
   
-  const client = await pool.connect();
-  try {
-    return await client.query(query, sanitizedValues);
-  } finally {
-    client.release();
+  let lastError: any;
+  for (let i = 0; i < 3; i++) {
+    let client;
+    try {
+      client = await getResilientClient();
+      return await client.query(query, sanitizedValues);
+    } catch (err: any) {
+      lastError = err;
+      if (err.code === 'ECONNRESET' || err.message.includes('terminated') || err.message.includes('read ECONNRESET')) {
+        console.warn(`[Postgres] Raw Query failed (reset), retrying... (${i + 1}/3)`);
+        await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+        continue;
+      }
+      throw err;
+    } finally {
+      if (client) client.release();
+    }
   }
+  throw lastError;
 };
 
-// Ensure pool is closed on hot reload/shutdown
-if (process.env.NODE_ENV === "development") {
-  const globalWithPool = global as typeof globalThis & { pgPool?: Pool };
-  globalWithPool.pgPool = globalWithPool.pgPool || pool;
-}

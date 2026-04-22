@@ -24,3 +24,10 @@
 - **Kapsam:** Tüm entity sayfaları
 
 ---
+
+## [2026-04-22] sync | Index güncellendi
+
+- **İşlem:** Sync
+- **Kapsam:** INDEX ve LOG
+
+---

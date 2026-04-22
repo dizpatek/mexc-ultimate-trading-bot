@@ -1,0 +1,39 @@
+//@version=5
+strategy("TSL Karpathy Strateji", overlay=true, format=format.price, precision=2)
+
+// Parametreler
+length = input(14, title="TSL Uzunluğu")
+src = close
+basis = ta.sma(src, length)
+dev = input.float(2.0, minval=0.001, title="Standart Sapma")
+upper = basis + dev * ta.stdev(src, length)
+lower = basis - dev * ta.stdev(src, length)
+
+// TSL Hesaplanması
+tsl = input.float(1.3, title="TSL Oranı")
+takeProfit = input.float(1.3, title="Kar Al Oranı")
+stopLoss = input.float(0.8, title="Zarar Durdur Oranı")
+
+// F4 Momentum Eşik Değeri
+f4Eşik = input.float(0.035, title="F4 Momentum Eşik Değeri")
+
+// Hacim Onayı
+hacimOnay = input.bool(true, title="Hacim Onayı")
+
+// Karpathy Otonom Döngüsü
+if (ta.rma(ta.change(close), 5) > 0)
+    tsl := tsl * 1.1
+else
+    tsl := tsl / 1.1
+
+// Al ve Sat Sinyalleri
+if (close > upper and hacimOnay and ta.mom(close, 5) > f4Eşik)
+    strategy.entry("Al", strategy.long)
+if (close < lower and hacimOnay and ta.mom(close, 5) < -f4Eşik)
+    strategy.entry("Sat", strategy.short)
+
+// Stop Loss ve Take Profit
+strategy.exit("Stop Loss", "Al", stop=close * (1 - stopLoss / 100))
+strategy.exit("Take Profit", "Al", limit=close * (1 + takeProfit / 100))
+strategy.exit("Stop Loss", "Sat", stop=close * (1 + stopLoss / 100))
+strategy.exit("Take Profit", "Sat", limit=close * (1 - takeProfit / 100))

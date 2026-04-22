@@ -6,7 +6,7 @@ if (process.env.POSTGRES_URL && !process.env.POSTGRES_URL.includes('sslmode')) {
 }
 
 async function run() {
-  const { getAccountInfo, getPrice } = await import('../src/lib/mexc-wrapper');
+  const { getAccountInfo, getPrice } = await import('../../src/lib/mexc-wrapper');
   console.log('Testing portfolio fetching logic...');
   try {
     const accountInfo = await getAccountInfo(1, 'test');

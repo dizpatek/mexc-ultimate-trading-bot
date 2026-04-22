@@ -1,0 +1,37 @@
+//@version=5
+indicator("Karpathy Strategy")
+length = input(14)
+src = close
+sma = ta.sma(src, length)
+ema = ta.ema(src, length)
+macd = ema - sma
+signal = ta.ema(macd, 9)
+momentum = macd - signal
+
+// Take Profit
+TSL = input.float(1.1, "TSL")
+TakeProfit = src * (1 + TSL / 100)
+
+// Stop Loss
+SL = input.float(3.6, "SL")
+StopLoss = src * (1 - SL / 100)
+
+// Long Condition
+longCondition = ta.crossover(macd, signal) and momentum > 0
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+// Short Condition
+shortCondition = ta.crossunder(macd, signal) and momentum < 0
+if (shortCondition)
+    strategy.entry("Short", strategy.short)
+
+// Long Exit
+longExit = ta.crossunder(macd, signal) or src >= TakeProfit or src <= StopLoss
+if (longExit and strategy.position_size > 0)
+    strategy.close("Long")
+
+// Short Exit
+shortExit = ta.crossover(macd, signal) or src <= TakeProfit or src >= StopLoss
+if (shortExit and strategy.position_size < 0)
+    strategy.close("Short")

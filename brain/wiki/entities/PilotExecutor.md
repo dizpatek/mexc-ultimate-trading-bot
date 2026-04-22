@@ -2,8 +2,8 @@
 title: PilotExecutor
 tags: [entity, pilot, execution, reentry, cdt]
 sourceFile: src/lib/pilot-executor.ts
-size: "50KB / 1068 satır"
-lastUpdated: 2026-04-11
+size: "53KB / 1576 satır"
+lastUpdated: 2026-04-22
 type: entity
 ---
 

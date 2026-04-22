@@ -4,10 +4,10 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 if (process.env.POSTGRES_URL && !process.env.POSTGRES_URL.includes('sslmode')) {
   process.env.POSTGRES_URL += (process.env.POSTGRES_URL.includes('?') ? '&' : '?') + 'sslmode=require';
 }
-process.env.NODE_ENV = 'production';
+(process.env as any).NODE_ENV = 'production';
 
 async function run() {
-  const { sql } = await import('../src/lib/postgres.ts');
+  const { sql } = await import('../../src/lib/postgres');
   const { rows } = await sql`
     SELECT id, symbol, side, status, created_at
     FROM orders

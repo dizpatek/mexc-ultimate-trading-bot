@@ -123,14 +123,17 @@ Minimum mesafe: %0.1 (çok sıkı SL'den koruma)
 > [!WARNING]
 > **Kritik Düzeltme (FIX-B):** TSL artık TP hit'ini beklemeden çalışır. Eski sistemde TSL yalnızca TP hit sonrası aktifleşiyordu — bu %86 zarar oranının başlıca nedenliydi.
 
-### Volatility Buffer (30s Warmup)
+### Volatility Buffer (60s Warmup)
 
 ```
-İşlem açıldıktan sonraki 30 saniye içinde:
+İşlem açıldıktan sonraki 60 saniye içinde:
 SL tetiklenebilir ama piyasa dalgalanması ise:
-  currentDrop < slThreshold × 1.2 → SL ATLANDI
+  currentDrop < slThreshold × 2.0 → SL ATLANDI
 
-Gerçek kırılım (1.2x eşiğin ötesinde) → SL normal işleniyor
+Gerçek kırılım (2.0x eşiğin ötesinde) → SL normal işleniyor
+
+UPDATED (2026-04-22): 30s/1.5x → 60s/2.0x
+Neden: Dar SL mesafeleri (0.3-0.6%) anlık volatilitede hemen tetikleniyordu.
 ```
 
 ### SL Timeout
@@ -173,7 +176,7 @@ Her hedef kontrol edilir:
   priceCrossedTp → executePartialTP()
   Satılan qty kadar trade qty azalır
   filledTargets[] listesine hedef index'i eklenir
-  
+
 Son hedefe gelince: TTP aktif (eğer trailing=true)
 ```
 
@@ -224,6 +227,61 @@ pilotEnabled = false:
 
 "Pilot kapalı = sadece yeni işlem yok,
   var olan pozisyonlar korunmaya devam eder"
+```
+
+---
+
+## COVER Max Duration Safety Net (FIX-COVER-TIMEOUT)
+
+```
+COVER işlemleri 12 saatten uzun açık kalamaz:
+  elapsed > 12h → AUTO EXIT
+
+Neden: COVER pozisyonları yüksek risk taşır.
+Fiyat düşmediyse (kar yönü) trend karşıdır.
+48 saat beklemek yerine 12 saatte kesmek daha güvenli.
+
+UPDATED (2026-04-22): 48h → 12h
+```
+
+---
+
+## HARD BOUNDARY GUARD (FIX-TSL-BOUNDARY)
+
+```
+TSL asla entry fiyatını geçemez:
+  LONG:  TSL ≥ entryPrice (düşemez)
+  SHORT: TSL ≤ entryPrice (yükseltilemez)
+
+Neden: TSL'nin entry'nin ötesine "açılması" zarar riski yaratır.
+Özellikle COVER'da fiyat düştükçe TSL entry altına inebiliyordu.
+```
+
+---
+
+## COVER TIGHTENING (FIX-COVER-TIGHTEN)
+
+```
+COVER'da fiyat yükseldikçe (zarar yönünde):
+  risePct = (highest - entry) / entry
+  tightenedSL = slPrice * (1 + risePct * 0.2)
+
+Neden: Normal TSL sadece "kar yönünde" (fiyat düşerken) takip eder.
+COVER'da fiyat yükseldiğinde SL sabit kalıyordu.
+Bu mekanizma zararı sınırlamak için SL'yi entry'ye doğru sıkıştırır.
+```
+
+---
+
+## metaUpdates Persistence (FIX-META-PERSIST)
+
+```
+CRITICAL BUG (2026-04-22):
+  evaluateActiveTrade() sonrası metaUpdates (activeStopLoss, activeTakeProfit)
+  meta objesine yazılmıyordu. Sadece stateUpdates yazılıyordu.
+
+Sonuç: TSL/TP değerleri DB'ye kaydedilmiyor, döngüler arası kayboluyordu.
+Düzeltme: Object.assign(meta, result.metaUpdates, stateUpdates)
 ```
 
 ---

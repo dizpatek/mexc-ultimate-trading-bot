@@ -96,7 +96,7 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
     isFetchingRef.current = true;
     try {
       const response = await api.get("/trade/smart", {
-        timeout: 10000, // 10s component-level timeout
+        timeout: 30000, // 30s component-level timeout
       });
       setTrades(response.data);
       setLastFetchTime(Date.now());
@@ -174,7 +174,8 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
     setIsMounted(true);
     setLastFetchTime(Date.now());
     fetchTrades();
-    const interval = setInterval(fetchTrades, 5000); // 5 seconds - Snappy but safer
+    // 🚀 1 saniye aralıklı anlık güncelleme — tüm açık orderlar eşzamanlı yenilenir
+    const interval = setInterval(fetchTrades, 1000);
     const handlePilotOrder = () => fetchTrades();
     window.addEventListener("pilotOrderCreated", handlePilotOrder);
     return () => {
@@ -200,10 +201,22 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
   }, [mtfData, loadingMtf, failedMtf]);
 
   const triggerDataSync = useCallback(() => {
-    if (trades.length === 0) return;
-    const activeTrades = trades.filter((t) => t.status !== "CLOSED");
-    if (activeTrades.length === 0) return;
-    const missingMtfTrades = activeTrades
+    if (tradesRef.current.length === 0) return;
+    
+    // Yalnızca o an ekranda GÖRÜNTÜLENEN işlemlere göre MTF çekilecek
+    // Eğer AKTIF sekmesindeysek, sadece aktifler seçilecek
+    // Eğer GECMİŞ (PASIF) sekmesindeysek, sadece kapalılar seçilecek
+    // Not: expandedTrade her zaman dahil edilir ki detay paneli çalışsın
+    const tradesToSync = tradesRef.current.filter(t => {
+      if (t.id === expandedTrade) return true;
+      const isActive = t.status !== "CLOSED" && t.status !== "ARCHIVED";
+      if (activeTab === "AKTIF") return isActive;
+      return !isActive; // PASIF tab
+    });
+
+    if (tradesToSync.length === 0) return;
+
+    const missingMtfTrades = tradesToSync
       .filter(t => !mtfDataRef.current[t.id] && !loadingMtfRef.current[t.id] && !failedMtfRef.current[t.id])
       .map(t => ({ id: t.id, symbol: t.symbol.replace("/", "") }));
 
@@ -211,23 +224,46 @@ export const ActiveSmartTrades: React.FC<ActiveSmartTradesProps> = ({
       if (fetchMultipleMtfAnalysis) fetchMultipleMtfAnalysis(missingMtfTrades);
       else missingMtfTrades.forEach(t => fetchMtfAnalysis(t.id, t.symbol));
     }
-  }, [trades, fetchMultipleMtfAnalysis, fetchMtfAnalysis]);
+  }, [activeTab, expandedTrade, fetchMultipleMtfAnalysis, fetchMtfAnalysis]); // trades removed from dependency to prevent 1-second infinite loop
+
+  // Kapalı işlem expand edildiğinde MTF verisi fetch et
+  useEffect(() => {
+    if (expandedTrade === null) return;
+    const trade = trades.find(t => t.id === expandedTrade);
+    if (!trade) return;
+    const symNorm = trade.symbol.replace("/", "");
+    if (!mtfDataRef.current[expandedTrade] && !loadingMtfRef.current[expandedTrade]) {
+      if (fetchMultipleMtfAnalysis) fetchMultipleMtfAnalysis([{ id: expandedTrade, symbol: symNorm }]);
+      else if (fetchMtfAnalysis) fetchMtfAnalysis(expandedTrade, symNorm);
+    }
+  }, [expandedTrade]);
+
+  const tradesRef = useRef(trades);
+  useEffect(() => {
+    tradesRef.current = trades;
+  }, [trades]);
 
   useEffect(() => {
     const syncLiveOnly = () => {
-      const activeTrades = trades.filter((t) => t.status !== "CLOSED");
+      const activeTrades = tradesRef.current.filter((t) => t.status !== "CLOSED");
       if (activeTrades.length === 0) return;
       const activeSymbols = [...new Set(activeTrades.map(t => t.symbol.replace("/", "")))];
       if (fetchLiveSignals) fetchLiveSignals(activeSymbols, timeframe);
       if (fetchMultipleMtfAnalysis) {
-        const mtfList = activeTrades.map(t => ({ id: t.id, symbol: t.symbol.replace("/", "") }));
-        fetchMultipleMtfAnalysis(mtfList);
+        // Only fetch for trades that are not currently loading to prevent spam overlap
+        const mtfListToFetch = activeTrades
+          .filter(t => !loadingMtfRef.current[t.id])
+          .map(t => ({ id: t.id, symbol: t.symbol.replace("/", "") }));
+
+        if (mtfListToFetch.length > 0) {
+          fetchMultipleMtfAnalysis(mtfListToFetch);
+        }
       }
     };
     syncLiveOnly();
     const signalInterval = setInterval(syncLiveOnly, 15000); // 15 seconds
-    return () => clearInterval(signalInterval);
-  }, [trades, timeframe, fetchLiveSignals]);
+    // Removed trades from dependency to avoid resetting the interval & rapid firing on polling
+  }, [timeframe, fetchLiveSignals, fetchMultipleMtfAnalysis]);
 
   useEffect(() => { triggerDataSync(); }, [triggerDataSync]);
 

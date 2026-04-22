@@ -1,0 +1,26 @@
+//@version=5
+indicator("Matrix V5 Strateji", overlay=true)
+
+// Parametreler
+length = input(14, title="TSL Uzunluğu")
+src = close
+ma = ta.sma(src, length)
+
+// F4 Momentum Hesaplama
+f4 = ta.momentum(src, 10)
+
+// Karpathy Otonom Döngüsü
+takeProfit = input(1.1, title="Take Profit Oranı")
+stopLoss = input(1.1, title="Stop Loss Oranı")
+
+// Karar Mekanizmaları
+if (src > ma and f4 > 0.037)
+    strategy.entry("Alış", strategy.long)
+if (src < ma and f4 < -0.037)
+    strategy.entry("Satış", strategy.short)
+
+// Stop Loss ve Take Profit Ayarları
+strategy.exit("Stop Loss", "Alış", stop=src - (src * stopLoss / 100))
+strategy.exit("Take Profit", "Alış", limit=src + (src * takeProfit / 100))
+strategy.exit("Stop Loss", "Satış", stop=src + (src * stopLoss / 100))
+strategy.exit("Take Profit", "Satış", limit=src - (src * takeProfit / 100))

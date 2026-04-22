@@ -1,0 +1,30 @@
+//@version=5
+strategy("Matrix V5 Hacim Onaylı Trend Takip", overlay=true)
+
+length = input(20, title="Trend Uzunluğu")
+src = close
+sma = ta.sma(src, length)
+
+plot(sma, color=color.blue, linewidth=2)
+
+hacimOnayEşiği = input(100000, title="Hacim Onay Eşiği")
+
+if ta.crossover(src, sma) and volume > hacimOnayEşiği
+    strategy.entry("Al", strategy.long)
+
+if ta.crossunder(src, sma) and volume > hacimOnayEşiği
+    strategy.entry("Sat", strategy.short)
+
+TSL = input(1.1, title="TSL Oranı")
+f4Eşik = input(0.037, title="F4 Momentum Eşik")
+
+longCondition = ta.crossover(src, sma) and volume > hacimOnayEşiği and ta.mom(src, 4) > f4Eşik
+shortCondition = ta.crossunder(src, sma) and volume > hacimOnayEşiği and ta.mom(src, 4) < -f4Eşik
+
+if longCondition
+    strategy.entry("Al", strategy.long)
+    strategy.exit("Al", "StopLoss", loss=TSL * syminfo.mintick, "TakeProfit", limit=TSL * syminfo.mintick)
+
+if shortCondition
+    strategy.entry("Sat", strategy.short)
+    strategy.exit("Sat", "StopLoss", loss=TSL * syminfo.mintick, "TakeProfit", limit=TSL * syminfo.mintick)

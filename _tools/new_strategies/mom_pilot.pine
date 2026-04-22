@@ -1,0 +1,15 @@
+// Karpathy otonom döngüsüyle TSL/Take-Profit oranları adapte edilebilecek sağlam bir 'Machine Learning' PineScript stratejisi
+length = input(14, title="Length")
+src = close
+sma = ta.sma(src, length)
+ momentum = ta.mom(src, length)
+upper = sma + (2 * ta.stdev(src, length))
+lower = sma - (2 * ta.stdev(src, length))
+TSL_oran = 1.1
+F4_oran = 0.037
+if (momentum > F4_oran)
+    strategy.entry("Long", strategy.long)
+if (momentum < -F4_oran)
+    strategy.entry("Short", strategy.short)
+strategy.exit("TSL", "Long", stop=strategy.position_avg_price * (1 - TSL_oran))
+strategy.exit("TSL", "Short", stop=strategy.position_avg_price * (1 + TSL_oran))

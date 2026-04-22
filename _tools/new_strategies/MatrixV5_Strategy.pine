@@ -1,0 +1,31 @@
+//
+// Matrix V5 Strategy
+//
+//@version=5
+strategy("Matrix V5 Strategy", overlay=true, format=format.price, precision=2)
+
+// Parameters
+length = input(14, title="TSL Length")
+threshold = input(0.037, title="F4 Momentum Threshold")
+mtfProtection = input(true, title="MTF Protection")
+takeProfit = input(1.7000000000000002, title="Take Profit Multiplier")
+
+// Calculate TSL and F4 Momentum
+src = close
+basis = ta.sma(src, length)
+tsl = ta.stdev(src, length)
+f4 = ta.mom(src, length)
+
+// Generate signals
+longCondition = f4 > threshold and mtfProtection == true
+shortCondition = f4 < -threshold and mtfProtection == true
+
+// Execute trades
+if longCondition
+    strategy.entry("Long", strategy.long)
+if shortCondition
+    strategy.entry("Short", strategy.short)
+
+// Set take profit
+strategy.close("Long", when=close > basis + (takeProfit * tsl))
+strategy.close("Short", when=close < basis - (takeProfit * tsl))

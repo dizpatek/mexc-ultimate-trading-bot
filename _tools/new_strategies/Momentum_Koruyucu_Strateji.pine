@@ -1,0 +1,33 @@
+//@version=5
+indicator("Momentum Koruyucu Strateji")
+
+// Parametreler
+length = input.int(14, "Uzunluk")
+src = close
+
+// Hesaplamalar
+tsl = ta.sma(src, length)
+f4Eğim = ta.linearreg(src, length)
+f4EğimEşik = input.float(0.037, "F4 Eğim Eşik")
+momentumLoss = src < f4Eğim * (1 - f4EğimEşik)
+
+// Strateji
+if (momentumLoss)
+    strategy.close("Momentum Loss")
+
+// Karpathy Otonom Döngüsü
+tpOran = input.float(1.7, "Take-Profit Oran")
+stopLoss = input.float(1.1, "Stop-Loss Oran")
+
+// Karar Mekanizmaları
+giriş = crossover(src, tsl)
+çıkış = crossunder(src, tsl)
+
+if (giriş)
+    strategy.entry("Al", strategy.long)
+if (çıkış)
+    strategy.close("Sat")
+
+// Take-Profit ve Stop-Loss
+strategy.exit("Take-Profit", "Al", limit=src * (1 + tpOran))
+strategy.exit("Stop-Loss", "Al", stop=src * (1 - stopLoss))

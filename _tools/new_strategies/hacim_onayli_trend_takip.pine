@@ -1,0 +1,27 @@
+//@version=5
+indicator("Hacim Onaylı Trend Takip", overlay=true)
+
+// Parametreler
+length = input(20, title="Trend Uzunluğu")
+src = close
+momEşik = input.float(0.037, title="Momentum Eşik", minval=0, maxval=1)
+TSL = input.float(1.1, title="TSL Oranı", minval=0.1, maxval=10)
+
+// Hesaplamalar
+mom = ta.mom(src, length)
+momNorm = ta.normalize(mom)
+TSLvalue = src * TSL
+
+// Karar Mekanizmaları
+if (mom > momEşik and momNorm > 0.5)
+    label.new(bar_index, high, "Al", color=color.green, style=label.style_label_up)
+    strategy.entry("Al", strategy.long, when=true)
+if (mom < -momEşik and momNorm < -0.5)
+    label.new(bar_index, low, "Sat", color=color.red, style=label.style_label_down)
+    strategy.entry("Sat", strategy.short, when=true)
+
+// Stop Loss ve Take Profit
+strategy.exit("Stop Loss", "Al", stop=strategy.position_avg_price * (1 - TSL/100))
+strategy.exit("Take Profit", "Al", limit=strategy.position_avg_price * (1 + TSL/100))
+strategy.exit("Stop Loss", "Sat", stop=strategy.position_avg_price * (1 + TSL/100))
+strategy.exit("Take Profit", "Sat", limit=strategy.position_avg_price * (1 - TSL/100))

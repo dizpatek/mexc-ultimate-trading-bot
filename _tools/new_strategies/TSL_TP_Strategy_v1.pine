@@ -1,0 +1,28 @@
+//@version=5
+strategy("TSL TP Strategy", overlay=true)
+// Parametreler
+length = input(14, title="TSL Length")
+threshold = input(0.04, title="F4 Momentum Threshold")
+stopLossPct = input(0.01, title="Stop Loss Oranı")
+tsLength = input(20, title="Trend Strength Length")
+// Hesaplamalar
+tsl = ta.sma(close, length)
+f4Momentum = ta.mom(close, 4)
+trendStrength = ta.sma(f4Momentum, tsLength)
+// Koşullar
+longCondition = ta.crossover(f4Momentum, threshold) and trendStrength > 0
+shortCondition = ta.crossunder(f4Momentum, -threshold) and trendStrength  0
+// Pozisyon açma
+if longCondition
+    strategy.entry("Long", strategy.long)
+if shortCondition
+    strategy.entry("Short", strategy.short)
+// Stop Loss
+stopLoss = close * (1 - stopLossPct)
+strategy.exit("Long SL", "Long", stop=stopLoss)
+strategy.exit("Short SL", "Short", stop=close * (1 + stopLossPct))
+// Take Profit
+takeProfitPct = input(0.02, title="Take Profit Oranı")
+takeProfit = close * (1 + takeProfitPct)
+strategy.exit("Long TP", "Long", limit=takeProfit)
+strategy.exit("Short TP", "Short", limit=close * (1 - takeProfitPct))

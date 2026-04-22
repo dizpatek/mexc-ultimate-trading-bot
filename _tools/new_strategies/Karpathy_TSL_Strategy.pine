@@ -1,0 +1,21 @@
+//@version=5
+indicator("Karpathy TSL Strategy")
+length = input(14)
+src = close
+sma = ta.sma(src, length)
+stddev = ta.stdev(src, length)
+tsl = input.float(1.1, "TSL Oran")
+takeProfit = input.float(1.1, "Take Profit Oran")
+momentumEshik = input.float(0.037, "Momentum Eşik")
+upper = sma + tsl * stddev
+lower = sma - tsl * stddev
+plot(upper, "Upper")
+plot(lower, "Lower")
+plot(sma, "SMA")
+momentum = ta.mom(src, length)
+if (momentum > momentumEshik)
+    strategy.entry("Long", strategy.long)
+if (momentum  momentumEshik)
+    strategy.entry("Short", strategy.short)
+strategy.exit("Long", "Upper")
+strategy.exit("Short", "Lower")

@@ -11,11 +11,20 @@ if (process.env.NODE_ENV === "development" || connectionString?.includes("northf
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 }
 
+// FORCE OVERRIDE: Terminal oturumunda kalmış olabilecek eski Northflank değişkenlerini sil
+// Bu sayede 'pg' kütüphanesi gizlice bu değişkenleri okuyup bağlantıyı bozamaz.
+delete process.env.PGHOST;
+delete process.env.PGPORT;
+delete process.env.PGDATABASE;
+delete process.env.PGUSER;
+delete process.env.PGPASSWORD;
+
+
 const poolConfig: any = {
   connectionString,
-  max: 15, // Artırıldı: Yoğun senkronizasyon araçları varken UI'ın beklemesini engeller
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000, // Optimize edildi: Bozuk bağlantılar 5s içinde elenir
+  max: 10, // Optimize edildi: Northflank dış bağlantı limitlerini aşmamak için 15 -> 10
+  idleTimeoutMillis: 10000, // Daha hızlı temizlik
+  connectionTimeoutMillis: 20000,
 };
 
 if (connectionString?.includes("primary") || 
@@ -46,8 +55,8 @@ async function getResilientClient(retries = 3): Promise<PoolClient> {
       return await pool.connect();
     } catch (err: any) {
       lastError = err;
-      if (err.code === 'ECONNRESET' || err.message.includes('terminated')) {
-        console.warn(`[Postgres] Connection reset, retrying... (${i + 1}/${retries})`);
+      if (err.code === 'ECONNRESET' || err.message.includes('terminated') || err.message.includes('Connection terminated')) {
+        console.warn(`[Postgres] Connection reset (${err.message}), retrying... (${i + 1}/${retries})`);
         await new Promise(r => setTimeout(r, 1000 * (i + 1))); // Katlanarak bekleme
         continue;
       }

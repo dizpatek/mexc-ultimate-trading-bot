@@ -2,9 +2,9 @@
 title: "AutoResearch — Data Preparation"
 tags: [ai, data, preprocessing]
 sourceFile: ../AutoResearch/prepare.py
-lastUpdated: 2026-04-11
+lastUpdated: 2026-04-22
 type: entity
-size: "15KB / 390 satır"
+size: "16KB / 407 satır"
 ---
 
 # AutoResearch — Data Preparation

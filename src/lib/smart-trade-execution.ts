@@ -112,7 +112,7 @@ export async function executeEntry(
     }
 
     const tslActivatedOnEntry = (tradeMode === 'COVER' && metaPayload?.stopLoss?.trailing === true) ? true : (metaParam.tslActivated || undefined);
-    await sql`UPDATE orders SET status = 'FILLED', price = ${avgPrice}, updated_at = ${Date.now()}, meta = (meta::jsonb || ${JSON.stringify({ ...metaParam, entryReason: reason, entryResult: result, highestPrice: avgPrice, lowestPrice: avgPrice, filledAt: Date.now(), tradeState, tslActivated: tslActivatedOnEntry })}::jsonb)::text WHERE id = ${id}`;
+    await sql`UPDATE orders SET status = 'FILLED', price = ${avgPrice}, updated_at = ${Date.now()}, meta = (meta::jsonb || ${JSON.stringify({ ...metaParam, entryReason: reason, entryResult: result, highestPrice: avgPrice, lowestPrice: avgPrice, filledAt: Date.now(), tradeState, tslActivated: tslActivatedOnEntry })}::jsonb) WHERE id = ${id}`;
   } catch (err) {
     console.error(`[Entry Error]`, err);
     throw err; // Re-throw so monitor catches it and records the monitorError correctly
@@ -197,7 +197,7 @@ export async function executeExit(
     const { insertTradeHistory, calculateDailyPerformance } = await import("./db");
     
     // Update order status first
-    await sql`UPDATE orders SET status = 'CLOSED', updated_at = ${Date.now()}, meta = ${JSON.stringify({ ...meta, exitReason: reason, exitResult: result, exitPrice: Number(realExitPrice), executedQty: Number(executedQty), closedAt: Date.now(), tradeState, profitLoss, profitLossPercentage })} WHERE id = ${id}`;
+    await sql`UPDATE orders SET status = 'CLOSED', updated_at = ${Date.now()}, meta = ${JSON.stringify({ ...meta, exitReason: reason, exitResult: result, exitPrice: Number(realExitPrice), executedQty: Number(executedQty), closedAt: Date.now(), tradeState, profitLoss, profitLossPercentage })}::jsonb WHERE id = ${id}`;
 
     // Record in Trade History
     await insertTradeHistory({
@@ -314,7 +314,7 @@ export async function saveTradeUpdate(
   await sql`
         UPDATE orders 
         SET qty = ${qty}, 
-            meta = (meta::jsonb || ${JSON.stringify(meta)}::jsonb)::text,
+            meta = (meta::jsonb || ${JSON.stringify(meta)}::jsonb),
             updated_at = ${Date.now()}
         WHERE id = ${id}
     `;

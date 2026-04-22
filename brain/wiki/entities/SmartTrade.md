@@ -3,7 +3,7 @@ title: SmartTrade
 tags: [entity, smart-trade, entry, handler]
 sourceFile: src/lib/smart-trade.ts
 size: "12KB / 341 satır"
-lastUpdated: 2026-04-11
+lastUpdated: 2026-04-22
 type: entity
 ---
 

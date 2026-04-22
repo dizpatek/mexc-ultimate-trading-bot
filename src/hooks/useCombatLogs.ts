@@ -346,7 +346,7 @@ export function useCombatLogs(
       // P3.2 Fix: Fetch ALL signals regardless of current UI timeframe
       // This ensures we keep history when switching views
       const response = await api.get(`/logs/signals?timeframe=${timeframe || "1m"}`, {
-        timeout: 30000, // Increased to 30s threshold
+        timeout: 60000, // Increased to 60s for 24h Marathon load safety
       });
       const data = response.data;
       setError(null);
@@ -409,7 +409,7 @@ export function useCombatLogs(
         isScanningGlobal = true;
         setScanStatus("scanning");
         const response = await api.get(`/signals/scan?timeframe=${timeframe}`, {
-          timeout: 20000, // Slightly longer for heavy scan operations
+          timeout: 60000, // Increased to 60s for heavy scan operations (Marathon Load)
         });
 
         const finishTime = Date.now();
@@ -459,7 +459,7 @@ export function useCombatLogs(
   useEffect(() => {
     if (!enabled) return;
     fetchLogs();
-    const interval = setInterval(fetchLogs, 15000); // 15s - Optimized
+    const interval = setInterval(fetchLogs, 30000); // 30s - Optimized for Marathon load
     return () => clearInterval(interval);
   }, [fetchLogs, enabled]);
 

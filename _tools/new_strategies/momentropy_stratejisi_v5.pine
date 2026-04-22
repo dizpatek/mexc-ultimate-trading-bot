@@ -1,0 +1,28 @@
+// Karpathy Otonom Döngüsüyle TSL/Take-Profit Oranları Adapte Edilebilecek Strateji
+strategy("Momantasyon Kayıpları Engelleyici Strateji", overlay=true, currency=currency.USD, format=format.price)
+
+// Parametre Tanımları
+length = input(14, title="Uzunluk")
+src = close
+mom = ta.mom(src, length)
+vol = ta.stdev(src, length)
+TSL_oran = input(1.1, title="TSL Oran")
+momentum_esik = input(0.037, title="Momentum Eşik")
+
+// Karpathy Otonom Döngüsü
+if (ta.crossover(mom, momentum_esik))
+    strategy.entry("Long", strategy.long)
+if (ta.crossunder(mom, -momentum_esik))
+    strategy.entry("Short", strategy.short)
+
+// Take-Profit ve Stop-Loss Ayarları
+takeProfit = src * (1 + TSL_oran * 0.01)
+stopLoss = src * (1 - TSL_oran * 0.01)
+strategy.exit("TP", "Long", limit=takeProfit)
+strategy.exit("SL", "Long", stop=stopLoss)
+strategy.exit("TP", "Short", limit=takeProfit)
+strategy.exit("SL", "Short", stop=stopLoss)
+
+// Plot
+plot(mom, color=color.blue, title="Momentum")
+plot(vol, color=color.red, title="Standart Sapma")

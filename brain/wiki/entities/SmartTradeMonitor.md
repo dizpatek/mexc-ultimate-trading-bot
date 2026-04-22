@@ -2,8 +2,8 @@
 title: SmartTradeMonitor
 tags: [entity, monitor, loop, tsl, ttp]
 sourceFile: src/lib/smart-trade-monitor.ts
-size: "31KB / 924 satır"
-lastUpdated: 2026-04-11
+size: "35KB / 1092 satır"
+lastUpdated: 2026-04-22
 type: entity
 ---
 

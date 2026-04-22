@@ -1,0 +1,44 @@
+version=5
+strategy("Matrix V5 Strategy", overlay=true, format=format.price, precision=2)
+
+// Parametreler
+length = input(14, title="TSL")
+src = close
+basis = ta.sma(src, length)
+dev = length * ta.stdev(src, length)
+upper = basis + dev
+lower = basis - dev
+
+// F4 Momentum Eşiği
+f4Eşik = input(0.037, title="F4 Momentum Eşiği")
+
+// MTF Koruma
+mtfKoruma = input(true, title="MTF Koruma")
+
+// Hacim Onayı
+hacimOnay = input(true, title="Hacim Onayı")
+
+// Karpathy Otonom Döngüsü
+karpathyDöngü = input(true, title="Karpathy Otonom Döngüsü")
+
+// Take-Profit Oranı
+takeProfitOran = input(1.1, title="Take-Profit Oranı")
+
+// Karar Mekanizmaları
+if (src > upper and mtfKoruma and hacimOnay and karpathyDöngü)
+    strategy.entry("Long", strategy.long)
+    strategy.close("Long", when = src < lower)
+
+if (src < lower and mtfKoruma and hacimOnay and karpathyDöngü)
+    strategy.entry("Short", strategy.short)
+    strategy.close("Short", when = src > upper)
+
+// TSL ve Take-Profit Oranını Adaptasyon
+if (karpathyDöngü)
+    length := length * takeProfitOran
+    f4Eşik := f4Eşik * takeProfitOran
+
+// Plotlar
+plot(basis, color=color.blue, title="Basis")
+plot(upper, color=color.red, title="Upper")
+plot(lower, color=color.green, title="Lower")

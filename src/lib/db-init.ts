@@ -130,9 +130,11 @@ async function createTradeTables() {
             trading_mode TEXT DEFAULT 'test',
             created_at BIGINT,
             updated_at BIGINT,
-            meta TEXT
+            meta JSONB
         );
     `;
+    // Ensure column is JSONB (P5.4 migration)
+    await sql`ALTER TABLE orders ALTER COLUMN meta TYPE JSONB USING meta::JSONB;`.catch(() => {});
     // Ensure column exists for migration
     await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS trading_mode TEXT DEFAULT 'test';`.catch(() => {});
 
@@ -525,6 +527,29 @@ async function runSchemaMigrations() {
     /* ignore */
   }
 
+  // ── AutoResearch Pilot Parametreleri: TP/SL yüzdeleri root sütun olarak da tutulur ──
+  // Bu sayede DEPLOY ALL yazan değerler dashboard pilot panelinde görünür hale gelir.
+  try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_tp_percent NUMERIC DEFAULT 3.0`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS pilot_sl_percent NUMERIC DEFAULT 1.5`;
+  } catch {
+    /* ignore */
+  }
+
+  // ── V2.1 Engine Indicator Overrides (AutoResearch optimize eder) ──
+  try {
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS rsi_period INTEGER DEFAULT 14`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS rsi_ob INTEGER DEFAULT 70`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS rsi_os INTEGER DEFAULT 30`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS adx_threshold INTEGER DEFAULT 25`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS macd_fast INTEGER DEFAULT 12`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS macd_slow INTEGER DEFAULT 26`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS macd_signal INTEGER DEFAULT 9`;
+    await sql`ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS stoch_rsi_len INTEGER DEFAULT 14`;
+  } catch {
+    /* ignore */
+  }
+
   // Ensure bot_configs id is serial (fix 500 errors on PK)
   try {
     await sql`
@@ -578,9 +603,9 @@ async function createIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_strategies_user_id ON strategies(user_id);`;
   
   // P4.7: Dashboard Performance Optimization Indexes
-  await sql`CREATE INDEX IF NOT EXISTS idx_orders_user_mode_status ON orders(user_id, trading_mode, status);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_orders_user_mode_created ON orders(user_id, trading_mode, created_at DESC);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_orders_smart_trade ON orders ((meta->>'smartTrade')) WHERE (meta->>'smartTrade' = 'true');`;
   await sql`CREATE INDEX IF NOT EXISTS idx_trade_history_order_id ON trade_history(order_id);`;
 }
 
@@ -625,31 +650,29 @@ async function createNewsTable() {
 
 async function cleanupOldData() {
   try {
-    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
-    const cutoff = Date.now() - SEVEN_DAYS_MS;
+    const now = Date.now();
+    const EIGHT_HOURS = 8 * 60 * 60 * 1000;
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    const TWO_DAYS = 2 * 24 * 60 * 60 * 1000;
 
-    console.log(`[DB-Cleanup] Starting scheduled cleanup (older than 7 days)...`);
+    console.log(`[DB-Cleanup] Starting stratified startup cleanup...`);
 
-    // 1. Clean market_trades (High volume)
-    const marketRes = await sql`DELETE FROM market_trades WHERE t < ${cutoff}`;
+    // 1. system_logs (Stratified)
+    await sql`DELETE FROM system_logs WHERE timestamp < ${now - EIGHT_HOURS} AND level IN ('DEBUG', 'INFO')`;
+    await sql`DELETE FROM system_logs WHERE timestamp < ${now - TWO_DAYS} AND level IN ('SYSTEM', 'ERROR', 'CRITICAL', 'ALARM')`;
+
+    // 2. market_trades (8 hours)
+    const marketRes = await sql`DELETE FROM market_trades WHERE t < ${now - EIGHT_HOURS}`;
     if (marketRes.rowCount && marketRes.rowCount > 0) {
       console.log(`[DB-Cleanup] Deleted ${marketRes.rowCount} old market trades.`);
     }
 
-    // 2. Clean system_logs (High volume)
-    const logRes = await sql`DELETE FROM system_logs WHERE timestamp < ${cutoff}`;
-    if (logRes.rowCount && logRes.rowCount > 0) {
-      console.log(`[DB-Cleanup] Deleted ${logRes.rowCount} old system logs.`);
-    }
+    // 3. strategy_signals
+    await sql`DELETE FROM strategy_signals WHERE timestamp < ${now - TWENTY_FOUR_HOURS} AND executed = true`;
+    await sql`DELETE FROM strategy_signals WHERE timestamp < ${now - EIGHT_HOURS} AND executed = false`;
 
-    // 3. Clean processed strategy signals (Keep some history but not infinite)
-    const signalRes = await sql`DELETE FROM strategy_signals WHERE timestamp < ${cutoff} AND executed = true`;
-    if (signalRes.rowCount && signalRes.rowCount > 0) {
-      console.log(`[DB-Cleanup] Deleted ${signalRes.rowCount} old executed signals.`);
-    }
-
-    console.log(`[DB-Cleanup] Cleanup completed successfully.`);
-  } catch (error) {
-    console.error(`[DB-Cleanup] Error during automatic cleanup:`, error);
+    console.log(`[DB-Cleanup] Startup cleanup completed successfully.`);
+  } catch (error: any) {
+    console.warn(`[DB-Cleanup] Warning during automatic cleanup:`, error.message);
   }
 }

@@ -3,7 +3,7 @@ title: MatrixV5Strategy
 tags: [entity, strategy, matrix, wrapper, mtf-veto]
 sourceFile: src/lib/strategies.ts
 size: "19KB / 537 satır"
-lastUpdated: 2026-04-11
+lastUpdated: 2026-04-22
 type: entity
 ---
 

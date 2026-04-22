@@ -2,8 +2,8 @@
 title: MexcWrapper
 tags: [entity, mexc, api, exchange]
 sourceFile: src/lib/mexc-wrapper.ts
-size: "11KB / 338 satır"
-lastUpdated: 2026-04-11
+size: "11KB / 339 satır"
+lastUpdated: 2026-04-22
 type: entity
 ---
 

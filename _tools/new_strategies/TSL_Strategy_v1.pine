@@ -1,0 +1,23 @@
+//@version=5
+strategy("TSL Strategy v1")
+length = input(14)
+src = close
+basis = ta.sma(src, length)
+tsl = input.float(1.1, "TSL")
+f4_momentum = input.float(0.037, "F4 Momentum Threshold")
+// Calculate F4 momentum
+f4_mom = ta.mom(src, 4)
+// Generate buy and sell signals based on F4 momentum and TSL
+buySignal = ta.crossover(f4_mom, f4_momentum) and src > basis
+sellSignal = ta.crossunder(f4_mom, f4_momentum) and src < basis
+// Plot buy and sell signals
+plotshape(buySignal, location=location.belowbar, color=color.green, style=shape.labelup, text="Buy")
+plotshape(sellSignal, location=location.abovebar, color=color.red, style=shape.labeldown, text="Sell")
+// Execute buy and sell orders
+strategy.entry("Long", strategy.long, when=buySignal)
+strategy.entry("Short", strategy.short, when=sellSignal)
+// Set stop loss and take profit levels
+strategy.exit("Stop Loss", "Long", stop=strategy.position_avg_price * (1 - tsl/100))
+strategy.exit("Take Profit", "Long", limit=strategy.position_avg_price * (1 + tsl/100))
+strategy.exit("Stop Loss", "Short", stop=strategy.position_avg_price * (1 + tsl/100))
+strategy.exit("Take Profit", "Short", limit=strategy.position_avg_price * (1 - tsl/100))

@@ -1,0 +1,61 @@
+// Agent-Developer Module: ML_Trend_Reversal_Strategy
+// Otonom Karar Mekanizması ve Adaptif TSL/TP Oranı Yönetimi
+// ---------------------------------------------------
+//@version=5
+indicator('ML_Trend_Reversal_Strategy',shorttitle='ML_TRV',overlay=true)
+// ---------------------------------------------------
+// 1. Temel Momentum ve Volatilite Filtreleri
+// 
+// EMA: Uzun vadeli trend yönünü belirler (Ana Trend) longTrend = ta.ema(close, 20)
+// RSI: Aşırı alım/satım bölgelerini tespit eder (Divergence Tespiti)
+rsi_filter = rsi(rth,14)
+
+// ATR: Volatilite ölçümü (Gürültü Filtresi)
+atr_filter = ta.atr(20)
+// ---------------------------------------------------
+// 2. Karpathy Otonom Döngüsü - Risk/Ödül Oranı Adaptasyonu
+// 
+// Kazanma Oranı (WinRate) ve Kayıp Oranı (LossRate) Hesaplama
+var float avg_win_rate = na;
+var float avg_loss_rate = na;
+
+// Son N İşlemdeki WinRate'i Hesapla
+float recent_win_rate = ta.sma(strategy.winrate,20);
+// Son N İşlemdeki LossRate'i Hesapla
+float recent_loss_rate = ta.sma(strategy.losingtrades/strategy.totaltrades,20);
+
+// Adaptif TSL (Trailing Stop) ve TP (Take-Profit) Oranı Belirleme
+// Risk/Ödül Oranını (R:R) dinamik olarak ayarlar
+float dynamic_rsr = recent_win_rate / recent_loss_rate;
+// RSR'yi 0.5 ile 2 arasında sınırla (Aşırı agresif veya pasif olmaktan koru)
+float adaptive_tsl_tp_ratio = math.max(math.min(dynamic_rsr,2.0),0.5);
+
+// Adaptif TSL ve TP Seviyeleri Hesaplama
+// Stop Loss: ATR'nin dinamik bir çarpanıyla belirlenir (Volatiliteye Uyum)
+float adaptive_tsl = atr_filter * 1.5;
+// Take Profit: R:R Oranına Göre Belirlenir
+float adaptive_tp = close * (adaptive_rsr - 1);
+// ---------------------------------------------------
+// 3. Karar Mekanizması - Çoklu Onay Katmanları
+// 
+// KESİN GİRİŞ KOŞULLARI:
+// 1. Ana Trend Onayı: EMA'nın yönü (Ana Akım)
+// 2. Momentum Dönüş Sinyali: RSI aşırı bölgeden dönüyor mu?
+// 3. Volatilite Daralması: ATR daralıp genişliyor mu? (Sıkışma Sonrası Patlama)
+// 4. Yapay Zeka Onayı: WinRate > LossRate ve R:R Oranı Optimal mi?
+
+// Giriş Koşulu Seti:
+bool entry_condition = 
+(ta.crossover(ema(close,50),ema(close,20))) and 
+(rsi_filter < 30) and 
+(atr_filter > ta.sma(atr(20),10)) and 
+(adaptive_tsl_tp_ratio >= 0.8);
+
+// Çıkış Koşulu Seti:
+float adaptive_sl = atr_filter * 1.5;
+float adaptive_tp = close * (adaptive_rsr - 1);
+// Çıkış Tetikleyicileri:
+bool exit_condition = 
+(strategy.position_size < 0) and 
+(rsi_filter > 70) or 
+(strategy.position_size >= atr_filter*2);

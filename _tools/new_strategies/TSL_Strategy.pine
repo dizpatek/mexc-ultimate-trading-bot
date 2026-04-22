@@ -1,0 +1,38 @@
+//@version=5
+strategy("TSL Strategy", overlay=true)
+
+// Parametreler
+length = input(10, title="TSL Uzunluğu")
+src = close
+basis = ta.sma(src, length)
+dev = input.float(1.1, title="TSL Oranı", minval=0.001)
+upper = basis + dev * ta.stdev(src, length)
+lower = basis - dev * ta.stdev(src, length)
+
+// F4 Momentum Eşik Değeri
+f4Length = input(14, title="F4 Uzunluğu")
+maSrc = ta.sma(src, f4Length)
+maDev = ta.stdev(src, f4Length)
+f4Upper = maSrc + 0.04 * maDev
+f4Lower = maSrc - 0.04 * maDev
+
+// Karpathy Otonom Döngüsü
+takeProfit = input.float(1.0, title="Take Profit Oranı", minval=0.001)
+stopLoss = input.float(1.0, title="Stop Loss Oranı", minval=0.001)
+
+// Karar Mekanizmaları
+if (src > upper and src[1] <= upper[1])
+    strategy.entry("Long", strategy.long)
+if (src < lower and src[1] >= lower[1])
+    strategy.entry("Short", strategy.short)
+
+if (strategy.position_size > 0 and src < f4Lower)
+    strategy.close("Long")
+if (strategy.position_size < 0 and src > f4Upper)
+    strategy.close("Short")
+
+// Take Profit ve Stop Loss Ayarları
+strategy.exit("Take Profit", "Long", limit=src + takeProfit * src)
+strategy.exit("Stop Loss", "Long", stop=src - stopLoss * src)
+strategy.exit("Take Profit", "Short", limit=src - takeProfit * src)
+strategy.exit("Stop Loss", "Short", stop=src + stopLoss * src)

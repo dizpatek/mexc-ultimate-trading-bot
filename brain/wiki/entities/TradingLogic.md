@@ -2,8 +2,8 @@
 title: TradingLogic
 tags: [entity, trading, trailing, calculation]
 sourceFile: src/lib/trading-logic.ts
-size: "25KB / 767 satır"
-lastUpdated: 2026-04-11
+size: "26KB / 767 satır"
+lastUpdated: 2026-04-22
 type: entity
 ---
 

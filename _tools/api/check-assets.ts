@@ -6,7 +6,7 @@ if (process.env.POSTGRES_URL && !process.env.POSTGRES_URL.includes('sslmode')) {
 }
 
 async function run() {
-  const { sql } = await import('../src/lib/postgres');
+  const { sql } = await import('../../src/lib/postgres');
   
   console.log('📊 TEST CÜZDAN VARLIK ANALİZİ\n');
   
@@ -29,9 +29,9 @@ async function run() {
   if (config.rows.length > 0) {
     const ts = config.rows[0].timeframe_settings;
     console.log('\n=== Bot Config - AutoResearch Symbols ===');
-    console.log(`  ar_symbols: ${JSON.stringify(ts?.ar_symbols)}`);
-    console.log(`  ar_timeframe: ${ts?.ar_timeframe}`);
-    console.log(`  ar_is_running: ${ts?.ar_is_running}`);
+    console.log(`  ar_symbols: ${JSON.stringify((ts as any)?.ar_symbols)}`);
+    console.log(`  ar_timeframe: ${(ts as any)?.ar_timeframe}`);
+    console.log(`  ar_is_running: ${(ts as any)?.ar_is_running}`);
   }
   
   process.exit(0);

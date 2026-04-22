@@ -3,7 +3,7 @@ title: PanicService
 tags: [entity, panic, emergency, exit]
 sourceFile: src/lib/panic-service.ts
 size: "5KB / 161 satır"
-lastUpdated: 2026-04-11
+lastUpdated: 2026-04-22
 type: entity
 ---
 

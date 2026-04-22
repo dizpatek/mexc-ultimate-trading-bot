@@ -1,0 +1,24 @@
+//@version=5
+strategy("Karpathy TSL Strategy", overlay=true)
+// Parametreler
+length = input.int(14, title="TSL Length")
+src = close
+sma = ta.sma(src, length)
+tsl = ta.sma(sma, length)
+// Karpathy Otonom Döngüsü
+f4_eğim_eshigi = input.float(0.037, title="F4 Eğim Eşik")
+tsl_orani = input.float(4.7, title="TSL Oranı")
+// Hacim Onayı
+hacim_onayi = input.bool(true, title="Hacim Onayı")
+hacim_orani = input.float(1.5, title="Hacim Oranı")
+// Pozisyon Açma Koşulları
+if (src > tsl and hacim_onayi and volume > hacim_orani * volume[1])
+    strategy.entry("Long", strategy.long)
+// Pozisyon Kapatma Koşulları
+if (src < tsl or src < tsl_orani * tsl[1])
+    strategy.close("Long")
+// Karpathy Otonom Döngüsü Adaptasyonu
+if (strategy.position_size > 0 and f4_eğim_eshigi < 0.003)
+    tsl_orani := 1.7
+else if (strategy.position_size > 0 and f4_eğim_eshigi > 0.037)
+    tsl_orani := 4.7

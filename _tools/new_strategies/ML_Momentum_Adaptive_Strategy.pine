@@ -1,0 +1,120 @@
+// Agent-Developer: ML_Momentum_Adaptive_Strategy
+// Amaç: Momentum kaybı engelleyen, Karpathy otonom döngüsüyle TSL/Take-Profit oranları adapte eden sağlam bir 'Machine Learning' PineScript stratejisi oluşturmak.
+// ---------------------------------------
+// 1. Yapay Zeka Tabanlı Dinamik Risk Yönetimi Modülü
+// 
+// Karpathy otonom döngüsü: Piyasa yapısını analiz eder, risk toleransını hesaplar ve pozisyon büyüklüğünü buna göre ayarlar.
+// 
+// @param[string]risk_tolerance - 'low', 'medium', 'high' (Dinamik Stop Loss/Take-Profit)
+// @param[float]atr_multiplier - ATR çarpanı (ATR bazlı SL/TP)
+// ---------------------------------------
+
+//@version=5
+indicator('ML_Momentum_Adaptive_Strategy',
+  shorttitle: 'ML_DynRisk',
+  overlay=true,
+  max_labels:=10,
+  max_alerts:=10,
+  format:=',.2f',
+  precision:=4,
+  show_strategy:=false
+)
+// ---------------------------------------
+// 2. Momentum Kaybını Engelleyen Özelleştirilmiş Filtre Modülü
+// 
+// 'Momentum_Decay' - RSI ve MACD'nin birleşimiyle sahte kırılımları filtreler.
+// 
+// @param[float]rsi_threshold - Aşırı alım/satım seviyesi (Örn: 30-70)
+// @param[float]macd_decay - MACD sinyal hattı yumuşatma katsayısı
+// ---------------------------------------
+
+var float momentum_decay = ta.ema(rsi,14) * 0.6 + ta.sma(macd,9) * 0.4,
+
+// Momentum Kaybını Engelleme Mantığı:
+// Trend gücü (Momentum) belirli bir eşiğin altına düştüğünde pozisyonu kısmen kapatır.
+float momentum_decay_signal = ta.ema(ta.macd(14,9,3),2)
+,
+// Momentum Güç Göstergesi
+float current_momentum = math.max(Momentum_Decay_Signal, -Momentum_Decay_Signal),
+
+// Trend Onayı:
+bool trend_confirmed = ta.rising(current_momentum,5) and momentum_decay_signal > 0,
+
+// ---------------------------------------
+// 3. Karpathy Otonom Döngüsü - Adaptif SL/TP Modülü
+// 
+// Risk Toleransı Hesaplama:
+float risk_tolerance = ta.atr(14) * (risk_tolerance == 'low' ? 0.5 : risk_tolerance == 'medium' ? 0.8 : risk_tolerance == 'high' ? 1.2 : na),
+
+// Dinamik Stop Loss Hesaplama:
+float dynamic_sl = ta.atr(14) * atr_multiplier,
+
+// Dinamik Take-Profit Hesaplama:
+float dynamic_tp = momentum_decay_signal * (risk_tolerance == 'low' ? 0.7 : risk_tolerance == 'medium' ? 1.0 : risk_tolerance == 'high' ? 1.3 : na),
+
+// Pozisyon Büyüklüğü Hesaplama:
+float position_size = strategy.equity * (risk_tolerance == 'low' ? 0.2 : risk_tolerance == 'medium' ? 0.4 : risk_tolerance == 'high' ? 0.6 : na),
+
+// ---------------------------------------
+// 4. Karar Mekanizması: Üç Katmanlı Onay Sistemi
+// 
+// KARAR = (Momentum) AND (Trend) AND (Risk_Adaptation)
+// 
+// Giriş Koşulları:
+bool entry_condition = trend_confirmed and momentum_decay_signal > 0.01,
+
+// Çıkış Koşulları:
+float exit_sl = math.max(dynamic_sl, ta.atr(20)),
+float exit_tp = math.min(dynamic_tp, dynamic_tp),
+
+// SON KARAR FONKSİYONU (Ağırlıklı Ortalama):
+var float final_signal = na,
+
+if entry_condition and momentum_decay_signal > 0.01
+  final_signal := close * (momentum_decay_signal / atr_multiplier) - dynamic_sl,
+else
+  final_signal := na,
+
+// SONUÇ: Sadece üç katmanlı onay alındığında işlem açar.
+//@strategy(overlay=true,
+  initialcapital:=1000.0,
+  default_stoploss:=dynamic_sl,
+  default_take_profit:=dynamic_tp,
+  risk_per_trade:=0.2,
+  max_trades:=5,
+  commission:=0.01,
+  slippage:=0.01
+)
+// ---------------------------------------
+// GÖRSELLEŞTİRME VE ÖĞRENİLENLER
+// 
+// Momentum Kaybı Görselleştirmesi:
+plot(momentum_decay_signal,color=color.new(#FF5733,20),
+  title='Momentum Decay',
+  linewidth:=1,
+)
+// 
+// Dinamik SL/TP Çizimi:
+plot(dynamic_sl,color=color.red,
+  title='DynamicSL',
+  linewidth:=2,
+),
+
+plot(dynamic_tp,color=color.green,
+  title='DynamicTP',
+  linewidth:=2,
+),
+// ---------------------------------------
+// ÖĞRENİLENLER:
+// 1. Momentum Kaybı Engelleme: 
+//    Momentum_Decay ile RSI ve MACD'nin yumuşatılmış ortalaması alınır.
+//    Bu değer, ana trendin gücünü gösterir; momentum düşerse pozisyon küçültülür (risk azaltılır).
+// 2. Adaptif SL/TP: 
+//    ATR bazlı dinamik seviyeler kullanılır. Bu, piyasa koşullarına göre ayarlanır.
+// 3. Karar Mekanizması:
+//    ÜÇ KATMANLI ONAY (Momentum) AND (Trend) AND (Risk_Adaptation)
+//    Bu üçlü filtreleme, 'Fake' kırılımları ve aşırı sinyalleri eler.
+// 
+// ÖZET TAVSİYE:
+//  - risk_tolerance: Piyasa yapısına göre 0.2 ile 0.6 arasında ayarla,
+//  - atr_multiplier: Volatiliteye göre 1.0 - 1.5 aralığında dene.

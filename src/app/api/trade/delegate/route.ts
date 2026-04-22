@@ -30,7 +30,7 @@ export async function PUT(req: NextRequest) {
 
     await sql`
       UPDATE orders 
-      SET meta = ${JSON.stringify(meta)}, updated_at = ${Date.now()} 
+      SET meta = ${JSON.stringify(meta)}::jsonb, updated_at = ${Date.now()} 
       WHERE id = ${orderId}
     `;
 

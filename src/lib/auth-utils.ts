@@ -26,25 +26,26 @@ interface JwtPayload {
 }
 
 export async function getSessionUser(request: Request) {
-  try {
-    const authHeader = request.headers.get("authorization");
+  const authHeader = request.headers.get("authorization");
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return null;
-    }
-
-    const token = authHeader.split(" ")[1];
-    const result = await getCurrentUser(token);
-
-    if (result.success && result.user) {
-      return result.user;
-    }
-
-    return null;
-  } catch (error) {
-    console.error("[Auth] getSessionUser Error:", error);
+  if (!authHeader) {
     return null;
   }
+
+  if (!authHeader.startsWith("Bearer ")) {
+    console.warn("[Auth] getSessionUser: Invalid Authorization header format");
+    return null;
+  }
+
+  const token = authHeader.split(" ")[1];
+  const result = await getCurrentUser(token);
+
+  if (result.success && result.user) {
+    return result.user;
+  }
+
+  console.warn(`[Auth] getSessionUser: Authentication failed - ${result.message}`);
+  return null;
 }
 
 export async function hashPassword(password: string): Promise<string> {
@@ -74,9 +75,19 @@ export function generateToken(user: User): string {
 
 export function verifyToken(token: string): JwtPayload | null {
   try {
+    // P3.2 Optimization: Check for JWT format before attempting verify
+    // Prevents 'jwt malformed' noise when CRON_SECRET or other non-jwt strings are used in Bearer header.
+    if (!token || typeof token !== "string" || token.split(".").length !== 3) {
+      if (token !== process.env.CRON_SECRET) {
+         console.warn(`[Auth] verifyToken: Invalid JWT format received (Not a JWT)`);
+      }
+      return null;
+    }
+    
     return jwt.verify(token, JWT_SECRET) as JwtPayload;
   } catch (err: any) {
-    console.error(`[Auth] verifyToken Failed: ${err.message}`);
+    // Only log actual verification failures (expired, bad signature etc.) as warnings
+    console.warn(`[Auth] verifyToken Failed: ${err.message}`);
     return null;
   }
 }

@@ -3,7 +3,7 @@ title: SmartTradeExecution
 tags: [entity, execution, entry, exit, mexc]
 sourceFile: src/lib/smart-trade-execution.ts
 size: "12KB / 322 satır"
-lastUpdated: 2026-04-11
+lastUpdated: 2026-04-22
 type: entity
 ---
 

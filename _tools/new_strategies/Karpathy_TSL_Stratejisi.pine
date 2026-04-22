@@ -1,0 +1,26 @@
+//@version=5
+strategy("Karpathy TSL Stratejisi")
+
+length = input.int(title="TSL Uzunluğu", defval=14, minval=1)
+takeProfitPct = input.float(title="Take Profit Oranı", defval=2, minval=0.01, maxval=100)
+stopLossPct = input.float(title="Stop Loss Oranı", defval=1, minval=0.01, maxval=100)
+
+src = close
+sma = ta.sma(src, length)
+smaDir = ta.sma(src > sma[1] ? 1 : src < sma[1] ? -1 : 0, length)
+momentum = ta.mom(src, length)
+
+longCondition = ta.crossover(momentum, 0) and src > sma
+shortCondition = ta.crossunder(momentum, 0) and src < sma
+
+strategy.entry("Long", strategy.long, when=longCondition)
+strategy.entry("Short", strategy.short, when=shortCondition)
+
+longSL = src * (1 - stopLossPct / 100)
+shortSL = src * (1 + stopLossPct / 100)
+
+longTP = src * (1 + takeProfitPct / 100)
+shortTP = src * (1 - takeProfitPct / 100)
+
+strategy.exit("Long", "Long", stop=longSL, limit=longTP)
+strategy.exit("Short", "Short", stop=shortSL, limit=shortTP)

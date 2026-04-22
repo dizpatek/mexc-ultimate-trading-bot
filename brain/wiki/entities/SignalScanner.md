@@ -2,8 +2,8 @@
 title: SignalScanner
 tags: [entity, scanner, parallel, dedup]
 sourceFile: src/services/SignalScanner.ts
-size: "12KB / 326 satır"
-lastUpdated: 2026-04-11
+size: "14KB / 349 satır"
+lastUpdated: 2026-04-22
 type: entity
 ---
 

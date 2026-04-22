@@ -2,8 +2,8 @@
 title: MatrixV5Engine
 tags: [entity, engine, ai, confluence, indicators]
 sourceFile: src/lib/matrix-v5-engine.ts
-size: "100KB / 2413 satır"
-lastUpdated: 2026-04-11
+size: "100KB / 2419 satır"
+lastUpdated: 2026-04-22
 type: entity
 ---
 

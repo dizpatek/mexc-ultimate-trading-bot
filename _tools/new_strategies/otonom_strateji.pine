@@ -1,0 +1,25 @@
+// Otonom Strateji
+strategy("Otonom Strateji", overlay=true, currency=currency.USD, format=format.price)
+
+// Parametreler
+length = input(20, title="Uzunluk")
+TSL = input(1.1, title="TSL Oranı")
+F4Eşik = input(0.037, title="F4 Momentum Eşik")
+TPOran = input(2.0, title="Take-Profit Oranı")
+
+// Hesaplamalar
+src = close
+sma = ta.sma(src, length)
+momentum = src - sma
+
+// Karar Mekanizması
+if (momentum > F4Eşik * sma)
+    strategy.entry("Alış", strategy.long)
+    strategy.exit("Alış", "Alış", stop=strategy.position_avg_price * (1 - TSL / 100), limit=strategy.position_avg_price * (1 + TPOran / 100))
+
+if (momentum < -F4Eşik * sma)
+    strategy.entry("Satış", strategy.short)
+    strategy.exit("Satış", "Satış", stop=strategy.position_avg_price * (1 + TSL / 100), limit=strategy.position_avg_price * (1 - TPOran / 100))
+
+// Plot
+plot(sma, color=color.red, title="SMA")

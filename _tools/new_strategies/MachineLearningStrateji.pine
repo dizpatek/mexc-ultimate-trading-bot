@@ -1,0 +1,28 @@
+//@version=5
+strategy("Machine Learning Strateji", overlay=true, currency=currency.USD, format=format.price)
+
+// Parametreler
+length = input.int(14, "TSL Uzunluğu")
+src = close
+smoothing = input.string("RMA", "Puanlama Yöntemi")
+maLength = input.int(20, "MA Uzunluğu")
+threshold = input.float(0.037, "F4 Momentum Eşik")
+takeProfit = input.float(1.1, "Take-Profit Oran")
+
+// Hesaplamalar
+sma = ta.sma(src, length)
+smaSrc = src > sma ? src : sma
+mom = ta.mom(smaSrc, length)
+momRma = ta.rma(mom, length)
+
+// Karar Mekanizması
+if (momRma > threshold)
+    strategy.entry("Long", strategy.long)
+if (momRma  threshold)
+    strategy.close("Long")
+if (strategy.position_size > 0 and close > strategy.position_avg_price * (1 + takeProfit/100))
+    strategy.close("Long")
+
+// Plot
+plot(sma, color=color.blue, linewidth=2)
+plot(momRma, color=color.red, linewidth=2)

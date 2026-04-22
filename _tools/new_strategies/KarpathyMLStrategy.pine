@@ -1,0 +1,22 @@
+//@version=5
+strategy("Karpathy ML Strategy", shorttitle="KML", format=format.price, precision=2)
+length = input(14, title="Length")
+src = close
+sma = ta.sma(src, length)
+// Momentum Calculation
+momentum = ta.mom(src, length)
+// Karpathy Adaptive TSL/Take-Profit
+tslLength = input(6, title="TSL Length")
+takeProfitLength = input(3, title="Take-Profit Length")
+// Adaptive TSL/Take-Profit Calculation
+tsl = ta.sma(momentum, tslLength)
+takeProfit = ta.sma(momentum, takeProfitLength)
+// Entry and Exit Conditions
+if (momentum > sma and momentum > tsl)
+    strategy.entry("Long", strategy.long)
+if (momentum < sma and momentum < takeProfit)
+    strategy.entry("Short", strategy.short)
+// Plotting
+plot(sma, color=color.blue, title="SMA")
+plot(tsl, color=color.red, title="TSL")
+plot(takeProfit, color=color.green, title="Take-Profit")

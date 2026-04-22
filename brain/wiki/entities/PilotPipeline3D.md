@@ -3,7 +3,7 @@ title: PilotPipeline3D Component
 tags: [component, ui, visualization, 3d]
 sourceFile: src/components/PilotPipeline3D.tsx
 size: "18KB / 452 satır"
-lastUpdated: 2026-04-11
+lastUpdated: 2026-04-22
 type: entity
 ---
 

@@ -1,0 +1,24 @@
+//@version=5
+strategy("TSL ML Strategy", overlay=true)
+
+// Input Parameters
+length = input(14, title="Length")
+threshold = input(0.0375, title="F4 Momentum Threshold")
+tsl = input(1.1, title="TSL Oran")
+
+// Calculate Momentum
+momentum = ta.mom(close, length)
+
+// Define Long and Short Conditions
+longCondition = ta.crossover(momentum, threshold)
+shortCondition = ta.crossunder(momentum, -threshold)
+
+// Plot Strategy
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+if (shortCondition)
+    strategy.entry("Short", strategy.short)
+
+// Set Stop Loss and Take Profit
+strategy.exit("Exit Long", "Long", stop=close - (close * tsl / 100), limit=close + (close * tsl / 100))
+strategy.exit("Exit Short", "Short", stop=close + (close * tsl / 100), limit=close - (close * tsl / 100))

@@ -1,0 +1,29 @@
+//@version=5
+strategy("TSL Strategy V5", overlay=true, format=format.price, currency=currency.USD)
+
+// Parametreler
+length = input(14, title="Length")
+src = close
+basis = ta.sma(src, length)
+tsl = input.float(1.1, title="TSL Oranı")
+f4Eşik = input.float(0.037, title="F4 Momentum Eşik")
+
+// Hesaplamalar
+c = close
+basisC = basis
+diff = c - basisC
+momentum = ta.mom(diff, length)
+
+// Karpathy Otonom Döngüsü
+if momentum > f4Eşik
+    strategy.entry("Long", strategy.long)
+    tp = c + (c * tsl / 100)
+    strategy.exit("Long", "Long", limit=tp)
+else if momentum < -f4Eşik
+    strategy.entry("Short", strategy.short)
+    tp = c - (c * tsl / 100)
+    strategy.exit("Short", "Short", limit=tp)
+
+// Plotlar
+plot(basis, "Basis", color=color.blue)
+plot(c, "Close", color=color.red)

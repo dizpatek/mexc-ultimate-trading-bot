@@ -1,4 +1,4 @@
-import { authenticateUser } from "./src/lib/auth-utils";
+import { authenticateUser } from "../../../src/lib/auth-utils";
 
 async function testLogin() {
     console.log("Testing login for tester@test.com...");

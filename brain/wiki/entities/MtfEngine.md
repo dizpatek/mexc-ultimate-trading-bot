@@ -3,7 +3,7 @@ title: MtfEngine
 tags: [entity, mtf, consensus, timeframe]
 sourceFile: src/lib/mtf-engine.ts
 size: "6KB / 181 satır"
-lastUpdated: 2026-04-11
+lastUpdated: 2026-04-22
 type: entity
 ---
 

@@ -189,8 +189,9 @@ async function startDaemon() {
         try {
             await syncAll();
         } catch (e: any) {
-            console.error("[SYNC] Fatal Loop Error:", e?.message || e);
-            if (e?.column) console.error("[Postgres] Details:", e.column, e.constraint, e.detail);
+            console.error("[SYNC] Fatal Loop Error:", e?.message || "Unknown error");
+            if (e?.code) console.error("[Postgres] Code:", e.code);
+            if (e?.detail) console.error("[Postgres] Detail:", e.detail);
         }
         // Minimal sleep to prevent CPU spiking while maintaining high frequency
         await new Promise(r => setTimeout(r, 500));

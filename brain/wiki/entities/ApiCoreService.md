@@ -2,8 +2,8 @@
 title: ApiCoreService
 tags: [service, api, axios, core]
 sourceFile: src/services/ApiCore.ts
-size: "11KB / 345 satır"
-lastUpdated: 2026-04-11
+size: "11KB / 349 satır"
+lastUpdated: 2026-04-22
 type: entity
 ---
 

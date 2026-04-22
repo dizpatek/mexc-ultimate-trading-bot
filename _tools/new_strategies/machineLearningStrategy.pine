@@ -1,0 +1,41 @@
+//@version=5
+strategy("Machine Learning Strategy", overlay=true)
+
+// Parametreler
+length = input(14, title="Momentum Length")
+src = close
+basis = ta.sma(src, length)
+dev = mult = input.float(2.0, minval=0.001, title="Standard Deviation Multiplier")
+upper = basis + mult * ta.stdev(src, length)
+lower = basis - mult * ta.stdev(src, length)
+
+// Hacim Onaylı Kırılma
+volumeThreshold = input(10000, title="Volume Threshold")
+
+// TSL/Take-Profit Oranları
+tsl = input(1.1, title="TSL Oranı")
+f4Eşik = input(0.037, title="F4 Momentum Eşik")
+
+// Karpathy Otonom Döngüsü
+if (src > upper[1] and src[1] <= upper[1])
+    if (volume > volumeThreshold)
+        strategy.entry("Uptrend", strategy.long)
+if (src < lower[1] and src[1] >= lower[1])
+    if (volume > volumeThreshold)
+        strategy.entry("Downtrend", strategy.short)
+
+// TSL/Take-Profit Uygulama
+strategy.take_profit("Uptrend", limit=src * (1 + tsl))
+strategy.take_profit("Downtrend", limit=src * (1 - tsl))
+
+// Karpathy Otonom Döngüsüyle TSL/Take-Profit Oranlarının Adapte Edilmesi
+if (strategy.position_size > 0)
+    if (src > upper[1])
+        tsl := tsl * (1 + f4Eşik)
+if (strategy.position_size < 0)
+    if (src < lower[1])
+        tsl := tsl * (1 + f4Eşik)
+
+// Plot
+plot(upper, "Upper", color=color.new(color.blue, 0))
+plot(lower, "Lower", color=color.new(color.blue, 0))

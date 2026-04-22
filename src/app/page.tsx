@@ -36,6 +36,7 @@ const InteractiveChart = dynamic(() => retryImport(() => import("@/components/ch
 const LiquidityHeatmap = dynamic(() => retryImport(() => import("@/components/dashboard/LiquidityHeatmap").then(m => m.LiquidityHeatmap)), { ssr: false });
 const ArbitrageDelta = dynamic(() => retryImport(() => import("@/components/dashboard/ArbitrageDelta").then(m => m.ArbitrageDelta)), { ssr: false });
 
+
 import { SmartOperationCenter } from "@/components/SmartOperationCenter";
 import { CombatLog } from "@/components/CombatLog";
 import { IntelligenceHub } from "@/components/IntelligenceHub";
@@ -269,6 +270,8 @@ export default function Dashboard() {
             fetchIntervalForSymbols={signalsData.fetchIntervalForSymbols}
           />
           <SmartOperationCenter signalsData={signalsData} />
+          
+
         </div>
 
         {/* UNIFIED TERMINAL & INTELLIGENCE CENTER */}

@@ -144,9 +144,9 @@ export async function getPrice(symbol: string): Promise<number> {
   return getMexcPrice(symbol);
 }
 
-export async function get24hrTicker(symbol: string) {
+export async function get24hrTicker(symbol?: string) {
   const { get24hrTicker: getMexcTicker } = await getMexcModule();
-  return getMexcTicker(symbol);
+  return getMexcTicker(symbol as any);
 }
 
 export async function getTopAssets(limit: number = 20) {
@@ -181,6 +181,7 @@ export async function getAccountInfo(
 
 export async function getHoldings(userId: number, mode: TradingMode = "test", forceReal = false) {
   const account = await getAccountInfo(userId, mode, forceReal);
+  if (!account) return [];
   return account.balances || [];
 }
 

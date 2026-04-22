@@ -1,0 +1,21 @@
+//@version=5
+strategy("Karpathy Strategy", overlay=true, format=format.price, precision=2)
+// Parametreler
+length = input(14, "Uzunluk")
+src = close
+sma = ta.sma(src, length)
+// Karpathy otonom döngüsü
+mom = ta.mom(src, 10)
+TSL = input(1.1, "TSL Oranı")
+TP = input(1.5, "Take Profit Oranı")
+SL = input(1.0, "Stop Loss Oranı")
+// Karar mekanizmaları
+if (mom > 0 and src > sma)
+    strategy.entry("Long", strategy.long)
+if (mom < 0 and src < sma)
+    strategy.entry("Short", strategy.short)
+// Karpathy otonom döngüsü adaptasyonu
+if (strategy.position_size > 0)
+    strategy.exit("Long Exit", "Long", stop=src - (src * (SL / 100)), limit=src + (src * (TP / 100)))
+if (strategy.position_size < 0)
+    strategy.exit("Short Exit", "Short", stop=src + (src * (SL / 100)), limit=src - (src * (TP / 100)))

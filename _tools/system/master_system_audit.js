@@ -13,9 +13,23 @@
  */
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env.local') });
+
 const { Pool } = require('pg');
+
+const connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+if (!connectionString) {
+  console.error("❌ POSTGRES_URL veya DATABASE_URL bulunamadı (.env.local kontrol edin)");
+  process.exit(1);
+}
+
+// Northflank TLS uyumluluğu
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 const pool = new Pool({
-  connectionString: "postgresql://_2f70cc4a3ea5b8f7:_d22ac6f3ba99d77c9748a6968eb248@primary.mexc-db--2b7df8pbxjzq.addon.code.run:29643/_169a43476a1c?sslmode=require"
+  connectionString,
+  ssl: { rejectUnauthorized: false }
 });
 
 const ADMIN_ID = 1; // Admin user

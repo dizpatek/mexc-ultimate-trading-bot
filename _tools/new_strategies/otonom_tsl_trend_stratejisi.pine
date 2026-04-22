@@ -1,0 +1,23 @@
+//@version=5
+indicator("Otonom TSL Trend Stratejisi")
+
+// Parametreler
+length = input.int(14, "Uzunluk")
+src = close
+
+// Hesaplamalar
+sma = ta.sma(src, length)
+tsl = ta.sma(src - sma, length)
+momentum = ta.mom(src, length)
+
+// Karar Mekanizması
+if momentum > 0 and src > sma
+    strategy.entry("Alış", strategy.long)
+if momentum < 0 and src < sma
+    strategy.entry("Satış", strategy.short)
+
+// Kar Alma
+takeProfit = input.float(3.0, "Take Profit Oranı")
+stopLoss = input.float(2.0, "Stop Loss Oranı")
+strategy.exit("Alış", "Take Profit", src, takeProfit)
+strategy.exit("Satış", "Stop Loss", src, stopLoss)

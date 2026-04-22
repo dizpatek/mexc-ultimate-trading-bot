@@ -1,4 +1,4 @@
-import { sql } from "../src/lib/postgres";
+import { sql } from "../../src/lib/postgres";
 
 async function run() {
   try {
@@ -26,8 +26,8 @@ async function run() {
       }
 
       if (row.status === 'CLOSED' && exitPrice) {
-         const entry = parseFloat(row.price);
-         const exit = parseFloat(exitPrice);
+         const entry = parseFloat(String(row.price));
+         const exit = parseFloat(String(exitPrice));
          if (entry && exit) {
             const diff = row.side === 'BUY' ? (exit - entry) / entry : (entry - exit) / entry;
             totalPnl += diff;

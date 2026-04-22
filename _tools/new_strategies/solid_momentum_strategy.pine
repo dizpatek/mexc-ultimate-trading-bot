@@ -1,0 +1,17 @@
+//@version=5
+strategy("Momentum Hacim Onaylı Trend Takip", overlay=true, format=format.price)
+length = input(14, "Length")
+src = close
+sma = ta.sma(src, length)
+momentum = src - sma
+plot(momentum, color=color.blue, title="Momentum")
+threshold = input.float(0.04, "Momentum Eşik")
+tsl = input.float(1.1, "TSL Oranı")
+longCondition = momentum > threshold
+shortCondition = momentum < -threshold
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+if (shortCondition)
+    strategy.entry("Short", strategy.short)
+strategy.exit("Long Exit", "Long", stop=strategy.position_avg_price * (1 - tsl))
+strategy.exit("Short Exit", "Short", stop=strategy.position_avg_price * (1 + tsl))

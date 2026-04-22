@@ -1,0 +1,26 @@
+//@version=5
+strategy("TSL_TP_Stratejisi", overlay=true, currency=currency.USD, format=format.price)
+
+// Parametreler
+TSL = input.float(defval=1.7000000000000002, minval=0.1, title="TSL Oranı")
+TP_Orani = input.float(defval=1.2, minval=0.1, title="Take-Profit Oranı")
+F4_Esiği = input.float(defval=0.037, minval=0.001, title="F4 Momentum Eşik")
+
+// Hesaplamalar
+src = close
+basis = ta.sma(src, 20)
+mom = ta.mom(src, 10)
+rsi = ta.rsi(src, 14)
+f4 = ta.f4(mom, rsi)
+
+// Karar Mekanizmaları
+if (f4 > F4_Esiği and mom > 0)
+    strategy.entry("Alış", strategy.long)
+if (f4 < -F4_Esiği and mom < 0)
+    strategy.entry("Satış", strategy.short)
+
+// Stop-Loss ve Take-Profit
+strategy.exit("Stop-Loss", "Alış", stop=basis - (basis * TSL / 100))
+strategy.exit("Take-Profit", "Alış", limit=close + (close * TP_Orani / 100))
+strategy.exit("Stop-Loss", "Satış", stop=basis + (basis * TSL / 100))
+strategy.exit("Take-Profit", "Satış", limit=close - (close * TP_Orani / 100))

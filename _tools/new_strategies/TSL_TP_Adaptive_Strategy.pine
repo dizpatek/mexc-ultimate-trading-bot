@@ -1,0 +1,35 @@
+//@version=5
+indicator("TSL TP Adaptive Strategy")
+
+// Karpathy otonom döngüsü parametreleri
+length = input(14, title="TSL Length")
+src = close
+basis = ta.sma(src, length)
+dev = length > 1 ? ta.stdev(src, length) : 0
+upper = basis + dev
+lower = basis - dev
+
+// Momentum eşik değeri
+momentumThreshold = input(0.035, title="Momentum Threshold")
+
+// Hacim onaylı trend takip parametreleri
+volumeLength = input(20, title="Volume Length")
+volumeSrc = ta.sma(volume, volumeLength)
+
+// TSL/Take-Profit oranları adapte edilebilir
+TSLRatio = input(3.75, title="TSL Ratio")
+TPRatio = input(1.5, title="TP Ratio")
+
+// Karar mekanizmaları
+longCondition = ta.crossover(src, upper) and volumeSrc > volume[1] and ta.mom(src, 1) > momentumThreshold
+shortCondition = ta.crossunder(src, lower) and volumeSrc > volume[1] and ta.mom(src, 1) < -momentumThreshold
+
+// Strategy
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+if (shortCondition)
+    strategy.entry("Short", strategy.short)
+
+// TSL/Take-Profit noktalarını adapte edebilir
+strategy.exit("Long Exit", "Long", stop=close * (1 - TSLRatio/100), limit=close * (1 + TPRatio/100))
+strategy.exit("Short Exit", "Short", stop=close * (1 + TSLRatio/100), limit=close * (1 - TPRatio/100))

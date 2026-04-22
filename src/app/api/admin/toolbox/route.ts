@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { exec } from 'child_process';
 import path from 'path';
+import fs from 'fs';
 
 export async function POST(req: Request) {
   try {
@@ -13,11 +14,23 @@ export async function POST(req: Request) {
     }
 
     const rootDir = process.cwd();
-    const toolPath = path.join(rootDir, 'scripts', 'toolbox', `${tool}.ts`);
+    // Yeni dizin: _tools/system/
+    const toolsDir = path.join(rootDir, '_tools', 'system');
+    
+    // Dosya uzantısını dinamik kontrol et (.ts veya .js)
+    let toolPath = path.join(toolsDir, `${tool}.ts`);
+    if (!fs.existsSync(toolPath)) {
+        toolPath = path.join(toolsDir, `${tool}.js`);
+    }
+
+    if (!fs.existsSync(toolPath)) {
+        return NextResponse.json({ success: false, error: `Tool not found at ${toolPath}` });
+    }
+
     const args = userId ? ` ${userId}` : '';
 
     return new Promise((resolve) => {
-      // 1MB buffer limiti artırıldı ve npx tsx çalıştırılıyor
+      // npx tsx --no-warnings --env-file=.env.local _tools/system/master_xxx.ts
       exec(`npx tsx --no-warnings --env-file=.env.local ${toolPath}${args}`, 
         { cwd: rootDir, env: { ...process.env, NODE_NO_WARNINGS: '1' }, maxBuffer: 1024 * 5000 }, 
         (error, stdout, stderr) => {

@@ -1,0 +1,22 @@
+strategy("TSL Stratejisi", overlay=true, format=format.price, precision=2)
+// Parametreler
+TSL = input(4, title="TSL Oranı")
+F4Esim = input(0.035, title="F4 Momentum Eşik")
+MTFKorunma = input(true, title="MTF Korunma")
+
+// Hesaplamalar
+src = close
+basis = ta.sma(src, 20)
+dev = mult * ta.stdev(src, 20)
+upper = basis + dev
+lower = basis - dev
+
+// Karar Mechanizmaları
+if (src > upper and MTFKorunma)
+    strategy.entry("Long", strategy.long)
+if (src < lower and MTFKorunma)
+    strategy.entry("Short", strategy.short)
+
+// Stop Loss ve Take Profit
+strategy.exit("Exit Long", "Long", stop=strategy.position_avg_price * (1 - TSL/100))
+strategy.exit("Exit Short", "Short", stop=strategy.position_avg_price * (1 + TSL/100))

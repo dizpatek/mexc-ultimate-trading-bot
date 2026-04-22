@@ -1,0 +1,39 @@
+strategy("Matrix V5", overlay=true, format=format.price, precision=2)
+// Parametreler
+length = input(14, title="Uzunluk")
+src = close
+basis = ta.sma(src, length)
+sdev = ta.stdev(src, length)
+upper = basis + sdev * 2
+lower = basis - sdev * 2
+
+// TSL/Take-Profit Parametreleri
+TSL = input.float(2.0, title="TSL Oranı")
+takeProfit = input.float(1.0, title="Take-Profit Oranı")
+
+// F4 Momentum Parametreleri
+F4Eşik = input.float(0.037, title="F4 Momentum Eşik")
+
+// Karpathy Otonom Döngüsü
+if (ta.change(src) > F4Eşik)
+    TSL := TSL * 1.1
+else if (ta.change(src) < -F4Eşik)
+    TSL := TSL / 1.1
+
+// Strateji
+if (src > upper)
+    strategy.entry("Long", strategy.long)
+if (src < lower)
+    strategy.entry("Short", strategy.short)
+
+// Take-Profit
+if (strategy.position_size > 0)
+    strategy.close("Long", when = src > basis + takeProfit * sdev)
+if (strategy.position_size < 0)
+    strategy.close("Short", when = src < basis - takeProfit * sdev)
+
+// Stop-Loss
+if (strategy.position_size > 0)
+    strategy.close("Long", when = src < basis - TSL * sdev)
+if (strategy.position_size < 0)
+    strategy.close("Short", when = src > basis + TSL * sdev)

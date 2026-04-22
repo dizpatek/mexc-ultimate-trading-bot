@@ -7,7 +7,7 @@ if (process.env.POSTGRES_URL && !process.env.POSTGRES_URL.includes('sslmode')) {
 
 async function run() {
   // Simulate what the holdings API does for user 1 in test mode
-  const { getAccountInfo } = await import('../src/lib/mexc-wrapper');
+  const { getAccountInfo } = await import('../../src/lib/mexc-wrapper');
   
   console.log('📊 Holdings API Simülasyonu (User 1, test mode)\n');
   

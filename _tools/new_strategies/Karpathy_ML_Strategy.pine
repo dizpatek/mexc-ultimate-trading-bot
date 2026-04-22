@@ -1,0 +1,21 @@
+//@version=5
+strategy("Karpathy ML Strategy", overlay=true, format=format.price, precision=2)
+length = input.int(14, "Length")
+src = close
+basis = ta.sma(src, length)
+s-dev = ta.stdev(src, length)
+upper = basis + s-dev * 2
+lower = basis - s-dev * 2
+plot(basis, "Basis", color=color.none)
+fill(basis, upper, title="Upper Bound", color=color.new(color.blue, 90))
+fill(basis, lower, title="Lower Bound", color=color.new(color.blue, 90))
+TSL = input.float(1.1, "TSL")
+takeProfit = input.float(0.037, "Take Profit")
+strategy.entry("Long", strategy.long, when=close > basis, comment="Buy")
+strategy.entry("Short", strategy.short, when=close < basis, comment="Sell")
+strategy.close("Long", when=close > basis + (basis * TSL))
+strategy.close("Short", when=close < basis - (basis * TSL))
+if (strategy.position_size > 0)
+    strategy.exit("Take Profit Long", "Long", stop=close - (close * takeProfit), comment="Take Profit Long")
+if (strategy.position_size < 0)
+    strategy.exit("Take Profit Short", "Short", stop=close + (close * takeProfit), comment="Take Profit Short")

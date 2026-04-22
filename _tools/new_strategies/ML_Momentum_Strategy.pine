@@ -1,0 +1,61 @@
+// Agent-Developer: Machine Learning Momentum Strategy
+// ---------------------------------------------------
+// Core Logic:
+// 1. Trend Teyidi (Trend Confirmation):
+//    EMA(20) > EMA(50) ve RSI(14) > 50 ile ana trendin gücünü teyit eder.
+// 2. Momentum Kaybı Engelleme (Momentum Loss Prevention):
+//    ATR(14) < ATR(30) olduğunda, pozisyonu kısmen kapatır (Risk Azaltma).
+// 3. Kar-Al/Zarar-Kes Adaptif Çıkış Mekanizması:
+//    Karpathy otonom döngüsüyle):
+//       TP_Dinamik = ATR(14) * (0.5 + log(RSI)/2))
+//       SL_Dinamik = ATR(14) * (log(Risk/Reward)))
+// ---------------------------------------------------
+//@version=5
+indicator('ML_Momentum_Strategy',shorttitle='ML_Mom',overlay=true)
+// --- Parametreler ---
+var float EMA_KISA = ta.ema(close, 20)
+var float EMA_UZUN = ta.ema(close, 50)
+// RSI: Aşırı Alım/Satım bölgelerini belirle
+float RSI_OVERBOUGHT = ta.rsi(14) > 60
+float RSI_OVERSOLD = ta.rsi(14) < 30
+// ATR: Volatilite ölçümü (Risk Yönetimi)
+float ATR_KISA = ta.atr(14)
+float ATR_UZUN = ta.atr(30)
+// Momentum Kaybı Algılama ---
+var float MOMENTUM_LOSS_THRESHOLD = 0.02
+// Momentum kaybını algılar: Kısa vadeli momentumun uzun vadeli ortalamasının altına düşmesi
+float MML = (MOMENTUM_KISA - EMA_ORT) / ATR_UZUN()
+// --- Dinamik Çıkış Mekanizması ---
+// Kar-Al Hedefi: Son 14 periyot ATR'sinin %50 fazlası + Logaritmik Güç
+float TP_Dinamik = ta.atr(14) * (0.5 + log(RSI_OVERBOUGHT)/2))
+// Zarar Kesme Seviyesi: Son 14 periyot ATR'sinin %30 altı - Logaritmik Güç
+float SL_Dinamik = ta.atr(14) * (log(Risk/Reward)))
+// ---
+// --- Giriş Koşulları (Buy Logic) ---
+var float BUY_ENTRY_SCORE = 0.0
+if EMA_KISA > EMA_UZUN and RSI_OVERBOUGHT and ATR_KISA < ATR_UZUN()
+    BUY_ENTRY_SCORE := 1.0 + (RSI_OVERBOUGHT * 0.2) - (ATR_KISA / ATR_UZUN() * 0.3)
+// --- Çıkış Koşulları ---
+var float EXIT_SIGNAL = na
+if ta.crossunder(EMA_KISA, EMA_ORT()) or ta.crossabove(MML, MOMENTUM_LOSS_THRESHOLD)
+    EXIT_SIGNAL := -1.0 // Sat sinyali
+// --- Pozisyon Yönetimi ---
+var float LONG_ENTRY = na
+var float SL_LEVEL = na()
+var float TP_LEVEL = na()
+// Giriş İşlemi
+if BUY_ENTRY_SCORE > 0.5 and na(LONG_ENTRY)
+    LONG_ENTRY := BUY_ENTRY_SCORE
+    SL_LEVEL := ta.atr(14) * (log(Risk/Reward)))
+    TP_LEVEL := ta.atr(14) * (0.5 + log(RSI_OVERBOUGHT)/2))
+// Çıkış İşlemi
+if na(LONG_ENTRY) or close > TP_LEVEL and strategy.exit('TP', 'Long', profit=TP_LEVEL)
+    strategy.close('Long')
+else if ta.crossunder(EMA_KISA, EMA_ORT()) and strategy.exit('SL', 'Long', loss=-ATR_KISA*1.5))
+    strategy.close('Long')
+// --- Görselleştirme ---
+plot(LONG_ENTRY, title='Buy Entry',color=color.green,linewidth=2)
+plot(TP_LEVEL, title='TP Level',color=color.new(color.lime,10),style=plot.style_linebr),
+plot(SL_LEVEL, title='SL Level',color=color.red,linewidth=2),
+// Momentum Kaybı Alarmı
+bgcolor(MML < MOMENTUM_LOSS_THRESHOLD ? color.new(color.red,50) : na)

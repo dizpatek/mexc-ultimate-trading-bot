@@ -1,4 +1,5 @@
 import { MatrixV5Strategy } from "@/lib/strategies";
+import { ShadowPineExecutor } from "@/lib/strategies/ShadowPineExecutor";
 import { fetchKlines } from "@/lib/mexc";
 import {
   createStrategySignalsBulk,
@@ -216,6 +217,28 @@ export class SignalScanner {
         mtfThreshold = bestExp.params.mtfThreshold ? Number(bestExp.params.mtfThreshold) : mtfThreshold;
         f4Length = bestExp.params.f4Length ? Number(bestExp.params.f4Length) : f4Length;
         f4PowerLossThreshold = bestExp.params.f4PowerLossThreshold ? Number(bestExp.params.f4PowerLossThreshold) : f4PowerLossThreshold;
+      }
+
+      // --- GÖLGE MODU (SHADOW MODE) ADAPTÖR TESTİ ---
+      try {
+        const shadowKlines = await fetchKlines(symbol, interval, 30);
+        if (shadowKlines && shadowKlines.length > 0) {
+          const closes = shadowKlines.map(k => k.close);
+          const shadowExec = new ShadowPineExecutor(4, 0.035, true);
+          const shadowResult = shadowExec.evaluate(closes);
+          
+          if (shadowResult.signalType !== "WAIT") {
+            const { logSystemEvent } = await import("@/lib/db");
+            await logSystemEvent(
+              userId, 
+              "INFO", 
+              `🌑 GÖLGE MODU: ${symbol} (${interval})`, 
+              `Strateji: ${shadowResult.strategyName} | Aksiyon: ${shadowResult.signalType} | Fiyat: ${shadowResult.price}`
+            );
+          }
+        }
+      } catch (shadowErr) {
+        console.warn(`[ShadowMode] Failed for ${symbol}`, shadowErr);
       }
 
       // P4.1 Optimizer: Pre-fetch klines here and pass to strategy if possible, 

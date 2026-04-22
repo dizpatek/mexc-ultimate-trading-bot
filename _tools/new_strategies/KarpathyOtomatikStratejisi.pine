@@ -1,0 +1,24 @@
+//@version=5
+strategy("Karpathy Otonom Stratejisi")
+length = input(14)
+src = close
+sma = ta.sma(src, length)
+longCondition = ta.crossover(src, sma)
+shortCondition = ta.crossunder(src, sma)
+strategy.entry("Long", strategy.long, when = longCondition)
+strategy.entry("Short", strategy.short, when = shortCondition)
+// TSL ve Take-Profit Oranları
+TSL = input.float(1.1, title="TSL Oranı")
+TP = input.float(1.1, title="Take-Profit Oranı")
+// F4 Momentum Eşik Değeri
+F4Eşik = input.float(0.037, title="F4 Momentum Eşik Değeri")
+// Karpathy Otonom Döngüsü
+if (strategy.position_size > 0)
+    strategy.close("Long", when = src < sma * (1 - TSL/100))
+else if (strategy.position_size < 0)
+    strategy.close("Short", when = src > sma * (1 + TSL/100))
+// Momentum Kayıplarını Engellemek
+if (strategy.position_size > 0 and src > sma * (1 + TP/100))
+    strategy.close("Long")
+else if (strategy.position_size < 0 and src < sma * (1 - TP/100))
+    strategy.close("Short")

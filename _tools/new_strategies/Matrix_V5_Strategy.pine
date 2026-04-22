@@ -1,0 +1,28 @@
+//@version=5
+strategy("Matrix V5 Strategy", overlay=true, format=format.price, precision=2)
+// Momentum Eşik Değerini Belirleme
+f4MomentumThreshold = 0.0375
+// TSL Oranını Belirleme
+ tslOran = 1.1
+// Kar Alma Oranını Belirleme
+ takeProfitOran = 0.05
+// Stop Loss Oranını Belirleme
+ stopLossOran = 0.01
+// Hacim Onay Eşik Değerini Belirleme
+ hacimOnayEşik = 1000
+// Karpathy Otonom Döngüsü
+ karpathyDöngüsü = 0
+// TSL/Take-Profit Oranlarını Adaptasyon
+ if (karpathyDöngüsü % 10 == 0)
+    tslOran := close * (1 + (0.1 * (karpathyDöngüsü / 100)))
+    takeProfitOran := close * (1 + (0.05 * (karpathyDöngüsü / 100)))
+// Alım-Satım Sinyallerini Oluşturma
+ if (close > close[1] and volume > hacimOnayEşik and f4MomentumThreshold > 0.0375)
+    strategy.entry("Alım", strategy.long)
+ if (close < close[1] and volume > hacimOnayEşik and f4MomentumThreshold < -0.0375)
+    strategy.entry("Satım", strategy.short)
+// Stop Loss ve Take Profit Ayarları
+ strategy.exit("Stop Loss", "Alım", stop=strategy.position_avg_price * (1 - stopLossOran))
+ strategy.exit("Take Profit", "Alım", limit=strategy.position_avg_price * (1 + takeProfitOran))
+ strategy.exit("Stop Loss", "Satım", stop=strategy.position_avg_price * (1 + stopLossOran))
+ strategy.exit("Take Profit", "Satım", limit=strategy.position_avg_price * (1 - takeProfitOran))

@@ -1,0 +1,34 @@
+//@version=5
+indicator("Trend Takipçi", shorttitle="TT")
+
+// Parametreler
+length = input(14, title="Uzunluk")
+src = close
+basis = ta.sma(src, length)
+dev = length > 1 ? ta.stdev(src, length) : 0
+upper = basis + dev
+lower = basis - dev
+
+// Hacim onaylı trend takip
+volumeConfirmation = input(true, title="Hacim Onayı")
+volumeThreshold = input(100000, title="Hacim Eşik Değeri")
+
+// Karpathy otonom döngüsüyle TSL/Take-Profit oranları adapte edillebilecek
+karpathy = input(true, title="Karpathy Otonom Döngüsü")
+tsl = input(1.1, title="TSL Oranı")
+takeProfit = input(1.0, title="Take-Profit Oranı")
+
+// Momentum kayıplarını engellemek için
+momentumLoss = input(false, title="Momentum Kayıplarını Engellemek")
+momentumThreshold = input(0.037, title="Momentum Eşik Değeri")
+
+// Karar mekanizması
+if volumeConfirmation and src > upper and ta.volume > volumeThreshold
+    label.new(bar_index, high, text="Al", color=color.green, location=location.belowbar)
+if karpathy and src > upper and ta.volume > volumeThreshold
+    sl = src - (src * (tsl / 100))
+    tp = src + (src * (takeProfit / 100))
+    if src < sl or src > tp
+        label.new(bar_index, high, text="Sat", color=color.red, location=location.abovebar)
+if momentumLoss and ta.mom(src, 10) < momentumThreshold
+    label.new(bar_index, high, text="Dikkat", color=color.yellow, location=location.belowbar)

@@ -3,7 +3,7 @@ title: AlarmEngine
 tags: [entity, alarm, notification, price]
 sourceFile: src/lib/alarm-engine.ts
 size: "8KB / 240 satır"
-lastUpdated: 2026-04-11
+lastUpdated: 2026-04-22
 type: entity
 ---
 

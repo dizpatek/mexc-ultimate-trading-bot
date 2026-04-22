@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import {
   getAccountInfo,
-  getPrice,
-  get24hrTicker,
   type TradingMode,
 } from "@/lib/mexc-wrapper";
 import { getMexcCredentials } from "@/lib/settings";
@@ -44,51 +42,66 @@ export async function GET(request: Request) {
     }
 
 
+    // ── Step 1: Get account info
     const accountInfo = await getAccountInfo(user.id, mode);
+
     const activeBalances = (accountInfo.balances || []).filter(
       (b: { free: string; locked: string }) =>
         parseFloat(b.free) + parseFloat(b.locked) > 0,
     );
 
+    // ── Step 2: Build symbol list (skip stablecoins)
+    const nonStable = activeBalances.filter(
+      (b: { asset: string }) => b.asset !== "USDT" && b.asset !== "USDC"
+    );
+    const symbolsNeeded = nonStable.map((b: { asset: string }) => `${b.asset}USDT`);
+
+    // ── Step 3: Fetch prices for only needed symbols — fast, small payload
+    const priceMap = new Map<string, number>();
+    const changeMap = new Map<string, number>();
+
+    if (symbolsNeeded.length > 0) {
+      try {
+        const url = `https://api.mexc.com/api/v3/ticker/price?symbols=${encodeURIComponent(JSON.stringify(symbolsNeeded))}`;
+        const res = await fetch(url, {
+          signal: AbortSignal.timeout(8000),
+          cache: "no-store",
+        });
+        if (res.ok) {
+          const data: Array<{ symbol: string; price: string }> = await res.json();
+          if (Array.isArray(data)) {
+            data.forEach(item => priceMap.set(item.symbol, parseFloat(item.price)));
+          }
+        }
+      } catch (e) {
+        console.warn("[Summary] Price fetch failed:", e);
+      }
+    }
+
     let totalValueCurrent = 0;
     let totalChangeUsdt = 0;
-    let assetsCount = 0;
+    let assetsCount = activeBalances.length;
 
-    const assetResults = await Promise.all(
-      activeBalances.map(
-        async (balance: { asset: string; free: string; locked: string }) => {
-          const sym = balance.asset;
-          const totalQty =
-            parseFloat(balance.free) + parseFloat(balance.locked);
-          let price = 0;
-          let changeUsdt = 0;
+    activeBalances.forEach((balance: { asset: string; free: string; locked: string }) => {
+      const sym = balance.asset;
+      const totalQty = parseFloat(balance.free) + parseFloat(balance.locked);
+      let price = 0;
+      let changeUsdt = 0;
 
-          if (sym === "USDT" || sym === "USDC") {
-            price = 1;
-            changeUsdt = 0;
-          } else {
-            try {
-              price = await getPrice(`${sym}USDT`);
-              const ticker = await get24hrTicker(`${sym}USDT`);
-              if (ticker) {
-                changeUsdt = parseFloat(ticker.priceChange || "0") * totalQty;
-              }
-            } catch {}
-          }
+      if (sym === "USDT" || sym === "USDC") {
+        price = 1;
+        changeUsdt = 0;
+      } else {
+        price = priceMap.get(`${sym}USDT`) || 0;
+        changeUsdt = changeMap.get(`${sym}USDT`) || 0;
+      }
 
-          const value = totalQty * price;
-          return { value, changeUsdt };
-        },
-      ),
-    );
-
-    totalValueCurrent = assetResults.reduce((a, b) => a + b.value, 0);
-    totalChangeUsdt = assetResults.reduce((a, b) => a + b.changeUsdt, 0);
-    assetsCount = activeBalances.length;
+      totalValueCurrent += totalQty * price;
+      totalChangeUsdt += changeUsdt;
+    });
 
     const initialValue = totalValueCurrent - totalChangeUsdt;
-    const changePercentage =
-      initialValue > 0 ? (totalChangeUsdt / initialValue) * 100 : 0;
+    const changePercentage = initialValue > 0 ? (totalChangeUsdt / initialValue) * 100 : 0;
 
     return NextResponse.json({
       totalValue: totalValueCurrent,

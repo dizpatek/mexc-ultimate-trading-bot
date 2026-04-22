@@ -8,7 +8,10 @@ import {
 } from "./smart-trade-execution";
 import { MatrixV5Engine, MatrixV5Config } from "./matrix-v5-engine";
 import { fetchKlines, batchFetchPrices } from "./mexc";
-import { calculateTrailingExitTarget, calculateTrailingBuyTarget } from "./trading-logic";
+import {
+  calculateTrailingExitTarget,
+  calculateTrailingBuyTarget,
+} from "./trading-logic";
 import { getBotConfig, resolveTradeMode, logSystemEvent } from "./db";
 
 // Cache for klines to avoid redundant API calls in the same monitor cycle
@@ -23,7 +26,7 @@ const MONITOR_INTERVAL = 1000; // Reduced from 5s to 1s for high-speed response
 const AI_ANALYSIS_INTERVAL = 60000;
 const CONCURRENCY_LIMIT = 20; // Increased from 5 to 20 for faster batch processing
 
-// MatrixV5Engine is now instantiated per-trade inside processTradeMonitoring 
+// MatrixV5Engine is now instantiated per-trade inside processTradeMonitoring
 // to ensure thread-safety during concurrent processing.
 let isDbRepaired = false;
 let repairPromise: Promise<void> | null = null;
@@ -31,8 +34,10 @@ let repairPromise: Promise<void> | null = null;
 async function performRepair() {
   try {
     // Ensure critical columns exist for monitoring
-    await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS trading_mode TEXT DEFAULT 'test'`.catch(() => {});
-    await sql`UPDATE orders SET meta = replace(meta, '}{', ',')::text WHERE meta LIKE '%}{%'`;
+    await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS trading_mode TEXT DEFAULT 'test'`.catch(
+      () => {},
+    );
+    await sql`UPDATE orders SET meta = replace(meta::text, '}{', ',')::jsonb WHERE meta::text LIKE '%}{%'`;
     isDbRepaired = true;
     console.log("[SmartMonitor] Database metadata repair successful.");
   } catch (e) {
@@ -67,14 +72,14 @@ export async function monitorSmartTrades(tradingMode?: "test" | "production") {
       ? await sql`
             SELECT id, user_id, symbol, side, qty, price, meta, status, trading_mode 
             FROM orders 
-            WHERE meta::jsonb->>'smartTrade' = 'true' 
+            WHERE meta->>'smartTrade' = 'true' 
             AND trading_mode = ${tradingMode}
             AND status IN ('FILLED', 'PENDING', 'PARTIALLY_FILLED')
         `
       : await sql`
             SELECT id, user_id, symbol, side, qty, price, meta, status, trading_mode 
             FROM orders 
-            WHERE meta::jsonb->>'smartTrade' = 'true' 
+            WHERE meta->>'smartTrade' = 'true' 
             AND status IN ('FILLED', 'PENDING', 'PARTIALLY_FILLED')
         `;
 
@@ -86,14 +91,17 @@ export async function monitorSmartTrades(tradingMode?: "test" | "production") {
     const priceMap = await batchFetchPrices(Array.from(symbolSet));
 
     // Cache for user configs within this cycle to avoid redundant DB calls
-    const userConfigCache = new Map<number, { pilotEnabled: boolean; tradeMode: "Scalp" | "Swing" }>();
+    const userConfigCache = new Map<
+      number,
+      { pilotEnabled: boolean; tradeMode: "Scalp" | "Swing" }
+    >();
 
     for (let i = 0; i < trades.length; i += CONCURRENCY_LIMIT) {
       const chunk = trades.slice(i, i + CONCURRENCY_LIMIT);
       await Promise.allSettled(
         chunk.map(async (trade) => {
           const currentPrice = priceMap[trade.symbol];
-          
+
           // Get or build user config cache
           let userConfig = userConfigCache.get(trade.user_id);
           if (!userConfig) {
@@ -202,11 +210,11 @@ interface TradeMeta extends Record<string, unknown> {
 }
 
 async function processTradeMonitoring(
-  trade: MonitoredTrade, 
-  pilotEnabled: boolean, 
+  trade: MonitoredTrade,
+  pilotEnabled: boolean,
   cycleCache: KlineCache,
   tradeMode: string,
-  preFetchedPrice?: number
+  preFetchedPrice?: number,
 ) {
   const {
     id,
@@ -217,13 +225,13 @@ async function processTradeMonitoring(
   } = trade;
   const entryPrice = Number(rawEntryPrice);
   let currentQty = Number(rawQty);
-  const meta = (
-    typeof rawMeta === "string" ? JSON.parse(rawMeta) : rawMeta
+  const meta = normalizeMeta(
+    typeof rawMeta === "string" ? JSON.parse(rawMeta) : rawMeta,
   ) as TradeMeta;
 
   try {
     // Use pre-fetched price if available, fallback to getPrice for robustness
-    const currentPrice = preFetchedPrice || await getPrice(symbol);
+    const currentPrice = preFetchedPrice || (await getPrice(symbol));
     if (!currentPrice || isNaN(currentPrice)) return;
 
     let isDirty = false;
@@ -243,8 +251,9 @@ async function processTradeMonitoring(
       tpTriggered: !!meta.tpTriggered,
     };
 
+    let result: any;
     if (trade.status === "PENDING") {
-      const result = await handlePendingTrade(
+      result = await handlePendingTrade(
         trade,
         currentPrice,
         stateUpdates,
@@ -264,7 +273,7 @@ async function processTradeMonitoring(
       Object.assign(meta, result.metaUpdates);
       if (shouldExit) return;
     } else {
-      const result = await evaluateActiveTrade(
+      result = await evaluateActiveTrade(
         trade,
         currentPrice,
         entryPrice,
@@ -290,13 +299,21 @@ async function processTradeMonitoring(
       currentQty = result.newQty;
     }
 
+    // CRITICAL FIX: metaUpdates from evaluateActiveTrade (TSL, TTP values) must be merged into meta
+    // before saveTradeUpdate, otherwise TSL/TP state is lost between cycles.
+    if (result?.metaUpdates) {
+      Object.assign(meta, result.metaUpdates);
+    }
     Object.assign(meta, { ...stateUpdates, lastUpdate: Date.now() });
 
     // P4.4: Selective update to reduce DB pressure
-    // Always update lastPrice in meta so UI sees movement. 
+    // Always update lastPrice in meta so UI sees movement.
     // Even 0.005% change triggers a DB update to keep Dashboard "live"
     const lastSavedPrice = Number(meta.lastPrice) || 0;
-    const priceChangePct = lastSavedPrice > 0 ? Math.abs((currentPrice - lastSavedPrice) / lastSavedPrice) : 1;
+    const priceChangePct =
+      lastSavedPrice > 0
+        ? Math.abs((currentPrice - lastSavedPrice) / lastSavedPrice)
+        : 1;
 
     if (shouldExit) {
       await executeExit(trade, currentPrice, exitReason, meta, currentQty);
@@ -308,6 +325,49 @@ async function processTradeMonitoring(
     const msg = err instanceof Error ? err.message : String(err);
     await handleMonitorError(id, msg);
   }
+}
+
+/**
+ * Normalize numeric fields that may have been serialized as strings in DB.
+ * Prevents type mismatch bugs in TSL/TP calculations.
+ */
+function normalizeMeta(raw: any): TradeMeta {
+  if (!raw || typeof raw !== "object") return raw;
+  const meta = { ...raw } as TradeMeta;
+  const numericFields = [
+    "activeStopLoss",
+    "activeTakeProfit",
+    "highestPrice",
+    "lowestPrice",
+    "ttpActivationPrice",
+    "lastPrice",
+    "exitPrice",
+    "filledAt",
+    "closedAt",
+    "slTimeoutStart",
+    "executedQty",
+  ];
+  for (const key of numericFields) {
+    if (meta[key] !== undefined && meta[key] !== null) {
+      const parsed = Number(meta[key]);
+      if (!isNaN(parsed)) {
+        (meta as any)[key] = parsed;
+      }
+    }
+  }
+  // Also normalize nested payload prices
+  if (meta.payload?.stopLoss?.price) {
+    meta.payload.stopLoss.price = String(Number(meta.payload.stopLoss.price));
+  }
+  if (meta.payload?.takeProfit?.price) {
+    meta.payload.takeProfit.price = String(
+      Number(meta.payload.takeProfit.price),
+    );
+  }
+  if (meta.payload?.buyPrice) {
+    meta.payload.buyPrice = String(Number(meta.payload.buyPrice));
+  }
+  return meta;
 }
 
 function resetRepairState() {
@@ -326,13 +386,18 @@ async function handleMonitorError(id: number, msg: string) {
   // Log technical error but store user-friendly version in DB
   await sql`
         UPDATE orders 
-        SET meta = (jsonb_set(meta::jsonb, '{monitorError}', ${JSON.stringify(userFriendlyMsg)}::jsonb))::text, 
+        SET meta = jsonb_set(meta, '{monitorError}', ${JSON.stringify(userFriendlyMsg)}::jsonb), 
             updated_at = ${Date.now()}
         WHERE id = ${id}
     `;
 }
 
-async function runAiAnalysis(symbol: string, meta: Record<string, unknown>, cycleCache: KlineCache, tradeMode: string) {
+async function runAiAnalysis(
+  symbol: string,
+  meta: Record<string, unknown>,
+  cycleCache: KlineCache,
+  tradeMode: string,
+) {
   const lastAiRun = (meta.lastAiRunAt as number) || 0;
   if (Date.now() - lastAiRun <= AI_ANALYSIS_INTERVAL) return null;
 
@@ -361,8 +426,15 @@ async function runAiAnalysis(symbol: string, meta: Record<string, unknown>, cycl
 
     if (klines && klines.length >= 50) {
       const engine = new MatrixV5Engine(); // P3.2: Thread-safe instance per trade
-      type KlineData = { close: number; high: number; low: number; volume: number };
-      const configOverrides: Partial<MatrixV5Config> = { tradeMode: tradeMode as "Scalp" | "Swing" };
+      type KlineData = {
+        close: number;
+        high: number;
+        low: number;
+        volume: number;
+      };
+      const configOverrides: Partial<MatrixV5Config> = {
+        tradeMode: tradeMode as "Scalp" | "Swing",
+      };
       const res = engine.analyze(
         klines.map((k: KlineData) => k.close),
         klines.map((k: KlineData) => k.high),
@@ -371,9 +443,9 @@ async function runAiAnalysis(symbol: string, meta: Record<string, unknown>, cycl
         timeframe,
         "normal",
         0, // P3.1: Explicit fundingRate for correct positional parsing
-        configOverrides
+        configOverrides,
       );
-      
+
       const result = {
         aiScore: res.aiScore,
         aiLogs: [
@@ -382,7 +454,7 @@ async function runAiAnalysis(symbol: string, meta: Record<string, unknown>, cycl
           `Decision: ${res.systemDecision}`,
         ],
       };
-      
+
       // Store in global cycle cache to prevent redundant Matrix engine calculations for identical pairs
       (cycleCache as any)[resultCacheKey] = result;
       return result;
@@ -414,6 +486,31 @@ async function evaluateActiveTrade(
 ) {
   const payload = meta.payload || ({} as TradePayload);
   const metaUpdates: Partial<TradeMeta> = {};
+
+  // ── COVER MAX DURATION SAFETY NET ──
+  // Analiz: COVER işlemleri 50-121 saat açık kalıp büyük zarar verdi.
+  // Eğer fiyat 12 saat içinde düşmediyse trend karşı demektir → otomatik çık.
+  // REDUCED from 48h to 12h: COVER positions are higher risk and need tighter time control.
+  const COVER_MAX_DURATION_MS = 12 * 60 * 60 * 1000; // 12 saat
+  if (payload.mode === "COVER" && meta.filledAt) {
+    const elapsed = Date.now() - Number(meta.filledAt);
+    if (elapsed > COVER_MAX_DURATION_MS) {
+      const elapsedHours = (elapsed / (60 * 60 * 1000)).toFixed(1);
+      console.log(
+        `[SmartMonitor] ⏰ COVER TIMEOUT: Trade ${trade.id} | ${trade.symbol} | ${elapsedHours}h elapsed > 48h limit`,
+      );
+      return {
+        newHighest: Math.max(state.highestPrice, currentPrice),
+        newLowest: Math.min(state.lowestPrice, currentPrice),
+        shouldExit: true,
+        exitReason: `COVER Zaman Aşımı: ${elapsedHours} saat (Maks 48h)`,
+        tpTriggered: state.tpTriggered,
+        newQty: qty,
+        metaUpdates,
+        hasSlChanged: false,
+      };
+    }
+  }
 
   const newHighest = Math.max(state.highestPrice, currentPrice);
   const newLowest = Math.min(state.lowestPrice, currentPrice);
@@ -543,7 +640,11 @@ function evaluateStopLoss(
     let distRatio = initialSlDistRatio > 0 ? initialSlDistRatio : 0.01;
 
     const tslDevSetting = payload.stopLoss?.deviation;
-    if (isTpAlreadyHit && typeof tslDevSetting === 'number' && tslDevSetting > 0) {
+    if (
+      isTpAlreadyHit &&
+      typeof tslDevSetting === "number" &&
+      tslDevSetting > 0
+    ) {
       distRatio = tslDevSetting / 100;
     }
 
@@ -553,23 +654,50 @@ function evaluateStopLoss(
 
     // Cover modunda trailing buy gibi: fiyat DÜŞTÜKÇE takip et (lowest küçüldükçe SL'yi aşağı çek)
     // Trade modunda bildiğimiz trailing stop: fiyat ÇIKTIKÇE takip et (highest büyüdükçe SL'yi yukarı çek)
-    const trailSL = calculateTrailingExitTarget(payload.mode || "TRADE", highest, lowest, entryPrice, distRatio * 100);
-    
+    const trailSL = calculateTrailingExitTarget(
+      payload.mode || "TRADE",
+      highest,
+      lowest,
+      entryPrice,
+      distRatio * 100,
+    );
+
     if (isCover) {
       finalSL = prevSl > 0 ? Math.min(trailSL, prevSl) : trailSL;
     } else {
       finalSL = prevSl > 0 ? Math.max(trailSL, prevSl) : trailSL;
     }
 
-    // MINIMUM DISTANCE GUARD: SL must be at least 0.1% from entry price
-    // Reduced from 0.8% to 0.1% to allow tight scalping stops.
-    const minDistPct = 0.001; // 0.1%
+    // HARD BOUNDARY GUARD: TSL must NEVER cross the entry price.
+    // Long: TSL cannot drop below entry (would turn profit into loss).
+    // Short: TSL cannot rise above entry (would turn profit into loss).
+    // This is the ultimate safety net that prevents TSL from "opening up" risk.
+    const minDistPct = 0.001; // 0.1% minimum buffer from entry
     if (isLong) {
       const minSL = entryPrice * (1 - minDistPct);
       if (finalSL > minSL) finalSL = minSL;
+      // Also ensure TSL never goes above entry (that would be a take-profit, not SL)
+      if (finalSL > entryPrice) finalSL = entryPrice;
     } else {
       const maxSL = entryPrice * (1 + minDistPct);
       if (finalSL < maxSL) finalSL = maxSL;
+      // Also ensure TSL never goes below entry (that would be a take-profit, not SL)
+      if (finalSL < entryPrice) finalSL = entryPrice;
+    }
+
+    // COVER TIGHTENING: For COVER positions, if price rises (against us),
+    // gradually tighten SL toward entry to limit max loss.
+    // This prevents COVER positions from sitting open for 48h while price drifts up.
+    if (isCover && highest > entryPrice) {
+      const risePct = (highest - entryPrice) / entryPrice;
+      // Tighten by 20% of the adverse move (capped at entry)
+      const tightenedSL = slPrice * (1 + risePct * 0.2);
+      if (tightenedSL < finalSL) {
+        console.log(
+          `[SmartMonitor] COVER TIGHTEN: Trade ${tradeId} | Rise: ${(risePct * 100).toFixed(2)}% | SL: ${finalSL.toFixed(6)} -> ${tightenedSL.toFixed(6)}`,
+        );
+        finalSL = tightenedSL;
+      }
     }
 
     // Log when TSL upgrades the stop explicitly
@@ -593,21 +721,27 @@ function evaluateStopLoss(
       (Math.abs(currentPrice - finalSL) / finalSL < 0.005 || slHit)
     ) {
       console.log(
-        `[SmartMonitor] SL EVAL (TSL-PATH): Trade ${tradeId} | ${side} | Price: ${currentPrice} | SL: ${finalSL.toFixed(2)} | Hit: ${slHit}`,
+        `[SmartMonitor] SL EVAL (TSL-PATH): Trade ${tradeId} | ${side} | Price: ${currentPrice} | SL: ${finalSL.toFixed(6)} | Hit: ${slHit}`,
       );
     }
 
     if (slHit) {
-      // Volatility Buffer: Don't trigger SL in the first 30 seconds unless price is 1.2x beyond SL
+      // Volatility Buffer: Don't trigger SL in the first 60 seconds unless price is 2x beyond SL
+      // INCREASED from 30s to 60s and from 1.5x to 2x to prevent premature stops on tight SLs.
       const filledAt = Number(meta.filledAt || 0);
       const durationMs = Date.now() - filledAt;
-      const bufferMs = 30_000; // 30 seconds
-      const slThreshold = Math.abs(entryPrice - (finalSL || slPrice)) / entryPrice;
+      const bufferMs = 60_000; // 60 seconds
+      const slThreshold =
+        Math.abs(entryPrice - (finalSL || slPrice)) / entryPrice;
       const currentDrop = Math.abs(currentPrice - entryPrice) / entryPrice;
 
-      if (filledAt > 0 && durationMs < bufferMs && currentDrop < slThreshold * 1.2) {
+      if (
+        filledAt > 0 &&
+        durationMs < bufferMs &&
+        currentDrop < slThreshold * 2.0
+      ) {
         console.log(
-          `[SmartMonitor] TSL WARMUP: Trade ${tradeId} | SL hit but within buffer period (${Math.round(durationMs / 1000)}s). Skipping exit.`,
+          `[SmartMonitor] TSL WARMUP: Trade ${tradeId} | SL hit but within buffer period (${Math.round(durationMs / 1000)}s). Skipping exit unless drop > 2x SL threshold.`,
         );
         return { shouldExit: false, reason: "", metaUpdates, hasSlChanged };
       }
@@ -619,7 +753,7 @@ function evaluateStopLoss(
           console.log(
             `[SmartMonitor] SL TIMEOUT START: Trade ${tradeId} @ ${currentPrice}`,
           );
-          return { shouldExit: false, reason: "", metaUpdates };
+          return { shouldExit: false, reason: "", metaUpdates, hasSlChanged };
         }
         const slTimeoutStart = meta.slTimeoutStart as number;
         if (Date.now() - slTimeoutStart >= timeoutSeconds * 1000) {
@@ -627,6 +761,7 @@ function evaluateStopLoss(
             shouldExit: true,
             reason: `Trailing SL + Timeout sonrası kapandı ($${finalSL.toFixed(2)})`,
             metaUpdates,
+            hasSlChanged,
           };
         }
       } else {
@@ -635,7 +770,7 @@ function evaluateStopLoss(
         );
         return {
           shouldExit: true,
-          reason: `Trailing Stop Loss vuruldu (TSL: $${finalSL.toFixed(2)})`,
+          reason: `Trailing Stop Loss vuruldu (TSL: $${finalSL.toFixed(6)})`,
           metaUpdates,
           hasSlChanged,
         };
@@ -650,14 +785,18 @@ function evaluateStopLoss(
     const hasSlChanged = (meta.activeStopLoss as number) !== slPrice;
     const slHit = isLong ? currentPrice <= slPrice : currentPrice >= slPrice;
 
-    // Volatility Buffer: Don't trigger SL in the first 30 seconds unless price is 1.2x beyond SL
+    // Volatility Buffer: Don't trigger SL in the first 60 seconds unless price is 2x beyond SL
     const filledAt = Number(meta.filledAt || 0);
     const durationMs = Date.now() - filledAt;
-    const bufferMs = 30_000; // 30 seconds
+    const bufferMs = 60_000; // 60 seconds
     const slThreshold = Math.abs(entryPrice - slPrice) / entryPrice;
     const currentDrop = Math.abs(currentPrice - entryPrice) / entryPrice;
 
-    if (filledAt > 0 && durationMs < bufferMs && currentDrop < slThreshold * 1.2) {
+    if (
+      filledAt > 0 &&
+      durationMs < bufferMs &&
+      currentDrop < slThreshold * 2.0
+    ) {
       console.log(
         `[SmartMonitor] SL PREVENTED BY BUFFER (FIXED): Trade ${tradeId} | Duration: ${Math.round(durationMs / 1000)}s | Drop: ${(currentDrop * 100).toFixed(2)}% | SL: ${(slThreshold * 100).toFixed(2)}%`,
       );
@@ -667,7 +806,7 @@ function evaluateStopLoss(
     // Diagnostic Log: When price is near fixed SL
     if (Math.abs(currentPrice - slPrice) / slPrice < 0.01 || slHit) {
       console.log(
-        `[SmartMonitor] FIXED SL EVAL: Trade ${tradeId} | ${side} | Price: ${currentPrice} | SL: ${slPrice} | Hit: ${slHit}`,
+        `[SmartMonitor] FIXED SL EVAL: Trade ${tradeId} | ${side} | Price: ${currentPrice} | SL: ${slPrice.toFixed(6)} | Hit: ${slHit}`,
       );
     }
 
@@ -677,7 +816,7 @@ function evaluateStopLoss(
       );
       return {
         shouldExit: true,
-        reason: `Sabit Stop Loss'a ulaşıldı ($${slPrice.toFixed(2)})`,
+        reason: `Sabit Stop Loss'a ulaşıldı ($${slPrice.toFixed(6)})`,
         metaUpdates,
         hasSlChanged,
       };
@@ -740,7 +879,7 @@ function evaluateTakeProfit(
         if (!tpTriggered) {
           tpTriggered = metaUpdates.tpTriggered = true;
           console.log(
-            `[SmartMonitor] TP TRAILING TRIGGERED: Trade ${trade.id} | ${side} | Price: ${currentPrice} | TP Target: ${tpPrice} | Mode: ${payload.mode}`
+            `[SmartMonitor] TP TRAILING TRIGGERED: Trade ${trade.id} | ${side} | Price: ${currentPrice} | TP Target: ${tpPrice} | Mode: ${payload.mode}`,
           );
           // P4.2: Record initial activation price to prevent instant exit on micro-fluctuation
           metaUpdates.ttpActivationPrice = currentPrice;
@@ -748,11 +887,17 @@ function evaluateTakeProfit(
 
         const prevTp = (meta.activeTakeProfit as number) || tpPrice;
         const devPercent = payload.takeProfit.deviation!;
-        const trailExit = calculateTrailingExitTarget(payload.mode || "TRADE", highest, lowest, entryPrice, devPercent);
+        const trailExit = calculateTrailingExitTarget(
+          payload.mode || "TRADE",
+          highest,
+          lowest,
+          entryPrice,
+          devPercent,
+        );
 
         // Monotonicity for TP:
         // P4.2: Ensure finalTp has a minimum buffer from entry to avoid slippage-loss
-        // but also respect the deviation. 
+        // but also respect the deviation.
         const finalTp =
           prevTp > 0
             ? isLong
@@ -866,7 +1011,7 @@ async function handlePendingTrade(
 
       entryTriggered = true;
       metaUpdates.actionLog = metaUpdates.actionLog || [];
-      
+
       if (!isTrailing) {
         shouldExit = true;
         exitReason =
@@ -888,36 +1033,59 @@ async function handlePendingTrade(
   }
 
   if (entryTriggered && isTrailing) {
-    const trailingTgt = calculateTrailingBuyTarget(payload.mode || "TRADE", newHighest, newLowest, entryPrice, dev);
+    const trailingTgt = calculateTrailingBuyTarget(
+      payload.mode || "TRADE",
+      newHighest,
+      newLowest,
+      entryPrice,
+      dev,
+    );
     // mode: TRADE (Longs, tracking lowest, wait for rise to target)
     if (payload.mode !== "COVER") {
-        newLowest = Math.min(newLowest, currentPrice);
-        metaUpdates.lowestPrice = newLowest;
-        if (currentPrice >= trailingTgt) {
-            shouldExit = true;
-            exitReason = `Trailing buy gerçekleşti @ ${currentPrice}`;
-        }
+      newLowest = Math.min(newLowest, currentPrice);
+      metaUpdates.lowestPrice = newLowest;
+      if (currentPrice >= trailingTgt) {
+        shouldExit = true;
+        exitReason = `Trailing buy gerçekleşti @ ${currentPrice}`;
+      }
     } else {
-        // mode: COVER (Shorts, tracking highest, wait for drop to target)
-        newHighest = Math.max(newHighest, currentPrice);
-        metaUpdates.highestPrice = newHighest;
-        if (currentPrice <= trailingTgt) {
-            shouldExit = true;
-            exitReason = `Trailing Satış (Cover) gerçekleşti @ ${currentPrice}`;
-        }
+      // mode: COVER (Shorts, tracking highest, wait for drop to target)
+      newHighest = Math.max(newHighest, currentPrice);
+      metaUpdates.highestPrice = newHighest;
+      if (currentPrice <= trailingTgt) {
+        shouldExit = true;
+        exitReason = `Trailing Satış (Cover) gerçekleşti @ ${currentPrice}`;
+      }
     }
-    
+
     // Save state back to DB on each trailing tick if no exit yet, but only if significant difference to avoid I/O spam
-    if (!shouldExit && (newHighest !== meta.highestPrice || newLowest !== meta.lowestPrice)) {
-       const pctChangeHigh = meta.highestPrice ? Math.abs(newHighest - (meta.highestPrice as number)) / (meta.highestPrice as number) : 1;
-       const pctChangeLow = meta.lowestPrice ? Math.abs(newLowest - (meta.lowestPrice as number)) / (meta.lowestPrice as number) : 1;
-       if (pctChangeHigh > 0.005 || pctChangeLow > 0.005) { // 0.5% change threshold
-         await saveTradeUpdate(trade.id, Number(meta.executedQty) || 0, { ...meta, ...metaUpdates });
-       }
+    if (
+      !shouldExit &&
+      (newHighest !== meta.highestPrice || newLowest !== meta.lowestPrice)
+    ) {
+      const pctChangeHigh = meta.highestPrice
+        ? Math.abs(newHighest - (meta.highestPrice as number)) /
+          (meta.highestPrice as number)
+        : 1;
+      const pctChangeLow = meta.lowestPrice
+        ? Math.abs(newLowest - (meta.lowestPrice as number)) /
+          (meta.lowestPrice as number)
+        : 1;
+      if (pctChangeHigh > 0.005 || pctChangeLow > 0.005) {
+        // 0.5% change threshold
+        await saveTradeUpdate(trade.id, Number(meta.executedQty) || 0, {
+          ...meta,
+          ...metaUpdates,
+        });
+      }
     }
   }
 
   metaUpdates.entryTriggered = entryTriggered;
-  if (shouldExit) await executeEntry(trade, currentPrice, exitReason, { ...meta, ...metaUpdates });
+  if (shouldExit)
+    await executeEntry(trade, currentPrice, exitReason, {
+      ...meta,
+      ...metaUpdates,
+    });
   return { newHighest, newLowest, shouldExit, exitReason, metaUpdates };
 }

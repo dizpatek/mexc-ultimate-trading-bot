@@ -2,9 +2,9 @@
 title: "AutoResearch — Train Engine"
 tags: [ai, model, training]
 sourceFile: ../AutoResearch/train.py
-lastUpdated: 2026-04-11
+lastUpdated: 2026-04-22
 type: entity
-size: "26KB / 631 satır"
+size: "30KB / 691 satır"
 ---
 
 # AutoResearch — Train Engine

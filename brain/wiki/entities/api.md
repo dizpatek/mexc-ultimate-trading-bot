@@ -2,8 +2,8 @@
 title: API Utility
 tags: [service, api, axios]
 sourceFile: src/services/api.ts
-size: "5KB / 193 satır"
-lastUpdated: 2026-04-11
+size: "6KB / 201 satır"
+lastUpdated: 2026-04-22
 type: entity
 ---
 

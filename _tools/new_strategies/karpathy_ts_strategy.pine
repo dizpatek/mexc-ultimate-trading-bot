@@ -1,0 +1,36 @@
+//@version=5
+strategy("Karpathy TS Strategy", overlay=true)
+
+// Parametreler
+length = input(14, title="Uzunluk")
+src = close
+basis = ta.sma(src, length)
+sdev = ta.stdev(src, length)
+upper = basis + sdev * 2
+lower = basis - sdev * 2
+
+// Hacim Onaylı Trend Takibi
+hacim = input(20, title="Hacim")
+hacimsrc = ta.sma(volume, hacim)
+
+// Karpathy Otonom Döngüsü
+length2 = input(28, title="Uzunluk 2")
+src2 = close
+basis2 = ta.sma(src2, length2)
+sdev2 = ta.stdev(src2, length2)
+upper2 = basis2 + sdev2 * 2
+lower2 = basis2 - sdev2 * 2
+
+// Strateji
+if (close > upper and hacimsrc > volume)
+    strategy.entry("Long", strategy.long)
+if (close < lower and hacimsrc < volume)
+    strategy.entry("Short", strategy.short)
+
+// Kar-Al ve Zarar Durdur
+takeProfit = input.float(1.1, title="Take Profit")
+stopLoss = input.float(1.1, title="Stop Loss")
+strategy.exit("Exit Long", "Long", stop=close * (1 - stopLoss/100))
+strategy.exit("Exit Short", "Short", stop=close * (1 + stopLoss/100))
+strategy.exit("Take Profit Long", "Long", limit=close * (1 + takeProfit/100))
+strategy.exit("Take Profit Short", "Short", limit=close * (1 - takeProfit/100))

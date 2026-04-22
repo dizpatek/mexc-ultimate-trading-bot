@@ -1,0 +1,40 @@
+//@version=5
+indicator("Hacim Onaylı Strateji")
+
+// Parametreler
+tsl = input.float(1.1, "TSL Oranı")
+f4MomentumEşik = input.float(0.037, "F4 Momentum Eşik")
+mtfKoruma = input.bool(true, "MTF Koruma")
+
+// Hesaplamalar
+closePrice = close
+highPrice = high
+lowPrice = low
+volume = volume
+
+// F4 Momentum Hesaplaması
+diff = close[1] - close[2]
+f4Momentum = diff / (close[1] + close[2])
+
+// TSL ve Take Profit Hesaplaması
+tslLevel = close * (1 + (tsl / 100))
+takeProfitLevel = close * (1 + (tsl / 100))
+
+// Karar Mekanizmaları
+if (f4Momentum > f4MomentumEşik) and (volume > volume[1])
+    strategy.entry("Alış", strategy.long)
+if (f4Momentum < -f4MomentumEşik) and (volume > volume[1])
+    strategy.entry("Satış", strategy.short)
+
+// MTF Koruma
+if (mtfKoruma)
+    strategy.close("Alış", when = close > tslLevel)
+    strategy.close("Satış", when = close < tslLevel)
+
+// Karpathy Otonom Döngüsü
+if (strategy.position_size > 0)
+    if (close > takeProfitLevel)
+        strategy.close("Alış")
+if (strategy.position_size < 0)
+    if (close < takeProfitLevel)
+        strategy.close("Satış")

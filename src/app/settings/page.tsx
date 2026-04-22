@@ -22,6 +22,8 @@ import {
   Database,
   Activity,
   Lock,
+  Cpu,
+  BookOpen,
 } from "lucide-react";
 import { useNotification } from "@/context/NotificationContext";
 import { setTradingModeClient, getTradingModeSync } from "@/lib/trading-mode";
@@ -33,6 +35,12 @@ import type { User } from "@/lib/db";
 import { useBotConfig } from "@/hooks/useBotConfig";
 import { AdminArsenal } from "@/components/admin/AdminArsenal";
 import { AutoResearchPanel } from "@/components/AutoResearchPanel";
+import { AiTerminal } from "@/components/AiTerminal";
+import { TrainingPanel } from "@/components/TrainingPanel";
+import dynamic from "next/dynamic";
+
+const AutoResearchMonitor = dynamic(() => import("@/components/dashboard/AutoResearchMonitor").then(m => m.AutoResearchMonitor), { ssr: false });
+const AutonomousAgentPanel = dynamic(() => import("@/components/AutonomousAgentPanel").then(m => m.default), { ssr: false });
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -46,7 +54,7 @@ export default function SettingsPage() {
   const [resetting, setResetting] = useState(false);
   const [pendingReset, setPendingReset] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
-  const [activeTab, setActiveTab] = useState<"api" | "environment" | "research" | "admin">("api");
+  const [activeTab, setActiveTab] = useState<"api" | "environment" | "research" | "admin" | "brain" | "training" | "ailab">("api");
 
   // API Health States
   const [apiHealth, setApiHealth] = useState<"unknown" | "ok" | "error" | "loading">("unknown");
@@ -67,9 +75,11 @@ export default function SettingsPage() {
       setApiKeyMasked(data.apiKeyMasked);
       setApiHealth(data.health);
       setApiError(data.error);
-    } catch (err) {
+    } catch (err: any) {
       setApiHealth("unknown");
-      console.error("Failed to fetch key status", err);
+      if (err?.response?.status !== 401) {
+        console.error("Failed to fetch key status", err);
+      }
     }
   }, []);
 
@@ -77,8 +87,10 @@ export default function SettingsPage() {
     try {
       const usersRes = await api.get("/admin/users");
       setUsers(usersRes.data.users);
-    } catch (err) {
-      console.error("Failed to fetch admin data", err);
+    } catch (err: any) {
+      if (err?.response?.status !== 401) {
+        console.error("Failed to fetch admin data", err);
+      }
     }
   }, []);
 
@@ -262,7 +274,10 @@ export default function SettingsPage() {
             { id: "api", icon: Key, label: "API_GATEWAY", color: "text-yellow-500", bg: "bg-yellow-500/10" },
             { id: "environment", icon: ShieldAlert, label: "CORE_ENV", color: "text-primary", bg: "bg-primary/10" },
             { id: "research", icon: Activity, label: "RESEARCH_CORE", color: "text-cyan-400", bg: "bg-cyan-500/10" },
+            { id: "training", icon: BookOpen, label: "TRAINING_LAB", color: "text-indigo-400", bg: "bg-indigo-500/10" },
+            { id: "ailab", icon: Cpu, label: "AI_LAB", color: "text-violet-400", bg: "bg-violet-500/10" },
             { id: "admin", icon: Zap, label: "ADMIN_OVERRIDE", color: "text-rose-500", bg: "bg-rose-500/10", adminOnly: true },
+            { id: "brain", icon: Cpu, label: "AI_CORE_TERMINAL", color: "text-emerald-400", bg: "bg-emerald-500/10" },
           ].map((tab) => {
             if (tab.adminOnly && !(user?.is_admin || user?.id === 1)) return null;
             const isActive = activeTab === tab.id;
@@ -274,14 +289,14 @@ export default function SettingsPage() {
                 onClick={() => setActiveTab(tab.id as any)}
                 className={`group relative flex items-center gap-4 px-4 py-4 rounded-2xl border transition-all duration-300 overflow-hidden ${
                   isActive 
-                    ? `border-${tab.id === 'api' ? 'yellow-500' : tab.id === 'environment' ? 'primary' : tab.id === 'research' ? 'cyan-500' : 'rose-500'}/30 bg-white/5` 
+                    ? `border-${tab.id === 'api' ? 'yellow-500' : tab.id === 'environment' ? 'primary' : tab.id === 'research' ? 'cyan-500' : tab.id === 'training' ? 'indigo-500' : tab.id === 'brain' ? 'emerald-500' : 'rose-500'}/30 bg-white/5` 
                     : "border-white/5 bg-transparent opacity-40 hover:opacity-100 hover:bg-white/5"
                 }`}
               >
                 {isActive && (
                     <div className={`absolute left-0 top-0 w-1 h-full ${tab.bg.replace('bg-', 'bg-')}`} />
                 )}
-                <div className={`p-2.5 rounded-xl border ${isActive ? `border-${tab.id === 'api' ? 'yellow-500' : tab.id === 'environment' ? 'primary' : tab.id === 'research' ? 'cyan-500' : 'rose-500'}/30 ${tab.bg}` : "border-white/10 bg-white/5"}`}>
+                <div className={`p-2.5 rounded-xl border ${isActive ? `border-${tab.id === 'api' ? 'yellow-500' : tab.id === 'environment' ? 'primary' : tab.id === 'research' ? 'cyan-500' : tab.id === 'training' ? 'indigo-500' : tab.id === 'brain' ? 'emerald-500' : 'rose-500'}/30 ${tab.bg}` : "border-white/10 bg-white/5"}`}>
                   <Icon className={`w-4 h-4 ${isActive ? tab.color : "text-white/30"} group-hover:scale-110 transition-transform`} />
                 </div>
                 <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${isActive ? "text-white" : "text-white/40"}`}>
@@ -310,7 +325,7 @@ export default function SettingsPage() {
              <div className="absolute bottom-[10%] right-[10%] w-[400px] h-[400px] bg-cyan-500/10 blur-[120px] rounded-full" />
           </div>
 
-          <div className={`${activeTab === "research" ? "max-w-none" : "max-w-6xl"} mx-auto relative z-10`}>
+          <div className={`${activeTab === "research" || activeTab === "ailab" ? "max-w-none" : "max-w-6xl"} mx-auto relative z-10`}>
             {activeTab === "api" && (
               <div className="animate-in fade-in slide-in-from-right-8 duration-500">
                 <div className="flex items-center justify-between mb-8">
@@ -472,6 +487,34 @@ export default function SettingsPage() {
                     <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase">ADMIN_OVERRIDE <span className="text-rose-500 opacity-50 font-mono text-base ml-2">{"//"} 04</span></h2>
                 </div>
                 <AdminArsenal />
+              </div>
+            )}
+
+            {activeTab === "training" && (
+              <div className="animate-in fade-in slide-in-from-right-8 duration-500">
+                <div className="flex items-center justify-between mb-10">
+                  <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase">TRAINING_LAB <span className="text-indigo-400 opacity-50 font-mono text-base ml-2">{"//"} 05</span></h2>
+                </div>
+                <TrainingPanel />
+              </div>
+            )}
+
+            {activeTab === "ailab" && (
+              <div className="animate-in fade-in slide-in-from-right-8 duration-500 space-y-6">
+                <div className="flex items-center justify-between mb-10">
+                  <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase">AI_LAB <span className="text-violet-400 opacity-50 font-mono text-base ml-2">{"//"} 05b</span></h2>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-violet-400/60 border border-violet-400/20 px-3 py-1.5 rounded-lg">OTONOM DÖNGÜ AKTİF</span>
+                </div>
+                {/* AutoResearch Monitor — En İyi Parametre Görüntüleyici */}
+                <AutoResearchMonitor />
+                {/* Otonom AI Ajan Konsolu */}
+                <AutonomousAgentPanel />
+              </div>
+            )}
+
+            {activeTab === "brain" && (
+              <div className="animate-in fade-in slide-in-from-right-8 duration-500 h-[650px]">
+                <AiTerminal />
               </div>
             )}
           </div>

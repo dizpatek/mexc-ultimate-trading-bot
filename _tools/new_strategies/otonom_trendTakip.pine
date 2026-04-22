@@ -1,0 +1,35 @@
+//@version=5
+indicator("Otonom Trend Takip")
+
+tsl = input.float(title="TSL Oranı", minval=0.1, maxval=10, defval=1.1)
+fp4 = input.float(title="F4 Momentum Eşik", minval=0.001, maxval=0.1, defval=0.0375)
+
+src = close
+basis = ta.sma(src, 14)
+dev = mult * ta.stdev(src, length)
+upper = basis + dev
+lower = basis - dev
+
+plot(basis, "Basis", color=color none)
+plot(upper, "Upper", color=color.blue)
+plot(lower, "Lower", color=color.blue)
+
+basisColor = basis > basis[1] ? color.green : color.red
+plot(basis, "Basis", color=basisColor)
+
+if ta.crossover(src, upper)
+    label.new(bar_index, high, text="Sat", yloc=yloc.belowbar, color=color.red, style=label.style_label_up)
+if ta.crossunder(src, lower)
+    label.new(bar_index, low, text="Al", yloc=yloc.abovebar, color=color.green, style=label.style_label_down)
+
+// Karpathy otonom döngüsü
+length = input.int(title="Uzunluk", minval=1, maxval=100, defval=14)
+mult = input.float(title="Çarpan", minval=0.1, maxval=5, defval=2)
+
+// TSL/Take-Profit oranları adapte edilmesi
+if src > upper
+    sl = src - (src * tsl / 100)
+else if src < lower
+    sl = src + (src * tsl / 100)
+
+plot(sl, "Stop Loss", color=color.yellow)

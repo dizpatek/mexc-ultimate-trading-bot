@@ -2,14 +2,18 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth-utils";
 import { getMexcCredentials, setSetting } from "@/lib/settings";
 import { getAccountInfo } from "@/lib/mexc";
+import { ensureTablesExist } from "@/lib/db-init";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
+    await ensureTablesExist();
     const user = await getSessionUser(req);
-    if (!user)
+    if (!user) {
+      console.warn("[API/Settings/Keys] Unauthorized access attempt (Missing/Invalid Token)");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const { apiKey, apiSecret } = await getMexcCredentials(
       user.id,
@@ -35,16 +39,16 @@ export async function GET(req: Request) {
       hasKeys,
       health,
       error,
-      apiKeyMasked: apiKey
-        ? `${apiKey.substring(0, 6)}...${apiKey.substring(apiKey.length - 6)}`
-        : null,
+      apiKeyMasked: (apiKey && apiKey.length >= 10)
+        ? `${apiKey.substring(0, 6)}...${apiKey.substring(apiKey.length - 4)}`
+        : (hasKeys ? "********" : null),
     });
   } catch (e: unknown) {
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    console.error("[API/Settings/Keys] GET Error:", errorMsg);
     return NextResponse.json(
       {
-        error:
-          "Failed to fetch settings: " +
-          (e instanceof Error ? e.message : String(e)),
+        error: "Failed to fetch settings: " + errorMsg,
       },
       { status: 500 },
     );
@@ -53,6 +57,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    await ensureTablesExist();
     const user = await getSessionUser(req);
     if (!user)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

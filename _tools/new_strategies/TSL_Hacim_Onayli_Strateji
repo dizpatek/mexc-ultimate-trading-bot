@@ -1,0 +1,55 @@
+//@version=5
+indicator("TSL Hacim Onaylı Strateji", shorttitle="TSL_HOS")
+
+// Parametreler
+length = input(14, title="TSL Uzunluğu")
+src = close
+basis = ta.sma(src, length)
+dev = input.float(2.0, minval=0.001, title="TSL Sapma")
+upper = basis + dev * ta.stdev(src, length)
+lower = basis - dev * ta.stdev(src, length)
+
+// Hacim Onayı
+volumeCondition = input.bool(true, title="Hacim Onayı")
+volumeLength = input(20, title="Hacim Uzunluğu")
+volumeSrc = input.source(close, title="Hacim Kaynağı")
+avgVolume = ta.sma(volumeSrc, volumeLength)
+volumeUp = ta.rising(volumeSrc, 1) and volumeSrc > avgVolume
+
+// Karpathy Otonom Döngüsü
+useKarpathy = input.bool(true, title="Karpathy Otonom Döngüsü")
+karpathyLength = input(50, title="Karpathy Uzunluğu")
+karpathySrc = input.source(close, title="Karpathy Kaynağı")
+karpathyBasis = ta.sma(karpathySrc, karpathyLength)
+karpathyDev = input.float(1.5, minval=0.001, title="Karpathy Sapma")
+karpathyUpper = karpathyBasis + karpathyDev * ta.stdev(karpathySrc, karpathyLength)
+karpathyLower = karpathyBasis - karpathyDev * ta.stdev(karpathySrc, karpathyLength)
+
+// TSL/Take-Profit Oranları
+tslTakeProfit = input.float(1.1, minval=0.001, title="TSL/Take-Profit Oranı")
+
+// Karar Mekanizmaları
+if (useKarpathy)
+    karpathyCondition = (karpathySrc > karpathyUpper[1] and karpathySrc[1] < karpathyUpper[1]) or (karpathySrc < karpathyLower[1] and karpathySrc[1] > karpathyLower[1])
+    if (karpathyCondition)
+        strategy.entry("Long", strategy.long, when=close > upper, comment="Al")
+        strategy.entry("Short", strategy.short, when=close < lower, comment="Sat")
+
+if (volumeCondition)
+    volumeUpCondition = volumeUp and close > upper
+    if (volumeUpCondition)
+        strategy.entry("Long", strategy.long, when=close > upper, comment="Al")
+        strategy.exit("Long", "Long", stop=lower, comment="Stop Loss")
+
+    volumeDownCondition = not volumeUp and close < lower
+    if (volumeDownCondition)
+        strategy.entry("Short", strategy.short, when=close < lower, comment="Sat")
+        strategy.exit("Short", "Short", stop=upper, comment="Stop Loss")
+
+// Grafik
+plot(basis, color=color.blue, title="TSL Basis")
+plot(upper, color=color.red, title="TSL Üst")
+plot(lower, color=color.green, title="TSL Alt")
+plot(karpathyBasis, color=colororange, title="Karpathy Basis")
+plot(karpathyUpper, color=color.yellow, title="Karpathy Üst")
+plot(karpathyLower, color=color.purple, title="Karpathy Alt")

@@ -3,7 +3,7 @@ title: SmartTradeLogicHook
 tags: [hook, trade, execution, logic]
 sourceFile: src/hooks/useSmartTradeLogic.ts
 size: "9KB / 210 satır"
-lastUpdated: 2026-04-11
+lastUpdated: 2026-04-22
 type: entity
 ---
 

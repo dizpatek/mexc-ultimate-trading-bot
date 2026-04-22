@@ -6,11 +6,11 @@ if (process.env.POSTGRES_URL && !process.env.POSTGRES_URL.includes('sslmode')) {
     const separator = process.env.POSTGRES_URL.includes('?') ? '&' : '?';
     process.env.POSTGRES_URL += `${separator}sslmode=require`;
 }
-process.env.NODE_ENV = 'production';
+(process.env as any).NODE_ENV = 'production';
 
 async function cleanOrphanedTrades() {
   try {
-    const { sql } = await import('../src/lib/postgres.ts');
+    const { sql } = await import('../../src/lib/postgres');
     
     console.log("==================================================");
     console.log("🧹 HAYALET (ORPHANED) ISLEMLER TEMIZLIK ARACI");
@@ -60,7 +60,7 @@ async function cleanOrphanedTrades() {
       try {
         await sql`
           UPDATE orders 
-          SET meta = ${JSON.stringify(metaObj)}, status = 'CLOSED'
+          SET meta = ${JSON.stringify(metaObj)}::jsonb, status = 'CLOSED'
           WHERE id = ${row.id}
         `;
         successCount++;

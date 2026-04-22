@@ -1,0 +1,30 @@
+//@version=5
+strategy("Momentum Koruma Stratejisi", overlay=true)
+
+// Parametreler
+length = input.int(14, title="Momentum Uzunluğu")
+src = close
+basis = ta.sma(src, length)
+dev = src - basis
+upper = basis + 2 * ta.stdev(dev, length)
+lower = basis - 2 * ta.stdev(dev, length)
+
+// Momentum eşik değerleri
+f4Esim = input.float(0.026, title="F4 Eğim Eşik")
+tsLOrann = input.float(1.7, title="TSL Oranı")
+
+// Karpathy otonom döngüsü
+if ta.crossover(src, upper)
+    strategy.entry("Alış", strategy.long)
+if ta.crossunder(src, lower)
+    strategy.entry("Satış", strategy.short)
+
+// Kararı Mechanizması
+if strategy.position_size > 0
+    strategy.close("Alış", when=src > src[1] * (1 + f4Esim/100))
+    strategy.close("Alış", when=src < src[1] * (1 - f4Esim/100))
+    strategy.close("Alış", when=src > src[1] * (1 + tsLOrann/100))
+if strategy.position_size < 0
+    strategy.close("Satış", when=src < src[1] * (1 - f4Esim/100))
+    strategy.close("Satış", when=src > src[1] * (1 + f4Esim/100))
+    strategy.close("Satış", when=src < src[1] * (1 - tsLOrann/100))

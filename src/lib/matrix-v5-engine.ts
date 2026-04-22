@@ -62,6 +62,9 @@ export interface MatrixV5Config {
   // Squeeze logic separation
   longSqueezeThreshold: number;
   shortSqueezeThreshold: number;
+  mtfLongThreshold: number;
+  mtfShortThreshold: number;
+  freshnessDistance: number;
 }
 
 export type MarketRegime = "RISK_ON" | "RISK_OFF" | "NEUTRAL";
@@ -346,6 +349,9 @@ export class MatrixV5Engine {
       minPowerLoss: d(config.minPowerLoss, 90, "minPowerLoss"),
       longSqueezeThreshold: d(config.longSqueezeThreshold, 20, "longSqueezeThreshold"),
       shortSqueezeThreshold: d(config.shortSqueezeThreshold, 20, "shortSqueezeThreshold"),
+      mtfLongThreshold: d(config.mtfLongThreshold, 20, "mtfLongThreshold"),
+      mtfShortThreshold: d(config.mtfShortThreshold, 20, "mtfShortThreshold"),
+      freshnessDistance: d(config.freshnessDistance, 5, "freshnessDistance"),
     };
   }
 

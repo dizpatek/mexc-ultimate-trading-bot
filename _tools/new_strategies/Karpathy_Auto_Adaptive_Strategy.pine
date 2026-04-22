@@ -1,0 +1,14 @@
+//@version=5
+strategy("Karpathy Auto Adaptive Strategy", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+TSL = input.float(1.7, title="TSL Oran")
+F4MomentumEşik = input.float(0.037, title="F4 Momentum Eşik")
+MTFKoruması = input.bool(false, title="MTF Koruması")
+pivotHigh = ta.highestbars(high, 5) > high
+pivotLow = ta.lowestbars(low, 5) < low
+longCondition = pivotLow and ta.mom(close, 14) > F4MomentumEşik
+shortCondition = pivotHigh and ta.mom(close, 14) < -F4MomentumEşik
+strategy.entry("Long", when=longCondition, comment="Al")
+strategy.entry("Short", when=shortCondition, comment="Sat")
+if (MTFKoruması)
+    strategy.close("Long", when=close < (close[1] * (1 - TSL / 100)))
+    strategy.close("Short", when=close > (close[1] * (1 + TSL / 100)))

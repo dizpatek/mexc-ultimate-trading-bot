@@ -6,7 +6,7 @@ if (process.env.POSTGRES_URL && !process.env.POSTGRES_URL.includes('sslmode')) {
 }
 
 async function run() {
-  const { sql } = await import('../src/lib/postgres.ts');
+  const { sql } = await import('../../src/lib/postgres');
   
   console.log('📊 Veri Hacmi Analizi:\n');
   

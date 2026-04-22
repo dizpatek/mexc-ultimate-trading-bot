@@ -26,7 +26,7 @@ export interface BacktestParams {
   min_power_loss: number;
   f4_slope_threshold: number;
 
-  // Trade parameters
+  // Trade parameters (LONG / TRADE mode)
   pilot_tp_percent: number;         // % (e.g. 3.0)
   pilot_sl_percent: number;         // % (e.g. 1.5)
   pilot_tp_trailing: boolean;
@@ -34,11 +34,36 @@ export interface BacktestParams {
   pilot_sl_trailing: boolean;
   pilot_sl_deviation: number;       // % trailing deviation for SL
 
+  // Cover parameters (SHORT / COVER mode)
+  cover_tp_percent: number;         // % (e.g. 1.1)
+  cover_sl_percent: number;         // % (e.g. 0.45)
+  cover_tp_trailing: boolean;
+  cover_tp_deviation: number;       // % trailing deviation off Cover TP
+  cover_sl_trailing: boolean;
+  cover_sl_deviation: number;       // % trailing deviation for Cover SL
+
+  // Pilot Control
+  pilot_trailing_buy: boolean;      // Gecikmeli alım (trailing buy)
+  pilot_trade_allocation: number;   // İşlem büyüklüğü % (USDT'den)
+
   // MTF
   pilot_mtf_veto: boolean;
   pilot_mtf_threshold: number;
   pilot_mtf_long_threshold: number;
   pilot_mtf_short_threshold: number;
+
+  // Signal Freshness
+  trade_freshness_bars: number;
+
+  // Expanded Engine Overrides (V2.1)
+  rsi_period?: number;
+  rsi_ob?: number;
+  rsi_os?: number;
+  adx_threshold?: number;
+  macd_fast?: number;
+  macd_slow?: number;
+  macd_signal?: number;
+  stoch_rsi_len?: number;
 }
 
 export interface BacktestTrade {
@@ -84,17 +109,25 @@ const MAX_TRADE_BARS = 100;   // Force close after this many bars (avoid infinit
 
 export async function runBacktest(
   symbol: string,
-  timeframe: "1h" | "4h" | "1d",
+  timeframe: "1m" | "15m" | "1h" | "4h" | "1d" | "1w" | "1mo",
   params: BacktestParams,
   barsOverride?: number,
 ): Promise<BacktestResult> {
   const startMs = Date.now();
-  const bars = barsOverride ?? (timeframe === "1d" ? 365 : timeframe === "4h" ? 500 : 500);
+  // Dynamic bars and thresholds based on timeframe
+  const bars = barsOverride ?? (
+    timeframe === "1mo" ? 100 :
+    timeframe === "1w"  ? 200 :
+    timeframe === "1d"  ? 365 :
+    timeframe === "1m"  ? 1000 : 500
+  );
+  const minRequired = Math.min(200, Math.floor(bars * 0.5));
 
   // Fetch historical klines — fetchKlines returns {time, open, high, low, close, volume} objects
   const klines = await fetchKlines(symbol, timeframe, bars);
   
-  if (!klines || klines.length < 200) {
+  if (!klines || klines.length < minRequired) {
+    console.warn(`[Backtest] Skip ${symbol}:${timeframe} — Insufficient data: ${klines?.length ?? 0}/${minRequired}`);
     return emptyResult(symbol, timeframe, params, Date.now() - startMs);
   }
 
@@ -215,24 +248,24 @@ export async function runBacktest(
         }
 
       } else {
-        // SHORT trade
+        // SHORT trade — uses COVER parameters (matches pilot-executor.ts executeCover())
         troughPrice = Math.min(troughPrice, currentLow);
 
-        const staticTP = tradeEntry * (1 - params.pilot_tp_percent / 100);
-        const staticSL = tradeEntry * (1 + params.pilot_sl_percent / 100);
+        const staticTP = tradeEntry * (1 - params.cover_tp_percent / 100);
+        const staticSL = tradeEntry * (1 + params.cover_sl_percent / 100);
 
-        if (params.pilot_tp_trailing && !ttpActivated && currentLow <= staticTP) {
+        if (params.cover_tp_trailing && !ttpActivated && currentLow <= staticTP) {
           ttpActivated = true;
-          ttpLevel = troughPrice * (1 + params.pilot_tp_deviation / 100);
+          ttpLevel = troughPrice * (1 + params.cover_tp_deviation / 100);
         }
         if (ttpActivated) {
-          ttpLevel = Math.min(ttpLevel, troughPrice * (1 + params.pilot_tp_deviation / 100));
+          ttpLevel = Math.min(ttpLevel, troughPrice * (1 + params.cover_tp_deviation / 100));
         }
 
-        if (params.pilot_sl_trailing) {
+        if (params.cover_sl_trailing) {
           tslLevel = tslActivated
-            ? Math.min(tslLevel, troughPrice * (1 + params.pilot_sl_deviation / 100))
-            : tradeEntry * (1 + params.pilot_sl_deviation / 100);
+            ? Math.min(tslLevel, troughPrice * (1 + params.cover_sl_deviation / 100))
+            : tradeEntry * (1 + params.cover_sl_deviation / 100);
           tslActivated = true;
         }
 
@@ -245,10 +278,10 @@ export async function runBacktest(
         } else if (ttpActivated && currentHigh >= ttpLevel) {
           exitPrice  = ttpLevel;
           exitReason = "TTP";
-        } else if (!params.pilot_sl_trailing && currentHigh >= staticSL) {
+        } else if (!params.cover_sl_trailing && currentHigh >= staticSL) {
           exitPrice  = staticSL;
           exitReason = "SL";
-        } else if (!params.pilot_tp_trailing && currentLow <= staticTP) {
+        } else if (!params.cover_tp_trailing && currentLow <= staticTP) {
           exitPrice  = staticTP;
           exitReason = "TP";
         } else if (barsSinceEntry >= MAX_TRADE_BARS) {
@@ -289,7 +322,22 @@ export async function runBacktest(
         timeframe,
         "normal",
         0, // funding rate not available in backtest
-        { tradeMode: "Scalp", mtfThreshold: params.pilot_mtf_threshold },
+        { 
+          tradeMode: "Scalp", 
+          mtfThreshold: params.pilot_mtf_threshold,
+          mtfLongThreshold: params.pilot_mtf_long_threshold,
+          mtfShortThreshold: params.pilot_mtf_short_threshold,
+          freshnessDistance: params.trade_freshness_bars,
+          // Engine overrides (V2.1)
+          rsiPeriod: params.rsi_period,
+          rsiOB: params.rsi_ob,
+          rsiOS: params.rsi_os,
+          adxThreshold: params.adx_threshold,
+          macdFast: params.macd_fast,
+          macdSlow: params.macd_slow,
+          macdSignal: params.macd_signal,
+          stochRsiLen: params.stoch_rsi_len
+        },
         openSlice,
       );
 
@@ -318,8 +366,8 @@ export async function runBacktest(
         tradeEntryIdx = i;
         peakPrice    = 0;
         troughPrice  = currentLow;
-        tslLevel     = tradeEntry * (1 + params.pilot_sl_deviation / 100);
-        tslActivated = params.pilot_sl_trailing;
+        tslLevel     = tradeEntry * (1 + params.cover_sl_deviation / 100);
+        tslActivated = params.cover_sl_trailing;
         ttpLevel     = Infinity;
         ttpActivated = false;
       }

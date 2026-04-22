@@ -2,8 +2,8 @@
 title: WhaleRadarHook
 tags: [hook, whale, scanner, alerts]
 sourceFile: src/hooks/useWhaleRadar.ts
-size: "6KB / 236 satır"
-lastUpdated: 2026-04-11
+size: "7KB / 236 satır"
+lastUpdated: 2026-04-22
 type: entity
 ---
 

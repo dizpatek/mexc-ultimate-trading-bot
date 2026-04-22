@@ -1,0 +1,26 @@
+// Karpathy Momentum Stratejisi
+strategy("Karpathy Momentum", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+
+// Parametreler
+length = input(14, title="Momentum Uzunluğu")
+src = close
+mom = ta.mom(src, length)
+
+// TSL ve Take Profit Oranları
+tslOrani = input(1.1, title="TSL Oranı")
+takeProfitOrani = input(1.5, title="Take Profit Oranı")
+
+// Karpathy Otonom Döngüsü
+karpathyDongusu = ta.sma(mom, length) > 0 ? 1 : -1
+
+// Alım-Satım Sinyalleri
+if (karpathyDongusu == 1 and mom > 0)
+    strategy.entry("Alım", strategy.long)
+if (karpathyDongusu == -1 and mom < 0)
+    strategy.entry("Satım", strategy.short)
+
+// Stop Loss ve Take Profit Ayarları
+strategy.exit("TSL", "Alım", stop=strategy.position_avg_price * (1 - tslOrani))
+strategy.exit("Take Profit", "Alım", limit=strategy.position_avg_price * (1 + takeProfitOrani))
+strategy.exit("TSL", "Satım", stop=strategy.position_avg_price * (1 + tslOrani))
+strategy.exit("Take Profit", "Satım", limit=strategy.position_avg_price * (1 - takeProfitOrani))

@@ -1,0 +1,20 @@
+//@version=5
+strategy("Momentum Karpathy Strategy")
+
+// Parametreler
+length = input(14, title="Momentum Length")
+src = close
+momentum = ta.mom(src, length)
+
+// TSL/Take-Profit oranları adapte ediliyor
+TSL = input.float(2.9, title="TSL Oranı")
+takeProfit = input.float(1.1, title="Take-Profit Oranı")
+
+// Karpathy otonom döngüsü
+if momentum > 0
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long", "Long", stop=strategy.position_avg_price * (1 - TSL/100), limit=strategy.position_avg_price * (1 + takeProfit/100))
+
+if momentum < 0
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short", "Short", stop=strategy.position_avg_price * (1 + TSL/100), limit=strategy.position_avg_price * (1 - takeProfit/100))

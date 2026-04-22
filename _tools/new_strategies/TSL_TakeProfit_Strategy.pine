@@ -1,0 +1,25 @@
+//@version=5
+strategy("TSL_TakeProfit_Strategy", overlay=true, currency=currency.USD, format=format.price)
+// Parametreler
+length = input.int(14, title="Length")
+src = close
+basis = ta.sma(src, length)
+dev = input.float(2.0, title="Deviation")
+upper = basis + dev * ta.stdev(src, length)
+lower = basis - dev * ta.stdev(src, length)
+// Momentum Hesapları
+mom = ta.mom(src, length)
+// F4 Momentum Eşik Değeri
+f4Threshold = input.float(0.035, title="F4 Momentum Eşik Değeri")
+// TSL Oranları
+tsl = input.float(5.9, title="TSL Oranı")
+// Take-Profit Oranları
+takeProfit = input.float(1.1, title="Take-Profit Oranı")
+// Karpathy Otonom Döngüsü
+if (ta.crossover(mom, f4Threshold))
+    strategy.entry("Long", strategy.long)
+if (ta.crossunder(mom, f4Threshold))
+    strategy.exit("Long", "Long")
+// TSL ve Take-Profit Uygulaması
+strategy.exit("TSL", "Long", stop=close * (1 - tsl / 100))
+strategy.exit("TakeProfit", "Long", limit=close * (1 + takeProfit / 100))

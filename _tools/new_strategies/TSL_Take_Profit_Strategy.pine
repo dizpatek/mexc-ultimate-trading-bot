@@ -1,0 +1,44 @@
+//@version=5
+strategy('TSL_Take_Profit_Strategy', overlay=true, currency=currency.USD, format=format.price)
+
+// Parametreler
+length = input.int(14, title='TSL Uzunluğu')
+src = close
+basis = ta.sma(src, length)
+dev = input.float(2.0, minval=0.001, title='Standart Sapma Katsayısı')
+upper = basis + dev * ta.stdev(src, length)
+lower = basis - dev * ta.stdev(src, length)
+
+// Karpathy Otonom Döngüsü
+tsl_ratio = input.float(1.1, title='TSL Oranı', minval=0.1)
+take_profit_ratio = input.float(1.1, title='Kar Al Oranı', minval=0.1)
+stop_loss_ratio = input.float(0.9, title='Zarar Durdur Oranı', minval=0.1)
+
+// Momentum Kayıplarını Engellemek
+f4_momentum_threshold = input.float(0.037, title='F4 Momentum Eşik Değeri', minval=0.001)
+
+// Karar Mekanizmaları
+longCondition = ta.crossover(src, upper) and ta.mom(src, 1) > f4_momentum_threshold
+if longCondition
+    strategy.entry('Long', strategy.long)
+
+shortCondition = ta.crossunder(src, lower) and ta.mom(src, 1) < -f4_momentum_threshold
+if shortCondition
+    strategy.entry('Short', strategy.short)
+
+// Stop Loss ve Take Profit
+strategy.exit('Long TP', 'Long', limit=src * take_profit_ratio)
+strategy.exit('Long SL', 'Long', stop=src * stop_loss_ratio)
+strategy.exit('Short TP', 'Short', limit=src * (1 / take_profit_ratio))
+strategy.exit('Short SL', 'Short', stop=src * (1 / stop_loss_ratio))
+
+// TSL/Take-Profit Oranlarını Adapte Etmek
+if ta.change(basis) > 0
+    tsl_ratio := tsl_ratio * 1.1
+else
+    tsl_ratio := tsl_ratio * 0.9
+
+// Plotlar
+plot(basis, color=color.blue, title='Basis'
+plot(upper, color=color.green, title='Üst Bant'
+plot(lower, color=color.red, title='Alt Bant'

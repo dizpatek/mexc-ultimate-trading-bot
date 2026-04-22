@@ -1,4 +1,5 @@
 import { sql, pool } from "@/lib/postgres";
+import { TelegramService } from "./telegram-service";
 export { sql, pool };
 import { DEFAULT_BOT_CONFIG } from "./constants/bot-defaults";
 import type { Pool } from "pg";
@@ -149,6 +150,18 @@ export interface BotConfig {
   swing_volume_multiplier?: number;
   updated_at: number;
   timeframe_settings: BotTimeframeSettings;
+  // Root-level pilot trade/cover values (AutoResearch optimize eder, root kolona yazar)
+  pilot_tp_percent?: number;
+  pilot_sl_percent?: number;
+  // V2.1 Engine Overrides (AutoResearch optimize eder)
+  rsi_period?: number;
+  rsi_ob?: number;
+  rsi_os?: number;
+  adx_threshold?: number;
+  macd_fast?: number;
+  macd_slow?: number;
+  macd_signal?: number;
+  stoch_rsi_len?: number;
 }
 
 // @eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -204,7 +217,7 @@ export async function insertOrder(obj: Partial<Order>) {
     const now = Date.now();
     const result = await sql`
             INSERT INTO orders (user_id, mexc_order_id, symbol, side, type, qty, quote, price, status, created_at, updated_at, meta, trading_mode) 
-            VALUES (${obj.user_id || DEFAULT_UID}, ${obj.mexc_order_id || null}, ${obj.symbol}, ${obj.side}, ${obj.type}, ${obj.qty !== undefined ? obj.qty : null}, ${obj.quote !== undefined ? obj.quote : null}, ${obj.price !== undefined ? obj.price : null}, ${obj.status || "NEW"}, ${now}, ${now}, ${JSON.stringify(obj.meta || {})}, ${obj.trading_mode || "test"}) 
+            VALUES (${obj.user_id || DEFAULT_UID}, ${obj.mexc_order_id || null}, ${obj.symbol}, ${obj.side}, ${obj.type}, ${obj.qty !== undefined ? obj.qty : null}, ${obj.quote !== undefined ? obj.quote : null}, ${obj.price !== undefined ? obj.price : null}, ${obj.status || "NEW"}, ${now}, ${now}, ${JSON.stringify(obj.meta || {})}::jsonb, ${obj.trading_mode || "test"}) 
             RETURNING id
         `;
     return result.rows[0].id;
@@ -222,7 +235,7 @@ export async function updateOrderStatus(
   status: string,
   meta: Record<string, unknown>,
 ) {
-  return await sql`UPDATE orders SET status = ${status}, updated_at = ${Date.now()}, meta = ${JSON.stringify(meta || {})} WHERE id = ${id}`;
+  return await sql`UPDATE orders SET status = ${status}, updated_at = ${Date.now()}, meta = ${JSON.stringify(meta || {})}::jsonb WHERE id = ${id}`;
 }
 
 export async function getOpenOrders() {
@@ -252,7 +265,7 @@ export async function getActiveSmartTrades(userId: number, tradingMode: string =
     `;
   return rows.map(r => ({
     ...r,
-    meta: r.meta ? JSON.parse(r.meta as string) : {}
+    meta: typeof r.meta === "string" ? JSON.parse(r.meta) : (r.meta || {})
   }));
 }
 
@@ -689,7 +702,7 @@ export async function createStrategySignal(signalData: {
   } = signalData;
   const { rows } = await sql`
         INSERT INTO strategy_signals (user_id, strategy_id, symbol, side, signal_type, price, volume, timestamp, executed, execution_result, trading_mode, timeframe, veto_reason, payload)
-        VALUES (${user_id}, ${strategy_id || null}, ${symbol || null}, ${side || null}, ${signal_type || 'NONE'}, ${price ?? null}, ${volume ?? null}, ${timestamp}, ${executed || false}, ${JSON.stringify(execution_result || {})}, ${trading_mode || "test"}, ${timeframe || "1m"}, ${veto_reason || null}, ${JSON.stringify(payload || {})})
+        VALUES (${user_id}, ${strategy_id || null}, ${symbol || null}, ${side || null}, ${signal_type || 'NONE'}, ${price ?? null}, ${volume ?? null}, ${timestamp}, ${executed || false}, ${JSON.stringify(execution_result || {})}, ${trading_mode || "test"}, ${timeframe || "1m"}, ${veto_reason || null}, ${JSON.stringify(payload || {})}::jsonb)
         RETURNING id
     `;
   return rows[0].id;
@@ -716,9 +729,9 @@ export async function getStrategySignals(strategyId: number, limit = 100) {
     await sql`SELECT * FROM strategy_signals WHERE strategy_id = ${strategyId} ORDER BY timestamp DESC LIMIT ${limit}`;
   return rows.map((s) => ({
     ...s,
-    execution_result: s.execution_result
-      ? JSON.parse(s.execution_result as string)
-      : null,
+    execution_result: typeof s.execution_result === "string"
+      ? JSON.parse(s.execution_result)
+      : s.execution_result,
   }));
 }
 
@@ -824,24 +837,77 @@ export async function logSystemEvent(
 export async function autoCleanDB() {
   try {
     const now = Date.now();
-    const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
-    const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000; // Extended from 2 to 7 days
-
-    // Postgres'teki eski ticaret loglarini temizle
-    const resTrades = await sql`DELETE FROM trade_history WHERE created_at < ${thirtyDaysAgo}`;
-    // System logs retention extended
-    const resLogs = await sql`DELETE FROM system_logs WHERE timestamp < ${sevenDaysAgo}`;
     
-    console.log(`🧹 [Janitor] Veritabanı Temizlendi: ${resTrades.rowCount} eski islem, ${resLogs.rowCount} eski log silindi.`);
+    // retention periods (ms)
+    const EIGHT_HOURS = 8 * 60 * 60 * 1000;
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    const TWO_DAYS = 2 * 24 * 60 * 60 * 1000;
+    const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+    const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+
+    // --- SAFETY VALVE: DISK SPACE MONITORING ---
+    const sizeRes = await sql`SELECT pg_database_size(current_database()) as size_bytes, pg_size_pretty(pg_database_size(current_database())) as size_pretty`;
+    const sizeBytes = parseInt(String(sizeRes.rows[0].size_bytes));
+    const sizePretty = String(sizeRes.rows[0].size_pretty);
+    
+    const ONE_GB = 1024 * 1024 * 1024;
+    const SAFETY_THRESHOLD = 5 * ONE_GB; // 5GB (Limit: 8GB)
+    const WARNING_THRESHOLD = 3 * ONE_GB; // 3GB
+
+    console.log(`📊 [DB-Monitor] Mevcut Boyut: ${sizePretty} (${sizeBytes} bytes)`);
+
+    if (sizeBytes > SAFETY_THRESHOLD) {
+      console.error(`🚨 [Safety-Valve] KRİTİK DOLULUK TESPİT EDİLDİ (${sizePretty}). Acil tahliye başlatılıyor...`);
+      
+      // Emergency Truncate
+      await sql`TRUNCATE TABLE market_trades;`;
+      await sql`TRUNCATE TABLE system_logs;`;
+      
+      await TelegramService.sendNotification("PANIC", "KRİTİK VERİTABANI DOLULUĞU", 
+        `Veritabanı boyutu ${sizePretty} seviyesine ulaştı! Acil durum tahliyesi gerçekleştirildi (market_trades & system_logs temizlendi).`);
+    } else if (sizeBytes > WARNING_THRESHOLD) {
+      console.warn(`⚠️ [Safety-Valve] Yüksek Doluluk Uyarısı (${sizePretty}).`);
+      // Optional: send notification only once every 6 hours for warnings
+    }
+
+    // --- STANDARD GRADUATED CLEANUP ---
+    // 1. system_logs cleanup (Stratified)
+    // Low importance: DEBUG, INFO (8h)
+    const resLogsLow = await sql`DELETE FROM system_logs WHERE timestamp < ${now - EIGHT_HOURS} AND level IN ('DEBUG', 'INFO')`;
+    // High importance: SYSTEM, ERROR, CRITICAL, ALARM (2 days)
+    const resLogsHigh = await sql`DELETE FROM system_logs WHERE timestamp < ${now - TWO_DAYS} AND level IN ('SYSTEM', 'ERROR', 'CRITICAL', 'ALARM')`;
+    
+    // 2. market_trades cleanup (8 hours - High Volume)
+    const resMarket = await sql`DELETE FROM market_trades WHERE t < ${now - EIGHT_HOURS}`;
+    
+    // 3. strategy_signals cleanup
+    // Executed signals: 24h history is enough
+    const resSignalsExec = await sql`DELETE FROM strategy_signals WHERE timestamp < ${now - TWENTY_FOUR_HOURS} AND executed = true`;
+    // Vetoed or others: 8h
+    const resSignalsOther = await sql`DELETE FROM strategy_signals WHERE timestamp < ${now - EIGHT_HOURS} AND executed = false`;
+
+    // 4. trade_history cleanup (30 days)
+    const resTrades = await sql`DELETE FROM trade_history WHERE created_at < ${now - THIRTY_DAYS}`;
+
+    // 5. autoresearch_experiments cleanup (Non-best results older than 7 days)
+    const resAutoRes = await sql`DELETE FROM autoresearch_experiments WHERE created_at < ${now - SEVEN_DAYS} AND is_best = false`;
+    
+    const totalDeleted = (resLogsLow.rowCount || 0) + (resLogsHigh.rowCount || 0) + (resMarket.rowCount || 0) + 
+                         (resSignalsExec.rowCount || 0) + (resSignalsOther.rowCount || 0) + (resTrades.rowCount || 0) + (resAutoRes.rowCount || 0);
+
+    if (totalDeleted > 0) {
+      console.log(`🧹 [Janitor] Veritabanı Temizlendi. Toplam ${totalDeleted} satır silindi.`);
+      console.log(`   - Loglar: ${ (resLogsLow.rowCount || 0) + (resLogsHigh.rowCount || 0) } | Market: ${resMarket.rowCount} | Sinyaller: ${ (resSignalsExec.rowCount || 0) + (resSignalsOther.rowCount || 0) }`);
+    }
   } catch (err) {
     console.error("🧹 [Janitor] Veritabanı Temizlik Hatasi:", err);
   }
 }
 
-// Node.js süreci başlarken bir kez çalıştır ve ardından 6 saatte bir tekrarla
+// Node.js süreci başlarken bir kez çalıştır ve ardından 1 saatte bir tekrarla
 setTimeout(() => {
   autoCleanDB();
-  setInterval(autoCleanDB, 6 * 60 * 60 * 1000);
+  setInterval(autoCleanDB, 1 * 60 * 60 * 1000); // 6 saatten 1 saate düşürüldü
 }, 5000);
 
 export async function updateBotConfig(userId: number, updates: Partial<BotConfig>) {
@@ -1002,6 +1068,19 @@ export async function updateBotConfig(userId: number, updates: Partial<BotConfig
       long_squeeze_threshold: updates.long_squeeze_threshold !== undefined ? updates.long_squeeze_threshold : (current.long_squeeze_threshold ?? 20),
       short_squeeze_threshold: updates.short_squeeze_threshold !== undefined ? updates.short_squeeze_threshold : (current.short_squeeze_threshold ?? 20),
       f4_slope_threshold: updates.f4_slope_threshold !== undefined ? updates.f4_slope_threshold : (current.f4_slope_threshold ?? 0.01),
+      // ── KRITIK EKSİKLER: AutoResearch'ten gelen optimize değerlerin DB'ye yazılabilmesi için ──
+      // pilot_tp_percent / pilot_sl_percent: timeframe_settings içinde değil, root BotConfig sütunu olarak da saklanmalı
+      pilot_tp_percent: updates.pilot_tp_percent !== undefined ? updates.pilot_tp_percent : ((current as any).pilot_tp_percent ?? 3.0),
+      pilot_sl_percent: updates.pilot_sl_percent !== undefined ? updates.pilot_sl_percent : ((current as any).pilot_sl_percent ?? 1.5),
+      // V2.1 indicator overrides (AutoResearch optimize eder)
+      rsi_period: updates.rsi_period !== undefined ? updates.rsi_period : ((current as any).rsi_period ?? 14),
+      rsi_ob: updates.rsi_ob !== undefined ? updates.rsi_ob : ((current as any).rsi_ob ?? 70),
+      rsi_os: updates.rsi_os !== undefined ? updates.rsi_os : ((current as any).rsi_os ?? 30),
+      adx_threshold: updates.adx_threshold !== undefined ? updates.adx_threshold : ((current as any).adx_threshold ?? 25),
+      macd_fast: updates.macd_fast !== undefined ? updates.macd_fast : ((current as any).macd_fast ?? 12),
+      macd_slow: updates.macd_slow !== undefined ? updates.macd_slow : ((current as any).macd_slow ?? 26),
+      macd_signal: updates.macd_signal !== undefined ? updates.macd_signal : ((current as any).macd_signal ?? 9),
+      stoch_rsi_len: updates.stoch_rsi_len !== undefined ? updates.stoch_rsi_len : ((current as any).stoch_rsi_len ?? 14),
       updated_at: now
     };
 
@@ -1113,15 +1192,39 @@ export interface AutoResearchExperiment {
 
 /**
  * AutoResearch deneyini veritabanına kaydeder.
+ * Kayıt öncesi parametreleri (precision ve type) sanitize eder.
  */
 export async function insertAutoResearchExperiment(exp: Omit<AutoResearchExperiment, "id">): Promise<number> {
   try {
+    // ─── Kesinlik ve Tip Sanitizasyonu ───
+    const rawParams = exp.params as any;
+    const cleanParams: Record<string, any> = {};
+    
+    // Bilinen sayısal alanlar ve hassasiyetleri
+    const float2 = ["f4_multiplier", "whale_multiplier", "pilot_tp_percent", "pilot_sl_percent", "cover_tp_percent", "cover_sl_percent"];
+    const float4 = ["pilot_tp_deviation", "pilot_sl_deviation", "cover_tp_deviation", "cover_sl_deviation"];
+    const float6 = ["f4_slope_threshold"];
+    const bools  = ["pilot_tp_trailing", "pilot_sl_trailing", "cover_tp_trailing", "cover_sl_trailing", "pilot_trailing_buy", "pilot_mtf_veto"];
+
+    for (const [key, val] of Object.entries(rawParams)) {
+      if (typeof val === "number") {
+        if (float2.includes(key)) cleanParams[key] = parseFloat(val.toFixed(2));
+        else if (float4.includes(key)) cleanParams[key] = parseFloat(val.toFixed(4));
+        else if (float6.includes(key)) cleanParams[key] = parseFloat(val.toFixed(6));
+        else cleanParams[key] = Math.round(val); // default integer
+      } else if (bools.includes(key)) {
+        cleanParams[key] = !!val;
+      } else {
+        cleanParams[key] = val; // diğeri (string vb)
+      }
+    }
+
     const result = await sql`
       INSERT INTO autoresearch_experiments
         (run_id, params, composite_score, win_rate, sharpe, profit_factor, max_drawdown,
          total_trades, total_pnl_pct, timeframe, symbol, search_phase, is_best, created_at)
       VALUES
-        (${exp.run_id}, ${JSON.stringify(exp.params)}, ${exp.composite_score},
+        (${exp.run_id}, ${JSON.stringify(cleanParams)}, ${exp.composite_score},
          ${exp.win_rate}, ${exp.sharpe}, ${exp.profit_factor}, ${exp.max_drawdown},
          ${exp.total_trades}, ${exp.total_pnl_pct}, ${exp.timeframe}, ${exp.symbol},
          ${exp.search_phase}, ${exp.is_best}, ${exp.created_at})
@@ -1135,25 +1238,43 @@ export async function insertAutoResearchExperiment(exp: Omit<AutoResearchExperim
 }
 
 /**
- * Mevcut en iyi deneyi "is_best=false" olarak işaretle, ardından yeniyi "true" yap.
+ * Mevcut en iyi deneyi ilgili timeframe için "is_best=false" olarak işaretle, ardından yeniyi "true" yap.
  */
-export async function markNewBestExperiment(newId: number): Promise<void> {
-  await sql`UPDATE autoresearch_experiments SET is_best = false WHERE is_best = true`;
+export async function markNewBestExperiment(newId: number, timeframe: string): Promise<void> {
+  await sql`UPDATE autoresearch_experiments SET is_best = false WHERE is_best = true AND timeframe = ${timeframe}`;
   await sql`UPDATE autoresearch_experiments SET is_best = true  WHERE id = ${newId}`;
 }
 
 /**
- * En iyi deneyi döndür.
+ * Belirli bir timeframe için en iyi deneyi döndür.
  */
-export async function getBestExperiment(): Promise<AutoResearchExperiment | null> {
-  const { rows } = await sql`
-    SELECT * FROM autoresearch_experiments
-    WHERE is_best = true
-    ORDER BY composite_score DESC
-    LIMIT 1
-  `;
+export async function getBestExperiment(timeframe?: string): Promise<AutoResearchExperiment | null> {
+  const query = timeframe 
+    ? sql`SELECT * FROM autoresearch_experiments WHERE is_best = true AND timeframe = ${timeframe} ORDER BY composite_score DESC LIMIT 1`
+    : sql`SELECT * FROM autoresearch_experiments WHERE is_best = true ORDER BY composite_score DESC LIMIT 1`;
+    
+  const { rows } = await query;
   if (!rows[0]) return null;
   return { ...rows[0], params: typeof rows[0].params === "string" ? JSON.parse(rows[0].params) : rows[0].params } as AutoResearchExperiment;
+}
+
+/**
+ * Her timeframe için en iyi deneyi liste olarak döndür.
+ */
+export async function getBestExperimentsPerTimeframe(): Promise<AutoResearchExperiment[]> {
+  const { rows } = await sql`
+    SELECT DISTINCT ON (timeframe) *
+    FROM autoresearch_experiments
+    WHERE is_best = true
+    ORDER BY timeframe, composite_score DESC
+  `;
+  return rows.map(r => ({
+    ...r,
+    params: typeof r.params === "string" ? JSON.parse(r.params) : r.params,
+    composite_score: parseFloat(String(r.composite_score)),
+    win_rate:         parseFloat(String(r.win_rate)),
+    created_at:       Number(r.created_at)
+  })) as AutoResearchExperiment[];
 }
 
 /**

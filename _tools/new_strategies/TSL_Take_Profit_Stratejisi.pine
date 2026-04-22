@@ -1,0 +1,29 @@
+//@version=5
+strategy("TSL_Take_Profit_Stratejisi", overlay=true, currency=currency.USD, format=format.price)
+length = input(14, title="Uzunluk")
+src = close
+sma = ta.sma(src, length)
+plot(sma, color=color.blue, title="SMA")
+
+// TSL Oranı
+TSL_Orani = input.float(1.1, title="TSL Oranı", minval=0.1, maxval=10)
+
+// F4 Momentum Eşik Değeri
+F4_Esik = input.float(0.0375, title="F4 Momentum Eşik Değeri", minval=0.01, maxval=0.1)
+
+// Karpathy Otonom Döngüsü
+karpathy = ta.rsi(src, length) > 50 ? src : src * (1 - F4_Esik)
+plot(karpathy, color=color.red, title="Karpathy")
+
+// Strateji Kuralları
+if (src > sma and karpathy > src)
+    strategy.entry("Alış", strategy.long)
+if (src < sma and karpathy < src)
+    strategy.entry("Satış", strategy.short)
+
+// TSL/Take-Profit Oranları
+TSL_Orani_Adapte = input.float(1.1, title="TSL/Take-Profit Oranları", minval=0.1, maxval=10)
+if (strategy.position_size > 0)
+    strategy.close("Alış", when=src >= sma + (src * TSL_Orani_Adapte / 100))
+if (strategy.position_size < 0)
+    strategy.close("Satış", when=src <= sma - (src * TSL_Orani_Adapte / 100))

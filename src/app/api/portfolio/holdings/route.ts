@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import {
   getAccountInfo,
-  getPrice,
-  get24hrTicker,
   type TradingMode,
 } from "@/lib/mexc-wrapper";
 import { getMexcCredentials } from "@/lib/settings";
@@ -44,7 +42,9 @@ export async function GET(request: Request) {
     }
 
 
+    // ── Step 1: Get account info (fast — test mode reads from DB)
     const accountInfo = await getAccountInfo(user.id, mode);
+
     if (!accountInfo || !accountInfo.balances) {
       console.warn(`[Holdings] No balances found for user ${user.id} in ${mode} mode.`);
       return NextResponse.json([]);
@@ -57,56 +57,68 @@ export async function GET(request: Request) {
 
     console.log(`[Holdings] User ${user.id} (${mode}) has ${activeBalances.length} active balances.`);
 
-    let totalValue = 0;
-    const holdingsData = await Promise.all(
-      activeBalances.map(
-        async (balance: { asset: string; free: string; locked: string }) => {
-          const free = parseFloat(balance.free);
-          const locked = parseFloat(balance.locked);
-          const totalQty = free + locked;
-          const symbol = balance.asset;
-          const pair = `${symbol}USDT`;
-
-          let currentPrice = 0;
-          let change24h = 0;
-
-          if (symbol === "USDT" || symbol === "USDC") {
-            currentPrice = 1;
-            change24h = 0;
-          } else {
-            try {
-              currentPrice = await getPrice(pair);
-              const ticker = await get24hrTicker(pair);
-              if (
-                ticker &&
-                ticker.openPrice &&
-                parseFloat(ticker.openPrice) > 0
-              ) {
-                const open = parseFloat(ticker.openPrice);
-                const last = parseFloat(ticker.lastPrice);
-                change24h = (last / open - 1) * 100;
-              }
-            } catch (e) {
-              // Silent catch for individual price failures
-            }
-          }
-
-          const value = totalQty * currentPrice;
-          totalValue += value;
-
-          return {
-            id: symbol,
-            symbol,
-            name: symbol,
-            holding: totalQty,
-            price: currentPrice,
-            value,
-            change24h,
-            allocation: 0,
-          };
-        },
-      ),
+    // ── Step 2: Build symbol list (exclude stablecoins — they are always $1)
+    const nonStable = activeBalances.filter(
+      (b: { asset: string }) => b.asset !== "USDT" && b.asset !== "USDC"
     );
+    const symbolsNeeded = nonStable.map((b: { asset: string }) => `${b.asset}USDT`);
+
+    // ── Step 3: Fetch ONLY the symbols we need — tiny payload, very fast
+    let priceMap: Map<string, number> = new Map();
+    let changeMap: Map<string, number> = new Map();
+
+    if (symbolsNeeded.length > 0) {
+      try {
+        // Use /ticker/price for just prices (smallest payload)
+        const priceUrl = `https://api.mexc.com/api/v3/ticker/price?symbols=${encodeURIComponent(JSON.stringify(symbolsNeeded))}`;
+        const priceRes = await fetch(priceUrl, {
+          signal: AbortSignal.timeout(8000),
+          cache: "no-store",
+        });
+        if (priceRes.ok) {
+          const priceData: Array<{ symbol: string; price: string }> = await priceRes.json();
+          if (Array.isArray(priceData)) {
+            priceData.forEach(item => priceMap.set(item.symbol, parseFloat(item.price)));
+          }
+        }
+      } catch (e) {
+        console.warn("[Holdings] Price fetch failed, using zeros:", e);
+      }
+    }
+
+    let totalValue = 0;
+    const holdingsData = activeBalances.map((balance: { asset: string; free: string; locked: string }) => {
+      const free = parseFloat(balance.free);
+      const locked = parseFloat(balance.locked);
+      const totalQty = free + locked;
+      const symbol = balance.asset;
+      const pair = `${symbol}USDT`;
+
+      let currentPrice = 0;
+      let change24h = 0;
+
+      if (symbol === "USDT" || symbol === "USDC") {
+        currentPrice = 1;
+        change24h = 0;
+      } else {
+        currentPrice = priceMap.get(pair) || 0;
+        change24h = changeMap.get(pair) || 0;
+      }
+
+      const value = totalQty * currentPrice;
+      totalValue += value;
+
+      return {
+        id: symbol,
+        symbol,
+        name: symbol,
+        holding: totalQty,
+        price: currentPrice,
+        value,
+        change24h,
+        allocation: 0,
+      };
+    });
 
     // Calculate allocation
     const finalHoldings = holdingsData.map((h) => ({

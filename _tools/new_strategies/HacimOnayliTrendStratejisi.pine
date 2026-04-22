@@ -1,0 +1,27 @@
+//@version=5
+indicator("Hacim Onaylı Trend Stratejisi")
+length = input(14, title="Uzunluk")
+src = close
+basis = ta.sma(src, length)
+toplot = basis
+plot(toplot, color=color NONE, linewidth=2)
+plot(basis, color=color.blue, linewidth=2)
+plotshape(series=src > basis, title="Al", color=color.green, location=location.belowbar)
+plotshape(series=src < basis, title="Sat", color=color.red, location=location.abovebar)
+
+// Hacim Onayı
+hacim = ta.sma(volume, length)
+plot(hacim, color=color.purple, linewidth=2)
+plotshape(series=volume > hacim, title="Hacim Onayı", color=color.yellow, location=location.belowbar)
+
+// Karpathy Otonom Döngüsü
+TSL = input.float(1.1, title="TSL Oranı")
+takeProfit = input.float(1.1, title="Take-Profit Oranı")
+if (src > basis) and (volume > hacim)
+    strategy.entry("Al", strategy.long)
+    strategy.exit("Stop Loss", "Al", stop=strategy.position_avg_price * (1 - TSL / 100))
+    strategy.exit("Take Profit", "Al", limit=strategy.position_avg_price * (1 + takeProfit / 100))
+if (src < basis) and (volume > hacim)
+    strategy.entry("Sat", strategy.short)
+    strategy.exit("Stop Loss", "Sat", stop=strategy.position_avg_price * (1 + TSL / 100))
+    strategy.exit("Take Profit", "Sat", limit=strategy.position_avg_price * (1 - takeProfit / 100))

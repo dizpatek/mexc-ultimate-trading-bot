@@ -1,0 +1,35 @@
+//
+// Otonom Piyasa Takipçi Stratejisi
+//
+//@version=5
+indicator("Otonom Piyasa Takipçi")
+
+// Parametre Tanımları
+length = input(14, title="TSL Uzunluğu")
+src = close
+
+// TSL ve Take Profit Oranları
+tslOran = input.float(2.0, title="TSL Oranı")
+f4Esim = input.float(0.037, title="F4 Eğim Eşik")
+
+// Hacim Onaylı Trend Takibi
+hacimOnayli = input.bool(true, title="Hacim Onaylı")
+
+// Karpathy Otonom Döngüsü
+if hacimOnayli
+    // Hacim onaylı trend takip eden yapı
+    trend = ta.sma(src, length) > ta.sma(src, length * 2)
+    if trend
+        //Karpathy otonom döngüsüyle TSL/Take-Profit oranları adapte edilebilecek
+        tslOran := tslOran * (1 + (ta.rsi(src, length) / 100))
+        strategy.entry("Al", strategy.long, when = trend, comment = "Al")
+        strategy.exit("TSL", "Al", stop = src - (src * (tslOran / 100)))
+        strategy.exit("Take Profit", "Al", limit = src + (src * (tslOran / 100)))
+    else
+        // Trendin tersine geçilmesi durumunda pozisyon kapatılması
+        strategy.close("Al")
+
+// Momentum Kayıplarını Engelleyen Mechanizma
+momLoss = ta.mom(src, length) < f4Esim
+if momLoss
+    strategy.close("Al")

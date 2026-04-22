@@ -272,7 +272,7 @@ export const CombatLog = ({
             </div>
             <div
               ref={tradeScrollRef}
-              className="flex-1 overflow-y-auto p-3 space-y-2.5 font-mono text-[11px] cyber-scrollbar"
+              className="flex-1 overflow-y-auto p-3 space-y-2.5 font-mono text-[11px] cyber-scrollbar min-h-[450px]"
             >
               {isLoadingHoldings && config?.pilot_only_holdings ? (
                 <div className="flex flex-col items-center justify-center h-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2">
@@ -283,7 +283,7 @@ export const CombatLog = ({
                   </div>
                 </div>
               ) : filteredTradeLogs.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2">
+                <div className="flex flex-col items-center justify-center h-full w-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2 min-h-[400px]">
                   <Radar
                     className={cn(
                       "w-6 h-6 opacity-30",
@@ -334,7 +334,7 @@ export const CombatLog = ({
             </div>
             <div
               ref={systemScrollRef}
-              className="flex-1 overflow-y-auto p-2 space-y-1.5 font-mono text-[10px] cyber-scrollbar"
+              className="flex-1 overflow-y-auto p-2 space-y-1.5 font-mono text-[10px] cyber-scrollbar min-h-[450px]"
             >
               {isLoading ? (
                 <div className="flex flex-col items-center justify-center h-full text-slate-800 text-[9px] uppercase tracking-[0.2em] gap-2">
@@ -380,9 +380,9 @@ export const CombatLog = ({
                         >
                           {">"}_{" "}
                         </span>
-                        <span
+                        <div
                           className={cn(
-                            "flex-1 break-word",
+                            "flex-1 break-all whitespace-normal overflow-wrap-anywhere",
                             style.text,
                           )}
                         >
@@ -392,7 +392,7 @@ export const CombatLog = ({
                               x{(log as any).count}
                             </span>
                           )}
-                        </span>
+                        </div>
                       </div>
 
                       <span className="text-slate-600 shrink-0 select-none opacity-40 text-[8px] font-mono mt-0.5 bg-black/20 px-1.5 py-0.5 rounded border border-white/5">

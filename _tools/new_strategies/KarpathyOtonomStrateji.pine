@@ -1,0 +1,17 @@
+strategy("Karpathy Otonom Strateji", overlay=true, format=format.price, precision=2)
+// Parametreler
+length = input(14, title="RSI Periyodu")
+src = close
+rsi = rsi(src, length)
+// Karpathy Otonom Döngüsü
+if (rsi > 70)
+    strategy.entry("Long", strategy.long)
+else if (rsi  30)
+    strategy.entry("Short", strategy.short)
+// Take-Profit ve Stop-Loss
+takeProfitPct = input.float(2.0, title="Take Profit Oranı") / 100
+stopLossPct = input.float(1.0, title="Stop Loss Oranı") / 100
+strategy.exit("Long TP", "Long", limit=close * (1 + takeProfitPct))
+strategy.exit("Long SL", "Long", stop=close * (1 - stopLossPct))
+strategy.exit("Short TP", "Short", limit=close * (1 - takeProfitPct))
+strategy.exit("Short SL", "Short", stop=close * (1 + stopLossPct))

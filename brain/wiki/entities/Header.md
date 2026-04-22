@@ -3,7 +3,7 @@ title: Header Component
 tags: [component, ui, navigation]
 sourceFile: src/components/Header.tsx
 size: "14KB / 342 satır"
-lastUpdated: 2026-04-11
+lastUpdated: 2026-04-22
 type: entity
 ---
 

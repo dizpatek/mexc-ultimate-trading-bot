@@ -30,11 +30,13 @@ export async function GET(request: Request) {
     const cookieStore = await cookies();
     const mode = (cookieStore.get("TRADING_MODE")?.value as TradingMode) || "test";
 
-    // Fetch orders for this user only
+    // Fetch smart trades for this user only using SQL filtering (P5.4 optimization)
     const { rows } = await sql`
             SELECT id, user_id, symbol, side, type, qty, price, status, created_at, meta, trading_mode 
             FROM orders 
-            WHERE user_id = ${user.id} AND trading_mode = ${mode}
+            WHERE user_id = ${user.id} 
+              AND trading_mode = ${mode}
+              AND (meta->>'smartTrade') = 'true'
             ORDER BY created_at DESC
         `;
 
@@ -47,37 +49,44 @@ export async function GET(request: Request) {
       price: string | number;
       status: string;
       created_at: string | number;
-      meta: string | Record<string, unknown>;
+      meta: Record<string, any>;
     }
 
-    const smartTrades = (rows as unknown as OrderRow[])
-      .map((row) => {
-        let parsedMeta: Record<string, any> = {};
-        try {
-          parsedMeta =
-            typeof row.meta === "string"
-              ? JSON.parse(row.meta)
-              : row.meta || {};
-        } catch {
-          parsedMeta = {};
-        }
+    // Collec active (non-closed) symbols to fetch live prices in a single batch
+    const activeRows = (rows as unknown as Array<{id: number; symbol: string; status: string; meta: Record<string, any>; price: string | number; qty: string | number; side: string; created_at: string | number}>).filter(
+      r => r.status !== "CLOSED" && r.status !== "ARCHIVED"
+    );
+    const uniqueActiveSymbols = [...new Set(activeRows.map(r => (r.symbol as string).replace("/", "").toUpperCase()))];
+    
+    // Fetch live prices for active trades only (batch call — 1 upstream request)
+    let livePriceMap: Record<string, number> = {};
+    if (uniqueActiveSymbols.length > 0) {
+      livePriceMap = await fetchAllPrices(uniqueActiveSymbols);
+    }
 
-        // PRICE LOGIC: Use currentPrice from monitor (lastPrice) if available, 
-        // otherwise fallback to entry price.
-        const currentPrice = Number(parsedMeta.lastPrice) || Number(row.price);
+    const smartTrades = (rows as unknown as Array<{id: number; symbol: string; status: string; meta: Record<string, any>; price: string | number; qty: string | number; side: string; created_at: string | number}>).map((row) => {
+      const meta = row.meta || {};
+      const symClean = (row.symbol as string).replace("/", "").toUpperCase();
+      const isClosed = row.status === "CLOSED" || row.status === "ARCHIVED";
+      
+      // Closed: use exitPrice from meta; Active: use live batch price → fallback to meta.lastPrice → fallback to entry
+      const livePrice = !isClosed ? (livePriceMap[symClean] || livePriceMap[(row.symbol as string)] || 0) : 0;
+      const exitPrice = isClosed ? (Number(meta.exitPrice) || Number(meta.exitResult?.price) || 0) : 0;
+      const currentPrice = isClosed
+        ? (exitPrice || Number(meta.lastPrice) || Number(row.price))
+        : (livePrice || Number(meta.lastPrice) || Number(row.price));
 
-        return {
-          ...row,
-          price: Number(row.price),
-          qty: Number(row.qty),
-          currentPrice: currentPrice,
-          meta: parsedMeta,
-          created_at: typeof row.created_at === "string"
-            ? parseInt(row.created_at) || Date.now()
-            : Number(row.created_at) || Date.now(),
-        };
-      })
-      .filter((trade) => trade.meta.smartTrade === true);
+      return {
+        ...row,
+        price: Number(row.price),
+        qty: Number(row.qty),
+        currentPrice,
+        meta,
+        created_at: typeof row.created_at === "string"
+          ? parseInt(row.created_at) || Date.now()
+          : Number(row.created_at) || Date.now(),
+      };
+    });
 
     return NextResponse.json(smartTrades);
   } catch (error: unknown) {
@@ -492,7 +501,7 @@ export async function PUT(req: Request) {
       // Update order status to FILLED
       await sql`
                 UPDATE orders 
-                SET status = 'FILLED', price = ${currentPrice}, meta = ${JSON.stringify(newMeta)}, updated_at = ${Date.now()}
+                SET status = 'FILLED', price = ${currentPrice}, meta = ${JSON.stringify(newMeta)}::jsonb, updated_at = ${Date.now()}
                 WHERE id = ${id} AND user_id = ${user.id}
             `;
 
@@ -521,7 +530,7 @@ export async function PUT(req: Request) {
 
     await sql`
             UPDATE orders 
-            SET meta = ${JSON.stringify(newMeta)}, updated_at = ${Date.now()}
+            SET meta = ${JSON.stringify(newMeta)}::jsonb, updated_at = ${Date.now()}
             WHERE id = ${id} AND user_id = ${user.id}
         `;
 
@@ -716,7 +725,7 @@ async function closeSingleSmartTrade(
 
     await sql`
             UPDATE orders 
-            SET status = 'CLOSED', updated_at = ${now}, meta = ${updatedMeta}
+            SET status = 'CLOSED', updated_at = ${now}, meta = ${updatedMeta}::jsonb
             WHERE id = ${id} AND user_id = ${uid}
         `;
     return { id, success: true };

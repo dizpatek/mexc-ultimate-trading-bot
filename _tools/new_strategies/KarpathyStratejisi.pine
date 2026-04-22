@@ -1,0 +1,25 @@
+//@version=5
+indicator("KarpathyStratejisi")
+
+// Parametreler
+length = input(14, title="Momentum Uzunluğu")
+src = close
+basis = ta.sma(src, length)
+tslOrani = input.float(1.1, title="TSL Oranı")
+fpEşik = input.float(0.0375, title="F4 Momentum Eşik")
+
+// Hesaplamalar
+trend = basis > basis[1] ? 1 : basis < basis[1] ? -1 : 0
+momentum = ta.roc(src, length)
+
+// Karpathy Otonom Döngüsü
+if (ta.crossover(momentum, fpEşik)) and (trend == 1)
+    strategy.entry("Long", strategy.long)
+if (ta.crossunder(momentum, -fpEşik)) and (trend == -1)
+    strategy.entry("Short", strategy.short)
+
+// Stop Loss ve Take Profit
+strategy.exit("Long", "Stop Loss", stop=strategy.position_avg_price * (1 - tslOrani/100))
+strategy.exit("Long", "Take Profit", limit=strategy.position_avg_price * (1 + tslOrani/100))
+strategy.exit("Short", "Stop Loss", stop=strategy.position_avg_price * (1 + tslOrani/100))
+strategy.exit("Short", "Take Profit", limit=strategy.position_avg_price * (1 - tslOrani/100))

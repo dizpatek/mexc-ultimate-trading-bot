@@ -252,11 +252,15 @@ class PortfolioKernel extends Kernel<{
       const fetchTrades = () =>
         api.get("/portfolio/trades").then((r) => r.data);
 
-      const [holdings, summary, trades] = await Promise.all([
-        safeFetch(fetchHoldings, "Holdings", this.data?.holdings || []),
-        safeFetch(fetchSummary, "Summary", this.data?.summary || null),
-        safeFetch(fetchTrades, "Trades", this.data?.trades || []),
-      ]);
+      // We stagger them slightly (100ms) to avoid instant concurrent pressure on the node server,
+      // while still being effectively parallel for the user.
+      const holdingsP = safeFetch(fetchHoldings, "Holdings", this.data?.holdings || []);
+      await new Promise(r => setTimeout(r, 100));
+      const summaryP = safeFetch(fetchSummary, "Summary", this.data?.summary || null);
+      await new Promise(r => setTimeout(r, 100));
+      const tradesP = safeFetch(fetchTrades, "Trades", this.data?.trades || []);
+
+      const [holdings, summary, trades] = await Promise.all([holdingsP, summaryP, tradesP]);
 
       console.log(
         `[PortfolioKernel] Status: Holdings(${holdings?.length}), Summary(${!!summary}), Trades(${trades?.length})`,

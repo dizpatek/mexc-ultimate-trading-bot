@@ -24,16 +24,17 @@ export async function GET(request: Request) {
     const querySecret = searchParams.get("secret");
     const authHeader = request.headers.get("authorization");
 
-    const user = await getSessionUser(request);
-    
-    // Auth bypass for direct browser access or cron jobs using secret
-    if (!user) {
-      const isAuthorizedBySecret = (cronSecret && (
-        querySecret === cronSecret || 
-        authHeader === `Bearer ${cronSecret}`
-      ));
+    // P3.2 Optimization: Check Secret FIRST, only then try JWT Session
+    const isAuthorizedBySecret = (cronSecret && (
+      querySecret === cronSecret || 
+      authHeader === `Bearer ${cronSecret}`
+    ));
 
-      if (!isAuthorizedBySecret) {
+    let user = null;
+    if (!isAuthorizedBySecret) {
+      user = await getSessionUser(request);
+      
+      if (!user) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       }
     }

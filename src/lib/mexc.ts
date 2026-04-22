@@ -85,7 +85,7 @@ async function enforceThrottle() {
 async function publicGet<T>(
   endpoint: string,
   params: Record<string, string | number | boolean> = {},
-  timeout = 8000,
+  timeout = 15000,
 ): Promise<T> {
   // Global Throttle Enforcement (chat_id: h99j6i631ui)
   await enforceThrottle();
@@ -438,30 +438,62 @@ export interface TickerData {
   count: number;
 }
 
-export async function get24hrTicker(symbol: string): Promise<TickerData> {
-  try {
-    return await publicGet<TickerData>("/api/v3/ticker/24hr", { symbol });
-  } catch {
-    return {
-      symbol,
-      priceChange: "0",
-      priceChangePercent: "0",
-      prevClosePrice: "0",
-      lastPrice: "0",
-      bidPrice: "0",
-      bidQty: "0",
-      askPrice: "0",
-      askQty: "0",
-      openPrice: "0",
-      highPrice: "0",
-      lowPrice: "0",
-      volume: "0",
-      quoteVolume: "0",
-      openTime: 0,
-      closeTime: 0,
-      count: 0,
-    };
+// ─── TICKER 24H SERVER-SIDE CACHE ───────────────────────────────────────────
+// Shared across all requests in the Node process to prevent slamming MEXC API
+// with multi-megabyte JSON payloads forEvery. Single. User.
+
+declare global {
+  var __ticker24Cache: { data: TickerData | TickerData[]; expiresAt: number } | undefined;
+  var __ticker24Inflight: Promise<TickerData | TickerData[]> | undefined;
+}
+
+const TICKER24_TTL = 5000; // 5 seconds
+
+export async function get24hrTicker(symbol?: string): Promise<TickerData | TickerData[]> {
+  // If a specific symbol is requested, we don't cache globally for now to keep it simple,
+  // or we could check if the global cache contains it.
+  if (symbol) {
+    try {
+      return await publicGet<TickerData>("/api/v3/ticker/24hr", { symbol });
+    } catch {
+      return { symbol: symbol, priceChange: "0", priceChangePercent: "0", prevClosePrice: "0", lastPrice: "0", bidPrice: "0", bidQty: "0", askPrice: "0", askQty: "0", openPrice: "0", highPrice: "0", lowPrice: "0", volume: "0", quoteVolume: "0", openTime: 0, closeTime: 0, count: 0 };
+    }
   }
+
+  // 1. Check Global Cache
+  if (globalThis.__ticker24Cache && Date.now() < globalThis.__ticker24Cache.expiresAt) {
+    return globalThis.__ticker24Cache.data;
+  }
+
+  // 2. Check In-Flight (Deduplication)
+  if (globalThis.__ticker24Inflight) {
+    return globalThis.__ticker24Inflight;
+  }
+
+  // 3. Fetch from MEXC
+  const fetchPromise = (async () => {
+    try {
+      console.log("[MEXC] Fetching 24hr tickers (Cache Miss/Expired)...");
+      const data = await publicGet<TickerData[]>("/api/v3/ticker/24hr");
+      
+      globalThis.__ticker24Cache = {
+        data,
+        expiresAt: Date.now() + TICKER24_TTL
+      };
+      
+      return data;
+    } catch (err) {
+      console.error("[MEXC] Failed to fetch 24hr tickers:", err);
+      // Serve stale data if available on error
+      if (globalThis.__ticker24Cache) return globalThis.__ticker24Cache.data;
+      return [];
+    } finally {
+      globalThis.__ticker24Inflight = undefined;
+    }
+  })();
+
+  globalThis.__ticker24Inflight = fetchPromise;
+  return fetchPromise;
 }
 
 export async function getTopAssets(limit: number = 20): Promise<TickerData[]> {

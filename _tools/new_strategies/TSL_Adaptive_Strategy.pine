@@ -1,0 +1,33 @@
+strategy(
+"TSL Adaptive Strategy"
+, shorttitle="TSL_AS"
+, overlay=true
+, format=format.price
+, precision=2
+)
+
+// Parametreler
+length = input(14, title=" Momentum Length ")
+src = close
+basis = ta.sma(src, length)
+mom = src - basis
+upt = ta.sma(mom > 0 ? mom : 0, length)
+down = ta.sma(mom < 0 ? mom * -1 : 0, length)
+
+// TSL Oranı
+TSL_Orani = input(2.5, title="TSL Oranı")
+
+// Take Profit
+TP_Orani = input(1.2, title="Take Profit Oranı")
+
+// Adaptif TSL/Take-Profit Oranları
+adapTSL_Orani = TSL_Orani * (upt + down) / length
+adapTP_Orani = TP_Orani * (upt + down) / length
+
+// Karpathy Otonom Döngüsü
+if (momentum > 0)
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long Exit", "Long", stop=close - (close * adapTSL_Orani / 100), limit=close + (close * adapTP_Orani / 100))
+if (momentum < 0)
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short Exit", "Short", stop=close + (close * adapTSL_Orani / 100), limit=close - (close * adapTP_Orani / 100))

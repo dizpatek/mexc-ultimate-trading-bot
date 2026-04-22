@@ -1,0 +1,39 @@
+//@version=5
+strategy("TSL_ML_Strategy_v1", overlay=true, format=format.price, precision=2)
+
+// Parametreler
+length = input(14, title="TSL Uzunluğu")
+src = close
+basis = ta.sma(src, length)
+dev = input.float(2.0, minval=0.001, title="Standard Sapma")
+upper = basis + dev * ta.stdev(src, length)
+lower = basis - dev * ta.stdev(src, length)
+
+// Kâr Hesaplama
+longCondition = ta.crossover(src, lower)
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(src, upper)
+if (shortCondition)
+    strategy.entry("Short", strategy.short)
+
+// Stop Loss ve Take Profit
+pct = input.float(3.0, minval=0.0, title="Stop Loss Oranı")
+stopLoss = strategy.position_avg_price * (1 - pct / 100)
+strategy.exit("Long", "Long", stop=stopLoss)
+
+pctTp = input.float(6.0, minval=0.0, title="Take Profit Oranı")
+takeProfit = strategy.position_avg_price * (1 + pctTp / 100)
+strategy.exit("Long", "Long", limit=takeProfit)
+
+// Adaptif TSL/Take-Profit Oranları
+tslOran = input.float(1.1, minval=0.1, title="TSL Oranı")
+pctTsl = input.float(3.6, minval=0.0, title="Adaptif TSL Oranı")
+
+// Karpathy Otonom Döngüsü
+f4Eşik = input.float(0.0395, minval=0.0, title="F4 Eğim Eşik")
+mtfKorunma = input.bool(true, title="MTF Korunma")
+
+// Hacim Onaylı Trend Takibi
+hacimOnay = input.bool(true, title="Hacim Onaylı Trend Takibi")

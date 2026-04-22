@@ -6,7 +6,7 @@ const API_BASE_URL = "/api"; // Changed from localhost:3000 to relative path
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 15000, // 4.7 FIXED: Reduced from 30s to 15s to keep UI responsive
+  timeout: 60000, // 4.7 FIXED: Increased to 60s for stability during 24h Training Marathon
 });
 
 api.interceptors.request.use(async (config) => {
@@ -59,10 +59,18 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       if (typeof window !== "undefined") {
         const currentPath = window.location.pathname;
-        console.warn(`[API] 401 Unauthorized detected at ${currentPath}. Session may have expired.`);
+        const failedUrl = config?.url || "unknown";
+        console.warn(`[API] 401 Unauthorized detected! URL: ${failedUrl} | Path: ${currentPath}`);
+
+        // P1.0 SAFETY: Avoid auto-logout loop if we are on login page or if the failure is from the auth endpoints themselves
+        if (currentPath === "/login" || failedUrl.includes("/auth/login") || failedUrl.includes("/auth/me")) {
+           console.log("[API] 401 ignored to prevent redirect loop on auth/login pages.");
+           return Promise.reject(error);
+        }
         
         // Only clear and notify if there was a token to begin with
         if (localStorage.getItem("token")) {
+          console.warn(`[API] Clearing session and triggering logout...`);
           localStorage.removeItem("token");
           // Dispatch custom event to notify components/contexts
           window.dispatchEvent(new Event("api-auth-logout"));

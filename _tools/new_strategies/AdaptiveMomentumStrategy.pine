@@ -1,0 +1,38 @@
+//@version=5
+indicator("Adaptive Momentum Strategy", shorttitle="AMS")
+
+// Parameters
+length = input(14, title="Momentum Length")
+src = close
+mom = ta.mom(src, length)
+
+// TSL and Take-Profit parameters
+ tslLength = input(1.1, title="TSL Length")
+ takeProfitLength = input(1.5, title="Take-Profit Length")
+
+// F4 momentum threshold
+f4Threshold = input(0.037, title="F4 Momentum Threshold")
+
+// Calculate F4 momentum
+f4Mom = ta.mom(src, 4) / src
+
+// Plot momentum
+plot(mom, color=color.blue, title="Momentum")
+
+// Plot F4 momentum
+plot(f4Mom, color=color.red, title="F4 Momentum")
+
+// Generate signals
+if (mom > 0 and f4Mom > f4Threshold)
+    label.new(bar_index, low, text="Buy", yloc=yloc.below, color=color.green)
+    strategy.entry("Long", strategy.long)
+
+if (mom < 0 and f4Mom < -f4Threshold)
+    label.new(bar_index, high, text="Sell", yloc=yloc.above, color=color.red)
+    strategy.entry("Short", strategy.short)
+
+// Set stop loss and take profit
+strategy.exit("Stop Loss", "Long", stop=close - (close * (tslLength / 100)))
+strategy.exit("Take Profit", "Long", limit=close + (close * (takeProfitLength / 100)))
+strategy.exit("Stop Loss", "Short", stop=close + (close * (tslLength / 100)))
+strategy.exit("Take Profit", "Short", limit=close - (close * (takeProfitLength / 100)))

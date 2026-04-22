@@ -1,0 +1,25 @@
+strategy("Hacim Onaylı Trend Stratejisi", overlay=true, format=format.price, precision=2)
+
+// Parametreler
+length = input.int(14, "Uzunluk", minval=1)
+src = close
+basis = ta.sma(src, length)
+tsl = input.float(1.1, "TSL Oranı")
+f4Eşik = input.float(0.037, "F4 Momentum Eşik")
+
+// Hesaplamalar
+trend = ta.ema(src, length) > basis
+f4Momentum = ta.roc(src, 1)
+
+// Karar Mekanizmaları
+if (trend and f4Momentum > f4Eşik)
+    strategy.entry("Al", strategy.long)
+
+if (not trend or f4Momentum < -f4Eşik)
+    strategy.entry("Sat", strategy.short)
+
+// Stop Loss ve Take Profit
+strategy.exit("Stop Loss", "Al", stop=strategy.position_avg_price * (1 - tsl/100))
+strategy.exit("Take Profit", "Al", limit=strategy.position_avg_price * (1 + tsl/100))
+strategy.exit("Stop Loss", "Sat", stop=strategy.position_avg_price * (1 + tsl/100))
+strategy.exit("Take Profit", "Sat", limit=strategy.position_avg_price * (1 - tsl/100))

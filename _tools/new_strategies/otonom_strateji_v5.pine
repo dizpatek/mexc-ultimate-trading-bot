@@ -1,0 +1,19 @@
+
+// Otonom Strateji V5
+//@version=5
+strategy("Otonom Strateji V5", shorttitle="OSV5", format=format.price, precision=2)
+// Parametreler
+tslOrani = input.float(1.1, title="TSL Oranı")
+f4EsimEsgi = input.float(0.037, title="F4 Eğim Eşik")
+hacimOnayi = input.bool(true, title="Hacim Onayı")
+// Hesaplamalar
+tsl = close * (1 + (tslOrani / 100))
+f4Esim = ta.momentum(close, 14) > f4EsimEsgi
+hacimArtis = ta.volume > ta.sma(volume, 20)
+// Strateji
+if (f4Esim and hacimArtis and hacimOnayi)
+    strategy.entry("Al", strategy.long)
+if (close > tsl)
+    strategy.close("Al")
+// Performans Ölçümleme
+strategy.performance(label="Performans")

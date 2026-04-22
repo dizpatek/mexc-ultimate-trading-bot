@@ -1,0 +1,33 @@
+//@version=5
+indicator("Karpathy Adaptive Strategy", shorttitle="KAS")
+length = input(14, title="Length")
+src = close
+sma = ta.sma(src, length)
+tsl = input.float(2.9, title="TSL", minval=0.1, maxval=10)
+takeProfit = input.float(1.1, title="Take Profit", minval=0.1, maxval=10)
+momentumThreshold = input.float(0.035, title="Momentum Threshold", minval=0.01, maxval=0.1)
+
+// Calculate momentum
+omentum = ta.mom(src, length)
+
+// Define the conditions for entry and exit
+longCondition = ta.crossover(omentum, momentumThreshold) and src > sma
+shortCondition = ta.crossunder(omentum, -momentumThreshold) and src < sma
+
+// Plot the signals
+if (longCondition)
+    label.new(bar_index, low, text="Buy", yloc=yloc.below, color=color.green)
+if (shortCondition)
+    label.new(bar_index, high, text="Sell", yloc=yloc.above, color=color.red)
+
+// Adaptive TSL and Take Profit
+if (longCondition)
+    tsl := src + (src * tsl / 100)
+    takeProfitPrice := src + (src * takeProfit / 100)
+else if (shortCondition)
+    tsl := src - (src * tsl / 100)
+    takeProfitPrice := src - (src * takeProfit / 100)
+
+// Plot the TSL and Take Profit levels
+plot(tsl, color=color.yellow, title="TSL")
+plot(takeProfitPrice, color=color.blue, title="Take Profit")

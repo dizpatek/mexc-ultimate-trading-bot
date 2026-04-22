@@ -1,0 +1,38 @@
+//@version=5
+indicator("Momentum Koruma Stratejisi")
+length = input(14)
+src = close
+basis = ta.sma(src, length)
+dev = 2 * ta.stdev(src, length)
+upper = basis + dev
+lower = basis - dev
+plot(basis, color=color.none)
+plot(upper, color=color.blue)
+plot(lower, color=color.blue)
+
+// TSL/Take-Profit Oranları
+TSL_orani = input.float(1.1, title="TSL Oranı")
+Take_Profit_orani = input.float(1.5, title="Take Profit Oranı")
+
+// F4 Momentum Eşik Değeri
+F4_momentum_esik = input.float(0.037, title="F4 Momentum Eşik Değeri")
+
+// Karpathy Otonom Döngüsü
+karpathy_surec = input.bool(true, title="Karpathy Otonom Döngüsü")
+
+// Karar Mekanizmaları
+if (karpathy_surec)
+    TSL_orani := (TSL_orani + F4_momentum_esik) / 2
+    Take_Profit_orani := (Take_Profit_orani + F4_momentum_esik) / 2
+
+// Momentum Kayıplarını Engellemek
+if (src > upper)
+    strategy.entry("Long", strategy.long)
+if (src < lower)
+    strategy.entry("Short", strategy.short)
+
+// Stop Loss ve Take Profit
+strategy.exit("Stop Loss", "Long", stop=src - (src * TSL_orani))
+strategy.exit("Take Profit", "Long", limit=src + (src * Take_Profit_orani))
+strategy.exit("Stop Loss", "Short", stop=src + (src * TSL_orani))
+strategy.exit("Take Profit", "Short", limit=src - (src * Take_Profit_orani))

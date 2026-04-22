@@ -1,0 +1,27 @@
+//@version=5
+indicator("Trend Takipçi Stratejisi")
+
+// Parametre tanımları
+length = input(14, title="Momentum Uzunluğu")
+src = close
+mom = ta.mom(src, length)
+
+// Karpathy otonom döngüsüyle TSL/Take-Profit oranları adapteasyonu
+TSL = input(1.1, title="TSL Oranı")
+takeProfit = input(2, title="Take-Profit Oranı")
+
+// Hacim onaylı trend takip
+volumeConfirmation = input(true, title="Hacim Onayı")
+
+// İşlem mantığı
+if (volumeConfirmation)
+    if (mom > 0)
+        strategy.entry("Long", strategy.long)
+    else if (mom < 0)
+        strategy.entry("Short", strategy.short)
+     
+// Stop-loss ve take-profit ayarları
+strategy.exit("Stop-Loss", "Long", stop=strategy.position_avg_price * (1 - TSL/100))
+strategy.exit("Take-Profit", "Long", limit=strategy.position_avg_price * (1 + takeProfit/100))
+strategy.exit("Stop-Loss", "Short", stop=strategy.position_avg_price * (1 + TSL/100))
+strategy.exit("Take-Profit", "Short", limit=strategy.position_avg_price * (1 - takeProfit/100))

@@ -1,0 +1,34 @@
+//@version=5
+indicator("Hacim Onaylı Trend Takip", overlay=true)
+
+// Parametreler
+length = input.int(14, "Uzunluk")
+src = close
+sma = ta.sma(src, length)
+
+// Hacim Onaylı Trend Takip
+hacimOnayliTrendTakip = ta.ema(src, length) > sma and ta.volume > ta.sma(ta.volume, length)
+
+// Momentum Kayıplarını Engellemek
+momentum = ta.ema(src, length) - src
+momentumEsiği = input.float(0.035, "Momentum Eşik Değeri")
+
+// Karpathy Otonom Döngüsü
+karpathyOtonomDöngüsü = momentum > momentumEsiği
+
+// TSL/Take-Profit Oranları
+TSLOranı = input.float(1.1, "TSL Oranı")
+TakeProfitOranı = input.float(2.9, "Take-Profit Oranı")
+
+// Karar Mekanizmaları
+if hacimOnayliTrendTakip and karpathyOtonomDöngüsü
+    label.new(bar_index, low, "Al")
+    strategy.entry("Al", strategy.long)
+    strategy.exit("Al", "TSL", stop=strategy.position_avg_price * (1 - TSLOranı / 100))
+    strategy.exit("Al", "Take-Profit", limit=strategy.position_avg_price * (1 + TakeProfitOranı / 100))
+
+if not hacimOnayliTrendTakip and not karpathyOtonomDöngüsü
+    label.new(bar_index, high, "Sat")
+    strategy.entry("Sat", strategy.short)
+    strategy.exit("Sat", "TSL", stop=strategy.position_avg_price * (1 + TSLOranı / 100))
+    strategy.exit("Sat", "Take-Profit", limit=strategy.position_avg_price * (1 - TakeProfitOranı / 100))

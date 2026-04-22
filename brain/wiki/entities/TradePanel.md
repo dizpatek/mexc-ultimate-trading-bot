@@ -2,8 +2,8 @@
 title: TradePanel Component
 tags: [component, ui, trading, react]
 sourceFile: src/components/OrderForm.tsx
-size: "31KB / 573 satır"
-lastUpdated: 2026-04-11
+size: "33KB / 609 satır"
+lastUpdated: 2026-04-22
 type: entity
 ---
 

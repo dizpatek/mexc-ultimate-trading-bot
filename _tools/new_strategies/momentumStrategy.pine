@@ -1,0 +1,28 @@
+// Momentum Strategy
+strategy("Momentum Strategy", overlay=true, format=format.price, precision=2)
+
+// Parametreler
+length = input.int(14, "Length")
+src = close
+basis = ta.sma(src, length)
+dev = input.float(2.0, "Deviation")
+upper = basis + dev * ta.stdev(src, length)
+lower = basis - dev * ta.stdev(src, length)
+
+// Karpathy otonom döngüsüyle TSL/Take-Profit oranları adapte ediliyor
+TSL = input.float(1.1, "TSL")
+takeProfit = input.float(1.5, "Take Profit")
+
+// Momentum kayıplarını engelleyen karar mekanizmaları
+if (ta.crossover(src, upper))
+    strategy.entry("Long", strategy.long)
+if (ta.crossunder(src, lower))
+    strategy.entry("Short", strategy.short)
+
+// Stop Loss
+strategy.exit("TSL Long", "Long", stop=src - TSL)
+strategy.exit("TSL Short", "Short", stop=src + TSL)
+
+// Take Profit
+strategy.exit("TP Long", "Long", limit=src + takeProfit)
+strategy.exit("TP Short", "Short", limit=src - takeProfit)
